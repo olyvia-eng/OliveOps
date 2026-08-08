@@ -410,7 +410,7 @@ async function setupSwitchContext({
   return store;
 }
 
-test('employee setting defaults to false when field is missing', async (t) => {
+test('employee response omits deprecated paidDriveTimeEnabled field', async (t) => {
   installDdbMock(t);
 
   await createEmployeeForBusiness({
@@ -430,10 +430,10 @@ test('employee setting defaults to false when field is missing', async (t) => {
   });
 
   const employee = await getEmployeeForBusiness('biz-default', 'emp-default');
-  assert.equal(employee.paidDriveTimeEnabled, false);
+  assert.equal('paidDriveTimeEnabled' in employee, false);
 });
 
-test('owner/admin can enable and disable paid drive time via employee update endpoint', async (t) => {
+test('employee update ignores deprecated paidDriveTimeEnabled writes', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {
     businessId: 'biz-eligibility',
@@ -478,25 +478,11 @@ test('owner/admin can enable and disable paid drive time via employee update end
   await dataHandler(enableReq, enableRes);
 
   assert.equal(enableRes.statusCode, 200);
-  let employee = await getEmployeeForBusiness('biz-eligibility', 'emp-1');
-  assert.equal(employee.paidDriveTimeEnabled, true);
-
-  const disableReq = {
-    method: 'PATCH',
-    query: { entity: 'employees', id: 'emp-1' },
-    headers: { authorization: 'Bearer token-admin-toggle' },
-    body: { data: { paidDriveTimeEnabled: false } },
-  };
-  const disableRes = createMockRes();
-
-  await dataHandler(disableReq, disableRes);
-
-  assert.equal(disableRes.statusCode, 200);
-  employee = await getEmployeeForBusiness('biz-eligibility', 'emp-1');
-  assert.equal(employee.paidDriveTimeEnabled, false);
+  const employee = await getEmployeeForBusiness('biz-eligibility', 'emp-1');
+  assert.equal('paidDriveTimeEnabled' in employee, false);
 });
 
-test('crew member cannot change paid drive time eligibility through employee update endpoint', async (t) => {
+test('crew member cannot change employee records through employee update endpoint', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {
     businessId: 'biz-deny',
@@ -535,7 +521,7 @@ test('crew member cannot change paid drive time eligibility through employee upd
     method: 'PATCH',
     query: { entity: 'employees', id: 'emp-crew' },
     headers: { authorization: 'Bearer token-crew-deny' },
-    body: { data: { paidDriveTimeEnabled: true } },
+    body: { data: { hourlyRate: 40 } },
   };
   const res = createMockRes();
 

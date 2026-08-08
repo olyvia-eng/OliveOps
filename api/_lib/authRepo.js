@@ -209,7 +209,6 @@ function normalizeEmployeeAccountRecord(employee) {
     hourlyRate: employee.hourlyRate,
     compensationType: employee.compensationType ?? 'hourly',
     labourType: employee.labourType ?? 'field_producing',
-    paidDriveTimeEnabled: employee.paidDriveTimeEnabled === true,
     userId: typeof employee.userId === 'string' && employee.userId.trim() ? employee.userId.trim() : null,
     active: employee.active,
     createdAt: employee.createdAt,
@@ -230,7 +229,6 @@ function normalizeEmployeeForWrite(employee) {
     hourlyRate: Number.isFinite(employee.hourlyRate) ? employee.hourlyRate : 0,
     compensationType: employee.compensationType === 'salary' ? 'salary' : 'hourly',
     labourType: employee.labourType === 'overhead' ? 'overhead' : 'field_producing',
-    paidDriveTimeEnabled: employee.paidDriveTimeEnabled === true,
     userId: normalizedUserId,
     active: employee.active !== false,
     createdAt: typeof employee.createdAt === 'string' && employee.createdAt ? employee.createdAt : nowIso(),
@@ -288,7 +286,6 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
     hourlyRate: 0,
     compensationType: 'hourly',
     labourType: 'field_producing',
-    paidDriveTimeEnabled: false,
     userId,
     active: true,
     createdAt,
@@ -307,7 +304,6 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
       hourlyRate: 0,
       compensationType: 'hourly',
       labourType: 'field_producing',
-      paidDriveTimeEnabled: false,
       userId,
       active: true,
       createdAt,
@@ -3537,7 +3533,6 @@ export async function listEmployeesForBusiness(businessId) {
     hourlyRate: item.hourlyRate,
     compensationType: item.compensationType ?? 'hourly',
     labourType: item.labourType ?? 'field_producing',
-    paidDriveTimeEnabled: item.paidDriveTimeEnabled === true,
     userId: typeof item.userId === 'string' && item.userId.trim() ? item.userId.trim() : null,
     active: item.active,
     createdAt: item.createdAt,
@@ -3606,7 +3601,6 @@ export async function getEmployeeForBusiness(businessId, employeeId) {
         hourlyRate: result.Item.hourlyRate,
         compensationType: result.Item.compensationType ?? 'hourly',
         labourType: result.Item.labourType ?? 'field_producing',
-        paidDriveTimeEnabled: result.Item.paidDriveTimeEnabled === true,
         userId: typeof result.Item.userId === 'string' && result.Item.userId.trim() ? result.Item.userId.trim() : null,
         active: result.Item.active,
         createdAt: result.Item.createdAt,
@@ -3659,7 +3653,6 @@ export async function createEmployeeWithAccessForBusiness({ businessId, payload 
     hourlyRate: employeeInput.hourlyRate,
     compensationType: employeeInput.compensationType,
     labourType: employeeInput.labourType,
-    paidDriveTimeEnabled: false,
     userId: null,
     active: employeeInput.active,
     createdAt: nowIso(),
@@ -3737,7 +3730,7 @@ export async function createEmployeeWithAccessForBusiness({ businessId, payload 
   };
 }
 
-export async function updateEmployeeAccessForBusiness({ businessId, employeeId, accountAccess }) {
+export async function updateEmployeeAccessForBusiness({ businessId, employeeId, accountAccess, actorUserId, actorRole }) {
   const existingEmployee = await getEmployeeForBusiness(businessId, employeeId);
   if (!existingEmployee) {
     return { ok: false, error: 'Employee not found.' };
@@ -3752,6 +3745,9 @@ export async function updateEmployeeAccessForBusiness({ businessId, employeeId, 
   let linkedUser = null;
 
   if (mode === 'none') {
+    if (actorRole === 'owner' && typeof actorUserId === 'string' && actorUserId && existingEmployee.userId === actorUserId) {
+      return { ok: false, error: 'Owner account access cannot be unlinked from this profile.' };
+    }
     nextEmployee.userId = null;
   }
 

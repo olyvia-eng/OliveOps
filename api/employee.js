@@ -12,7 +12,7 @@ function buildEmployeeResponse(employee) {
     hourlyRate: employee.hourlyRate,
     compensationType: employee.compensationType ?? 'hourly',
     labourType: employee.labourType ?? 'field_producing',
-    paidDriveTimeEnabled: employee.paidDriveTimeEnabled === true,
+    userId: employee.userId ?? null,
     active: employee.active,
     createdAt: employee.createdAt,
   } : null;

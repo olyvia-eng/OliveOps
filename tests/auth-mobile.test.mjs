@@ -138,7 +138,7 @@ test('GET /api/auth?action=session accepts bearer-resolved session identity', as
   await handler(req, res);
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body, { ok: true, user: demoUser, capabilities: { paidDriveTime: false } });
+  assert.deepEqual(res.body, { ok: true, user: demoUser, capabilities: { paidDriveTime: true } });
 });
 
 test('GET /api/auth?action=session reports paidDriveTime capability true when enabled', async () => {
@@ -160,7 +160,7 @@ test('GET /api/auth?action=session reports paidDriveTime capability true when en
   assert.deepEqual(res.body.capabilities, { paidDriveTime: true });
 });
 
-test('GET /api/auth?action=session reports paidDriveTime capability false when disabled', async () => {
+test('GET /api/auth?action=session reports paidDriveTime capability true when employee profile exists', async () => {
   const handler = createAuthHandler({
     getSessionFromRequest: async () => demoUser,
     getEmployeeForBusiness: async () => ({ id: 'emp-1', paidDriveTimeEnabled: false }),
@@ -176,7 +176,7 @@ test('GET /api/auth?action=session reports paidDriveTime capability false when d
   await handler(req, res);
 
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body.capabilities, { paidDriveTime: false });
+  assert.deepEqual(res.body.capabilities, { paidDriveTime: true });
 });
 
 test('GET /api/auth?action=session rejects invalid bearer token', async () => {

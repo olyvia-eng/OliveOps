@@ -251,7 +251,7 @@ test('cross-business style wrong job reference is rejected on approval revalidat
   assert.equal(res.body.ok, false);
 });
 
-test('drive time correction is rejected for ineligible employee and approved for eligible employee', async () => {
+test('drive time correction is approved regardless of legacy employee drive-time flag', async () => {
   {
     const { handler, corrections } = createHarness({ sessionRole: 'owner', employeePaidDriveTimeEnabled: false });
     corrections.push({
@@ -271,7 +271,8 @@ test('drive time correction is rejected for ineligible employee and approved for
     });
     const res = createMockRes();
     await handler({ method: 'POST', query: { action: 'approve' }, body: { id: 'corr-drive-1' } }, res);
-    assert.equal(res.statusCode, 409);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.correction.status, 'approved');
   }
 
   {

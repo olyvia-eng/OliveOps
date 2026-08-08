@@ -5,6 +5,7 @@ import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } 
 import { Plus, Pencil, Trash2, FileDown, Info, Users } from 'lucide-react';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
+import type { BusinessUserSummary } from '../../auth/types';
 import type {
   BudgetItem,
   BudgetRate,
@@ -147,6 +148,7 @@ const LABOUR_ITEM_COMP_TYPES = ['hourly', 'salary'] as const;
 const LABOUR_ITEM_TYPES: EmployeeLabourType[] = ['field_producing', 'overhead'];
 
 type LabourItemCompType = (typeof LABOUR_ITEM_COMP_TYPES)[number];
+type LabourAccountAccessMode = 'none' | 'link_existing' | 'create_login';
 
 type LabourItemForm = {
   firstName: string;
@@ -209,7 +211,6 @@ export default function BudgetPage() {
     revenueSalesGoals,
     addBudget,
     employees,
-    addEmployee,
     updateEmployee,
     addBudgetItem,
     updateBudgetItem,
@@ -236,8 +237,13 @@ export default function BudgetPage() {
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
   const [labourItemModalOpen, setLabourItemModalOpen] = useState(false);
   const [labourItemForm, setLabourItemForm] = useState<LabourItemForm>(emptyLabourItemForm());
-  const [createAsEmployee, setCreateAsEmployee] = useState(false);
+  const [labourAccountMode, setLabourAccountMode] = useState<LabourAccountAccessMode>('none');
+  const [labourExistingUserId, setLabourExistingUserId] = useState('');
+  const [labourLoginEmail, setLabourLoginEmail] = useState('');
   const [labourItemPassword, setLabourItemPassword] = useState('');
+  const [labourLoginRole, setLabourLoginRole] = useState<EmployeeRole>('crew_member');
+  const [availableUsers, setAvailableUsers] = useState<BusinessUserSummary[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [labourItemError, setLabourItemError] = useState('');
   const [ratesModalOpen, setRatesModalOpen] = useState(false);
   const [editingRate, setEditingRate] = useState<BudgetRate | null>(null);
@@ -533,11 +539,40 @@ export default function BudgetPage() {
 
   const openLabourItemModal = () => {
     setLabourItemForm(emptyLabourItemForm());
-    setCreateAsEmployee(false);
+    setLabourAccountMode('none');
+    setLabourExistingUserId('');
+    setLabourLoginEmail('');
     setLabourItemPassword('');
+    setLabourLoginRole('crew_member');
     setLabourItemError('');
     setLabourItemModalOpen(true);
   };
+
+  useEffect(() => {
+    if (!labourItemModalOpen) return;
+
+    let cancelled = false;
+    setLoadingUsers(true);
+
+    void fetch('/api/users', { credentials: 'include' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (cancelled) return;
+
+        if (response.ok && payload && typeof payload === 'object' && Array.isArray((payload as { users?: unknown[] }).users)) {
+          setAvailableUsers((payload as { users: BusinessUserSummary[] }).users);
+        } else {
+          setAvailableUsers([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingUsers(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [labourItemModalOpen]);
 
   const handleCreateLabourItem = async () => {
     setLabourItemError('');
@@ -553,8 +588,8 @@ export default function BudgetPage() {
 
     const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
       name: fullName,
-      email: createAsEmployee ? normalizedEmail : '',
-      phone: createAsEmployee ? labourItemForm.phone : '',
+      email: normalizedEmail,
+      phone: labourItemForm.phone,
       role: labourItemForm.role,
       hourlyRate: labourItemForm.hourlyRate,
       compensationType: labourItemForm.compensationType,
@@ -562,78 +597,87 @@ export default function BudgetPage() {
       active: labourItemForm.active,
     };
 
-    if (createAsEmployee) {
-      if (!normalizedEmail) {
-        setLabourItemError('Email is required when creating as employee.');
+    let accountAccess: Record<string, unknown>;
+    if (labourAccountMode === 'none') {
+      accountAccess = { mode: 'none' };
+    } else if (labourAccountMode === 'link_existing') {
+      if (!labourExistingUserId.trim()) {
+        setLabourItemError('Select an existing OliveOps account to link.');
+        return;
+      }
+      accountAccess = {
+        mode: 'link_existing',
+        userId: labourExistingUserId.trim(),
+      };
+    } else {
+      if (!labourLoginEmail.trim()) {
+        setLabourItemError('Login email is required when creating login access.');
         return;
       }
       if (labourItemPassword.length < 8) {
         setLabourItemError('Password must be at least 8 characters.');
         return;
       }
+      accountAccess = {
+        mode: 'create_login',
+        loginEmail: labourLoginEmail.trim(),
+        password: labourItemPassword,
+        role: labourLoginRole,
+      };
+    }
 
-      let response: Response;
-      try {
-        response = await fetch('/api/data?entity=employees', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            data: employeePayload,
-            accountAccess: {
-              mode: 'create_login',
-              loginEmail: normalizedEmail,
-              password: labourItemPassword,
-              role: labourItemForm.role,
-            },
-          }),
-        });
-      } catch {
-        setLabourItemError('Could not reach the API. Run npm run dev:full for local API routes.');
-        return;
-      }
-
-      let parsedPayload: unknown = null;
-      let apiError = 'Could not create employee login.';
-      try {
-        const payload = await response.json();
-        parsedPayload = payload;
-        if (typeof payload?.error === 'string') apiError = payload.error;
-      } catch {
-        // Ignore JSON parsing errors and use generic message.
-      }
-
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type') ?? '';
-        if (
-          apiError === 'Could not create employee login.'
-          && (response.status === 404 || !contentType.includes('application/json'))
-        ) {
-          apiError = 'API route unavailable. Run npm run dev:full for local API routes.';
-        }
-        setLabourItemError(apiError);
-        return;
-      }
-
-      const created = (parsedPayload as { employee?: Employee } | null)?.employee;
-      if (created) {
-        useStore.setState((state) => {
-          const exists = state.employees.some((item) => item.id === created.id);
-          return {
-            employees: exists
-              ? state.employees.map((item) => (item.id === created.id ? created : item))
-              : [...state.employees, created],
-          };
-        });
-      }
-
-      setLabourItemModalOpen(false);
+    let response: Response;
+    try {
+      response = await fetch('/api/data?entity=employees', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          data: employeePayload,
+          accountAccess,
+        }),
+      });
+    } catch {
+      setLabourItemError('Could not reach the API. Run npm run dev:full for local API routes.');
       return;
     }
 
-    addEmployee(employeePayload);
+    let parsedPayload: unknown = null;
+    let apiError = 'Could not create employee record.';
+    try {
+      const payload = await response.json();
+      parsedPayload = payload;
+      if (typeof payload?.error === 'string') apiError = payload.error;
+    } catch {
+      // Ignore JSON parsing errors and use generic message.
+    }
+
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') ?? '';
+      if (
+        apiError === 'Could not create employee record.'
+        && (response.status === 404 || !contentType.includes('application/json'))
+      ) {
+        apiError = 'API route unavailable. Run npm run dev:full for local API routes.';
+      }
+      setLabourItemError(apiError);
+      return;
+    }
+
+    const created = (parsedPayload as { employee?: Employee } | null)?.employee;
+    if (created) {
+      useStore.setState((state) => {
+        const exists = state.employees.some((item) => item.id === created.id);
+        return {
+          employees: exists
+            ? state.employees.map((item) => (item.id === created.id ? created : item))
+            : [...state.employees, created],
+        };
+      });
+    }
+
     setLabourItemModalOpen(false);
   };
 
@@ -2270,42 +2314,74 @@ export default function BudgetPage() {
             <label htmlFor="labour-item-active" className="text-sm text-gray-700">Active Labour Item</label>
           </div>
 
-          <div className="border-t border-gray-200 pt-4">
-            <div className="flex items-center gap-2">
-              <input
-                id="create-as-employee"
-                type="checkbox"
-                checked={createAsEmployee}
-                onChange={(e) => setCreateAsEmployee(e.target.checked)}
-              />
-              <label htmlFor="create-as-employee" className="text-sm font-medium text-gray-700">Create as Employee</label>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Enable this to also create a login account for this labour item.</p>
+          <div className="border-t border-gray-200 pt-4 space-y-3">
+            <Select
+              label="Account Access"
+              value={labourAccountMode}
+              onChange={(e) => setLabourAccountMode(e.target.value as LabourAccountAccessMode)}
+            >
+              <option value="none">No OliveOps access</option>
+              <option value="link_existing">Link existing account</option>
+              <option value="create_login">Create login access</option>
+            </Select>
+
+            {labourAccountMode === 'link_existing' && (
+              <Select
+                label="Existing Account *"
+                value={labourExistingUserId}
+                onChange={(e) => setLabourExistingUserId(e.target.value)}
+              >
+                <option value="">{loadingUsers ? 'Loading accounts...' : 'Select account'}</option>
+                {availableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name} ({user.email}) {user.active ? '' : '[inactive]'}
+                  </option>
+                ))}
+              </Select>
+            )}
+
+            {labourAccountMode === 'create_login' && (
+              <>
+                <Input
+                  label="Login Email *"
+                  type="email"
+                  required
+                  value={labourLoginEmail}
+                  onChange={(e) => setLabourLoginEmail(e.target.value)}
+                />
+                <Select
+                  label="Login Role"
+                  value={labourLoginRole}
+                  onChange={(e) => setLabourLoginRole(e.target.value as EmployeeRole)}
+                >
+                  {LABOUR_ITEM_ROLES.map((role) => (
+                    <option key={role} value={role}>{toOptionLabel(role)}</option>
+                  ))}
+                </Select>
+                <Input
+                  label="Employee Login Password *"
+                  type="password"
+                  required
+                  value={labourItemPassword}
+                  onChange={(e) => setLabourItemPassword(e.target.value)}
+                />
+              </>
+            )}
           </div>
 
-          {createAsEmployee && (
-            <div className="grid grid-cols-1 gap-3">
-              <Input
-                label="Phone"
-                value={labourItemForm.phone}
-                onChange={(e) => setLabourField('phone', e.target.value)}
-              />
-              <Input
-                label="Email *"
-                type="email"
-                required={createAsEmployee}
-                value={labourItemForm.email}
-                onChange={(e) => setLabourField('email', e.target.value)}
-              />
-              <Input
-                label="Employee Login Password *"
-                type="password"
-                required={createAsEmployee}
-                value={labourItemPassword}
-                onChange={(e) => setLabourItemPassword(e.target.value)}
-              />
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Email"
+              type="email"
+              value={labourItemForm.email}
+              onChange={(e) => setLabourField('email', e.target.value)}
+            />
+            <Input
+              label="Phone"
+              value={labourItemForm.phone}
+              onChange={(e) => setLabourField('phone', e.target.value)}
+            />
+          </div>
 
           {labourItemError && <p className="text-sm text-accent-700">{labourItemError}</p>}
         </div>

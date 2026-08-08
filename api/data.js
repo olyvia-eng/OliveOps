@@ -93,6 +93,7 @@ import {
   updateBudgetRateForBusiness,
   updateAuditEventForBusiness,
   updateCustomerForBusiness,
+  updateEmployeeAccessForBusiness,
   updateEmployeeForBusiness,
   updateEquipmentAssetForBusiness,
   updateUnbillableTimeCategoryForBusiness,
@@ -1061,6 +1062,7 @@ export default async function handler(req, res) {
 
     const id = req.query.id;
     const data = req.body?.data;
+    const accountAccess = req.body?.accountAccess;
     if (typeof id !== 'string' || !id || !data || typeof data !== 'object') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
     }
@@ -1071,7 +1073,26 @@ export default async function handler(req, res) {
         return res.status(404).json({ ok: false, error: `${entity} not found` });
       }
 
-      const next = { ...existing, ...data };
+      let baseRecord = existing;
+      let accountAccessResult = null;
+
+      if (entity === 'employees' && accountAccess && typeof accountAccess === 'object') {
+        accountAccessResult = await updateEmployeeAccessForBusiness({
+          businessId: session.businessId,
+          employeeId: id,
+          accountAccess,
+          actorUserId: session.id,
+          actorRole: session.role,
+        });
+
+        if (!accountAccessResult.ok) {
+          return res.status(409).json({ ok: false, error: accountAccessResult.error ?? 'Could not update employee account access.' });
+        }
+
+        baseRecord = accountAccessResult.employee;
+      }
+
+      const next = { ...baseRecord, ...data };
 
       if (entity === 'invoices') {
         const validationError = validateInvoiceRecord(next);
@@ -1240,7 +1261,20 @@ export default async function handler(req, res) {
         }
       }
 
-      await config.update({ businessId: session.businessId, [config.updateArgKey]: next });
+      const updateResult = await config.update({ businessId: session.businessId, [config.updateArgKey]: next });
+      if (updateResult && updateResult.ok === false) {
+        return res.status(409).json({ ok: false, error: updateResult.error ?? `Could not update ${entity}` });
+      }
+
+      if (entity === 'employees') {
+        const employee = await getEmployeeForBusiness(session.businessId, id);
+        return res.status(200).json({
+          ok: true,
+          employee,
+          user: accountAccessResult?.user ?? null,
+        });
+      }
+
       return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not update ${entity}` });

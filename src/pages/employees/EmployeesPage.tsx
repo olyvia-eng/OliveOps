@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Clock, LogOut, Users } from 'lucide-react';
 import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { Employee, EmployeeRole } from '../../types';
+import type { BusinessUserSummary } from '../../auth/types';
 import ClockInModal from './ClockInModal';
 
 const ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
@@ -13,6 +14,7 @@ const LABOUR_TYPES = ['field_producing', 'overhead'] as const;
 
 type CompensationType = (typeof COMPENSATION_TYPES)[number];
 type LabourType = (typeof LABOUR_TYPES)[number];
+type AccountAccessMode = 'none' | 'link_existing' | 'create_login';
 
 type EmployeeForm = Omit<Employee, 'id' | 'createdAt' | 'name'> & {
   firstName: string;
@@ -48,6 +50,13 @@ const compensationTypeColor: Record<CompensationType, string> = {
   salary: 'bg-accent-50 text-accent-600',
 };
 
+const accountAccessMeta = (employee: Employee) => {
+  if (employee.userId) {
+    return { label: 'Linked Access', className: 'bg-brand-50 text-brand-700' };
+  }
+  return { label: 'No Access', className: 'bg-gray-100 text-gray-700' };
+};
+
 const toOptionLabel = (value: string) => value
   .split('_')
   .join(' ')
@@ -78,12 +87,18 @@ const parseName = (name: string) => {
 };
 
 export default function EmployeesPage() {
-  const { employees, timeEntries, jobs, addEmployee, updateEmployee, deleteEmployee, clockOut } = useStore();
+  const { employees, timeEntries, jobs, addEmployee, deleteEmployee, clockOut } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState(empty());
+  const [accessMode, setAccessMode] = useState<AccountAccessMode>('none');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [accessMode, setAccessMode] = useState<'none' | 'create_login'>('none');
+  const [loginRole, setLoginRole] = useState<EmployeeRole>('crew_member');
+  const [availableUsers, setAvailableUsers] = useState<BusinessUserSummary[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [sessionUserId, setSessionUserId] = useState('');
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clockInOpen, setClockInOpen] = useState(false);
@@ -100,8 +115,11 @@ export default function EmployeesPage() {
   const openNew = () => {
     setEditing(null);
     setForm(empty());
-    setNewPassword('');
     setAccessMode('none');
+    setSelectedUserId('');
+    setLoginEmail('');
+    setNewPassword('');
+    setLoginRole('crew_member');
     setFormError('');
     setModalOpen(true);
   };
@@ -119,10 +137,65 @@ export default function EmployeesPage() {
       labourType: e.labourType ?? 'field_producing',
       active: e.active,
     });
+    setAccessMode(e.userId ? 'link_existing' : 'none');
+    setSelectedUserId(e.userId ?? '');
+    setLoginEmail(e.email ?? '');
     setNewPassword('');
-    setAccessMode('none');
+    setLoginRole(e.role);
     setFormError('');
     setModalOpen(true);
+  };
+
+  const mapApiError = (fallback: string, payload: unknown) => {
+    if (payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string') {
+      return (payload as { error: string }).error;
+    }
+    return fallback;
+  };
+
+  const upsertEmployeeInStore = (employee: Employee) => {
+    useStore.setState((state) => {
+      const exists = state.employees.some((item) => item.id === employee.id);
+      return {
+        employees: exists
+          ? state.employees.map((item) => (item.id === employee.id ? employee : item))
+          : [...state.employees, employee],
+      };
+    });
+  };
+
+  const buildAccountAccessPayload = () => {
+    if (accessMode === 'none') {
+      return { mode: 'none' as const };
+    }
+
+    if (accessMode === 'link_existing') {
+      if (!selectedUserId.trim()) {
+        setFormError('Select an existing OliveOps account to link.');
+        return null;
+      }
+      return {
+        mode: 'link_existing' as const,
+        userId: selectedUserId.trim(),
+      };
+    }
+
+    if (!loginEmail.trim()) {
+      setFormError('Login email is required when creating access.');
+      return null;
+    }
+
+    if (newPassword.length < 8) {
+      setFormError('Password must be at least 8 characters for employee login.');
+      return null;
+    }
+
+    return {
+      mode: 'create_login' as const,
+      loginEmail: loginEmail.trim(),
+      password: newPassword,
+      role: loginRole,
+    };
   };
 
   const handleSave = async () => {
@@ -147,7 +220,30 @@ export default function EmployeesPage() {
     };
 
     if (editing) {
-      updateEmployee(editing.id, employeePayload);
+      const accountAccess = buildAccountAccessPayload();
+      if (!accountAccess) return;
+
+      const response = await fetch(`/api/data?entity=employees&id=${encodeURIComponent(editing.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          data: employeePayload,
+          accountAccess,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setFormError(mapApiError('Could not save employee changes.', payload));
+        return;
+      }
+
+      if (payload && typeof payload === 'object' && (payload as { employee?: Employee }).employee) {
+        upsertEmployeeInStore((payload as { employee: Employee }).employee);
+      }
       setModalOpen(false);
       return;
     }
@@ -158,15 +254,8 @@ export default function EmployeesPage() {
       return;
     }
 
-    if (!form.email.trim()) {
-      setFormError('Email is required when creating login access.');
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setFormError('Password must be at least 8 characters for employee login.');
-      return;
-    }
+    const accountAccess = buildAccountAccessPayload();
+    if (!accountAccess) return;
 
     const result = await fetch('/api/data?entity=employees', {
       method: 'POST',
@@ -176,12 +265,7 @@ export default function EmployeesPage() {
       credentials: 'include',
       body: JSON.stringify({
         data: employeePayload,
-        accountAccess: {
-          mode: 'create_login',
-          loginEmail: form.email.trim(),
-          password: newPassword,
-          role: form.role,
-        },
+        accountAccess,
       }),
     }).then(async (response) => {
       const payload = await response.json().catch(() => ({}));
@@ -200,14 +284,7 @@ export default function EmployeesPage() {
     }
 
     if (result.employee) {
-      useStore.setState((state) => {
-        const exists = state.employees.some((item) => item.id === result.employee!.id);
-        return {
-          employees: exists
-            ? state.employees.map((item) => (item.id === result.employee!.id ? result.employee! : item))
-            : [...state.employees, result.employee!],
-        };
-      });
+      upsertEmployeeInStore(result.employee);
     }
     setModalOpen(false);
   };
@@ -215,9 +292,49 @@ export default function EmployeesPage() {
   useEffect(() => {
     if (!modalOpen) {
       setFormError('');
+      setLoginEmail('');
       setNewPassword('');
+      setSelectedUserId('');
       setAccessMode('none');
+      setLoginRole('crew_member');
     }
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+
+    let cancelled = false;
+    setLoadingUsers(true);
+
+    void Promise.all([
+      fetch('/api/users', { credentials: 'include' }),
+      fetch('/api/auth?action=session', { credentials: 'include' }),
+    ])
+      .then(async ([usersRes, sessionRes]) => {
+        const usersPayload = await usersRes.json().catch(() => ({}));
+        const sessionPayload = await sessionRes.json().catch(() => ({}));
+
+        if (cancelled) return;
+
+        if (usersRes.ok && usersPayload && typeof usersPayload === 'object' && Array.isArray((usersPayload as { users?: unknown[] }).users)) {
+          setAvailableUsers((usersPayload as { users: BusinessUserSummary[] }).users);
+        } else {
+          setAvailableUsers([]);
+        }
+
+        if (sessionRes.ok && sessionPayload && typeof sessionPayload === 'object' && (sessionPayload as { user?: { id?: string } }).user?.id) {
+          setSessionUserId((sessionPayload as { user: { id: string } }).user.id);
+        } else {
+          setSessionUserId('');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingUsers(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [modalOpen]);
 
   const set = (key: keyof typeof form, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
@@ -240,6 +357,7 @@ export default function EmployeesPage() {
 
   const renderEmployeeCard = (emp: Employee, activeEntry: ReturnType<typeof getActiveEntry>, activeWorkLabel: string | null, todayHours: number) => {
     const compensationType = emp.compensationType ?? 'hourly';
+    const accessMeta = accountAccessMeta(emp);
 
     return (
       <Card key={emp.id} className="p-4">
@@ -251,6 +369,7 @@ export default function EmployeesPage() {
           <div className="flex items-center gap-2">
             <Badge label={compensationTypeLabel[compensationType]} className={compensationTypeColor[compensationType]} />
             <Badge label={roleLabel[emp.role]} className={roleColor[emp.role]} />
+            <Badge label={accessMeta.label} className={accessMeta.className} />
           </div>
         </div>
         <div className="text-sm text-gray-600 space-y-1">
@@ -285,6 +404,7 @@ export default function EmployeesPage() {
 
   const renderEmployeeListRow = (emp: Employee, activeEntry: ReturnType<typeof getActiveEntry>, activeWorkLabel: string | null, todayHours: number) => {
     const compensationType = emp.compensationType ?? 'hourly';
+    const accessMeta = accountAccessMeta(emp);
 
     return (
       <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -298,6 +418,7 @@ export default function EmployeesPage() {
           <div className="flex flex-wrap gap-2">
             <Badge label={compensationTypeLabel[compensationType]} className={compensationTypeColor[compensationType]} />
             <Badge label={roleLabel[emp.role]} className={roleColor[emp.role]} />
+            <Badge label={accessMeta.label} className={accessMeta.className} />
           </div>
         </td>
         <td className="px-4 py-3 text-right text-gray-700">
@@ -502,7 +623,7 @@ export default function EmployeesPage() {
             </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Input label={editing || accessMode === 'create_login' ? 'Email *' : 'Email'} type="email" required={Boolean(editing) || accessMode === 'create_login'} value={form.email} onChange={(e) => set('email', e.target.value)} />
+            <Input label="Email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
             <Input label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
           </div>
           <div className="space-y-2">
@@ -527,13 +648,44 @@ export default function EmployeesPage() {
             value={form.hourlyRate}
             onChange={(e) => set('hourlyRate', Number(e.target.value))}
           />
-          {!editing && (
-            <>
-              <Select label="Account Access" value={accessMode} onChange={(e) => setAccessMode(e.target.value as 'none' | 'create_login')}>
-                <option value="none">No OliveOps login</option>
-                <option value="create_login">Create OliveOps login</option>
+          <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-sm font-medium text-gray-700">Account Access</p>
+            {editing && (
+              <p className="text-xs text-gray-600">
+                Current: {editing.userId ? 'Linked OliveOps account' : 'No OliveOps access'}
+              </p>
+            )}
+            <Select label="Access Mode" value={accessMode} onChange={(e) => setAccessMode(e.target.value as AccountAccessMode)}>
+              <option value="none">No OliveOps access</option>
+              <option value="link_existing">Link existing account</option>
+              <option value="create_login">Create login access</option>
+            </Select>
+
+            {accessMode === 'link_existing' && (
+              <Select label="Existing Account *" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+                <option value="">{loadingUsers ? 'Loading accounts...' : 'Select account'}</option>
+                {availableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name} ({user.email}) {user.active ? '' : '[inactive]'}
+                  </option>
+                ))}
               </Select>
-              {accessMode === 'create_login' && (
+            )}
+
+            {accessMode === 'create_login' && (
+              <>
+                <Input
+                  label="Login Email *"
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                />
+                <Select label="Login Role" value={loginRole} onChange={(e) => setLoginRole(e.target.value as EmployeeRole)}>
+                  {ROLES.map((role) => (
+                    <option key={role} value={role}>{toOptionLabel(role)}</option>
+                  ))}
+                </Select>
                 <Input
                   label="Employee Login Password *"
                   type="password"
@@ -541,9 +693,16 @@ export default function EmployeesPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
-              )}
-            </>
-          )}
+              </>
+            )}
+
+            {editing && editing.userId && accessMode === 'none' && editing.userId === sessionUserId && (
+              <p className="text-xs text-accent-700">Owner self-unlink is blocked by policy.</p>
+            )}
+            {editing && editing.userId && accessMode === 'none' && editing.userId !== sessionUserId && (
+              <p className="text-xs text-gray-600">Saving with this mode will unlink this employee from their OliveOps account.</p>
+            )}
+          </div>
           {formError && <p className="text-sm text-accent-700">{formError}</p>}
           <div className="flex items-center gap-2">
             <input type="checkbox" id="active" checked={form.active} onChange={(e) => set('active', e.target.checked)} />

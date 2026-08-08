@@ -322,7 +322,6 @@ export interface Employee {
   hourlyRate: number;
   compensationType?: EmployeeCompensationType;
   labourType?: EmployeeLabourType;
-  paidDriveTimeEnabled?: boolean;
   userId?: ID | null;
   active: boolean;
   createdAt: string;
