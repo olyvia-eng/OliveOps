@@ -14,15 +14,6 @@ const LABOUR_TYPES = ['field_producing', 'overhead'] as const;
 type CompensationType = (typeof COMPENSATION_TYPES)[number];
 type LabourType = (typeof LABOUR_TYPES)[number];
 
-interface EmployeesPageProps {
-  onCreateEmployee?: (payload: {
-    name: string;
-    email: string;
-    password: string;
-    role: EmployeeRole;
-  }) => Promise<{ ok: boolean; error?: string; user?: unknown; employee?: Employee }>;
-}
-
 type EmployeeForm = Omit<Employee, 'id' | 'createdAt' | 'name'> & {
   firstName: string;
   lastName: string;
@@ -73,7 +64,6 @@ const empty = (): EmployeeForm => ({
   hourlyRate: 30,
   compensationType: 'hourly',
   labourType: 'field_producing',
-  paidDriveTimeEnabled: false,
   active: true,
 });
 
@@ -87,12 +77,13 @@ const parseName = (name: string) => {
   };
 };
 
-export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) {
-  const { employees, timeEntries, jobs, updateEmployee, deleteEmployee, clockOut } = useStore();
+export default function EmployeesPage() {
+  const { employees, timeEntries, jobs, addEmployee, updateEmployee, deleteEmployee, clockOut } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [form, setForm] = useState(empty());
   const [newPassword, setNewPassword] = useState('');
+  const [accessMode, setAccessMode] = useState<'none' | 'create_login'>('none');
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clockInOpen, setClockInOpen] = useState(false);
@@ -110,6 +101,7 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
     setEditing(null);
     setForm(empty());
     setNewPassword('');
+    setAccessMode('none');
     setFormError('');
     setModalOpen(true);
   };
@@ -125,10 +117,10 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
       hourlyRate: e.hourlyRate,
       compensationType: e.compensationType ?? 'hourly',
       labourType: e.labourType ?? 'field_producing',
-      paidDriveTimeEnabled: e.paidDriveTimeEnabled === true,
       active: e.active,
     });
     setNewPassword('');
+    setAccessMode('none');
     setFormError('');
     setModalOpen(true);
   };
@@ -143,20 +135,14 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
       return;
     }
 
-    if (!form.email.trim()) {
-      setFormError('Email is required.');
-      return;
-    }
-
     const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
       name: fullName,
-      email: form.email,
+      email: form.email.trim(),
       phone: form.phone,
       role: form.role,
       hourlyRate: form.hourlyRate,
       compensationType: form.compensationType,
       labourType: form.labourType,
-      paidDriveTimeEnabled: form.paidDriveTimeEnabled === true,
       active: form.active,
     };
 
@@ -166,27 +152,36 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
       return;
     }
 
+    if (accessMode === 'none') {
+      addEmployee(employeePayload);
+      setModalOpen(false);
+      return;
+    }
+
+    if (!form.email.trim()) {
+      setFormError('Email is required when creating login access.');
+      return;
+    }
+
     if (newPassword.length < 8) {
       setFormError('Password must be at least 8 characters for employee login.');
       return;
     }
 
-    const result = await (onCreateEmployee ? onCreateEmployee({
-      name: fullName,
-      email: form.email,
-      password: newPassword,
-      role: form.role,
-    }) : fetch('/api/users', {
+    const result = await fetch('/api/data?entity=employees', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       credentials: 'include',
       body: JSON.stringify({
-        name: fullName,
-        email: form.email,
-        password: newPassword,
-        role: form.role,
+        data: employeePayload,
+        accountAccess: {
+          mode: 'create_login',
+          loginEmail: form.email.trim(),
+          password: newPassword,
+          role: form.role,
+        },
       }),
     }).then(async (response) => {
       const payload = await response.json().catch(() => ({}));
@@ -197,7 +192,7 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
         ok: true,
         employee: payload?.employee as Employee | undefined,
       };
-    }));
+    });
 
     if (!result?.ok) {
       setFormError(result?.error ?? 'Could not create employee login.');
@@ -221,6 +216,7 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
     if (!modalOpen) {
       setFormError('');
       setNewPassword('');
+      setAccessMode('none');
     }
   }, [modalOpen]);
 
@@ -506,7 +502,7 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
             </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Email" type="email" required value={form.email} onChange={(e) => set('email', e.target.value)} />
+            <Input label={editing || accessMode === 'create_login' ? 'Email *' : 'Email'} type="email" required={Boolean(editing) || accessMode === 'create_login'} value={form.email} onChange={(e) => set('email', e.target.value)} />
             <Input label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
           </div>
           <div className="space-y-2">
@@ -531,29 +527,22 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
             value={form.hourlyRate}
             onChange={(e) => set('hourlyRate', Number(e.target.value))}
           />
-          <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <p className="text-sm font-medium text-gray-700">Time Tracking</p>
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Paid Drive Time</p>
-                <p className="text-xs text-gray-500">Allow this employee to record paid drive/travel time.</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={form.paidDriveTimeEnabled === true}
-                onChange={(e) => set('paidDriveTimeEnabled', e.target.checked)}
-                aria-label="Paid Drive Time"
-              />
-            </div>
-          </div>
           {!editing && (
-            <Input
-              label="Employee Login Password *"
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
+            <>
+              <Select label="Account Access" value={accessMode} onChange={(e) => setAccessMode(e.target.value as 'none' | 'create_login')}>
+                <option value="none">No OliveOps login</option>
+                <option value="create_login">Create OliveOps login</option>
+              </Select>
+              {accessMode === 'create_login' && (
+                <Input
+                  label="Employee Login Password *"
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              )}
+            </>
           )}
           {formError && <p className="text-sm text-accent-700">{formError}</p>}
           <div className="flex items-center gap-2">

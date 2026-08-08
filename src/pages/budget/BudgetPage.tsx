@@ -551,6 +551,17 @@ export default function BudgetPage() {
     const fullName = `${firstName} ${lastName}`.trim();
     const normalizedEmail = labourItemForm.email.trim();
 
+    const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
+      name: fullName,
+      email: createAsEmployee ? normalizedEmail : '',
+      phone: createAsEmployee ? labourItemForm.phone : '',
+      role: labourItemForm.role,
+      hourlyRate: labourItemForm.hourlyRate,
+      compensationType: labourItemForm.compensationType,
+      labourType: labourItemForm.labourType,
+      active: labourItemForm.active,
+    };
+
     if (createAsEmployee) {
       if (!normalizedEmail) {
         setLabourItemError('Email is required when creating as employee.');
@@ -563,17 +574,20 @@ export default function BudgetPage() {
 
       let response: Response;
       try {
-        response = await fetch('/api/users', {
+        response = await fetch('/api/data?entity=employees', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
           body: JSON.stringify({
-            name: fullName,
-            email: normalizedEmail,
-            password: labourItemPassword,
-            role: labourItemForm.role,
+            data: employeePayload,
+            accountAccess: {
+              mode: 'create_login',
+              loginEmail: normalizedEmail,
+              password: labourItemPassword,
+              role: labourItemForm.role,
+            },
           }),
         });
       } catch {
@@ -581,9 +595,11 @@ export default function BudgetPage() {
         return;
       }
 
+      let parsedPayload: unknown = null;
       let apiError = 'Could not create employee login.';
       try {
         const payload = await response.json();
+        parsedPayload = payload;
         if (typeof payload?.error === 'string') apiError = payload.error;
       } catch {
         // Ignore JSON parsing errors and use generic message.
@@ -600,18 +616,22 @@ export default function BudgetPage() {
         setLabourItemError(apiError);
         return;
       }
-    }
 
-    const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
-      name: fullName,
-      email: createAsEmployee ? normalizedEmail : '',
-      phone: createAsEmployee ? labourItemForm.phone : '',
-      role: labourItemForm.role,
-      hourlyRate: labourItemForm.hourlyRate,
-      compensationType: labourItemForm.compensationType,
-      labourType: labourItemForm.labourType,
-      active: labourItemForm.active,
-    };
+      const created = (parsedPayload as { employee?: Employee } | null)?.employee;
+      if (created) {
+        useStore.setState((state) => {
+          const exists = state.employees.some((item) => item.id === created.id);
+          return {
+            employees: exists
+              ? state.employees.map((item) => (item.id === created.id ? created : item))
+              : [...state.employees, created],
+          };
+        });
+      }
+
+      setLabourItemModalOpen(false);
+      return;
+    }
 
     addEmployee(employeePayload);
     setLabourItemModalOpen(false);

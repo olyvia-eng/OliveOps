@@ -1,5 +1,5 @@
 import {
-  createUserForBusiness,
+  createAuthUserForBusiness,
   deleteBusinessUser,
   getBusinessUserById,
   listUsersForBusiness,
@@ -95,7 +95,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const result = await createUserForBusiness({
+      const result = await createAuthUserForBusiness({
         businessId: session.businessId,
         name,
         email,

@@ -199,6 +199,50 @@ function mapSessionUser(userItem, businessItem, employeeId) {
   };
 }
 
+function normalizeEmployeeAccountRecord(employee) {
+  return {
+    id: employee.id,
+    name: employee.name,
+    email: employee.email,
+    phone: employee.phone,
+    role: employee.role,
+    hourlyRate: employee.hourlyRate,
+    compensationType: employee.compensationType ?? 'hourly',
+    labourType: employee.labourType ?? 'field_producing',
+    paidDriveTimeEnabled: employee.paidDriveTimeEnabled === true,
+    userId: typeof employee.userId === 'string' && employee.userId.trim() ? employee.userId.trim() : null,
+    active: employee.active,
+    createdAt: employee.createdAt,
+  };
+}
+
+function normalizeEmployeeForWrite(employee) {
+  const normalizedUserId = typeof employee?.userId === 'string' && employee.userId.trim()
+    ? employee.userId.trim()
+    : null;
+
+  return {
+    id: employee.id,
+    name: typeof employee.name === 'string' ? employee.name.trim() : '',
+    email: typeof employee.email === 'string' ? employee.email.trim().toLowerCase() : '',
+    phone: typeof employee.phone === 'string' ? employee.phone.trim() : '',
+    role: normalizeEmployeeRole(employee.role),
+    hourlyRate: Number.isFinite(employee.hourlyRate) ? employee.hourlyRate : 0,
+    compensationType: employee.compensationType === 'salary' ? 'salary' : 'hourly',
+    labourType: employee.labourType === 'overhead' ? 'overhead' : 'field_producing',
+    paidDriveTimeEnabled: employee.paidDriveTimeEnabled === true,
+    userId: normalizedUserId,
+    active: employee.active !== false,
+    createdAt: typeof employee.createdAt === 'string' && employee.createdAt ? employee.createdAt : nowIso(),
+  };
+}
+
+function normalizeAccountAccessMode(mode) {
+  if (mode === 'link_existing') return 'link_existing';
+  if (mode === 'create_login') return 'create_login';
+  return 'none';
+}
+
 export function buildCreateUserEmployeePayload({ businessId, name, email, password, role }) {
   const normalizedEmail = normalizeEmail(email);
   const seed = `${businessId}:${normalizedEmail}:${role}`;
@@ -245,6 +289,7 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
     compensationType: 'hourly',
     labourType: 'field_producing',
     paidDriveTimeEnabled: false,
+    userId,
     active: true,
     createdAt,
   };
@@ -263,16 +308,27 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
       compensationType: 'hourly',
       labourType: 'field_producing',
       paidDriveTimeEnabled: false,
+      userId,
       active: true,
       createdAt,
     },
   };
 }
 
-export async function createUserEmployeePair({ businessId, name, email, password, role }) {
+export async function createUserEmployeePair({
+  businessId,
+  name,
+  email,
+  password,
+  role,
+  createEmployee,
+  failIfExists = false,
+}) {
   const normalizedEmail = normalizeEmail(email);
 
-  const shouldCreateEmployee = role === 'foreman' || role === 'crew_member';
+  const shouldCreateEmployee = typeof createEmployee === 'boolean'
+    ? createEmployee
+    : (role === 'foreman' || role === 'crew_member');
   const payload = buildCreateUserEmployeePayload({ businessId, name, email, password, role });
   const { userItem, emailLookupItem, employeeItem } = payload;
 
@@ -280,8 +336,14 @@ export async function createUserEmployeePair({ businessId, name, email, password
     const existingUsers = await listUsersForBusiness(businessId);
     const existingUser = existingUsers.find((item) => normalizeEmail(item.email) === normalizedEmail);
     if (existingUser) {
+      if (failIfExists) {
+        return { ok: false, error: 'A user with this email already exists.' };
+      }
       const existingEmployees = await listEmployeesForBusiness(businessId);
-      const existingEmployee = existingEmployees.find((item) => normalizeEmail(item.email) === normalizedEmail);
+      const existingEmployee = existingEmployees.find((item) => (
+        (item.userId && item.userId === existingUser.id)
+        || (!item.userId && normalizeEmail(item.email) === normalizedEmail)
+      ));
       return {
         ok: true,
         user: existingUser,
@@ -440,6 +502,59 @@ async function findEmployeeForEmail(businessId, email) {
   return employees.find((employee) => normalizeEmail(employee.email) === normalizeEmail(email) && employee.active) ?? null;
 }
 
+async function findEmployeeByUserId(businessId, userId) {
+  if (typeof userId !== 'string' || !userId.trim()) return null;
+  const employees = await listEmployeesForBusiness(businessId);
+  return employees.find((employee) => employee.userId === userId.trim()) ?? null;
+}
+
+async function findActiveEmployeeByUserId(businessId, userId) {
+  if (typeof userId !== 'string' || !userId.trim()) return null;
+  const employees = await listEmployeesForBusiness(businessId);
+  return employees.find((employee) => employee.userId === userId.trim() && employee.active) ?? null;
+}
+
+async function findLinkedEmployeeForUser({ businessId, userId, email }) {
+  const linked = await findActiveEmployeeByUserId(businessId, userId);
+  if (linked) return linked;
+
+  const employees = await listEmployeesForBusiness(businessId);
+  const normalizedEmail = normalizeEmail(email);
+  const legacyMatches = employees.filter((employee) => {
+    if (!employee.active) return false;
+    if (employee.userId) return false;
+    return employee.email && normalizeEmail(employee.email) === normalizedEmail;
+  });
+
+  if (legacyMatches.length === 1) {
+    return legacyMatches[0];
+  }
+
+  return null;
+}
+
+async function getBusinessUserByEmail(businessId, email) {
+  if (typeof email !== 'string' || !email.trim()) return null;
+  const normalizedEmail = normalizeEmail(email);
+
+  const lookup = await ddb.send(
+    new GetCommand({
+      TableName: tableName,
+      Key: {
+        PK: emailPk(normalizedEmail),
+        SK: 'USER',
+      },
+    })
+  );
+
+  if (!lookup.Item || lookup.Item.businessId !== businessId) {
+    return null;
+  }
+
+  const user = await getBusinessUserById(businessId, lookup.Item.userId);
+  return user ?? null;
+}
+
 export async function authenticateUser(email, password) {
   const normalizedEmail = normalizeEmail(email);
 
@@ -530,7 +645,11 @@ export async function authenticateUser(email, password) {
     }
   }
 
-  const linkedEmployee = await findEmployeeForEmail(userRes.Item.businessId, normalizedEmail);
+  const linkedEmployee = await findLinkedEmployeeForUser({
+    businessId: userRes.Item.businessId,
+    userId: userRes.Item.userId,
+    email: normalizedEmail,
+  });
 
   return {
     ok: true,
@@ -562,6 +681,18 @@ export async function listUsersForBusiness(businessId) {
 
 export async function createUserForBusiness({ businessId, name, email, password, role }) {
   return createUserEmployeePair({ businessId, name, email, password, role });
+}
+
+export async function createAuthUserForBusiness({ businessId, name, email, password, role }) {
+  return createUserEmployeePair({
+    businessId,
+    name,
+    email,
+    password,
+    role,
+    createEmployee: false,
+    failIfExists: true,
+  });
 }
 
 export async function getBusinessUserById(businessId, userId) {
@@ -3407,14 +3538,16 @@ export async function listEmployeesForBusiness(businessId) {
     compensationType: item.compensationType ?? 'hourly',
     labourType: item.labourType ?? 'field_producing',
     paidDriveTimeEnabled: item.paidDriveTimeEnabled === true,
+    userId: typeof item.userId === 'string' && item.userId.trim() ? item.userId.trim() : null,
     active: item.active,
     createdAt: item.createdAt,
   }));
 }
 
 export async function createEmployeeForBusiness({ businessId, employee }) {
+  const nextEmployee = normalizeEmployeeForWrite(employee);
   const existingEmployees = await listEmployeesForBusiness(businessId);
-  const normalizedEmail = typeof employee.email === 'string' ? normalizeEmail(employee.email) : '';
+  const normalizedEmail = typeof nextEmployee.email === 'string' ? normalizeEmail(nextEmployee.email) : '';
   const existingEmployee = normalizedEmail
     ? existingEmployees.find((item) => normalizeEmail(item.email) === normalizedEmail)
     : null;
@@ -3423,22 +3556,33 @@ export async function createEmployeeForBusiness({ businessId, employee }) {
     return { ok: true, existing: true, employee: existingEmployee };
   }
 
+  if (nextEmployee.userId) {
+    const linkedEmployee = existingEmployees.find((item) => item.userId === nextEmployee.userId && item.active);
+    if (linkedEmployee) {
+      return {
+        ok: false,
+        error: 'This account is already linked to an active employee.',
+        employee: linkedEmployee,
+      };
+    }
+  }
+
   await ddb.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         PK: businessPk(businessId),
-        SK: employeeSk(employee.id),
+        SK: employeeSk(nextEmployee.id),
         entityType: 'EMPLOYEE',
         businessId,
-        employeeId: employee.id,
-        ...employee,
+        employeeId: nextEmployee.id,
+        ...nextEmployee,
       },
       ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
     })
   );
 
-  return { ok: true, existing: false, employee };
+  return { ok: true, existing: false, employee: nextEmployee };
 }
 
 export async function getEmployeeForBusiness(businessId, employeeId) {
@@ -3463,6 +3607,7 @@ export async function getEmployeeForBusiness(businessId, employeeId) {
         compensationType: result.Item.compensationType ?? 'hourly',
         labourType: result.Item.labourType ?? 'field_producing',
         paidDriveTimeEnabled: result.Item.paidDriveTimeEnabled === true,
+        userId: typeof result.Item.userId === 'string' && result.Item.userId.trim() ? result.Item.userId.trim() : null,
         active: result.Item.active,
         createdAt: result.Item.createdAt,
       }
@@ -3470,22 +3615,208 @@ export async function getEmployeeForBusiness(businessId, employeeId) {
 }
 
 export async function updateEmployeeForBusiness({ businessId, employee }) {
+  const nextEmployee = normalizeEmployeeForWrite(employee);
+
+  if (nextEmployee.userId) {
+    const linkedEmployee = await findEmployeeByUserId(businessId, nextEmployee.userId);
+    if (linkedEmployee && linkedEmployee.id !== nextEmployee.id && linkedEmployee.active) {
+      return {
+        ok: false,
+        error: 'This account is already linked to another active employee.',
+      };
+    }
+  }
+
   await ddb.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         PK: businessPk(businessId),
-        SK: employeeSk(employee.id),
+        SK: employeeSk(nextEmployee.id),
         entityType: 'EMPLOYEE',
         businessId,
-        employeeId: employee.id,
-        ...employee,
+        employeeId: nextEmployee.id,
+        ...nextEmployee,
       },
       ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
     })
   );
 
   return { ok: true };
+}
+
+export async function createEmployeeWithAccessForBusiness({ businessId, payload }) {
+  const accountAccess = payload?.accountAccess ?? {};
+  const employeeInput = payload?.employee ?? {};
+  const mode = normalizeAccountAccessMode(accountAccess.mode);
+
+  const employeeDraft = normalizeEmployeeForWrite({
+    id: typeof employeeInput.id === 'string' && employeeInput.id.trim() ? employeeInput.id.trim() : generateId(),
+    name: employeeInput.name,
+    email: employeeInput.email,
+    phone: employeeInput.phone,
+    role: employeeInput.role,
+    hourlyRate: employeeInput.hourlyRate,
+    compensationType: employeeInput.compensationType,
+    labourType: employeeInput.labourType,
+    paidDriveTimeEnabled: false,
+    userId: null,
+    active: employeeInput.active,
+    createdAt: nowIso(),
+  });
+
+  if (!employeeDraft.name) {
+    return { ok: false, error: 'Employee name is required.' };
+  }
+
+  let linkedUser = null;
+
+  if (mode === 'link_existing') {
+    const linkUserId = typeof accountAccess.userId === 'string' ? accountAccess.userId.trim() : '';
+    if (!linkUserId) return { ok: false, error: 'A user account is required to link access.' };
+
+    const user = await getBusinessUserById(businessId, linkUserId);
+    if (!user) return { ok: false, error: 'Selected user account was not found.' };
+
+    const existingLinked = await findActiveEmployeeByUserId(businessId, user.id);
+    if (existingLinked) {
+      return { ok: false, error: 'This user account is already linked to an active employee.', employee: existingLinked };
+    }
+
+    linkedUser = user;
+    employeeDraft.userId = user.id;
+    if (!employeeDraft.email) {
+      employeeDraft.email = user.email;
+    }
+  }
+
+  if (mode === 'create_login') {
+    const loginEmail = typeof accountAccess.loginEmail === 'string' ? accountAccess.loginEmail.trim() : '';
+    const loginPassword = typeof accountAccess.password === 'string' ? accountAccess.password : '';
+    const loginRole = accountAccess.role;
+
+    if (!loginEmail) return { ok: false, error: 'Login email is required when creating access.' };
+    if (loginPassword.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
+    if (loginRole !== 'admin' && loginRole !== 'foreman' && loginRole !== 'crew_member') {
+      return { ok: false, error: 'Access role is invalid.' };
+    }
+
+    const existingUserByEmail = await getBusinessUserByEmail(businessId, loginEmail);
+    if (existingUserByEmail) {
+      return { ok: false, error: 'A user with this email already exists.' };
+    }
+
+    const createdUser = await createAuthUserForBusiness({
+      businessId,
+      name: employeeDraft.name,
+      email: loginEmail,
+      password: loginPassword,
+      role: loginRole,
+    });
+
+    if (!createdUser.ok || !createdUser.user) {
+      return { ok: false, error: createdUser.error ?? 'Could not create user account.' };
+    }
+
+    linkedUser = createdUser.user;
+    employeeDraft.userId = createdUser.user.id;
+    if (!employeeDraft.email) {
+      employeeDraft.email = createdUser.user.email;
+    }
+  }
+
+  const employeeResult = await createEmployeeForBusiness({ businessId, employee: employeeDraft });
+  if (!employeeResult.ok) {
+    return employeeResult;
+  }
+
+  return {
+    ok: true,
+    employee: normalizeEmployeeAccountRecord(employeeResult.employee),
+    user: linkedUser,
+  };
+}
+
+export async function updateEmployeeAccessForBusiness({ businessId, employeeId, accountAccess }) {
+  const existingEmployee = await getEmployeeForBusiness(businessId, employeeId);
+  if (!existingEmployee) {
+    return { ok: false, error: 'Employee not found.' };
+  }
+
+  const mode = normalizeAccountAccessMode(accountAccess?.mode);
+  const nextEmployee = normalizeEmployeeForWrite({
+    ...existingEmployee,
+    userId: existingEmployee.userId,
+  });
+
+  let linkedUser = null;
+
+  if (mode === 'none') {
+    nextEmployee.userId = null;
+  }
+
+  if (mode === 'link_existing') {
+    const linkUserId = typeof accountAccess?.userId === 'string' ? accountAccess.userId.trim() : '';
+    if (!linkUserId) return { ok: false, error: 'A user account is required to link access.' };
+
+    const user = await getBusinessUserById(businessId, linkUserId);
+    if (!user) return { ok: false, error: 'Selected user account was not found.' };
+
+    const existingLinked = await findActiveEmployeeByUserId(businessId, user.id);
+    if (existingLinked && existingLinked.id !== employeeId) {
+      return { ok: false, error: 'This user account is already linked to an active employee.', employee: existingLinked };
+    }
+
+    nextEmployee.userId = user.id;
+    if (!nextEmployee.email) {
+      nextEmployee.email = user.email;
+    }
+    linkedUser = user;
+  }
+
+  if (mode === 'create_login') {
+    const loginEmail = typeof accountAccess?.loginEmail === 'string' ? accountAccess.loginEmail.trim() : '';
+    const loginPassword = typeof accountAccess?.password === 'string' ? accountAccess.password : '';
+    const loginRole = accountAccess?.role;
+
+    if (!loginEmail) return { ok: false, error: 'Login email is required when creating access.' };
+    if (loginPassword.length < 8) return { ok: false, error: 'Password must be at least 8 characters.' };
+    if (loginRole !== 'admin' && loginRole !== 'foreman' && loginRole !== 'crew_member') {
+      return { ok: false, error: 'Access role is invalid.' };
+    }
+
+    const existingUserByEmail = await getBusinessUserByEmail(businessId, loginEmail);
+    if (existingUserByEmail) {
+      return { ok: false, error: 'A user with this email already exists.' };
+    }
+
+    const createdUser = await createAuthUserForBusiness({
+      businessId,
+      name: nextEmployee.name,
+      email: loginEmail,
+      password: loginPassword,
+      role: loginRole,
+    });
+
+    if (!createdUser.ok || !createdUser.user) {
+      return { ok: false, error: createdUser.error ?? 'Could not create user account.' };
+    }
+
+    nextEmployee.userId = createdUser.user.id;
+    if (!nextEmployee.email) {
+      nextEmployee.email = createdUser.user.email;
+    }
+    linkedUser = createdUser.user;
+  }
+
+  const updateResult = await updateEmployeeForBusiness({ businessId, employee: nextEmployee });
+  if (!updateResult.ok) return updateResult;
+
+  return {
+    ok: true,
+    employee: normalizeEmployeeAccountRecord(nextEmployee),
+    user: linkedUser,
+  };
 }
 
 export async function deleteEmployeeForBusiness(businessId, employeeId) {

@@ -41,7 +41,7 @@ async function resolveCapabilitiesForUser(user, getEmployeeForBusinessFn) {
   try {
     const employee = await getEmployeeForBusinessFn(user.businessId, employeeId);
     return {
-      paidDriveTime: employee?.paidDriveTimeEnabled === true,
+      paidDriveTime: Boolean(employee),
     };
   } catch {
     return { paidDriveTime: false };

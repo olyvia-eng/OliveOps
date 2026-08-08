@@ -82,7 +82,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       capabilities: {
-        paidDriveTime: sessionEmployee?.paidDriveTimeEnabled === true,
+        paidDriveTime: Boolean(sessionEmployee),
       },
       forms: filterRecordsForSession(session, 'forms', forms),
       formFields: filterRecordsForSession(session, 'form-fields', formFields),

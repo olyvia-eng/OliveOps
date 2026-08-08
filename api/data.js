@@ -5,6 +5,7 @@ import {
   createAuditEventForBusiness,
   createCustomerForBusiness,
   createEmployeeForBusiness,
+  createEmployeeWithAccessForBusiness,
   createEquipmentAssetForBusiness,
   createUnbillableTimeCategoryForBusiness,
   createMaterialCatalogItemForBusiness,
@@ -21,7 +22,6 @@ import {
   createLabourBudgetPlanForBusiness,
   createTemplateForBusiness,
   createTimeEntryForBusiness,
-  deleteAuthUserForBusinessByEmail,
   deleteBudgetForBusiness,
   deleteBudgetItemForBusiness,
   deleteBudgetRateForBusiness,
@@ -910,7 +910,11 @@ export default async function handler(req, res) {
     if (!session) return;
 
     const record = req.body?.data;
-    if (!record || typeof record !== 'object' || typeof record.id !== 'string') {
+    if (!record || typeof record !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Invalid payload' });
+    }
+
+    if (entity !== 'employees' && typeof record.id !== 'string') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
     }
 
@@ -1022,6 +1026,25 @@ export default async function handler(req, res) {
 
     if (entity === 'time-entries' && isTimeEntryOpenLike(record)) {
       return res.status(409).json({ ok: false, error: 'Use clocking actions for active shift changes.' });
+    }
+
+    if (entity === 'employees') {
+      const accessPayload = req.body?.accountAccess;
+      try {
+        const created = await createEmployeeWithAccessForBusiness({
+          businessId: session.businessId,
+          payload: {
+            employee: record,
+            accountAccess: accessPayload,
+          },
+        });
+        if (!created.ok) {
+          return res.status(409).json({ ok: false, error: created.error ?? 'Could not create employee' });
+        }
+        return res.status(200).json({ ok: true, employee: created.employee, user: created.user ?? null });
+      } catch {
+        return res.status(500).json({ ok: false, error: 'Could not create employees' });
+      }
     }
 
     try {
@@ -1236,16 +1259,6 @@ export default async function handler(req, res) {
     try {
       if (entity === 'unbillable-time-categories') {
         return res.status(409).json({ ok: false, error: 'Unbillable categories are archive-only. Set active=false instead.' });
-      }
-
-      if (entity === 'employees') {
-        const existing = await getEmployeeForBusiness(session.businessId, id);
-        if (existing?.email) {
-          const authDelete = await deleteAuthUserForBusinessByEmail(session.businessId, existing.email);
-          if (!authDelete.ok) {
-            return res.status(409).json({ ok: false, error: authDelete.error });
-          }
-        }
       }
 
       await config.remove(session.businessId, id);

@@ -144,10 +144,6 @@ async function validateActivityAndJobRules({
     if (error) return { error };
   }
 
-  if (request.requestedActivityType === 'drive_time' && employee?.paidDriveTimeEnabled !== true) {
-    return { error: 'Drive Time is not enabled for this employee.' };
-  }
-
   if (request.requestedActivityType === 'non_billable') {
     if (!request.requestedUnbillableCategoryId) {
       return { error: 'Non-billable corrections require an unbillable category.' };

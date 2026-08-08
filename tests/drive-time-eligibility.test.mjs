@@ -545,7 +545,7 @@ test('crew member cannot change paid drive time eligibility through employee upd
   assert.equal(res.body.ok, false);
 });
 
-test('backend rejects drive time clock-in for ineligible employee', async (t) => {
+test('backend allows drive time clock-in regardless of employee flag', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {
     businessId: 'biz-clock',
@@ -596,8 +596,8 @@ test('backend rejects drive time clock-in for ineligible employee', async (t) =>
 
   await clockingHandler(req, res);
 
-  assert.equal(res.statusCode, 403);
-  assert.equal(res.body.error, 'Drive time is not enabled for this employee.');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body?.timeEntry?.workType, 'drive_time');
 });
 
 test('eligible employee can pass drive time validation for clock-in', async (t) => {
@@ -902,7 +902,7 @@ test('switch activity allows eligible employee to move from job work to drive ti
   assert.deepEqual(res.body.timeEntry.jobIds, ['job-next']);
 });
 
-test('switch activity rejects job work to drive time when employee is ineligible', async (t) => {
+test('switch activity allows job work to drive time regardless of employee flag', async (t) => {
   const store = await setupSwitchContext({
     t,
     businessId: 'biz-switch-job-drive-deny',
@@ -932,8 +932,8 @@ test('switch activity rejects job work to drive time when employee is ineligible
 
   await clockingHandler(req, res);
 
-  assert.equal(res.statusCode, 403);
-  assert.equal(res.body.error, 'Drive time is not enabled for this employee.');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.timeEntry.workType, 'drive_time');
 });
 
 test('switch activity supports job work to unbillable transition with active category', async (t) => {
@@ -1600,9 +1600,9 @@ test('data endpoint rejects opening/activating entries via patch outside clockin
   assert.equal(reopenRes.body.error, 'Use clocking actions for active shift changes.');
 });
 
-test('drive-time eligibility helper keeps non-drive work types allowed', () => {
+test('drive-time helper allows all work types', () => {
   assert.equal(canRecordDriveTime('job', { paidDriveTimeEnabled: false }), true);
   assert.equal(canRecordDriveTime('non_billable', { paidDriveTimeEnabled: false }), true);
-  assert.equal(canRecordDriveTime('drive_time', { paidDriveTimeEnabled: false }), false);
+  assert.equal(canRecordDriveTime('drive_time', { paidDriveTimeEnabled: false }), true);
   assert.equal(canRecordDriveTime('drive_time', { paidDriveTimeEnabled: true }), true);
 });

@@ -36,7 +36,7 @@ function payloadHash(payload) {
 
 export function canRecordDriveTime(workType, employee) {
   if (workType !== 'drive_time') return true;
-  return employee?.paidDriveTimeEnabled === true;
+  return true;
 }
 
 function ensureClockingEmployee(session, employeeId) {
