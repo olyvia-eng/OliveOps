@@ -10,6 +10,7 @@ import {
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { normalizeBudgetDivision } from '../../src/config/budgetDivisions.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -2676,7 +2677,7 @@ export async function listBudgetsForBusiness(businessId) {
     id: item.budgetId,
     name: item.name,
     budgetType: item.budgetType,
-    division: item.division,
+    division: normalizeBudgetDivision(item.division) ?? item.division,
     fiscalYear: item.fiscalYear,
     status: item.status,
     createdAt: item.createdAt,
@@ -2685,16 +2686,26 @@ export async function listBudgetsForBusiness(businessId) {
 }
 
 export async function createBudgetForBusiness({ businessId, budget }) {
+  const division = normalizeBudgetDivision(budget?.division);
+  if (!division) {
+    throw new Error('Budget division is invalid.');
+  }
+
+  const nextBudget = {
+    ...budget,
+    division,
+  };
+
   await ddb.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         PK: businessPk(businessId),
-        SK: budgetMetaSk(budget.id),
+        SK: budgetMetaSk(nextBudget.id),
         entityType: 'BUDGET',
         businessId,
-        budgetId: budget.id,
-        ...budget,
+        budgetId: nextBudget.id,
+        ...nextBudget,
       },
       ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
     })
@@ -2719,7 +2730,7 @@ export async function getBudgetForBusiness(businessId, budgetId) {
         id: result.Item.budgetId,
         name: result.Item.name,
         budgetType: result.Item.budgetType,
-        division: result.Item.division,
+        division: normalizeBudgetDivision(result.Item.division) ?? result.Item.division,
         fiscalYear: result.Item.fiscalYear,
         status: result.Item.status,
         createdAt: result.Item.createdAt,
@@ -2729,16 +2740,26 @@ export async function getBudgetForBusiness(businessId, budgetId) {
 }
 
 export async function updateBudgetForBusiness({ businessId, budget }) {
+  const division = normalizeBudgetDivision(budget?.division);
+  if (!division) {
+    throw new Error('Budget division is invalid.');
+  }
+
+  const nextBudget = {
+    ...budget,
+    division,
+  };
+
   await ddb.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         PK: businessPk(businessId),
-        SK: budgetMetaSk(budget.id),
+        SK: budgetMetaSk(nextBudget.id),
         entityType: 'BUDGET',
         businessId,
-        budgetId: budget.id,
-        ...budget,
+        budgetId: nextBudget.id,
+        ...nextBudget,
       },
       ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
     })

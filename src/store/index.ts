@@ -171,7 +171,7 @@ interface AppState {
   rejectTimeCorrectionRequest: (id: ID, reviewNote?: string) => Promise<{ ok: boolean; error?: string; correction?: TimeCorrectionRequest }>;
 
   // Budget
-  addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Budget;
+  addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget | null>;
   updateBudget: (id: ID, data: Partial<Budget>) => void;
   deleteBudget: (id: ID) => void;
   addBudgetItem: (item: Omit<BudgetItem, 'id'>) => void;
@@ -1408,7 +1408,7 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Budget ────────────────────────────────────────────────────────────
-      addBudget: (budgetInput) => {
+      addBudget: async (budgetInput) => {
         const previous = get().budgets;
         const budget = {
           ...budgetInput,
@@ -1418,19 +1418,22 @@ export const useStore = create<AppState>()((set, get) => ({
         };
         set((s) => ({ budgets: [...s.budgets, budget] }));
 
-        void ensureOk(fetch(dataUrl('budgets'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: budget }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('budgets'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: budget }),
+          }));
+
+          return budget;
+        } catch (error: unknown) {
           set({ budgets: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget could not be saved.') });
-        });
-
-        return budget;
+          return null;
+        }
       },
       updateBudget: (id, data) => {
         const previous = get().budgets;

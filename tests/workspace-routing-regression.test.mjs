@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync('src/App.tsx', 'utf8');
+const budgetsSource = readFileSync('src/pages/budget/BudgetsPage.tsx', 'utf8');
+const budgetDetailSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
@@ -41,6 +43,7 @@ test('estimate editing uses a URL-backed tab workspace with restricted analysis'
   assert.match(estimateWorkspaceSource, /Open Work Area/);
   assert.match(estimateWorkspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
   assert.match(estimateWorkspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workAreaId\}`\)/);
+  assert.match(estimateWorkspaceSource, /\{budgets\.map\(\(budget\) => \(/);
   assert.match(estimateWorkspaceSource, /Your proposal isn't ready yet/);
   assert.match(estimateWorkspaceSource, /Nothing to analyze yet/);
 });
@@ -50,8 +53,19 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(appSource, /<EstimateWorkAreaBuilderPage currentUserRole=\{sessionUser\.role\} \/>/);
   assert.match(workAreaBuilderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
   assert.match(workAreaBuilderSource, /Pricing: \$\{pricingBudget\.name\}/);
+  assert.match(workAreaBuilderSource, /rate\.budgetId === estimate\.pricingBudgetId/);
   assert.match(workAreaBuilderSource, /Custom Line Item|Custom \$\{CATEGORY_LABEL\[customItemCategory\]\} Item/);
   assert.match(workAreaBuilderSource, /Delete Work Area/);
+});
+
+test('budget screens use canonical division options and distinct invalid-division UX', () => {
+  assert.match(budgetsSource, /import \{[^\n]*BUDGET_DIVISIONS[^\n]*toBudgetDivisionLabel[^\n]*\} from '\.\.\/\.\.\/config\/budgetDivisions'/);
+  assert.match(budgetsSource, /<Select\s+label="Division"/);
+  assert.match(budgetsSource, /BUDGET_DIVISIONS\.map\(\(division\) => \(/);
+  assert.match(budgetsSource, /const created = await addBudget\(\{/);
+  assert.match(budgetDetailSource, /Budget not found/);
+  assert.match(budgetDetailSource, /Budget configuration is invalid/);
+  assert.match(budgetDetailSource, /normalizeBudgetDivision\(activeBudget\.division\)/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {
