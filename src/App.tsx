@@ -31,8 +31,6 @@ const EmployeesDashboardPage = lazy(() => import('./pages/department-dashboards/
 const DataCenterDashboardPage = lazy(() => import('./pages/department-dashboards/DataCenterDashboardPage'));
 const ModulePlaceholderPage = lazy(() => import('./pages/placeholders/ModulePlaceholderPage'));
 const InvoicesPage = lazy(() => import('./pages/finance/InvoicesPage'));
-const ExpensesPage = lazy(() => import('./pages/finance/ExpensesPage'));
-const ProfitLossPage = lazy(() => import('./pages/finance/ProfitLossPage'));
 const MaterialsEquipmentCatalogPage = lazy(() => import('./pages/data-center/EquipmentCatalogPage'));
 const EquipmentPage = lazy(() => import('./pages/data-center/EquipmentCatalogPage'));
 const FormsPage = lazy(() => import('./pages/operations/FormsPage'));
@@ -499,8 +497,6 @@ export default function App() {
               />
               <Route path="finance/dashboard" element={<FinanceDashboardPage />} />
               <Route path="finance/invoices" element={<InvoicesPage />} />
-              <Route path="finance/expenses" element={<ExpensesPage />} />
-              <Route path="finance/profit-loss" element={<ProfitLossPage />} />
               <Route path="operations/dashboard" element={<OperationsDashboardPage />} />
               <Route path="operations/equipment" element={<EquipmentPage />} />
               <Route path="operations/forms" element={<FormsPage />} />

@@ -5,7 +5,7 @@ export default function FinanceDashboardPage() {
     <ModulePlaceholderPage
       title="Finance Dashboard"
       question="What is the current cash position and where are costs drifting?"
-      summary="Bring budgets, expenses, and profitability into one view so finance decisions stay clear and timely."
+      summary="Bring budgets, invoices, and payroll readiness into one view so finance decisions stay clear and timely."
     />
   );
 }

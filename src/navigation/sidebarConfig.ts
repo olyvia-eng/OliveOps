@@ -5,7 +5,6 @@ import {
   FileBox,
   FileText,
   FolderOpen,
-  HandCoins,
   Receipt,
   LayoutDashboard,
   UserCheck,
@@ -56,8 +55,6 @@ const NAVIGATION_CONFIG: SidebarConfig = {
       items: [
         { id: 'finance-company-budget', type: 'link', to: '/budgets', label: 'Budgets', icon: icon(Wallet) },
         { id: 'finance-invoices', type: 'link', to: '/finance/invoices', label: 'Invoices', icon: icon(Receipt) },
-        { id: 'finance-expenses', type: 'link', to: '/finance/expenses', label: 'Expenses', icon: icon(HandCoins) },
-        { id: 'finance-profit-loss', type: 'link', to: '/finance/profit-loss', label: 'Profit & Loss', icon: icon(FileText) },
         {
           id: 'finance-reports',
           type: 'link',
