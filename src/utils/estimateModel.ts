@@ -1,4 +1,4 @@
-import type { Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
+import type { BudgetRate, Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
 
 const DEFAULT_AREA_NAME = 'General';
@@ -37,6 +37,63 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     total,
     markup: markupPercent,
   };
+}
+
+export function createEmptyEstimateLineItem(category: LineItemCategory = 'labour'): EstimateLineItem {
+  return {
+    id: generateId(),
+    category,
+    itemName: '',
+    description: '',
+    quantity: 1,
+    unit: category === 'labour' || category === 'equipment' ? 'hr' : 'unit',
+    unitCost: 0,
+    markupPercent: 0,
+    sellPrice: 0,
+    total: 0,
+    markup: 0,
+  };
+}
+
+export function calculateEstimateLineItem(item: EstimateLineItem, options?: { recalculateSellPrice?: boolean }): EstimateLineItem {
+  if (!options?.recalculateSellPrice) {
+    return normalizeEstimateLineItem(item);
+  }
+
+  const quantity = Math.max(0, asNumber(item.quantity, 0));
+  const unitCost = Math.max(0, asNumber(item.unitCost, 0));
+  const markupPercent = Math.max(0, asNumber(item.markupPercent, asNumber(item.markup, 0)));
+  const sellPrice = unitCost * (1 + markupPercent / 100);
+
+  return normalizeEstimateLineItem({
+    ...item,
+    quantity,
+    unitCost,
+    markupPercent,
+    sellPrice,
+    markup: markupPercent,
+  });
+}
+
+export function applyBudgetRateToEstimateLineItem(lineItem: EstimateLineItem, rate: BudgetRate): EstimateLineItem {
+  const sellPrice = rate.defaultSellPrice > 0
+    ? rate.defaultSellPrice
+    : rate.unitCost * (1 + rate.defaultMarkupPercent / 100);
+
+  return calculateEstimateLineItem({
+    ...lineItem,
+    category: rate.category,
+    sourceBudgetId: rate.budgetId,
+    sourceRateId: rate.id,
+    sourceCategory: rate.category,
+    itemName: rate.itemName,
+    description: rate.description,
+    unit: rate.unit,
+    unitCost: rate.unitCost,
+    markupPercent: rate.defaultMarkupPercent,
+    sellPrice,
+    markup: rate.defaultMarkupPercent,
+  });
 }
 
 function fromLegacyLineItem(lineItem: LineItem): EstimateLineItem {
@@ -103,6 +160,28 @@ export function flattenWorkAreaLineItems(workAreas: EstimateWorkArea[]): Estimat
 
 export function computeWorkAreaSubtotal(workArea: EstimateWorkArea): number {
   return workArea.lineItems.reduce((sum, item) => sum + asNumber(item.total, 0), 0);
+}
+
+export function computeWorkAreaEstimatedCost(workArea: EstimateWorkArea): number {
+  return workArea.lineItems.reduce((sum, item) => {
+    const quantity = asNumber(item.quantity, 0);
+    const unitCost = asNumber(item.unitCost, 0);
+    return sum + (quantity * unitCost);
+  }, 0);
+}
+
+export function computeWorkAreaCategoryCostTotals(workArea: EstimateWorkArea): Record<LineItemCategory, number> {
+  return workArea.lineItems.reduce<Record<LineItemCategory, number>>((accumulator, item) => {
+    const quantity = asNumber(item.quantity, 0);
+    const unitCost = asNumber(item.unitCost, 0);
+    accumulator[item.category] += quantity * unitCost;
+    return accumulator;
+  }, {
+    labour: 0,
+    equipment: 0,
+    material: 0,
+    subcontractor: 0,
+  });
 }
 
 export function computeEstimateSubtotal(workAreas: EstimateWorkArea[]): number {

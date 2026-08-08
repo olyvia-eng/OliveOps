@@ -1,6 +1,10 @@
 import { Plus, Trash2 } from 'lucide-react';
 import type { BudgetRate, EstimateLineItem, LineItemCategory } from '../../types';
-import { generateId } from '../../utils';
+import {
+  applyBudgetRateToEstimateLineItem,
+  calculateEstimateLineItem,
+  createEmptyEstimateLineItem,
+} from '../../utils/estimateModel';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import { Button } from '../../components/ui';
 
@@ -15,36 +19,17 @@ interface Props {
 
 export default function EstimateLineItemEditor({ items, onChange, pricingBudgetId, budgetRates = [] }: Props) {
   const addItem = () => {
-    const newItem: EstimateLineItem = {
-      id: generateId(),
-      category: 'labour',
-      itemName: '',
-      description: '',
-      quantity: 1,
-      unit: 'hr',
-      unitCost: 0,
-      markupPercent: 0,
-      sellPrice: 0,
-      total: 0,
-      markup: 0,
-    };
-    onChange([...items, newItem]);
+    onChange([...items, createEmptyEstimateLineItem('labour')]);
   };
 
   const update = (id: string, key: keyof EstimateLineItem, value: unknown) => {
     onChange(
       items.map((li) => {
         if (li.id !== id) return li;
-        const updated = { ...li, [key]: value };
-        const quantity = Number.isFinite(updated.quantity) ? updated.quantity : 0;
-        const unitCost = Number.isFinite(updated.unitCost) ? updated.unitCost : 0;
-        const markupPercent = Number.isFinite(updated.markupPercent) ? updated.markupPercent : 0;
-        if (key === 'unitCost' || key === 'markupPercent') {
-          updated.sellPrice = unitCost * (1 + markupPercent / 100);
-        }
-        updated.total = quantity * (Number.isFinite(updated.sellPrice) ? updated.sellPrice : 0);
-        updated.markup = updated.markupPercent;
-        return updated;
+        return calculateEstimateLineItem(
+          { ...li, [key]: value } as EstimateLineItem,
+          { recalculateSellPrice: key === 'unitCost' || key === 'markupPercent' }
+        );
       })
     );
   };
@@ -61,26 +46,7 @@ export default function EstimateLineItemEditor({ items, onChange, pricingBudgetI
 
     onChange(items.map((lineItem) => {
       if (lineItem.id !== lineItemId) return lineItem;
-      const sellPrice = rate.defaultSellPrice > 0
-        ? rate.defaultSellPrice
-        : rate.unitCost * (1 + rate.defaultMarkupPercent / 100);
-      const quantity = Number.isFinite(lineItem.quantity) ? lineItem.quantity : 0;
-
-      return {
-        ...lineItem,
-        category: rate.category,
-        sourceBudgetId: rate.budgetId,
-        sourceRateId: rate.id,
-        sourceCategory: rate.category,
-        itemName: rate.itemName,
-        description: rate.description,
-        unit: rate.unit,
-        unitCost: rate.unitCost,
-        markupPercent: rate.defaultMarkupPercent,
-        sellPrice,
-        total: quantity * sellPrice,
-        markup: rate.defaultMarkupPercent,
-      };
+      return applyBudgetRateToEstimateLineItem(lineItem, rate);
     }));
   };
 

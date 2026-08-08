@@ -8,6 +8,8 @@ import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Text
 import { emitAppToast } from '../../toast';
 import { formatCurrency, formatDate, formatDateTime, generateId, statusColor } from '../../utils';
 import {
+  computeWorkAreaCategoryCostTotals,
+  computeWorkAreaEstimatedCost,
   computeEstimateSubtotal,
   computeEstimateTax,
   computeEstimateTotal,
@@ -19,12 +21,9 @@ import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/n
 import type {
   Address,
   Estimate,
-  EstimateLineItem,
   EstimateStatus,
   EstimateWorkArea,
-  ID,
 } from '../../types';
-import EstimateLineItemEditor from './EstimateLineItemEditor';
 
 type EstimateTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis';
 
@@ -185,7 +184,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     estimates,
     customers,
     budgets,
-    budgetRates,
     updateEstimate,
     sendEstimate,
     deleteEstimate,
@@ -244,47 +242,50 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     });
   };
 
-  const setWorkArea = (workAreaId: ID, data: Partial<EstimateWorkArea>) => {
-    setForm((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        workAreas: current.workAreas.map((workArea) => (
-          workArea.id === workAreaId ? { ...workArea, ...data } : workArea
-        )),
-      };
-    });
+  const persistEstimateForm = (nextForm: EstimateFormState) => {
+    if (!estimate) return;
+
+    const normalizedWorkAreas = nextForm.workAreas.map((area, index) => ({
+      ...area,
+      name: area.name.trim() || `Work Area ${index + 1}`,
+      sortOrder: index,
+    }));
+
+    const payload: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'> = {
+      ...nextForm,
+      proposalNumber: nextForm.proposalNumber?.trim() || estimate.proposalNumber || '',
+      title: nextForm.title.trim(),
+      description: nextForm.description ?? '',
+      workAreas: normalizedWorkAreas,
+      lineItems: flattenWorkAreaLineItems(normalizedWorkAreas),
+      notes: nextForm.notes ?? '',
+      validUntil: nextForm.validUntil,
+    };
+
+    updateEstimate(estimate.id, payload);
   };
 
   const addWorkArea = () => {
-    setForm((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        workAreas: [
-          ...current.workAreas,
-          {
-            id: generateId(),
-            name: `Work Area ${current.workAreas.length + 1}`,
-            description: '',
-            sortOrder: current.workAreas.length,
-            lineItems: [],
-          },
-        ],
-      };
-    });
-  };
+    if (!estimate || !form) return;
 
-  const deleteWorkArea = (workAreaId: ID) => {
-    setForm((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        workAreas: current.workAreas
-          .filter((workArea) => workArea.id !== workAreaId)
-          .map((workArea, index) => ({ ...workArea, sortOrder: index })),
-      };
-    });
+    const workAreaId = generateId();
+    const nextForm: EstimateFormState = {
+      ...form,
+      workAreas: [
+        ...form.workAreas,
+        {
+          id: workAreaId,
+          name: `Work Area ${form.workAreas.length + 1}`,
+          description: '',
+          sortOrder: form.workAreas.length,
+          lineItems: [],
+        },
+      ],
+    };
+
+    setForm(nextForm);
+    persistEstimateForm(nextForm);
+    navigate(`/estimates/${estimate.id}/work-areas/${workAreaId}`);
   };
 
   const save = () => {
@@ -294,24 +295,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       return;
     }
 
-    const normalizedWorkAreas = form.workAreas.map((area, index) => ({
-      ...area,
-      name: area.name.trim() || `Work Area ${index + 1}`,
-      sortOrder: index,
-    }));
-
-    const payload: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'> = {
-      ...form,
-      proposalNumber: form.proposalNumber?.trim() || estimate.proposalNumber || '',
-      title: form.title.trim(),
-      description: form.description ?? '',
-      workAreas: normalizedWorkAreas,
-      lineItems: flattenWorkAreaLineItems(normalizedWorkAreas),
-      notes: form.notes ?? '',
-      validUntil: form.validUntil,
-    };
-
-    updateEstimate(estimate.id, payload);
+    persistEstimateForm(form);
     emitAppToast({ tone: 'success', message: 'Estimate saved.' });
   };
 
@@ -603,37 +587,60 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                 description="Break the project into sections of work such as Excavation, Backfilling, or Interlock Patio."
                 action={<Button variant="secondary" size="sm" onClick={addWorkArea}><Plus size={14} /> Add Work Area</Button>}
               />
-            ) : form.workAreas
-              .slice()
-              .sort((a, b) => a.sortOrder - b.sortOrder)
-              .map((workArea) => (
-                <div key={workArea.id} className="rounded-lg border border-gray-200 p-3 bg-white space-y-2">
-                  <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
-                    <Input
-                      label="Area Name"
-                      value={workArea.name}
-                      onChange={(event) => setWorkArea(workArea.id, { name: event.target.value })}
-                    />
-                    <Button variant="ghost" size="sm" onClick={() => deleteWorkArea(workArea.id)}>
-                      <Trash2 size={13} />
-                    </Button>
-                  </div>
-                  <TextArea
-                    label="Area Description"
-                    value={workArea.description}
-                    onChange={(event) => setWorkArea(workArea.id, { description: event.target.value })}
-                  />
-                  <EstimateLineItemEditor
-                    items={workArea.lineItems}
-                    pricingBudgetId={form.pricingBudgetId}
-                    budgetRates={budgetRates}
-                    onChange={(lineItems: EstimateLineItem[]) => setWorkArea(workArea.id, { lineItems })}
-                  />
-                  <div className="flex justify-end text-xs text-gray-600">
-                    Area Subtotal: <span className="ml-1 font-semibold">{formatCurrency(computeWorkAreaSubtotal(workArea))}</span>
-                  </div>
-                </div>
-              ))}
+            ) : (
+              <div className="space-y-3">
+                {form.workAreas
+                  .slice()
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((workArea) => {
+                    const estimatedCost = computeWorkAreaEstimatedCost(workArea);
+                    const sellPrice = computeWorkAreaSubtotal(workArea);
+                    const categoryTotals = computeWorkAreaCategoryCostTotals(workArea);
+                    const lineItemCount = workArea.lineItems.length;
+
+                    return (
+                      <button
+                        key={workArea.id}
+                        type="button"
+                        onClick={() => navigate(`/estimates/${estimate.id}/work-areas/${workArea.id}`)}
+                        className="w-full rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-4 text-left transition-colors hover:bg-brand-50/60 dark:hover:bg-brand-700"
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-base font-semibold text-gray-900 dark:text-brand-50">{workArea.name}</h3>
+                            {workArea.description?.trim() ? (
+                              <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">{workArea.description}</p>
+                            ) : null}
+                            <p className="mt-3 text-xs text-gray-500 dark:text-brand-300">{lineItemCount} line item{lineItemCount === 1 ? '' : 's'}</p>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:min-w-[260px]">
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-brand-300">Estimated Cost</p>
+                              <p className="text-base font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(estimatedCost)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500 dark:text-brand-300">Sell Price</p>
+                              <p className="text-base font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(sellPrice)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                          {categoryTotals.labour > 0 ? <p className="text-gray-700 dark:text-brand-100">Labour <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.labour)}</span></p> : null}
+                          {categoryTotals.equipment > 0 ? <p className="text-gray-700 dark:text-brand-100">Equipment <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.equipment)}</span></p> : null}
+                          {categoryTotals.material > 0 ? <p className="text-gray-700 dark:text-brand-100">Materials <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.material)}</span></p> : null}
+                          {categoryTotals.subcontractor > 0 ? <p className="text-gray-700 dark:text-brand-100">Subcontractors <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.subcontractor)}</span></p> : null}
+                        </div>
+
+                        <div className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                          Open Work Area <ChevronRight size={14} />
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </Card>
 
           {hasWorkAreas ? (

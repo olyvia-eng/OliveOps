@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const appSource = readFileSync('src/App.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
+const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
@@ -36,8 +37,21 @@ test('estimate editing uses a URL-backed tab workspace with restricted analysis'
   assert.match(estimateWorkspaceSource, /activeTab === 'analysis' && canViewAnalysis/);
   assert.match(estimateWorkspaceSource, /setSearchParams\(\(previous\) =>/);
   assert.match(estimateWorkspaceSource, /No work areas yet/);
+  assert.match(estimateWorkspaceSource, /Estimated Cost/);
+  assert.match(estimateWorkspaceSource, /Open Work Area/);
+  assert.match(estimateWorkspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
+  assert.match(estimateWorkspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workAreaId\}`\)/);
   assert.match(estimateWorkspaceSource, /Your proposal isn't ready yet/);
   assert.match(estimateWorkspaceSource, /Nothing to analyze yet/);
+});
+
+test('work-area builder uses a dedicated nested route and returns to estimate work-areas tab', () => {
+  assert.match(appSource, /path="estimates\/:id\/work-areas\/:workAreaId"/);
+  assert.match(appSource, /<EstimateWorkAreaBuilderPage currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(workAreaBuilderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
+  assert.match(workAreaBuilderSource, /Pricing: \$\{pricingBudget\.name\}/);
+  assert.match(workAreaBuilderSource, /Custom Line Item|Custom \$\{CATEGORY_LABEL\[customItemCategory\]\} Item/);
+  assert.match(workAreaBuilderSource, /Delete Work Area/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {

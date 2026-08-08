@@ -10,6 +10,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const CRMPage = lazy(() => import('./pages/crm/CRMPage'));
 const EstimatesPage = lazy(() => import('./pages/estimates/EstimatesPage'));
 const EstimateWorkspacePage = lazy(() => import('./pages/estimates/EstimateWorkspacePage'));
+const EstimateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/EstimateWorkAreaBuilderPage'));
 const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
@@ -577,6 +578,10 @@ export default function App() {
               <Route
                 path="estimates/:id"
                 element={<EstimateWorkspacePage currentUserRole={sessionUser.role} />}
+              />
+              <Route
+                path="estimates/:id/work-areas/:workAreaId"
+                element={<EstimateWorkAreaBuilderPage currentUserRole={sessionUser.role} />}
               />
               <Route path="estimates/templates" element={<TemplatesPage />} />
               <Route path="jobs" element={<JobsPage />} />
