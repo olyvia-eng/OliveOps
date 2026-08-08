@@ -1,17 +1,12 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { useStore } from '../store';
-import { Card, PageHeader, StatCard } from '../components/ui';
+import { CalendarDays, Briefcase, DollarSign, FileText, TrendingUp, Users, Wallet } from 'lucide-react';
 import DashboardOnboardingCard from '../components/dashboard/DashboardOnboardingCard';
-import { buildDashboardOnboardingItems } from '../components/dashboard/onboardingProgress';
+import { buildDashboardOnboardingItems, calculateDashboardOnboardingProgress } from '../components/dashboard/onboardingProgress';
+import { Card, PageHeader, StatCard } from '../components/ui';
+import { useStore } from '../store';
 import { formatCurrency } from '../utils';
-import {
-  DollarSign,
-  TrendingUp,
-  FileText,
-  Briefcase,
-} from 'lucide-react';
 
 type ActivityEvent = {
   id: string;
@@ -33,11 +28,12 @@ const relativeTime = (value: string) => {
 };
 
 interface DashboardProps {
+  businessId?: string;
   businessName?: string;
 }
 
-export default function Dashboard({ businessName = '' }: DashboardProps) {
-  const { customers, estimates, jobs, employees, timeEntries, expenses } = useStore();
+export default function Dashboard({ businessId = '', businessName = '' }: DashboardProps) {
+  const { customers, estimates, jobs, employees, timeEntries, expenses, budgets, budgetRates } = useStore();
 
   const openEstimates = estimates.filter((estimate) => estimate.status === 'draft' || estimate.status === 'sent');
   const jobsInProgress = jobs.filter((job) => job.status === 'in_progress');
@@ -84,17 +80,16 @@ export default function Dashboard({ businessName = '' }: DashboardProps) {
       sortAt: parseTimestamp(job.updatedAt),
     }));
 
-    const timeEntryEvents: ActivityEvent[] = timeEntries
-      .map((entry) => {
-        const employee = employees.find((value) => value.id === entry.employeeId);
-        const eventAt = entry.clockOut ?? entry.clockIn;
-        return {
-          id: `time-${entry.id}`,
-          label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out' : 'clocked in'}`,
-          timestamp: eventAt,
-          sortAt: parseTimestamp(eventAt),
-        };
-      });
+    const timeEntryEvents: ActivityEvent[] = timeEntries.map((entry) => {
+      const employee = employees.find((value) => value.id === entry.employeeId);
+      const eventAt = entry.clockOut ?? entry.clockIn;
+      return {
+        id: `time-${entry.id}`,
+        label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out' : 'clocked in'}`,
+        timestamp: eventAt,
+        sortAt: parseTimestamp(eventAt),
+      };
+    });
 
     return [...estimateEvents, ...jobEvents, ...timeEntryEvents]
       .filter((event) => event.sortAt > 0)
@@ -106,131 +101,195 @@ export default function Dashboard({ businessName = '' }: DashboardProps) {
   const activeEmployees = employees.filter((employee) => employee.active).length;
   const scheduledJobs = jobs.filter((job) => job.status === 'scheduled').length;
   const onboardingItems = useMemo(() => buildDashboardOnboardingItems({
+    businessId,
     businessName,
     employees,
     customers,
     estimates,
     jobs,
-    timeEntries,
-    expenses,
-  }), [businessName, customers, employees, estimates, expenses, jobs, timeEntries]);
+    budgets,
+    budgetRates,
+  }), [budgets, budgetRates, businessId, businessName, customers, employees, estimates, jobs]);
+  const onboardingProgress = useMemo(() => calculateDashboardOnboardingProgress(onboardingItems), [onboardingItems]);
+  const hasOperationalData = estimates.length > 0 || jobs.length > 0 || timeEntries.length > 0 || expenses.length > 0;
+  const showFirstRunWelcome = !hasOperationalData && onboardingProgress.completeCount <= 1;
+  const showOnboardingCard = showFirstRunWelcome || !onboardingProgress.isComplete || onboardingProgress.optionalCompleteCount < onboardingProgress.optionalTotalCount;
 
   return (
     <div>
       <PageHeader
         title="Company Dashboard"
-        subtitle="Executive overview of business performance."
+        subtitle={showFirstRunWelcome ? 'Set up the essentials so OliveOps can start reflecting real company activity.' : 'Executive overview of business performance.'}
       />
 
-      <div className="mb-6">
-        <DashboardOnboardingCard items={onboardingItems} businessId={businessName || 'global'} />
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <StatCard
-          label="Revenue"
-          value={formatCurrency(totalRevenue)}
-          icon={<DollarSign size={32} />}
-          color="text-brand-700"
-        />
-        <StatCard
-          label="Gross Profit"
-          value={formatCurrency(grossProfit)}
-          sub={`${grossMarginPct.toFixed(1)}% margin`}
-          icon={<TrendingUp size={32} />}
-          color={grossProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}
-        />
-        <StatCard
-          label="Open Estimates"
-          value={openEstimates.length}
-          sub={formatCurrency(openEstimateValue)}
-          icon={<FileText size={32} />}
-          color="text-accent-700"
-        />
-        <StatCard
-          label="Jobs In Progress"
-          value={jobsInProgress.length}
-          sub={`${scheduledJobs} scheduled next`}
-          icon={<Briefcase size={32} />}
-          color="text-brand-600"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        <Card>
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-800">Upcoming Jobs</h2>
-            <Link to="/jobs" className="text-xs text-brand-600 hover:underline">Open Operations Dashboard</Link>
-          </div>
-          {upcomingJobs.length === 0 ? (
-            <p className="text-sm text-gray-400 p-4">No upcoming jobs scheduled.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {upcomingJobs.map((job) => {
-                const customer = customers.find((customerValue) => customerValue.id === job.customerId);
-                return (
-                  <li key={job.id} className="p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{job.title}</p>
-                      <p className="text-xs text-gray-500">{customer?.name ?? 'Unassigned customer'}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-700">{new Date(job.startDate).toLocaleDateString()}</p>
-                      <p className="text-[11px] text-gray-500 capitalize">{job.status.replace('_', ' ')}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-
-        <Card>
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-800">Recent Activity</h2>
-            <Link to="/data-center" className="text-xs text-brand-600 hover:underline">Open Data Center</Link>
-          </div>
-          {recentActivity.length === 0 ? (
-            <p className="text-sm text-gray-400 p-4">No recent activity yet.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100">
-              {recentActivity.map((event) => (
-                <li key={event.id} className="p-4 flex items-start justify-between gap-4">
-                  <p className="text-sm text-gray-800">{event.label}</p>
-                  <p className="text-xs text-gray-500 whitespace-nowrap">{relativeTime(event.timestamp)}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <Card>
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-semibold text-gray-800">Financial Summary</h2>
-          <Link to="/budget" className="text-xs text-brand-600 hover:underline">Open Finance Dashboard</Link>
+      {showOnboardingCard ? (
+        <div className="mb-6">
+          <DashboardOnboardingCard items={onboardingItems} businessId={businessId || 'global'} prominent={showFirstRunWelcome} />
         </div>
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs text-gray-500">Revenue</p>
-            <p className="text-xl font-semibold text-gray-900">{formatCurrency(totalRevenue)}</p>
+      ) : null}
+
+      {showFirstRunWelcome ? (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+            <Card className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-800 dark:text-brand-200">
+                  <Users size={18} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">Start with a client</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Clients unlock estimates, properties, and the rest of your work pipeline.</p>
+                  <Link to="/crm" className="mt-3 inline-flex text-sm font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Clients</Link>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-800 dark:text-brand-200">
+                  <Wallet size={18} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">Set up pricing</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Budgets and pricing rates give your estimates consistent labour, equipment, material, and subcontractor pricing.</p>
+                  <Link to="/budgets" className="mt-3 inline-flex text-sm font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Budgets</Link>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-800 dark:text-brand-200">
+                  <FileText size={18} aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">Build your first estimate</p>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Once a client and pricing budget exist, create an estimate and organize the scope into Work Areas.</p>
+                  <Link to="/estimates" className="mt-3 inline-flex text-sm font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Estimates</Link>
+                </div>
+              </div>
+            </Card>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Gross Profit</p>
-            <p className={`text-xl font-semibold ${grossProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>
-              {formatCurrency(grossProfit)}
-            </p>
+
+          <Card className="p-5">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-50 text-brand-700 dark:bg-brand-800 dark:text-brand-200">
+                <CalendarDays size={18} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">Your dashboard will populate as work is created</p>
+                <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Upcoming jobs, recent activity, and financial summaries will appear here after you create estimates, convert jobs, and start recording operational data.</p>
+              </div>
+            </div>
+          </Card>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+            <StatCard
+              label="Revenue"
+              value={formatCurrency(totalRevenue)}
+              icon={<DollarSign size={32} />}
+              color="text-brand-700"
+            />
+            <StatCard
+              label="Gross Profit"
+              value={formatCurrency(grossProfit)}
+              sub={`${grossMarginPct.toFixed(1)}% margin`}
+              icon={<TrendingUp size={32} />}
+              color={grossProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}
+            />
+            <StatCard
+              label="Open Estimates"
+              value={openEstimates.length}
+              sub={formatCurrency(openEstimateValue)}
+              icon={<FileText size={32} />}
+              color="text-accent-700"
+            />
+            <StatCard
+              label="Jobs In Progress"
+              value={jobsInProgress.length}
+              sub={`${scheduledJobs} scheduled next`}
+              icon={<Briefcase size={32} />}
+              color="text-brand-600"
+            />
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Gross Margin</p>
-            <p className="text-xl font-semibold text-gray-900">{grossMarginPct.toFixed(1)}%</p>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+            <Card>
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-800">Upcoming Jobs</h2>
+                <Link to="/jobs" className="text-xs text-brand-600 hover:underline">Open Operations Dashboard</Link>
+              </div>
+              {upcomingJobs.length === 0 ? (
+                <div className="p-4 text-sm text-gray-500">No upcoming jobs scheduled yet.</div>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {upcomingJobs.map((job) => {
+                    const customer = customers.find((customerValue) => customerValue.id === job.customerId);
+                    return (
+                      <li key={job.id} className="p-4 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{job.title}</p>
+                          <p className="text-xs text-gray-500">{customer?.name ?? 'Unassigned customer'}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-700">{new Date(job.startDate).toLocaleDateString()}</p>
+                          <p className="text-[11px] text-gray-500 capitalize">{job.status.replace('_', ' ')}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+
+            <Card>
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-800">Recent Activity</h2>
+                <Link to="/data-center" className="text-xs text-brand-600 hover:underline">Open Data Center</Link>
+              </div>
+              {recentActivity.length === 0 ? (
+                <div className="p-4 text-sm text-gray-500">Recent activity will appear here as estimates, jobs, and time entries are created.</div>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {recentActivity.map((event) => (
+                    <li key={event.id} className="p-4 flex items-start justify-between gap-4">
+                      <p className="text-sm text-gray-800">{event.label}</p>
+                      <p className="text-xs text-gray-500 whitespace-nowrap">{relativeTime(event.timestamp)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Active Workforce</p>
-            <p className="text-xl font-semibold text-gray-900">{activeEmployees}</p>
-          </div>
-        </div>
-      </Card>
+
+          <Card>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-800">Financial Summary</h2>
+              <Link to="/budget" className="text-xs text-brand-600 hover:underline">Open Finance Dashboard</Link>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-gray-500">Revenue</p>
+                <p className="text-xl font-semibold text-gray-900">{formatCurrency(totalRevenue)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Gross Profit</p>
+                <p className={`text-xl font-semibold ${grossProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(grossProfit)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Active Employees</p>
+                <p className="text-xl font-semibold text-gray-900">{activeEmployees}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Completed Jobs</p>
+                <p className="text-xl font-semibold text-gray-900">{completedJobs.length}</p>
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

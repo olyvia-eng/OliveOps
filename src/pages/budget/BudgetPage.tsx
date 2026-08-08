@@ -1442,7 +1442,12 @@ export default function BudgetPage() {
             </div>
 
             {scopedBudgetRates.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">No pricing rates yet for this budget.</p>
+              <EmptyState
+                title="Your pricing catalog is empty"
+                description="Add labour, equipment, material, and subcontractor rates so estimates can use your standard pricing."
+                action={<Button onClick={openNewRate}><Plus size={14} /> Add Pricing Rate</Button>}
+                helpText="Pricing rates belong to this budget and are used by estimate line items." 
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

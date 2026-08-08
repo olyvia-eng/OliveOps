@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Wallet } from 'lucide-react';
 import { useStore } from '../../store';
 import type { BudgetStatus } from '../../types';
 
@@ -106,9 +106,10 @@ export default function BudgetsPage() {
 
       {budgetRows.length === 0 ? (
         <EmptyState
-          title="No budgets yet"
-          description="Create your first budget to open the full budgeting detail page and tabs."
-          action={<Button onClick={openNew}><Plus size={16} /> New Budget</Button>}
+          icon={<Wallet aria-hidden="true" />}
+          title="Set up your first budget"
+          description="Budgets help organize your financial plan and provide pricing rates for estimates."
+          action={<Button onClick={openNew}><Plus size={16} /> Create Budget</Button>}
         />
       ) : (
         <Card className="overflow-hidden">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronRight, FileDown, Mail, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ChevronRight, FileDown, FilterX, Mail, Plus, RefreshCw, Search, Trash2, Users, Wallet, FileText } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useStore } from '../../store';
@@ -228,6 +228,10 @@ export default function EstimatesPage() {
     () => normalizeProperties(selectedCustomer?.properties, selectedCustomer?.address),
     [selectedCustomer]
   );
+  const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
+  const hasCustomers = customers.length > 0;
+  const hasBudgets = budgets.length > 0;
+  const hasPricingRates = budgets.length > 0;
 
   const filtered = estimates.filter((estimate) => {
     const customer = customers.find((item) => item.id === estimate.customerId);
@@ -239,6 +243,18 @@ export default function EstimatesPage() {
   });
 
   const openNew = () => {
+    if (!hasCustomers) {
+      emitAppToast({ tone: 'error', message: 'Add a client before creating an estimate.' });
+      navigate('/crm');
+      return;
+    }
+
+    if (!hasBudgets || !hasPricingRates) {
+      emitAppToast({ tone: 'error', message: 'Set up pricing before creating an estimate.' });
+      navigate('/budgets');
+      return;
+    }
+
     setCreateForm({
       ...defaultCreateForm(),
       pricingBudgetId: budgets.find((budget) => budget.status === 'active')?.id ?? budgets[0]?.id ?? '',
@@ -390,7 +406,40 @@ export default function EstimatesPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No estimates found" action={<Button onClick={openNew}><Plus size={16} /> New Estimate</Button>} />
+        estimates.length === 0 ? (
+          !hasCustomers ? (
+            <EmptyState
+              icon={<Users aria-hidden="true" />}
+              title="Add a client before creating an estimate"
+              description="Estimates start with a client, property, and pricing budget."
+              action={<Button onClick={() => navigate('/crm')}><Plus size={16} /> Add Client</Button>}
+              helpText="Choose the client and property first, then return here to build the estimate scope in Work Areas."
+            />
+          ) : (!hasBudgets || !hasPricingRates) ? (
+            <EmptyState
+              icon={<Wallet aria-hidden="true" />}
+              title="Set up your pricing before creating an estimate"
+              description="Pricing budgets supply your standard labour, equipment, material, and subcontractor rates."
+              action={<Button onClick={() => navigate('/budgets')}><Plus size={16} /> Set Up Pricing</Button>}
+              helpText="Create a budget and add pricing rates so estimate line items can use your company pricing." 
+            />
+          ) : (
+            <EmptyState
+              icon={<FileText aria-hidden="true" />}
+              title="Create your first estimate"
+              description="Build estimates using your company pricing and organize the scope into Work Areas."
+              action={<Button onClick={openNew}><Plus size={16} /> Create Estimate</Button>}
+              helpText="Start with a client, property, and pricing budget."
+            />
+          )
+        ) : (
+          <EmptyState
+            icon={<FilterX aria-hidden="true" />}
+            title="No estimates match your search"
+            description="Try a different search or clear your current filters."
+            action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear Filters</Button> : undefined}
+          />
+        )
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

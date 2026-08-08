@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileDown } from 'lucide-react';
+import { FileDown, FilterX, Wallet } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Button, Card, EmptyState, PageHeader, Select } from '../../components/ui';
@@ -67,6 +67,7 @@ export default function ProfitLossPage() {
   const items = useMemo(() => {
     return scopedBudgetItems.filter((item) => item.period.startsWith(`${year}-`));
   }, [scopedBudgetItems, year]);
+  const hasCompanyBudgetData = scopedBudgetItems.length > 0;
 
   const grouped = useMemo(() => {
     return CATEGORIES.reduce<Record<BudgetCategory, BudgetItem[]>>((acc, category) => {
@@ -204,6 +205,7 @@ export default function ProfitLossPage() {
           action={<Button onClick={() => navigate('/budgets')}>View Budgets</Button>}
         />
         <EmptyState
+          icon={<Wallet aria-hidden="true" />}
           title="No budgets yet"
           description="Create a budget first, then return here to export Profit & Loss reports."
           action={<Button onClick={() => navigate('/budgets')}>Go to Budgets</Button>}
@@ -271,9 +273,12 @@ export default function ProfitLossPage() {
 
       {items.length === 0 && (
         <EmptyState
-          title={`No budget items for ${year}`}
-          description="Add budget items for this year in the selected budget to generate a meaningful P&L export."
-          action={<Button onClick={() => navigate(selectedBudgetId ? `/budgets/${selectedBudgetId}` : '/budgets')}>Open Budget</Button>}
+          icon={hasCompanyBudgetData ? <FilterX aria-hidden="true" /> : <Wallet aria-hidden="true" />}
+          title={hasCompanyBudgetData ? `No data for ${year}` : 'Not enough data yet'}
+          description={hasCompanyBudgetData
+            ? 'This Profit & Loss report will populate after budget items are added for the selected year.'
+            : 'This report will populate as budget items and operating data are created.'}
+          action={<Button onClick={() => navigate(selectedBudgetId ? `/budgets/${selectedBudgetId}` : '/budgets')}>{hasCompanyBudgetData ? 'Open Budget' : 'Set Up Budget'}</Button>}
         />
       )}
     </div>

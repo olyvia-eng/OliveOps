@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Copy,
-  FileDown,
   FilePlus2,
   GripVertical,
   Plus,
@@ -743,11 +742,19 @@ export default function FormsPage() {
           </Card>
 
           {filteredForms.length === 0 ? (
-            <EmptyState
-              title="No forms found"
-              description="Create your first digital form or adjust filters to find existing forms."
-              action={<Button onClick={openNewForm}><FilePlus2 size={16} /> New Form</Button>}
-            />
+            sortedForms.length === 0 ? (
+              <EmptyState
+                title="No forms yet"
+                description="Create reusable forms for field and office workflows."
+                action={<Button onClick={openNewForm}><FilePlus2 size={16} /> New Form</Button>}
+              />
+            ) : (
+              <EmptyState
+                title="No forms match your filters"
+                description="Try different filters or create a new form if you need a new workflow."
+                action={<Button onClick={openNewForm}><FilePlus2 size={16} /> New Form</Button>}
+              />
+            )
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {filteredForms.map((form) => (
@@ -1036,7 +1043,6 @@ export default function FormsPage() {
               </div>
               <div className="mt-3 flex gap-2">
                 <Button variant="secondary" onClick={openSubmissionScreen}>Open Submission Screen</Button>
-                <Button variant="secondary"><FileDown size={16} /> Export (Placeholder)</Button>
               </div>
             </Card>
 

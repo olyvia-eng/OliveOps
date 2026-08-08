@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, Clock, LogOut } from 'lucide-react';
+import { Plus, Pencil, Trash2, Clock, LogOut, Users } from 'lucide-react';
 import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { Employee, EmployeeRole } from '../../types';
@@ -427,7 +427,13 @@ export default function EmployeesPage({ onCreateEmployee }: EmployeesPageProps) 
       />
 
       {employees.length === 0 ? (
-        <EmptyState title="No employees yet" action={<Button onClick={openNew}><Plus size={16} /> New Employee</Button>} />
+        <EmptyState
+          icon={<Users aria-hidden="true" />}
+          title="Build your crew"
+          description="Add employees so you can assign work, manage access, and track time."
+          action={<Button onClick={openNew}><Plus size={16} /> Add Employee</Button>}
+          helpText="Crew setup is optional for solo contractors."
+        />
       ) : employeeViewMode === 'card' ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {employees.map((emp) => {

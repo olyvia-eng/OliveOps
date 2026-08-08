@@ -8,6 +8,7 @@ import { calculateDashboardOnboardingProgress } from './onboardingProgress';
 type DashboardOnboardingCardProps = {
   items: DashboardOnboardingItem[];
   businessId?: string;
+  prominent?: boolean;
 };
 
 const ONBOARDING_PREF_KEY_PREFIX = 'oliveops.onboarding';
@@ -26,7 +27,7 @@ function writeBoolPref(businessId: string, key: 'minimized' | 'completed-hidden'
   window.localStorage.setItem(prefKey(businessId, key), String(value));
 }
 
-export default function DashboardOnboardingCard({ items, businessId = 'global' }: DashboardOnboardingCardProps) {
+export default function DashboardOnboardingCard({ items, businessId = 'global', prominent = false }: DashboardOnboardingCardProps) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [isCompletedHidden, setIsCompletedHidden] = useState(false);
   const [showCompletedChecklist, setShowCompletedChecklist] = useState(false);
@@ -35,6 +36,10 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
 
   const progress = useMemo(() => calculateDashboardOnboardingProgress(items), [items]);
   const checklistId = 'dashboard-onboarding-checklist';
+  const completeText = `${progress.completeCount} of ${progress.totalCount} completed`;
+  const progressText = `${progress.percent}%`;
+  const optionalRemaining = progress.optionalTotalCount - progress.optionalCompleteCount;
+  const isWelcomeMode = prominent && completeText !== `${progress.totalCount} of ${progress.totalCount} completed`;
 
   useEffect(() => {
     setIsMinimized(readBoolPref(businessId, 'minimized'));
@@ -76,9 +81,6 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
     setIsCompletedHidden(value);
     writeBoolPref(businessId, 'completed-hidden', value);
   };
-
-  const completeText = `${progress.completeCount} of ${progress.totalCount} completed`;
-  const progressText = `${progress.percent}%`;
 
   if (progress.isComplete && isCompletedHidden) {
     return (
@@ -136,10 +138,13 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
             <div>
               <div className="flex items-center gap-2 text-accent-700 dark:text-accent-400">
                 <PartyPopper size={16} aria-hidden="true" />
-                <p className="text-sm sm:text-base font-semibold">Workspace Ready</p>
+                <p className="text-sm sm:text-base font-semibold">Core Setup Complete</p>
               </div>
-              <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Your OliveOps workspace is fully configured.</p>
-              <p className="mt-1 text-sm font-medium text-gray-800 dark:text-brand-100">All {progress.totalCount} setup tasks are complete.</p>
+              <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Your OliveOps workspace is ready for active work.</p>
+              <p className="mt-1 text-sm font-medium text-gray-800 dark:text-brand-100">
+                All {progress.totalCount} essential setup tasks are complete.
+                {optionalRemaining > 0 ? ' Crew setup is still optional.' : ''}
+              </p>
             </div>
 
             <div className="flex flex-wrap gap-2 sm:justify-end">
@@ -177,9 +182,13 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
     <Card>
       <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-brand-600 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300">Getting Started</p>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Set Up OliveOps</h2>
-          <p className="text-sm text-gray-600 dark:text-brand-200">{completeText} ({progressText})</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300">{isWelcomeMode ? 'Welcome' : 'Getting Started'}</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">{isWelcomeMode ? 'Welcome to OliveOps' : 'Set Up OliveOps'}</h2>
+          <p className="text-sm text-gray-600 dark:text-brand-200">
+            {isWelcomeMode
+              ? 'Let\'s get your company ready to run your work in one place.'
+              : `${completeText} (${progressText})`}
+          </p>
         </div>
         {!progress.isComplete ? (
           <Button type="button" variant="secondary" size="sm" onClick={() => setMinimized(true)} aria-label="Minimize onboarding checklist">
@@ -206,6 +215,13 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
       </div>
 
       <div className="p-4 sm:p-5 space-y-4">
+        {isWelcomeMode ? (
+          <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/70 dark:bg-brand-800/60 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300">Company Setup</p>
+            <p className="mt-1 text-sm text-gray-700 dark:text-brand-100">Complete the essentials below to unlock estimates, jobs, scheduling, and reporting with real company data.</p>
+          </div>
+        ) : null}
+
         {!progress.isComplete ? (
           <div>
             <div className="mb-2 flex items-center justify-between text-sm">
@@ -256,9 +272,12 @@ export default function DashboardOnboardingCard({ items, businessId = 'global' }
               {item.complete ? (
                 <span className="text-xs font-semibold text-accent-700 dark:text-accent-400">Done</span>
               ) : (
-                <Link to={item.to} className="text-xs font-semibold text-brand-600 dark:text-brand-300 hover:underline">
-                  Open
-                </Link>
+                <div className="flex items-center gap-3">
+                  {item.optional ? <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-brand-300">Optional</span> : null}
+                  <Link to={item.to} className="text-xs font-semibold text-brand-600 dark:text-brand-300 hover:underline">
+                    Open
+                  </Link>
+                </div>
               )}
             </li>
           ))}

@@ -8,13 +8,14 @@ import {
 
 function baseData(overrides = {}) {
   return {
+    businessId: '',
     businessName: '',
     employees: [],
     customers: [],
     estimates: [],
     jobs: [],
-    timeEntries: [],
-    expenses: [],
+    budgets: [],
+    budgetRates: [],
     ...overrides,
   };
 }
@@ -23,37 +24,111 @@ test('onboarding starts at zero when no data exists', () => {
   const items = buildDashboardOnboardingItems(baseData());
   const progress = calculateDashboardOnboardingProgress(items);
 
-  assert.equal(items.length, 8);
+  assert.equal(items.length, 6);
   assert.equal(progress.completeCount, 0);
   assert.equal(progress.percent, 0);
   assert.equal(progress.isComplete, false);
 });
 
-test('onboarding marks receipt step complete when receiptFileId exists', () => {
+test('onboarding marks pricing step complete when a budget and active rate exist', () => {
   const items = buildDashboardOnboardingItems(baseData({
-    expenses: [
+    budgets: [
       {
-        id: 'expense-1',
-        vendor: 'Acme',
-        description: 'Materials',
-        category: 'materials',
-        expenseDate: '2026-01-01',
-        amount: 100,
-        status: 'pending',
-        notes: '',
-        receiptFileId: 'file-123',
+        id: 'budget-1',
+        name: '2026 Pricing Budget',
+        budgetType: 'operating',
+        division: 'company_wide',
+        fiscalYear: '2026',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    budgetRates: [
+      {
+        id: 'rate-1',
+        budgetId: 'budget-1',
+        category: 'labour',
+        itemName: 'Crew labour',
+        description: '',
+        unit: 'hr',
+        unitCost: 45,
+        defaultMarkupPercent: 20,
+        defaultSellPrice: 54,
+        active: true,
+        sortOrder: 0,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     ],
   }));
 
-  const receiptStep = items.find((item) => item.id === 'first-expense-receipt');
-  assert.equal(receiptStep?.complete, true);
+  const pricingStep = items.find((item) => item.id === 'pricing-setup');
+  assert.equal(pricingStep?.complete, true);
 });
 
-test('onboarding marks profitability step complete from job costing data', () => {
+test('optional crew step does not block onboarding completion', () => {
   const items = buildDashboardOnboardingItems(baseData({
+    businessId: 'business-1',
+    customers: [
+      {
+        id: 'customer-1',
+        name: 'Acme',
+        company: 'Acme Inc',
+        email: 'acme@example.com',
+        phone: '',
+        properties: [],
+        status: 'active',
+        notes: '',
+        tags: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    budgets: [
+      {
+        id: 'budget-1',
+        name: '2026 Pricing Budget',
+        budgetType: 'operating',
+        division: 'company_wide',
+        fiscalYear: '2026',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    budgetRates: [
+      {
+        id: 'rate-1',
+        budgetId: 'budget-1',
+        category: 'labour',
+        itemName: 'Crew labour',
+        description: '',
+        unit: 'hr',
+        unitCost: 45,
+        defaultMarkupPercent: 20,
+        defaultSellPrice: 54,
+        active: true,
+        sortOrder: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    estimates: [
+      {
+        id: 'estimate-1',
+        customerId: 'customer-1',
+        title: 'Estimate',
+        description: '',
+        status: 'draft',
+        lineItems: [],
+        taxRate: 0,
+        notes: '',
+        validUntil: '2026-01-10',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
     jobs: [
       {
         id: 'job-1',
@@ -63,7 +138,7 @@ test('onboarding marks profitability step complete from job costing data', () =>
         status: 'in_progress',
         startDate: '2026-01-01',
         estimatedHours: 10,
-        actualHours: 4,
+        actualHours: 0,
         estimatedCost: 0,
         actualCosts: [],
         contractValue: 1000,
@@ -75,12 +150,21 @@ test('onboarding marks profitability step complete from job costing data', () =>
     ],
   }));
 
-  const profitabilityStep = items.find((item) => item.id === 'first-profitability');
-  assert.equal(profitabilityStep?.complete, true);
+  const crewStep = items.find((item) => item.id === 'crew-setup');
+  const progress = calculateDashboardOnboardingProgress(items);
+
+  assert.equal(crewStep?.optional, true);
+  assert.equal(crewStep?.complete, false);
+  assert.equal(progress.completeCount, 5);
+  assert.equal(progress.totalCount, 5);
+  assert.equal(progress.optionalTotalCount, 1);
+  assert.equal(progress.optionalCompleteCount, 0);
+  assert.equal(progress.isComplete, true);
 });
 
 test('onboarding progress reaches 100 when all checklist conditions are met', () => {
   const items = buildDashboardOnboardingItems(baseData({
+    businessId: 'business-1',
     businessName: 'OliveOps Contracting',
     employees: [
       {
@@ -105,6 +189,35 @@ test('onboarding progress reaches 100 when all checklist conditions are met', ()
         status: 'active',
         notes: '',
         tags: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    budgets: [
+      {
+        id: 'budget-1',
+        name: '2026 Pricing Budget',
+        budgetType: 'operating',
+        division: 'company_wide',
+        fiscalYear: '2026',
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ],
+    budgetRates: [
+      {
+        id: 'rate-1',
+        budgetId: 'budget-1',
+        category: 'labour',
+        itemName: 'Crew labour',
+        description: '',
+        unit: 'hr',
+        unitCost: 45,
+        defaultMarkupPercent: 20,
+        defaultSellPrice: 54,
+        active: true,
+        sortOrder: 0,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
@@ -143,37 +256,11 @@ test('onboarding progress reaches 100 when all checklist conditions are met', ()
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
     ],
-    timeEntries: [
-      {
-        id: 'time-1',
-        employeeId: 'emp-1',
-        workType: 'job',
-        jobId: 'job-1',
-        clockIn: '2026-01-01T08:00:00.000Z',
-        breakMinutes: 0,
-        notes: '',
-        status: 'clocked_out',
-      },
-    ],
-    expenses: [
-      {
-        id: 'expense-1',
-        vendor: 'Acme',
-        description: 'Materials',
-        category: 'materials',
-        expenseDate: '2026-01-01',
-        amount: 100,
-        status: 'pending',
-        notes: '',
-        receiptFileId: 'file-123',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-    ],
   }));
 
   const progress = calculateDashboardOnboardingProgress(items);
-  assert.equal(progress.completeCount, 8);
+  assert.equal(progress.completeCount, 5);
   assert.equal(progress.percent, 100);
   assert.equal(progress.isComplete, true);
+  assert.equal(progress.optionalCompleteCount, 1);
 });

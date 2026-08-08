@@ -14,7 +14,7 @@ import {
 } from 'date-fns';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../../store';
-import { Card, PageHeader } from '../../components/ui';
+import { Button, Card, EmptyState, PageHeader } from '../../components/ui';
 
 export default function CalendarPage() {
   const { jobs } = useStore();
@@ -44,6 +44,15 @@ export default function CalendarPage() {
     return map;
   }, [jobs]);
 
+  const currentMonthHasJobs = useMemo(() => {
+    return monthDays.some((day) => {
+      if (!isSameMonth(day, monthCursor)) return false;
+      return (jobsByDate.get(format(day, 'yyyy-MM-dd')) ?? []).length > 0;
+    });
+  }, [jobsByDate, monthCursor, monthDays]);
+
+  const hasAnyScheduledJobs = jobsByDate.size > 0;
+
   return (
     <div>
       <PageHeader
@@ -72,50 +81,69 @@ export default function CalendarPage() {
         </div>
 
         <div className="p-4">
-          <div className="grid grid-cols-7 text-xs text-gray-500 mb-2">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-              <div key={day} className="px-2 py-1 font-medium">
-                {day}
+          {!currentMonthHasJobs ? (
+            hasAnyScheduledJobs ? (
+              <EmptyState
+                icon={<CalendarDays aria-hidden="true" />}
+                title="Nothing scheduled for this period"
+                description="Try another month to review scheduled work."
+              />
+            ) : (
+              <EmptyState
+                icon={<CalendarDays aria-hidden="true" />}
+                title="Nothing scheduled yet"
+                description="Schedule jobs to start building your calendar."
+                action={<Link to="/jobs"><Button>Open Jobs</Button></Link>}
+              />
+            )
+          ) : (
+            <>
+              <div className="grid grid-cols-7 text-xs text-gray-500 mb-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                  <div key={day} className="px-2 py-1 font-medium">
+                    {day}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          <div className="grid grid-cols-7 gap-2">
-            {monthDays.map((day) => {
-              const key = format(day, 'yyyy-MM-dd');
-              const dayJobs = jobsByDate.get(key) ?? [];
+              <div className="grid grid-cols-7 gap-2">
+                {monthDays.map((day) => {
+                  const key = format(day, 'yyyy-MM-dd');
+                  const dayJobs = jobsByDate.get(key) ?? [];
 
-              return (
-                <div
-                  key={key}
-                  className={`min-h-28 rounded-lg border p-2 ${
-                    isSameMonth(day, monthCursor)
-                      ? 'bg-white border-gray-200'
-                      : 'bg-gray-50 border-gray-100 text-gray-300'
-                  } ${isToday(day) ? 'ring-2 ring-brand-300' : ''}`}
-                >
-                  <p className={`text-xs mb-1 ${isToday(day) ? 'font-bold text-brand-700' : 'text-gray-600'}`}>
-                    {format(day, 'd')}
-                  </p>
-
-                  {dayJobs.slice(0, 3).map((job) => (
-                    <Link
-                      key={job.id}
-                      to={`/jobs/${job.id}`}
-                      className="block text-[11px] truncate text-brand-700 bg-brand-50 hover:bg-brand-100 rounded px-1 py-0.5 mb-1"
-                      title={job.title}
+                  return (
+                    <div
+                      key={key}
+                      className={`min-h-28 rounded-lg border p-2 ${
+                        isSameMonth(day, monthCursor)
+                          ? 'bg-white border-gray-200'
+                          : 'bg-gray-50 border-gray-100 text-gray-300'
+                      } ${isToday(day) ? 'ring-2 ring-brand-300' : ''}`}
                     >
-                      {job.title}
-                    </Link>
-                  ))}
+                      <p className={`text-xs mb-1 ${isToday(day) ? 'font-bold text-brand-700' : 'text-gray-600'}`}>
+                        {format(day, 'd')}
+                      </p>
 
-                  {dayJobs.length > 3 && (
-                    <p className="text-[11px] text-gray-500">+{dayJobs.length - 3} more</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                      {dayJobs.slice(0, 3).map((job) => (
+                        <Link
+                          key={job.id}
+                          to={`/jobs/${job.id}`}
+                          className="block text-[11px] truncate text-brand-700 bg-brand-50 hover:bg-brand-100 rounded px-1 py-0.5 mb-1"
+                          title={job.title}
+                        >
+                          {job.title}
+                        </Link>
+                      ))}
+
+                      {dayJobs.length > 3 && (
+                        <p className="text-[11px] text-gray-500">+{dayJobs.length - 3} more</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </Card>
     </div>

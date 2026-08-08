@@ -4,7 +4,7 @@ import { ArrowLeft, ChevronRight, FileDown, Mail, Plus, RefreshCw, Send, Trash2 
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useStore } from '../../store';
-import { Badge, Button, Card, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, formatDate, formatDateTime, generateId, statusColor } from '../../utils';
 import {
@@ -462,6 +462,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     );
   }
 
+  const hasWorkAreas = form.workAreas.length > 0;
+  const hasPricedWorkAreas = analysis.itemCount > 0 && analysis.subtotal > 0;
+
   const tabs: Array<{ key: EstimateTab; label: string; visible: boolean }> = [
     { key: 'info', label: 'Info', visible: true },
     { key: 'work-areas', label: 'Work Areas', visible: true },
@@ -562,6 +565,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                 ))}
               </Select>
             </div>
+            <p className="text-xs text-gray-500">Pricing budgets supply your standard labour, equipment, material, and subcontractor rates.</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Input label="Proposal Number" value={form.proposalNumber ?? ''} onChange={(event) => setField('proposalNumber', event.target.value)} />
               <Input label="Valid Until" type="date" value={form.validUntil ? form.validUntil.slice(0, 10) : ''} onChange={(event) => setField('validUntil', event.target.value)} />
@@ -591,9 +595,14 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                 <Plus size={14} /> Add Work Area
               </Button>
             </div>
+            <p className="text-xs text-gray-500">Use Work Areas to break an estimate into sections of the project.</p>
 
             {form.workAreas.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">No work areas yet. Add one to begin.</p>
+              <EmptyState
+                title="No work areas yet"
+                description="Break the project into sections of work such as Excavation, Backfilling, or Interlock Patio."
+                action={<Button variant="secondary" size="sm" onClick={addWorkArea}><Plus size={14} /> Add Work Area</Button>}
+              />
             ) : form.workAreas
               .slice()
               .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -627,138 +636,167 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               ))}
           </Card>
 
-          <Card className="p-4 text-sm space-y-2">
-            <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatCurrency(analysis.subtotal)}</span></div>
-            <div className="flex justify-between items-center gap-2">
-              <span className="text-gray-500">Tax Rate (%)</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                min={0}
-                max={100}
-                value={formatNumericDisplayValue(form.taxRate)}
-                onChange={(event) => setField('taxRate', parseNumericInputValue(event.target.value))}
-                onFocus={(event) => event.currentTarget.select()}
-                className="w-20 border border-gray-300 rounded px-2 py-1 text-right text-sm"
-              />
-            </div>
-            <div className="flex justify-between"><span className="text-gray-500">Tax</span><span>{formatCurrency(analysis.tax)}</span></div>
-            <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{formatCurrency(analysis.total)}</span></div>
-          </Card>
+          {hasWorkAreas ? (
+            <Card className="p-4 text-sm space-y-2">
+              <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatCurrency(analysis.subtotal)}</span></div>
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-gray-500">Tax Rate (%)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  min={0}
+                  max={100}
+                  value={formatNumericDisplayValue(form.taxRate)}
+                  onChange={(event) => setField('taxRate', parseNumericInputValue(event.target.value))}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="w-20 border border-gray-300 rounded px-2 py-1 text-right text-sm"
+                />
+              </div>
+              <div className="flex justify-between"><span className="text-gray-500">Tax</span><span>{formatCurrency(analysis.tax)}</span></div>
+              <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{formatCurrency(analysis.total)}</span></div>
+            </Card>
+          ) : null}
         </div>
       )}
 
       {activeTab === 'proposal' && (
-        <Card className="p-4 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Proposal</h2>
-          <p className="text-sm text-gray-600">Generate a client-ready proposal and send it using your mail client.</p>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm text-gray-700">
-            <p><span className="font-medium text-gray-900">Proposal #:</span> {form.proposalNumber?.trim() || 'Not set'}</p>
-            <p><span className="font-medium text-gray-900">Estimate:</span> {form.title}</p>
-            <p><span className="font-medium text-gray-900">Customer:</span> {customer?.name ?? 'Unknown Customer'}</p>
-            <p><span className="font-medium text-gray-900">Valid Until:</span> {form.validUntil ? formatDate(form.validUntil) : 'Not specified'}</p>
-            <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(analysis.total)}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => createProposalPdf({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
-              <FileDown size={14} /> Download PDF
-            </Button>
-            <Button onClick={() => sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
-              <Mail size={14} /> Send to Client
-            </Button>
-            {form.status === 'draft' ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  sendEstimate(estimate.id);
-                  setForm({ ...form, status: 'sent', sentAt: new Date().toISOString() });
-                }}
-              >
-                <Send size={14} /> Mark as Sent
+        !hasPricedWorkAreas ? (
+          <Card className="p-4">
+            <EmptyState
+              title="Your proposal isn't ready yet"
+              description="Add Work Areas and pricing before preparing the customer proposal."
+              action={<Button variant="secondary" onClick={() => setTab('work-areas')}>Go to Work Areas</Button>}
+            />
+          </Card>
+        ) : (
+          <Card className="p-4 space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Proposal</h2>
+            <p className="text-sm text-gray-600">Generate a client-ready proposal and send it using your mail client.</p>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm text-gray-700">
+              <p><span className="font-medium text-gray-900">Proposal #:</span> {form.proposalNumber?.trim() || 'Not set'}</p>
+              <p><span className="font-medium text-gray-900">Estimate:</span> {form.title}</p>
+              <p><span className="font-medium text-gray-900">Customer:</span> {customer?.name ?? 'Unknown Customer'}</p>
+              <p><span className="font-medium text-gray-900">Valid Until:</span> {form.validUntil ? formatDate(form.validUntil) : 'Not specified'}</p>
+              <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(analysis.total)}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => createProposalPdf({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
+                <FileDown size={14} /> Download PDF
               </Button>
-            ) : null}
-          </div>
-        </Card>
+              <Button onClick={() => sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
+                <Mail size={14} /> Send to Client
+              </Button>
+              {form.status === 'draft' ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    sendEstimate(estimate.id);
+                    setForm({ ...form, status: 'sent', sentAt: new Date().toISOString() });
+                  }}
+                >
+                  <Send size={14} /> Mark as Sent
+                </Button>
+              ) : null}
+            </div>
+          </Card>
+        )
       )}
 
       {activeTab === 'project-management' && (
         <div className="space-y-4">
           <Card className="p-4">
             <h2 className="text-lg font-semibold text-gray-900">Project Management</h2>
-            <p className="mt-1 text-sm text-gray-600">Estimates stay in sales/proposal mode until converted. Jobs remain separate operational records.</p>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
-              <p className="text-gray-600">Status: <span className="font-semibold text-gray-900 capitalize">{form.status}</span></p>
-              <p className="text-gray-600">Converted Job: <span className="font-semibold text-gray-900">{form.convertedToJobId ?? 'Not converted'}</span></p>
-              <p className="text-gray-600">Converted At: <span className="font-semibold text-gray-900">{form.convertedAt ? formatDateTime(form.convertedAt) : 'N/A'}</span></p>
-              <p className="text-gray-600">Work Areas: <span className="font-semibold text-gray-900">{form.workAreas.length}</span></p>
-            </div>
+            {!hasWorkAreas && !form.convertedToJobId && form.status !== 'accepted' ? (
+              <EmptyState
+                title="No project planning information yet"
+                description="Add internal planning details as the estimate develops."
+              />
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-gray-600">Estimates stay in sales/proposal mode until converted. Jobs remain separate operational records.</p>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
+                  <p className="text-gray-600">Status: <span className="font-semibold text-gray-900 capitalize">{form.status}</span></p>
+                  <p className="text-gray-600">Converted Job: <span className="font-semibold text-gray-900">{form.convertedToJobId ?? 'Not converted'}</span></p>
+                  <p className="text-gray-600">Converted At: <span className="font-semibold text-gray-900">{form.convertedAt ? formatDateTime(form.convertedAt) : 'N/A'}</span></p>
+                  <p className="text-gray-600">Work Areas: <span className="font-semibold text-gray-900">{form.workAreas.length}</span></p>
+                </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              {form.status === 'accepted' ? (
-                <Button onClick={openConvertModal}>
-                  <RefreshCw size={14} /> Convert to Job
-                </Button>
-              ) : null}
-              {form.convertedToJobId ? (
-                <Link to={`/jobs/${form.convertedToJobId}`}>
-                  <Button variant="secondary">
-                    <ChevronRight size={14} /> Open Linked Job
-                  </Button>
-                </Link>
-              ) : null}
-            </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {form.status === 'accepted' ? (
+                    <Button onClick={openConvertModal}>
+                      <RefreshCw size={14} /> Convert to Job
+                    </Button>
+                  ) : null}
+                  {form.convertedToJobId ? (
+                    <Link to={`/jobs/${form.convertedToJobId}`}>
+                      <Button variant="secondary">
+                        <ChevronRight size={14} /> Open Linked Job
+                      </Button>
+                    </Link>
+                  ) : null}
+                </div>
+              </>
+            )}
           </Card>
         </div>
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        !hasPricedWorkAreas ? (
+          <Card className="p-4">
+            <EmptyState
+              title="Nothing to analyze yet"
+              description="Add estimated costs and pricing to see revenue, cost, and margin analysis."
+              action={<Button variant="secondary" onClick={() => setTab('work-areas')}>Go to Work Areas</Button>}
+            />
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Subtotal</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.subtotal)}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Tax</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.tax)}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Total</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.total)}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Line Items</p>
+                <p className="text-xl font-bold text-gray-900">{analysis.itemCount}</p>
+              </Card>
+            </div>
+
             <Card className="p-4">
-              <p className="text-xs text-gray-500">Subtotal</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.subtotal)}</p>
+              <h3 className="font-semibold text-gray-900">Category Breakdown</h3>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <p className="text-gray-700">Labour: <span className="font-semibold">{formatCurrency(analysis.byCategory.labour)}</span></p>
+                <p className="text-gray-700">Material: <span className="font-semibold">{formatCurrency(analysis.byCategory.material)}</span></p>
+                <p className="text-gray-700">Equipment: <span className="font-semibold">{formatCurrency(analysis.byCategory.equipment)}</span></p>
+                <p className="text-gray-700">Subcontractor: <span className="font-semibold">{formatCurrency(analysis.byCategory.subcontractor)}</span></p>
+              </div>
             </Card>
+
             <Card className="p-4">
-              <p className="text-xs text-gray-500">Tax</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.tax)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-gray-500">Total</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.total)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-gray-500">Line Items</p>
-              <p className="text-xl font-bold text-gray-900">{analysis.itemCount}</p>
+              <h3 className="font-semibold text-gray-900">Work Area Breakdown</h3>
+              <div className="mt-3 space-y-2 text-sm">
+                {form.workAreas
+                  .slice()
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((workArea) => (
+                    <div key={workArea.id} className="flex items-center justify-between rounded border border-gray-200 p-2">
+                      <span className="text-gray-700">{workArea.name}</span>
+                      <span className="font-semibold text-gray-900">{formatCurrency(computeWorkAreaSubtotal(workArea))}</span>
+                    </div>
+                  ))}
+              </div>
             </Card>
           </div>
-
-          <Card className="p-4">
-            <h3 className="font-semibold text-gray-900">Category Breakdown</h3>
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-              <p className="text-gray-700">Labour: <span className="font-semibold">{formatCurrency(analysis.byCategory.labour)}</span></p>
-              <p className="text-gray-700">Material: <span className="font-semibold">{formatCurrency(analysis.byCategory.material)}</span></p>
-              <p className="text-gray-700">Equipment: <span className="font-semibold">{formatCurrency(analysis.byCategory.equipment)}</span></p>
-              <p className="text-gray-700">Subcontractor: <span className="font-semibold">{formatCurrency(analysis.byCategory.subcontractor)}</span></p>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <h3 className="font-semibold text-gray-900">Work Area Breakdown</h3>
-            <div className="mt-3 space-y-2 text-sm">
-              {form.workAreas.length === 0 ? (
-                <p className="text-gray-500">No work areas yet.</p>
-              ) : form.workAreas
-                .slice()
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((workArea) => (
-                  <div key={workArea.id} className="flex items-center justify-between rounded border border-gray-200 p-2">
-                    <span className="text-gray-700">{workArea.name}</span>
-                    <span className="font-semibold text-gray-900">{formatCurrency(computeWorkAreaSubtotal(workArea))}</span>
-                  </div>
-                ))}
-            </div>
-          </Card>
-        </div>
+        )
       )}
 
       <Modal

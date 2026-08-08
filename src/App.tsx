@@ -473,7 +473,7 @@ export default function App() {
                 />
               }
             >
-              <Route index element={<Dashboard businessName={sessionUser.businessName} />} />
+              <Route index element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
               <Route path="crm" element={<CRMPage />} />
               <Route path="revenue/dashboard" element={<RevenueDashboardPage />} />
               <Route

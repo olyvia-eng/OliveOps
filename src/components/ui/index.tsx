@@ -239,17 +239,31 @@ export function Modal({ open, onClose, title, children, footer, wide = false }: 
 }
 
 interface EmptyStateProps {
+  icon?: ReactNode;
   title: string;
   description?: string;
   action?: ReactNode;
+  secondaryAction?: ReactNode;
+  helpText?: ReactNode;
 }
 
-export function EmptyState({ title, description, action }: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, secondaryAction, helpText }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-14 text-center px-4">
-      <p className="text-brand-700 dark:text-brand-100 text-base font-semibold mb-2">{title}</p>
-      {description && <p className="text-brand-400 dark:text-brand-200 text-sm mb-4 max-w-md leading-6">{description}</p>}
-      {action}
+    <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+      {icon ? (
+        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-100 dark:border-brand-600 bg-brand-50 dark:bg-brand-800 text-brand-700 dark:text-brand-200 [&>svg]:h-5 [&>svg]:w-5">
+          {icon}
+        </div>
+      ) : null}
+      <p className="text-brand-700 dark:text-brand-100 text-base font-semibold mb-2 max-w-lg">{title}</p>
+      {description && <p className="text-brand-400 dark:text-brand-200 text-sm mb-4 max-w-xl leading-6">{description}</p>}
+      {(action || secondaryAction) ? (
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+          {action}
+          {secondaryAction}
+        </div>
+      ) : null}
+      {helpText ? <div className="mt-4 max-w-xl text-xs leading-5 text-gray-500 dark:text-brand-300">{helpText}</div> : null}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Card, Button, Badge, Modal, Input, Select } from '../../components/ui';
+import { Card, Button, Badge, EmptyState, Modal, Input, Select } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
@@ -171,6 +171,7 @@ export default function JobDetailPage({ currentUserRole }: Props) {
       laborVariancePct,
     };
   }, [employees, job, jobTimeEntries]);
+  const hasMeaningfulAnalysisData = Boolean(job && (actualCostTotal > 0 || job.actualHours > 0 || profitability.trackedHours > 0));
 
   const profitabilityWarnings = useMemo(() => {
     const warnings: Array<{ label: string; className: string }> = [];
@@ -316,10 +317,19 @@ export default function JobDetailPage({ currentUserRole }: Props) {
                 </div>
               </Card>
             )) : (
-            <Card className="p-4">
-              <h2 className="font-semibold text-gray-900">Work Areas</h2>
-              <p className="mt-2 text-sm text-gray-600">{job.workAreas?.length ? job.workAreas.join(', ') : 'No work areas.'}</p>
-            </Card>
+            job.workAreas?.length ? (
+              <Card className="p-4">
+                <h2 className="font-semibold text-gray-900">Work Areas</h2>
+                <p className="mt-2 text-sm text-gray-600">{job.workAreas.join(', ')}</p>
+              </Card>
+            ) : (
+              <Card className="p-4">
+                <EmptyState
+                  title="No work areas have been added to this job"
+                  description="Work areas will appear here as the job scope is organized."
+                />
+              </Card>
+            )
           )}
         </div>
       )}
@@ -367,37 +377,46 @@ export default function JobDetailPage({ currentUserRole }: Props) {
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Card className="p-4"><p className="text-xs text-gray-500">Contract Value</p><p className="text-xl font-bold text-gray-900">{formatCurrency(job.contractValue)}</p></Card>
-            <Card className="p-4"><p className="text-xs text-gray-500">Actual Costs</p><p className="text-xl font-bold text-gray-900">{formatCurrency(actualCostTotal)}</p></Card>
+        !hasMeaningfulAnalysisData ? (
+          <Card className="p-4">
+            <EmptyState
+              title="Job analysis will appear as costs and progress are recorded"
+              description="Record time, actual costs, and job progress before relying on margin analysis here."
+            />
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Card className="p-4"><p className="text-xs text-gray-500">Contract Value</p><p className="text-xl font-bold text-gray-900">{formatCurrency(job.contractValue)}</p></Card>
+              <Card className="p-4"><p className="text-xs text-gray-500">Actual Costs</p><p className="text-xl font-bold text-gray-900">{formatCurrency(actualCostTotal)}</p></Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Gross Profit</p>
+                <p className={`text-xl font-bold ${profit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profit)}</p>
+                <p className="text-xs text-gray-400">{marginPct.toFixed(1)}% margin</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Hours</p>
+                <p className="text-xl font-bold text-gray-900">{job.actualHours.toFixed(1)}/{job.estimatedHours}h</p>
+                <div className="mt-1 h-1.5 rounded-full bg-gray-100"><div className={`h-1.5 rounded-full ${hoursPct >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${hoursPct}%` }} /></div>
+              </Card>
+            </div>
             <Card className="p-4">
-              <p className="text-xs text-gray-500">Gross Profit</p>
-              <p className={`text-xl font-bold ${profit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profit)}</p>
-              <p className="text-xs text-gray-400">{marginPct.toFixed(1)}% margin</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-gray-500">Hours</p>
-              <p className="text-xl font-bold text-gray-900">{job.actualHours.toFixed(1)}/{job.estimatedHours}h</p>
-              <div className="mt-1 h-1.5 rounded-full bg-gray-100"><div className={`h-1.5 rounded-full ${hoursPct >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${hoursPct}%` }} /></div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-gray-900">Job Profitability (Tracked)</h2>
+                  {profitabilityWarnings.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{profitabilityWarnings.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div>}
+                </div>
+                <span className="text-xs text-gray-500">Uses shared hours for multi-job time entries</span>
+              </div>
+              <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                <div><p className="text-gray-500">Tracked Hours</p><p className="font-semibold text-gray-900">{profitability.trackedHours.toFixed(2)}h</p><p className="text-xs text-gray-400">Billable {profitability.trackedBillableHours.toFixed(2)}h · Non-billable {profitability.trackedNonBillableHours.toFixed(2)}h</p></div>
+                <div><p className="text-gray-500">Tracked Labor Cost</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.trackedLaborCost)}</p><p className="text-xs text-gray-400">Recorded labor costs: {formatCurrency(profitability.recordedLaborCosts)}</p><p className={`mt-1 text-xs ${profitability.laborVariance >= 0 ? 'text-accent-700' : 'text-brand-700'}`}>Variance: {formatCurrency(profitability.laborVariance)} ({profitability.laborVariancePct.toFixed(1)}%)</p></div>
+                <div><p className="text-gray-500">Projected Cost (Tracked)</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.projectedCostFromTracking)}</p><p className="text-xs text-gray-400">Includes non-labor costs: {formatCurrency(profitability.recordedNonLaborCosts)}</p></div>
+                <div><p className="text-gray-500">Projected Profit (Tracked)</p><p className={`font-semibold ${profitability.projectedProfitFromTracking >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profitability.projectedProfitFromTracking)}</p><p className="text-xs text-gray-400">{profitability.projectedMarginFromTracking.toFixed(1)}% margin</p></div>
+              </div>
             </Card>
           </div>
-          <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-gray-900">Job Profitability (Tracked)</h2>
-                {profitabilityWarnings.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{profitabilityWarnings.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div>}
-              </div>
-              <span className="text-xs text-gray-500">Uses shared hours for multi-job time entries</span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
-              <div><p className="text-gray-500">Tracked Hours</p><p className="font-semibold text-gray-900">{profitability.trackedHours.toFixed(2)}h</p><p className="text-xs text-gray-400">Billable {profitability.trackedBillableHours.toFixed(2)}h · Non-billable {profitability.trackedNonBillableHours.toFixed(2)}h</p></div>
-              <div><p className="text-gray-500">Tracked Labor Cost</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.trackedLaborCost)}</p><p className="text-xs text-gray-400">Recorded labor costs: {formatCurrency(profitability.recordedLaborCosts)}</p><p className={`mt-1 text-xs ${profitability.laborVariance >= 0 ? 'text-accent-700' : 'text-brand-700'}`}>Variance: {formatCurrency(profitability.laborVariance)} ({profitability.laborVariancePct.toFixed(1)}%)</p></div>
-              <div><p className="text-gray-500">Projected Cost (Tracked)</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.projectedCostFromTracking)}</p><p className="text-xs text-gray-400">Includes non-labor costs: {formatCurrency(profitability.recordedNonLaborCosts)}</p></div>
-              <div><p className="text-gray-500">Projected Profit (Tracked)</p><p className={`font-semibold ${profitability.projectedProfitFromTracking >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profitability.projectedProfitFromTracking)}</p><p className="text-xs text-gray-400">{profitability.projectedMarginFromTracking.toFixed(1)}% margin</p></div>
-            </div>
-          </Card>
-        </div>
+        )
       )}
 
       {activeTab === 'project-management' && (
@@ -500,7 +519,15 @@ export default function JobDetailPage({ currentUserRole }: Props) {
             <div><h2 className="font-semibold text-gray-900">Related Invoices</h2><p className="text-sm text-gray-500">{jobInvoices.length} invoice{jobInvoices.length === 1 ? '' : 's'} · {formatCurrency(jobInvoices.reduce((sum, invoice) => sum + invoice.amount, 0))} billed</p></div>
             <Link to="/finance/invoices"><Button size="sm">Manage Invoices <ChevronRight size={13} /></Button></Link>
           </div>
-          {jobInvoices.length === 0 ? <p className="p-4 text-sm text-gray-400">No invoices are linked to this job.</p> : (
+          {jobInvoices.length === 0 ? (
+            <div className="p-4">
+              <EmptyState
+                title="No invoices yet"
+                description="Create an invoice when you're ready to bill the customer."
+                action={<Link to="/finance/invoices"><Button size="sm">Create Invoice</Button></Link>}
+              />
+            </div>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
                 <thead><tr className="border-b border-gray-100 text-left text-xs text-gray-500"><th className="px-4 py-3 font-medium">Invoice</th><th className="py-3 font-medium">Issue Date</th><th className="py-3 font-medium">Due Date</th><th className="py-3 font-medium">Status</th><th className="px-4 py-3 text-right font-medium">Amount</th></tr></thead>

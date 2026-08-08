@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin, Users, FilterX } from 'lucide-react';
 import { statusColor } from '../../utils';
 import type { Address, Customer, CustomerStatus } from '../../types';
 
@@ -66,6 +66,8 @@ export default function CRMPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyCustomer());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
   const filtered = customers.filter((c) => {
     const matchSearch =
@@ -180,7 +182,21 @@ export default function CRMPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No customers found" description="Add your first customer to get started." action={<Button onClick={openNew}><Plus size={16}/> New Customer</Button>} />
+        customers.length === 0 ? (
+          <EmptyState
+            icon={<Users aria-hidden="true" />}
+            title="No clients yet"
+            description="Add your first client to start building estimates, tracking properties, and managing jobs."
+            action={<Button onClick={openNew}><Plus size={16} /> Add Your First Client</Button>}
+          />
+        ) : (
+          <EmptyState
+            icon={<FilterX aria-hidden="true" />}
+            title="No clients match your search"
+            description="Try a different search or clear your current filters."
+            action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear Filters</Button> : undefined}
+          />
+        )
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((c) => (

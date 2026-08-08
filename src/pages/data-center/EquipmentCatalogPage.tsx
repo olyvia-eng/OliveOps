@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PencilLine, PlusCircle, Trash2 } from 'lucide-react';
-import { Badge, Button, Card, Input, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
 import type { EquipmentAsset, EquipmentCostType, EquipmentStatus } from '../../types';
@@ -291,7 +291,7 @@ export default function EquipmentCatalogPage() {
           </div>
         </div>
 
-        <form onSubmit={handleMaterialSubmit} className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_120px_160px_minmax(0,1fr)_auto] mb-4">
+        <form id="material-catalog-form" onSubmit={handleMaterialSubmit} className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_120px_160px_minmax(0,1fr)_auto] mb-4">
           <Input
             label="Material Name"
             required
@@ -358,10 +358,19 @@ export default function EquipmentCatalogPage() {
         </div>
 
         {visibleMaterialRows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-brand-100 bg-brand-50/40 p-8 text-center">
-            <p className="text-base font-semibold text-brand-800">No materials match this filter</p>
-            <p className="mt-2 text-sm text-brand-500">Try a different search term, or add material line items and expenses to build the catalog.</p>
-          </div>
+          materialRows.length === 0 ? (
+            <EmptyState
+              title="No materials yet"
+              description="Build your material catalog for easier estimating and project planning."
+              action={<a href="#material-catalog-form"><Button type="button">Add Material</Button></a>}
+            />
+          ) : (
+            <EmptyState
+              title="No materials match this filter"
+              description="Try a different search term, or clear the current material filter."
+              action={<Button type="button" variant="secondary" onClick={() => { setMaterialQuery(''); setMaterialSort('highest_value'); }}>Clear Filters</Button>}
+            />
+          )
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-gray-500">Showing {visibleMaterialRows.length} material rows</p>
@@ -401,7 +410,7 @@ export default function EquipmentCatalogPage() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form id="equipment-catalog-form" onSubmit={handleSubmit} className="space-y-4">
             <Input
               label="Equipment Name"
               required
@@ -490,10 +499,11 @@ export default function EquipmentCatalogPage() {
           </div>
 
           {sortedEquipment.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-brand-100 bg-brand-50/40 p-8 text-center">
-              <p className="text-base font-semibold text-brand-800">No equipment yet</p>
-              <p className="mt-2 text-sm text-brand-500">Add the first machine or tool so it shows up in settings and job planning.</p>
-            </div>
+            <EmptyState
+              title="No equipment yet"
+              description="Add company equipment to keep your operational records organized."
+              action={<a href="#equipment-catalog-form"><Button type="button">Add Equipment</Button></a>}
+            />
           ) : (
             <div className="space-y-3">
               {sortedEquipment.map((asset) => (

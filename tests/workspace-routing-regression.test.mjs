@@ -35,6 +35,9 @@ test('estimate editing uses a URL-backed tab workspace with restricted analysis'
   assert.match(estimateWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(estimateWorkspaceSource, /activeTab === 'analysis' && canViewAnalysis/);
   assert.match(estimateWorkspaceSource, /setSearchParams\(\(previous\) =>/);
+  assert.match(estimateWorkspaceSource, /No work areas yet/);
+  assert.match(estimateWorkspaceSource, /Your proposal isn't ready yet/);
+  assert.match(estimateWorkspaceSource, /Nothing to analyze yet/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {
@@ -45,4 +48,7 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /invoices\.filter\(\(invoice\) => invoice\.jobId === id\)/);
   assert.match(jobWorkspaceSource, /activeTab === 'invoices'/);
   assert.match(jobWorkspaceSource, /activeTab === 'project-management'/);
+  assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
+  assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
+  assert.match(jobWorkspaceSource, /No invoices yet/);
 });

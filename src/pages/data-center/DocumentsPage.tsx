@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Card, PageHeader, Button, Input, Select } from '../../components/ui';
+import { Card, PageHeader, Button, EmptyState, Input, Select } from '../../components/ui';
 import { parseStorageApiResponse, uploadFileToStorage } from '../../utils/fileUpload';
 import {
   buildDocumentUploadContext,
@@ -45,6 +45,7 @@ export default function DocumentsPage() {
   const [files, setFiles] = useState<StoredFileRecord[]>([]);
   const [status, setStatus] = useState('Ready to manage project documents.');
   const [busy, setBusy] = useState(false);
+  const hasFilters = searchQuery.trim().length > 0 || categoryFilter !== 'all';
 
   const loadFiles = async () => {
     try {
@@ -235,26 +236,34 @@ export default function DocumentsPage() {
               </Select>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-brand-100">
-              <table className="min-w-full divide-y divide-brand-100 text-sm">
-                <thead className="bg-brand-50">
-                  <tr>
-                    {DOCUMENT_TABLE_COLUMNS.map((column) => (
-                      <th key={column} className="px-3 py-2 text-left font-semibold text-brand-800">
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-brand-100 bg-white">
-                  {filteredFiles.length === 0 ? (
+            {filteredFiles.length === 0 ? (
+              files.length === 0 ? (
+                <EmptyState
+                  title="No documents yet"
+                  description="Upload documents related to your company, customers, jobs, and estimating workflow."
+                  action={<Button onClick={() => setActiveTab('upload')}>Upload Document</Button>}
+                />
+              ) : (
+                <EmptyState
+                  title="No documents match your filters"
+                  description="Try a different search or clear your category filter."
+                  action={hasFilters ? <Button variant="secondary" onClick={() => { setSearchQuery(''); setCategoryFilter('all'); }}>Clear Filters</Button> : undefined}
+                />
+              )
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-brand-100">
+                <table className="min-w-full divide-y divide-brand-100 text-sm">
+                  <thead className="bg-brand-50">
                     <tr>
-                      <td colSpan={DOCUMENT_TABLE_COLUMNS.length} className="px-4 py-6 text-center text-gray-500">
-                        No documents matched your current filters.
-                      </td>
+                      {DOCUMENT_TABLE_COLUMNS.map((column) => (
+                        <th key={column} className="px-3 py-2 text-left font-semibold text-brand-800">
+                          {column}
+                        </th>
+                      ))}
                     </tr>
-                  ) : (
-                    filteredFiles.map((file) => (
+                  </thead>
+                  <tbody className="divide-y divide-brand-100 bg-white">
+                    {filteredFiles.map((file) => (
                       <tr key={file.id}>
                         <td className="px-3 py-2 font-medium text-gray-900">{file.fileName}</td>
                         <td className="px-3 py-2 text-gray-700">{file.category || 'misc'}</td>
@@ -275,11 +284,11 @@ export default function DocumentsPage() {
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <p className="text-sm text-gray-600">{status}</p>
           </div>
         )}

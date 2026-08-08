@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, Search, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
 import { statusColor, formatCurrency, formatDate, durationHours } from '../../utils';
 import type { Job, JobStatus } from '../../types';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
@@ -28,7 +28,7 @@ const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'upd
 });
 
 export default function JobsPage() {
-  const { jobs, customers, employees, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
+  const { jobs, customers, employees, estimates, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all');
@@ -37,6 +37,11 @@ export default function JobsPage() {
   const [editing, setEditing] = useState<Job | null>(null);
   const [form, setForm] = useState(empty(customers));
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const hasFilters = search.trim().length > 0 || statusFilter !== 'all' || riskFilter !== 'all';
+
+  const availableEstimateConversions = useMemo(() => {
+    return estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
+  }, [estimates]);
 
   const entryJobIds = (entry: { jobIds?: string[]; jobId?: string }) =>
     Array.isArray(entry.jobIds) && entry.jobIds.length > 0
@@ -207,7 +212,32 @@ export default function JobsPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No jobs found" action={<Button onClick={openNew}><Plus size={16} /> New Job</Button>} />
+        jobs.length === 0 ? (
+          availableEstimateConversions.length > 0 ? (
+            <EmptyState
+              icon={<BriefcaseBusiness aria-hidden="true" />}
+              title="No jobs yet"
+              description="Jobs can be created from accepted estimates or entered manually for work that did not require an estimate."
+              action={<Button onClick={() => navigate('/estimates?status=accepted')}><ChevronRight size={16} /> Create from Estimate</Button>}
+              secondaryAction={<Button variant="secondary" onClick={openNew}><Plus size={16} /> Create Blank Job</Button>}
+            />
+          ) : (
+            <EmptyState
+              icon={<ClipboardList aria-hidden="true" />}
+              title="No jobs yet"
+              description="Jobs can be created from accepted estimates or entered manually for work that did not require an estimate."
+              action={<Button onClick={openNew}><Plus size={16} /> Create Blank Job</Button>}
+              secondaryAction={<Button variant="secondary" onClick={() => navigate('/estimates')}><ChevronRight size={16} /> View Estimates</Button>}
+            />
+          )
+        ) : (
+          <EmptyState
+            icon={<FilterX aria-hidden="true" />}
+            title="No jobs match your filters"
+            description="Try a different search or clear your current filters."
+            action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); setRiskFilter('all'); }}>Clear Filters</Button> : undefined}
+          />
+        )
       ) : (
         <div className="space-y-3">
           {filtered.map((job) => {
