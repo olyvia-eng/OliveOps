@@ -9,6 +9,7 @@ const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'u
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const combinedBudgetSource = readFileSync('src/pages/budget/CombinedBudgetPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
 const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
@@ -66,6 +67,11 @@ test('budget screens use free-text division input and keep detail display format
   assert.match(budgetsSource, /const created = await addBudget\(\{/);
   assert.match(budgetDetailSource, /Budget not found/);
   assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);
+  assert.match(budgetsSource, /View Combined Budget/);
+  assert.match(budgetsSource, /Select all visible budgets/);
+  assert.match(appSource, /path="budgets\/combined"/);
+  assert.match(combinedBudgetSource, /Read-only reporting view across multiple existing budgets/);
+  assert.match(combinedBudgetSource, /Back to Budgets/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {

@@ -343,14 +343,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     if (typeof window !== 'undefined') {
       window.location.href = `mailto:${encodeURIComponent(proposalCustomer.email)}?subject=${subject}&body=${body}`;
     }
-
-    if (item.status === 'draft') {
-      sendEstimate(item.id);
-      if (form) {
-        setForm({ ...form, status: 'sent', sentAt: new Date().toISOString() });
-      }
-    }
-    emitAppToast({ tone: 'success', message: 'Email draft opened. Attach the proposal PDF and send.' });
   };
 
   const openConvertModal = () => {
@@ -678,7 +670,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         ) : (
           <Card className="p-4 space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Proposal</h2>
-            <p className="text-sm text-gray-600">Generate a client-ready proposal and send it using your mail client.</p>
+            <p className="text-sm text-gray-600">Generate a client-ready proposal and open a draft in your mail client. OliveOps does not send proposal email directly yet.</p>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm text-gray-700">
               <p><span className="font-medium text-gray-900">Proposal #:</span> {form.proposalNumber?.trim() || 'Not set'}</p>
               <p><span className="font-medium text-gray-900">Estimate:</span> {form.title}</p>
@@ -691,7 +683,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                 <FileDown size={14} /> Download PDF
               </Button>
               <Button onClick={() => sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
-                <Mail size={14} /> Send to Client
+                <Mail size={14} /> Open Email Draft
               </Button>
               {form.status === 'draft' ? (
                 <Button

@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
-import { Plus, Trash2, Wallet } from 'lucide-react';
+import { Layers3, Plus, Trash2, Wallet } from 'lucide-react';
 import { useStore } from '../../store';
 import type { BudgetStatus } from '../../types';
 
@@ -36,6 +36,8 @@ export default function BudgetsPage() {
   const [form, setForm] = useState(emptyBudgetForm());
   const [formError, setFormError] = useState('');
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
+  const [selectedBudgetIds, setSelectedBudgetIds] = useState<string[]>([]);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const budgetRows = useMemo(() => {
     const hasScopedBudgetItems = budgetItems.some((item) => Boolean(item.budgetId));
@@ -63,6 +65,50 @@ export default function BudgetsPage() {
 
   const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const visibleBudgetIds = useMemo(() => budgetRows.map(({ budget }) => budget.id), [budgetRows]);
+
+  useEffect(() => {
+    setSelectedBudgetIds((current) => current.filter((id) => visibleBudgetIds.includes(id)));
+  }, [visibleBudgetIds]);
+
+  const allVisibleSelected = visibleBudgetIds.length > 0 && visibleBudgetIds.every((id) => selectedBudgetIds.includes(id));
+  const someVisibleSelected = visibleBudgetIds.some((id) => selectedBudgetIds.includes(id));
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+  }, [allVisibleSelected, someVisibleSelected]);
+
+  const selectedBudgets = useMemo(() => {
+    return budgetRows
+      .filter(({ budget }) => selectedBudgetIds.includes(budget.id))
+      .map(({ budget }) => budget);
+  }, [budgetRows, selectedBudgetIds]);
+
+  const uniqueSelectedFiscalYears = [...new Set(selectedBudgets.map((budget) => budget.fiscalYear))];
+  const hasMixedFiscalYears = uniqueSelectedFiscalYears.length > 1;
+  const canViewCombined = selectedBudgets.length >= 2 && !hasMixedFiscalYears;
+
+  const toggleBudgetSelection = (budgetId: string) => {
+    setSelectedBudgetIds((current) => current.includes(budgetId)
+      ? current.filter((id) => id !== budgetId)
+      : [...current, budgetId]);
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedBudgetIds((current) => {
+      if (allVisibleSelected) {
+        return current.filter((id) => !visibleBudgetIds.includes(id));
+      }
+      return Array.from(new Set([...current, ...visibleBudgetIds]));
+    });
+  };
+
+  const openCombinedBudget = () => {
+    if (!canViewCombined) return;
+    navigate(`/budgets/combined?ids=${selectedBudgets.map((budget) => budget.id).join(',')}`);
   };
 
   const openNew = () => {
@@ -109,9 +155,30 @@ export default function BudgetsPage() {
     <div>
       <PageHeader
         title="Budgets"
-        subtitle="Choose a budget to work inside the existing budget detail workflow."
+        subtitle="Choose an individual budget to edit or select multiple budgets for a read-only combined view."
         action={<Button onClick={openNew}><Plus size={16} /> New Budget</Button>}
       />
+
+      {selectedBudgetIds.length > 0 ? (
+        <Card className="p-4 mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">{selectedBudgetIds.length} budget{selectedBudgetIds.length === 1 ? '' : 's'} selected</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {hasMixedFiscalYears
+                  ? 'Combined budgets must use the same fiscal year.'
+                  : selectedBudgetIds.length < 2
+                    ? 'Select at least two budgets to open a Combined Budget view.'
+                    : 'Open a read-only combined view without changing the underlying budgets.'}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={() => setSelectedBudgetIds([])}>Clear Selection</Button>
+              <Button onClick={openCombinedBudget} disabled={!canViewCombined}><Layers3 size={16} /> View Combined Budget</Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {budgetRows.length === 0 ? (
         <EmptyState
@@ -126,6 +193,17 @@ export default function BudgetsPage() {
             <table className="w-full text-sm min-w-[980px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+                  <th className="px-4 py-3 font-medium w-12">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      aria-label="Select all visible budgets"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      onClick={(event) => event.stopPropagation()}
+                      className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                  </th>
                   <th className="px-4 py-3 font-medium">Budget Name</th>
                   <th className="px-4 py-3 font-medium">Division</th>
                   <th className="px-4 py-3 font-medium">Fiscal Year</th>
@@ -142,6 +220,15 @@ export default function BudgetsPage() {
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => navigate(`/budgets/${budget.id}`)}
                   >
+                    <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${budget.name}`}
+                        checked={selectedBudgetIds.includes(budget.id)}
+                        onChange={() => toggleBudgetSelection(budget.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{budget.name}</td>
                     <td className="px-4 py-3 text-gray-700">{toFriendlyLabel(budget.division)}</td>
                     <td className="px-4 py-3 text-gray-700">{budget.fiscalYear}</td>

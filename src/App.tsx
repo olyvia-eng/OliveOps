@@ -16,6 +16,7 @@ const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
 const BudgetPage = lazy(() => import('./pages/budget/BudgetPage'));
 const BudgetsPage = lazy(() => import('./pages/budget/BudgetsPage'));
+const CombinedBudgetPage = lazy(() => import('./pages/budget/CombinedBudgetPage'));
 const EmployeesPage = lazy(() => import('./pages/employees/EmployeesPage'));
 const DataCenterPage = lazy(() => import('./pages/datacenter/DataCenterPage'));
 const TimeReportsPage = lazy(() => import('./pages/reports/TimeReportsPage'));
@@ -584,6 +585,7 @@ export default function App() {
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<CalendarPage />} />
               <Route path="budgets" element={<BudgetsPage />} />
+              <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/:budgetId" element={<BudgetPage />} />
               <Route path="budget" element={<BudgetPage />} />
               <Route path="employees" element={<EmployeesPage />} />

@@ -182,7 +182,6 @@ export default function EstimatesPage() {
     budgets,
     addEstimate,
     deleteEstimate,
-    sendEstimate,
     convertEstimateToJob,
   } = useStore();
   const navigate = useNavigate();
@@ -370,11 +369,6 @@ export default function EstimatesPage() {
     if (typeof window !== 'undefined') {
       window.location.href = `mailto:${encodeURIComponent(customer.email)}?subject=${subject}&body=${body}`;
     }
-
-    if (estimate.status === 'draft') {
-      sendEstimate(estimate.id);
-    }
-    emitAppToast({ tone: 'success', message: 'Email draft opened. Attach the proposal PDF and send.' });
   };
 
   return (
@@ -582,7 +576,7 @@ export default function EstimatesPage() {
                 sendProposalToClient(proposalEstimate);
               }}
             >
-              <Mail size={14} /> Send to Client
+              <Mail size={14} /> Open Email Draft
             </Button>
           </>
         )}
@@ -597,7 +591,7 @@ export default function EstimatesPage() {
               <p><span className="font-medium text-gray-900">Valid Until:</span> {proposalEstimate.validUntil ? formatDate(proposalEstimate.validUntil) : 'Not specified'}</p>
               <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(computeEstimateTotal(computeEstimateSubtotal(normalizeEstimateWorkAreas(proposalEstimate)), computeEstimateTax(computeEstimateSubtotal(normalizeEstimateWorkAreas(proposalEstimate)), proposalEstimate.taxRate)))}</p>
             </div>
-            <p className="text-xs text-gray-500">Send to Client opens your email app with a draft message. Attach the downloaded PDF before sending.</p>
+            <p className="text-xs text-gray-500">Open Email Draft uses your local email app only. Attach the downloaded PDF and send it manually.</p>
           </div>
         ) : null}
       </Modal>
