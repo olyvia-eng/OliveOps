@@ -13,7 +13,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { BusinessUserRole } from '../../auth/types';
 import { getSidebarConfig, getSidebarLinkItems } from '../../navigation/sidebarConfig';
 import type { SidebarNavItem } from '../../navigation/types';
@@ -58,11 +58,12 @@ export default function Sidebar({
   isDesktopCollapsed,
   onToggleDesktopCollapsed,
 }: SidebarProps) {
+  const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [settingsExpanded, setSettingsExpanded] = useState(false);
+  const [companySetupExpanded, setCompanySetupExpanded] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileName, setProfileName] = useState(userName);
   const [profileEmail, setProfileEmail] = useState(userEmail);
@@ -178,7 +179,20 @@ export default function Sidebar({
     setFeedbackModalOpen(true);
   };
 
-  const canViewUserAccess = userRole === 'owner' || userRole === 'admin';
+  const canManageCompanySetup = userRole === 'owner' || userRole === 'admin';
+
+  const companySetupItems = useMemo(() => {
+    return [
+      { label: 'Catalog', path: '/materials/catalog', visible: true },
+      { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
+      { label: 'Users & Access', path: '/user-access', visible: canManageCompanySetup },
+      { label: 'Unbillable Categories', path: '/settings/unbillable-time-categories', visible: canManageCompanySetup },
+    ].filter((item) => item.visible);
+  }, [canManageCompanySetup]);
+
+  const isCompanySetupItemActive = (path: string) => {
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
 
   const openProfileModal = () => {
     setProfileName(displayName);
@@ -391,34 +405,23 @@ export default function Sidebar({
             <Edit3 size={14} className="ml-auto text-brand-400 dark:text-brand-300" />
           </button>
           <button
-            onClick={() => setSettingsExpanded((current) => !current)}
+            onClick={() => setCompanySetupExpanded((current) => !current)}
             className="w-full mb-1 flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
           >
-            <span className="inline-flex items-center gap-2"><Settings size={16} /> Settings</span>
-            <ChevronDown size={14} className={`transition-transform ${settingsExpanded ? 'rotate-180' : 'rotate-0'}`} />
+            <span className="inline-flex items-center gap-2"><Settings size={16} /> Company Setup</span>
+            <ChevronDown size={14} className={`transition-transform ${companySetupExpanded ? 'rotate-180' : 'rotate-0'}`} />
           </button>
-          {settingsExpanded && (
+          {companySetupExpanded && (
             <div className="mb-2 ml-3 pl-3 border-l border-brand-100 dark:border-brand-600 space-y-1">
-              <button
-                onClick={() => navigateFromProfile('/materials/catalog')}
-                className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
-              >
-                Catalog
-              </button>
-              <button
-                onClick={() => navigateFromProfile('/estimates/templates')}
-                className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
-              >
-                Estimate Templates
-              </button>
-              {canViewUserAccess && (
+              {companySetupItems.map((item) => (
                 <button
-                  onClick={() => navigateFromProfile('/user-access')}
-                  className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
+                  key={`mobile-company-setup-${item.path}`}
+                  onClick={() => navigateFromProfile(item.path)}
+                  className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${isCompanySetupItemActive(item.path) ? 'bg-accent-50 dark:bg-brand-600 text-brand-900 dark:text-brand-100 font-medium' : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600'}`}
                 >
-                  User Access
+                  {item.label}
                 </button>
-              )}
+              ))}
             </div>
           )}
           <button
@@ -522,34 +525,23 @@ export default function Sidebar({
             <Edit3 size={14} className="ml-auto text-brand-400 dark:text-brand-300" />
           </button>
           <button
-            onClick={() => setSettingsExpanded((current) => !current)}
+            onClick={() => setCompanySetupExpanded((current) => !current)}
             className="w-full mb-1 flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
           >
-            <span className="inline-flex items-center gap-2"><Settings size={16} /> Settings</span>
-            <ChevronDown size={14} className={`transition-transform ${settingsExpanded ? 'rotate-180' : 'rotate-0'}`} />
+            <span className="inline-flex items-center gap-2"><Settings size={16} /> Company Setup</span>
+            <ChevronDown size={14} className={`transition-transform ${companySetupExpanded ? 'rotate-180' : 'rotate-0'}`} />
           </button>
-          {settingsExpanded && (
+          {companySetupExpanded && (
             <div className="mb-2 ml-3 pl-3 border-l border-brand-100 dark:border-brand-600 space-y-1">
-              <button
-                onClick={() => navigateFromProfile('/materials/catalog')}
-                className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
-              >
-                Catalog
-              </button>
-              <button
-                onClick={() => navigateFromProfile('/estimates/templates')}
-                className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
-              >
-                Estimate Templates
-              </button>
-              {canViewUserAccess && (
+              {companySetupItems.map((item) => (
                 <button
-                  onClick={() => navigateFromProfile('/user-access')}
-                  className="w-full text-left px-2 py-1.5 rounded-md text-sm text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
+                  key={`desktop-company-setup-${item.path}`}
+                  onClick={() => navigateFromProfile(item.path)}
+                  className={`w-full text-left px-2 py-1.5 rounded-md text-sm ${isCompanySetupItemActive(item.path) ? 'bg-accent-50 dark:bg-brand-600 text-brand-900 dark:text-brand-100 font-medium' : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600'}`}
                 >
-                  User Access
+                  {item.label}
                 </button>
-              )}
+              ))}
             </div>
           )}
           <button

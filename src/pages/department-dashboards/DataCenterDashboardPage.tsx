@@ -59,7 +59,7 @@ export default function DataCenterDashboardPage() {
             `${timeEntries.length} time entry records`,
             `${jobs.length} job records`,
           ],
-          actionLabel: 'Open User Access',
+          actionLabel: 'Open Users & Access',
           actionTo: '/user-access',
         },
       ]}

@@ -74,14 +74,6 @@ const NAVIGATION_CONFIG: SidebarConfig = {
         { id: 'operations-jobs', type: 'link', to: '/jobs', label: 'Jobs', icon: icon(Briefcase) },
         { id: 'operations-calendar', type: 'link', to: '/calendar', label: 'Calendar', icon: icon(CalendarDays) },
         { id: 'operations-forms', type: 'link', to: '/operations/forms', label: 'Forms', icon: icon(FileBox) },
-        {
-          id: 'operations-unbillable-time-categories',
-          type: 'link',
-          to: '/settings/unbillable-time-categories',
-          label: 'Unbillable Categories',
-          icon: icon(Clock),
-          roles: ownerAdminRoles,
-        },
       ],
     },
     {

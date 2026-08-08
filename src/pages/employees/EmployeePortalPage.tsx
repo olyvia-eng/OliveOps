@@ -466,7 +466,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: E
                         ))}
                       </Select>
                       {activeUnbillableCategories.length === 0 && (
-                        <p className="text-sm text-accent-700">No active unbillable categories are configured. Ask an admin to add one in settings.</p>
+                        <p className="text-sm text-accent-700">No active unbillable categories are configured. Ask an admin to add one in Company Setup.</p>
                       )}
                     </div>
                   )}

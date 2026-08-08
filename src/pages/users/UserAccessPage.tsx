@@ -125,8 +125,8 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
   return (
     <div>
       <PageHeader
-        title="User Access"
-        subtitle="Create and manage employee or secondary admin logins for your business."
+        title="Users & Access"
+        subtitle="Manage who can sign in to OliveOps and control their account access."
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

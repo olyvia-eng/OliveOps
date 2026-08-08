@@ -9,6 +9,9 @@ const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'u
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
+const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
+const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 test('estimate and job workspaces are wired with the current user role', () => {
@@ -76,4 +79,17 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
   assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
   assert.match(jobWorkspaceSource, /No invoices yet/);
+});
+
+test('company setup sidebar keeps existing routes and account terminology', () => {
+  assert.match(sidebarSource, /Company Setup/);
+  assert.match(sidebarSource, /Users & Access/);
+  assert.match(sidebarSource, /Unbillable Categories/);
+  assert.match(sidebarSource, /path: '\/user-access'/);
+  assert.match(sidebarSource, /path: '\/settings\/unbillable-time-categories'/);
+  assert.match(appSource, /path="user-access"/);
+  assert.match(appSource, /path="settings\/unbillable-time-categories"/);
+  assert.match(userAccessPageSource, /title="Users & Access"/);
+  assert.match(userAccessPageSource, /Manage who can sign in to OliveOps and control their account access\./);
+  assert.doesNotMatch(sidebarConfigSource, /id: 'operations-unbillable-time-categories'/);
 });
