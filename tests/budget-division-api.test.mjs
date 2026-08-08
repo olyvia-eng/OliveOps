@@ -120,7 +120,7 @@ function buildBudgetRecord(overrides = {}) {
   };
 }
 
-test('budget create accepts legacy alias and stores canonical division', async (t) => {
+test('budget create accepts arbitrary division text and preserves stored value', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
   await seedSessionToken();
@@ -129,7 +129,7 @@ test('budget create accepts legacy alias and stores canonical division', async (
     method: 'POST',
     query: { entity: 'budgets' },
     headers: { authorization: 'Bearer budget-token-a' },
-    body: { data: buildBudgetRecord({ division: 'construction' }) },
+    body: { data: buildBudgetRecord({ division: 'construction and concrete' }) },
   };
   const createRes = createMockRes();
 
@@ -149,10 +149,10 @@ test('budget create accepts legacy alias and stores canonical division', async (
 
   assert.equal(listRes.statusCode, 200);
   assert.equal(listRes.body.ok, true);
-  assert.equal(listRes.body.items[0].division, 'earthworks');
+  assert.equal(listRes.body.items[0].division, 'construction and concrete');
 });
 
-test('budget create rejects unsupported division values', async (t) => {
+test('budget create requires a non-empty division value', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
   await seedSessionToken();
@@ -164,7 +164,7 @@ test('budget create rejects unsupported division values', async (t) => {
     body: {
       data: buildBudgetRecord({
         id: 'budget-invalid-create',
-        division: 'totally-invalid-value',
+        division: '   ',
       }),
     },
   };
@@ -174,10 +174,10 @@ test('budget create rejects unsupported division values', async (t) => {
 
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.ok, false);
-  assert.equal(res.body.error, 'Budget division is invalid.');
+  assert.equal(res.body.error, 'Budget division is required.');
 });
 
-test('budget update rejects unsupported division values', async (t) => {
+test('budget update accepts arbitrary division values', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
   await seedSessionToken();
@@ -204,7 +204,7 @@ test('budget update rejects unsupported division values', async (t) => {
     headers: { authorization: 'Bearer budget-token-a' },
     body: {
       data: {
-        division: 'totally-invalid-value',
+        division: 'special projects north',
       },
     },
   };
@@ -212,7 +212,19 @@ test('budget update rejects unsupported division values', async (t) => {
 
   await dataHandler(patchReq, patchRes);
 
-  assert.equal(patchRes.statusCode, 400);
-  assert.equal(patchRes.body.ok, false);
-  assert.equal(patchRes.body.error, 'Budget division is invalid.');
+  assert.equal(patchRes.statusCode, 200);
+  assert.equal(patchRes.body.ok, true);
+
+  const listReq = {
+    method: 'GET',
+    query: { entity: 'budgets' },
+    headers: { authorization: 'Bearer budget-token-a' },
+  };
+  const listRes = createMockRes();
+
+  await dataHandler(listReq, listRes);
+
+  assert.equal(listRes.statusCode, 200);
+  assert.equal(listRes.body.ok, true);
+  assert.equal(listRes.body.items[0].division, 'special projects north');
 });

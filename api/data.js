@@ -112,10 +112,6 @@ import {
   updateTimeEntryForBusiness,
 } from './_lib/authRepo.js';
 import { requireSession } from './_lib/session.js';
-import {
-  BUDGET_DIVISIONS as CANONICAL_BUDGET_DIVISIONS,
-  normalizeBudgetDivision,
-} from '../src/config/budgetDivisions.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -416,7 +412,6 @@ const EXPENSE_CATEGORIES = new Set(['materials', 'equipment', 'subcontractor', '
 const EQUIPMENT_STATUSES = new Set(['available', 'in_use', 'maintenance', 'inactive']);
 const EQUIPMENT_COST_TYPES = new Set(['financed', 'leased', 'owned']);
 const BUDGET_TYPES = new Set(['operating', 'capital', 'project', 'forecast', 'custom']);
-const BUDGET_DIVISIONS = new Set(CANONICAL_BUDGET_DIVISIONS);
 const BUDGET_STATUSES = new Set(['draft', 'active', 'archived']);
 const ESTIMATE_STATUSES = new Set(['draft', 'sent', 'accepted', 'declined', 'converted']);
 const ESTIMATE_LINE_ITEM_CATEGORIES = new Set(['material', 'equipment', 'labour', 'subcontractor']);
@@ -694,7 +689,7 @@ function validateBudgetRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Budget id is required.';
   if (!isNonEmptyString(record.name)) return 'Budget name is required.';
   if (!BUDGET_TYPES.has(record.budgetType)) return 'Budget type is invalid.';
-  if (!BUDGET_DIVISIONS.has(record.division)) return 'Budget division is invalid.';
+  if (!isNonEmptyString(record.division)) return 'Budget division is required.';
   if (typeof record.fiscalYear !== 'string' || !YEAR_REGEX.test(record.fiscalYear)) {
     return 'Fiscal year must use YYYY format.';
   }
@@ -914,7 +909,7 @@ export default async function handler(req, res) {
     const session = await requireSession(req, res, config.writeRoles ?? undefined);
     if (!session) return;
 
-    let record = req.body?.data;
+    const record = req.body?.data;
     if (!record || typeof record !== 'object' || typeof record.id !== 'string') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
     }
@@ -980,11 +975,6 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'budgets') {
-      const normalizedDivision = normalizeBudgetDivision(record.division);
-      record = {
-        ...record,
-        division: normalizedDivision,
-      };
       const validationError = validateBudgetRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
@@ -1058,7 +1048,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ ok: false, error: `${entity} not found` });
       }
 
-      let next = { ...existing, ...data };
+      const next = { ...existing, ...data };
 
       if (entity === 'invoices') {
         const validationError = validateInvoiceRecord(next);
@@ -1123,11 +1113,6 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'budgets') {
-        const normalizedDivision = normalizeBudgetDivision(next.division);
-        next = {
-          ...next,
-          division: normalizedDivision,
-        };
         const validationError = validateBudgetRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });

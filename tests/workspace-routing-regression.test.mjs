@@ -58,14 +58,11 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(workAreaBuilderSource, /Delete Work Area/);
 });
 
-test('budget screens use canonical division options and distinct invalid-division UX', () => {
-  assert.match(budgetsSource, /import \{[^\n]*BUDGET_DIVISIONS[^\n]*toBudgetDivisionLabel[^\n]*\} from '\.\.\/\.\.\/config\/budgetDivisions'/);
-  assert.match(budgetsSource, /<Select\s+label="Division"/);
-  assert.match(budgetsSource, /BUDGET_DIVISIONS\.map\(\(division\) => \(/);
+test('budget screens use free-text division input and keep detail display formatting', () => {
+  assert.match(budgetsSource, /<Input\s+label="Division"/);
   assert.match(budgetsSource, /const created = await addBudget\(\{/);
   assert.match(budgetDetailSource, /Budget not found/);
-  assert.match(budgetDetailSource, /Budget configuration is invalid/);
-  assert.match(budgetDetailSource, /normalizeBudgetDivision\(activeBudget\.division\)/);
+  assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {

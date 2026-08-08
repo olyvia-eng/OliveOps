@@ -1,7 +1,5 @@
 // ─── Shared ──────────────────────────────────────────────────────────────────
 
-import type { BudgetDivisionValue } from '../config/budgetDivisions';
-
 export type ID = string;
 
 export interface Address {
@@ -536,7 +534,7 @@ export type BudgetCategory =
   | 'other';
 
 export type BudgetType = 'operating' | 'capital' | 'project' | 'forecast' | 'custom';
-export type BudgetDivision = BudgetDivisionValue;
+export type BudgetDivision = string;
 export type BudgetStatus = 'draft' | 'active' | 'archived';
 
 export interface Budget {

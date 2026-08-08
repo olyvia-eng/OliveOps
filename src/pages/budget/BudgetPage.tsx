@@ -5,7 +5,6 @@ import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } 
 import { Plus, Pencil, Trash2, FileDown, Info, Users } from 'lucide-react';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
-import { normalizeBudgetDivision, toBudgetDivisionLabel } from '../../config/budgetDivisions';
 import type {
   BudgetItem,
   BudgetRate,
@@ -262,7 +261,6 @@ export default function BudgetPage() {
 
   const activeBudgetId = routeBudgetId ?? sortedBudgets[0]?.id ?? null;
   const activeBudget = activeBudgetId ? (budgets.find((budget) => budget.id === activeBudgetId) ?? null) : null;
-  const normalizedActiveDivision = activeBudget ? normalizeBudgetDivision(activeBudget.division) : null;
   const hasLegacyBudgetData = budgetItems.length > 0 || labourBudgetPlans.length > 0 || revenueSalesGoals.length > 0;
 
 
@@ -1281,24 +1279,6 @@ export default function BudgetPage() {
     );
   }
 
-  if (!normalizedActiveDivision) {
-    return (
-      <div>
-        <PageHeader
-          title="Budget Detail"
-          subtitle="Select a budget first to open the full budgeting workspace."
-          action={<Button onClick={() => navigate('/budgets')}>View Budgets</Button>}
-        />
-        <EmptyState
-          title="Budget configuration is invalid"
-          description="We couldn't open this budget because its division configuration is invalid. Update the budget division from the Budgets list or contact support if this keeps happening."
-          helpText={`Current stored division: ${activeBudget.division}`}
-          action={<Button onClick={() => navigate('/budgets')}>Go to Budgets</Button>}
-        />
-      </div>
-    );
-  }
-
   return (
     <div>
       <PageHeader
@@ -1325,7 +1305,7 @@ export default function BudgetPage() {
             Budget: {activeBudget.name}
           </span>
           <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">
-            {toBudgetDivisionLabel(normalizedActiveDivision)}
+            {toOptionLabel(activeBudget.division)}
           </span>
           <span className="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">Yearly</span>
           <span className="text-xs text-gray-500">Current scope: {scopeLabel}</span>
