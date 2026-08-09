@@ -212,7 +212,8 @@ export default function EquipmentCatalogPage() {
       return;
     }
 
-    const payload = toEquipmentAssetPayload(form);
+    const existingAsset = editingId ? equipmentAssets.find((asset) => asset.id === editingId) : undefined;
+    const payload = toEquipmentAssetPayload(form, existingAsset);
 
     if (editingId) {
       updateEquipmentAsset(editingId, payload);
@@ -228,17 +229,10 @@ export default function EquipmentCatalogPage() {
     setForm({
       name: asset.name,
       type: asset.type,
-      status: asset.status,
       costType: asset.costType,
-      serialNumber: asset.serialNumber,
-      purchaseDate: asset.purchaseDate ?? '',
-      hourlyCost: asset.hourlyCost,
-      purchasePrice: asset.purchasePrice ?? 0,
+      fuelCostPerHour: asset.hourlyCost,
       equipmentPayment: asset.equipmentPayment ?? 0,
       equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
-      fuelPriceUnit: asset.fuelPriceUnit ?? 'L',
-      averageFuelPrice: asset.averageFuelPrice ?? 0,
-      averageFuelBurnPerHour: asset.averageFuelBurnPerHour ?? 0,
       yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
       yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
       notes: asset.notes,
@@ -387,7 +381,7 @@ export default function EquipmentCatalogPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Edit Equipment Asset' : 'Add Equipment Asset'}</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Edit Equipment' : 'Add Equipment'}</h2>
               <p className="text-sm text-gray-500">Keep the catalog current so crews can choose the right asset quickly.</p>
             </div>
           </div>
@@ -434,7 +428,6 @@ export default function EquipmentCatalogPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-semibold text-gray-900">{asset.name}</h3>
-                        <Badge label={asset.status} className="bg-brand-50 text-brand-700" />
                         <Badge label={asset.costType} className="bg-accent-50 text-accent-700" />
                       </div>
                       <p className="mt-1 text-sm text-gray-500">{asset.type}</p>
@@ -450,8 +443,7 @@ export default function EquipmentCatalogPage() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600">
-                    <span>Serial: {asset.serialNumber || '—'}</span>
-                    <span>Hourly: ${asset.hourlyCost.toFixed(2)}</span>
+                    <span>Fuel Cost / Hour: ${asset.hourlyCost.toFixed(2)}</span>
                     <span>Updated: {new Date(asset.updatedAt).toLocaleDateString()}</span>
                   </div>
 

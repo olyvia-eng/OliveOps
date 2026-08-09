@@ -1,20 +1,13 @@
 import { Input, Select, TextArea } from '../ui';
-import type { EquipmentAsset, EquipmentCostType, EquipmentStatus } from '../../types';
+import type { EquipmentAsset, EquipmentCostType } from '../../types';
 
 export interface EquipmentAssetFormValue {
   name: string;
   type: string;
-  status: EquipmentStatus;
   costType: EquipmentCostType;
-  serialNumber: string;
-  purchaseDate: string;
-  hourlyCost: number;
-  purchasePrice: number;
+  fuelCostPerHour: number;
   equipmentPayment: number;
   equipmentPaymentFrequencyPerYear: number;
-  fuelPriceUnit: 'L' | 'gal';
-  averageFuelPrice: number;
-  averageFuelBurnPerHour: number;
   yearlyInsuranceCost: number;
   yearlyMaintenanceCost: number;
   notes: string;
@@ -23,17 +16,10 @@ export interface EquipmentAssetFormValue {
 export const emptyEquipmentAssetFormValue = (): EquipmentAssetFormValue => ({
   name: '',
   type: '',
-  status: 'available',
   costType: 'owned',
-  serialNumber: '',
-  purchaseDate: '',
-  hourlyCost: 0,
-  purchasePrice: 0,
+  fuelCostPerHour: 0,
   equipmentPayment: 0,
   equipmentPaymentFrequencyPerYear: 12,
-  fuelPriceUnit: 'L',
-  averageFuelPrice: 0,
-  averageFuelBurnPerHour: 0,
   yearlyInsuranceCost: 0,
   yearlyMaintenanceCost: 0,
   notes: '',
@@ -41,20 +27,21 @@ export const emptyEquipmentAssetFormValue = (): EquipmentAssetFormValue => ({
 
 export const toEquipmentAssetPayload = (
   value: EquipmentAssetFormValue,
+  existing?: Pick<EquipmentAsset, 'status' | 'serialNumber' | 'purchaseDate' | 'purchasePrice' | 'fuelPriceUnit'>,
 ): Omit<EquipmentAsset, 'id' | 'createdAt' | 'updatedAt'> => ({
   name: value.name.trim(),
   type: value.type.trim(),
-  status: value.status,
+  status: existing?.status ?? 'available',
   costType: value.costType,
-  serialNumber: value.serialNumber.trim(),
-  purchaseDate: value.purchaseDate || undefined,
-  hourlyCost: Number(value.hourlyCost || 0),
-  purchasePrice: Number(value.purchasePrice || 0),
-  equipmentPayment: Number(value.equipmentPayment || 0),
-  equipmentPaymentFrequencyPerYear: Number(value.equipmentPaymentFrequencyPerYear || 0),
-  fuelPriceUnit: value.fuelPriceUnit,
-  averageFuelPrice: Number(value.averageFuelPrice || 0),
-  averageFuelBurnPerHour: Number(value.averageFuelBurnPerHour || 0),
+  serialNumber: existing?.serialNumber ?? '',
+  purchaseDate: existing?.purchaseDate,
+  hourlyCost: Number(value.fuelCostPerHour || 0),
+  purchasePrice: existing?.purchasePrice,
+  equipmentPayment: value.costType === 'owned' ? 0 : Number(value.equipmentPayment || 0),
+  equipmentPaymentFrequencyPerYear: value.costType === 'owned' ? 0 : Number(value.equipmentPaymentFrequencyPerYear || 0),
+  fuelPriceUnit: existing?.fuelPriceUnit ?? 'L',
+  averageFuelPrice: Number(value.fuelCostPerHour || 0),
+  averageFuelBurnPerHour: value.fuelCostPerHour > 0 ? 1 : 0,
   yearlyInsuranceCost: Number(value.yearlyInsuranceCost || 0),
   yearlyMaintenanceCost: Number(value.yearlyMaintenanceCost || 0),
   notes: value.notes.trim(),
@@ -83,19 +70,9 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
         required
         value={value.type}
         onChange={(event) => set('type', event.target.value)}
-        placeholder="Excavator"
+        placeholder="Skid Steer"
       />
       <div className="grid gap-4 sm:grid-cols-2">
-        <Select
-          label="Status"
-          value={value.status}
-          onChange={(event) => set('status', event.target.value as EquipmentStatus)}
-        >
-          <option value="available">Available</option>
-          <option value="in_use">In Use</option>
-          <option value="maintenance">Maintenance</option>
-          <option value="inactive">Inactive</option>
-        </Select>
         <Select
           label="Cost Type"
           value={value.costType}
@@ -105,85 +82,38 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
           <option value="leased">Leased</option>
           <option value="financed">Financed</option>
         </Select>
+        <Input
+          label="Fuel Cost / Hour"
+          type="number"
+          min="0"
+          step="0.01"
+          value={value.fuelCostPerHour}
+          onChange={(event) => set('fuelCostPerHour', Number(event.target.value || 0))}
+        />
       </div>
+      {value.costType !== 'owned' && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label={value.costType === 'leased' ? 'Lease Payment' : 'Payment Amount'}
+            type="number"
+            min="0"
+            step="0.01"
+            value={value.equipmentPayment}
+            onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))}
+          />
+          <Input
+            label="Payment Frequency (# per year)"
+            type="number"
+            min="0"
+            step="1"
+            value={value.equipmentPaymentFrequencyPerYear}
+            onChange={(event) => set('equipmentPaymentFrequencyPerYear', Number(event.target.value || 0))}
+          />
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Serial Number"
-          value={value.serialNumber}
-          onChange={(event) => set('serialNumber', event.target.value)}
-        />
-        <Input
-          label="Purchase Date"
-          type="date"
-          value={value.purchaseDate}
-          onChange={(event) => set('purchaseDate', event.target.value)}
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input
-          label="Operating Cost per Hour"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.hourlyCost}
-          onChange={(event) => set('hourlyCost', Number(event.target.value || 0))}
-        />
-        <Input
-          label="Purchase Price"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.purchasePrice}
-          onChange={(event) => set('purchasePrice', Number(event.target.value || 0))}
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input
-          label="Payment"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.equipmentPayment}
-          onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))}
-        />
-        <Input
-          label="Payment Frequency (# per year)"
-          type="number"
-          min="0"
-          step="1"
-          value={value.equipmentPaymentFrequencyPerYear}
-          onChange={(event) => set('equipmentPaymentFrequencyPerYear', Number(event.target.value || 0))}
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Select
-          label="Fuel Price Unit"
-          value={value.fuelPriceUnit}
-          onChange={(event) => set('fuelPriceUnit', event.target.value === 'gal' ? 'gal' : 'L')}
-        >
-          <option value="L">L</option>
-          <option value="gal">gal</option>
-        </Select>
-        <Input
-          label="Average Fuel Price"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.averageFuelPrice}
-          onChange={(event) => set('averageFuelPrice', Number(event.target.value || 0))}
-        />
-        <Input
-          label="Fuel Burned per Hour"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.averageFuelBurnPerHour}
-          onChange={(event) => set('averageFuelBurnPerHour', Number(event.target.value || 0))}
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input
-          label="Yearly Insurance Cost"
+          label="Annual Insurance Cost"
           type="number"
           min="0"
           step="0.01"
@@ -191,7 +121,7 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
           onChange={(event) => set('yearlyInsuranceCost', Number(event.target.value || 0))}
         />
         <Input
-          label="Yearly Maintenance Cost"
+          label="Annual Maintenance Cost"
           type="number"
           min="0"
           step="0.01"

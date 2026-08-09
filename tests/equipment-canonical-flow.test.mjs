@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 test('catalog and budget both use shared canonical equipment form', () => {
   const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
   const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+  const equipmentFormSource = readFileSync('src/components/equipment/EquipmentAssetForm.tsx', 'utf8');
 
   assert.match(catalogSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentAssetForm'/);
   assert.match(catalogSource, /<EquipmentAssetForm value=\{form\} onChange=\{setForm\} \/>/);
@@ -13,6 +14,15 @@ test('catalog and budget both use shared canonical equipment form', () => {
   assert.match(budgetSource, /Canonical Equipment Asset/);
   assert.match(budgetSource, /<EquipmentAssetForm/);
   assert.match(budgetSource, /createCatalogEquipmentOnSave/);
+
+  assert.match(equipmentFormSource, /Fuel Cost \/ Hour/);
+  assert.match(equipmentFormSource, /Annual Insurance Cost/);
+  assert.match(equipmentFormSource, /Annual Maintenance Cost/);
+  assert.match(equipmentFormSource, /value\.costType !== 'owned'/);
+  assert.doesNotMatch(equipmentFormSource, /label="Status"/);
+  assert.doesNotMatch(equipmentFormSource, /label="Purchase Date"/);
+  assert.doesNotMatch(equipmentFormSource, /label="Purchase Price"/);
+  assert.doesNotMatch(equipmentFormSource, /label="Serial Number"/);
 });
 
 test('equipment asset type includes permanent economics fields', () => {
@@ -56,4 +66,6 @@ test('budget equipment add paths prefer canonical creation/linking', () => {
   assert.match(source, /if \(defaultCategory === 'equipment'\) \{\s*\n\s*openNewCategoryItem\('equipment', \{ createCatalogAssetOnSave: true \}\);/);
   assert.match(source, /const equipmentInfoDefaultsFromAsset = \(asset: EquipmentAsset\) => \{/);
   assert.match(source, /const equipmentDefaults = equipmentInfoDefaultsFromAsset\(selected\);/);
+  assert.doesNotMatch(source, /normalizedCostCode = normalizedCostCode \|\| createdEquipmentAssetPayload\.serialNumber/);
+  assert.doesNotMatch(source, /costCode: current\.costCode\?\.trim\(\) \? current\.costCode : next\.serialNumber/);
 });

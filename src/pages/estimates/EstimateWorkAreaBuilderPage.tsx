@@ -221,21 +221,21 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     }
 
     for (const asset of equipmentAssets) {
-      const matchedRate = findMatchingRate('equipment', [asset.name, asset.type, asset.serialNumber]);
+      const matchedRate = findMatchingRate('equipment', [asset.name, asset.type]);
       if (matchedRate) matchedEquipmentRateIds.add(matchedRate.id);
 
       candidates.push({
         key: `equipment:${asset.id}`,
         category: 'equipment',
         displayName: asset.name,
-        description: [asset.type, asset.serialNumber].filter(Boolean).join(' • ') || 'Company equipment',
+        description: asset.type || 'Company equipment',
         unit: matchedRate?.unit ?? 'hr',
         priceText: matchedRate ? `${formatCurrency(rateSellPrice(matchedRate))}/${matchedRate.unit}` : 'No pricing rate in selected budget',
         rate: matchedRate ?? undefined,
         disabledReason: matchedRate ? undefined : 'Add an equipment pricing rate to the selected budget or use a custom item.',
         alreadyAdded: matchedRate ? alreadyAddedRateIds.has(matchedRate.id) : false,
         source: 'equipment',
-        searchText: `${asset.name} ${asset.type} ${asset.serialNumber} equipment ${matchedRate?.description ?? ''}`.toLowerCase(),
+        searchText: `${asset.name} ${asset.type} equipment ${matchedRate?.description ?? ''}`.toLowerCase(),
       });
     }
 

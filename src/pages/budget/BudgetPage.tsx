@@ -404,7 +404,6 @@ export default function BudgetPage() {
   }, [equipmentBudgetItemsForYear]);
   const availableCatalogEquipment = useMemo(() => {
     return sortedEquipmentAssets
-      .filter((asset) => asset.status !== 'inactive')
       .filter((asset) => asset.id && asset.id.trim().length > 0 && asset.id in equipmentAssetsById);
   }, [equipmentAssetsById, sortedEquipmentAssets]);
   const allAvailableEquipmentIncluded = useMemo(() => {
@@ -417,8 +416,7 @@ export default function BudgetPage() {
 
     return availableCatalogEquipment.filter((asset) => {
       return asset.name.toLowerCase().includes(normalizedEquipmentCatalogSearch)
-        || asset.type.toLowerCase().includes(normalizedEquipmentCatalogSearch)
-        || asset.serialNumber.toLowerCase().includes(normalizedEquipmentCatalogSearch);
+        || asset.type.toLowerCase().includes(normalizedEquipmentCatalogSearch);
     });
   }, [availableCatalogEquipment, normalizedEquipmentCatalogSearch]);
   const scopeLabel = year;
@@ -570,7 +568,6 @@ export default function BudgetPage() {
       }
 
       normalizedEquipmentId = created.id;
-      normalizedCostCode = normalizedCostCode || createdEquipmentAssetPayload.serialNumber;
       setEquipmentCatalogError('');
     }
 
@@ -650,7 +647,6 @@ export default function BudgetPage() {
       return;
     }
 
-    const costCode = selected.serialNumber?.trim() || undefined;
     const equipmentDefaults = equipmentInfoDefaultsFromAsset(selected);
     addBudgetItem({
       ...empty(activeBudgetId),
@@ -659,7 +655,6 @@ export default function BudgetPage() {
       category: 'equipment',
       equipmentId,
       equipmentCostType: selected.costType,
-      costCode,
       description: selected.name,
       period: `${year}-01`,
       budgeted: 0,
@@ -694,7 +689,6 @@ export default function BudgetPage() {
         ...emptyEquipmentAssetFormValue(),
         costType: 'financed',
         name: '',
-        serialNumber: '',
       }));
     }
     setModalOpen(true);
@@ -2265,7 +2259,7 @@ export default function BudgetPage() {
                             <tr key={item.id} className="hover:bg-gray-50">
                               <td className="px-4 py-2 text-gray-700">
                                 <p className="font-medium text-gray-900">{linkedAsset?.name ?? item.description}</p>
-                                <p className="text-xs text-gray-500 mt-1">{linkedAsset ? [linkedAsset.type, linkedAsset.serialNumber].filter(Boolean).join(' • ') : 'Unlinked custom budget row'}</p>
+                                <p className="text-xs text-gray-500 mt-1">{linkedAsset ? linkedAsset.type : 'Unlinked custom budget row'}</p>
                               </td>
                               <td className="px-4 py-2">
                                 <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
@@ -2337,7 +2331,7 @@ export default function BudgetPage() {
                     {equipmentCatalogError && <p className="mt-2 text-xs text-accent-700">{equipmentCatalogError}</p>}
                   </div>
                   <div className="p-3 space-y-2 max-h-[680px] overflow-y-auto">
-                    {sortedEquipmentAssets.filter((asset) => asset.status !== 'inactive').length === 0 ? (
+                    {sortedEquipmentAssets.length === 0 ? (
                       <div className="text-sm text-gray-500 p-2">
                         <p>No equipment in your catalog yet.</p>
                         <div className="mt-2">
@@ -2356,7 +2350,7 @@ export default function BudgetPage() {
                           return (
                             <div key={asset.id} className="rounded-lg border border-gray-100 p-3 bg-white">
                               <p className="text-sm font-medium text-gray-900 leading-tight">{asset.name}</p>
-                              <p className="text-xs text-gray-500 mt-1">{[asset.type, asset.serialNumber].filter(Boolean).join(' • ') || 'Equipment'}</p>
+                              <p className="text-xs text-gray-500 mt-1">{asset.type || 'Equipment'}</p>
                               <div className="mt-2">
                                 {added ? (
                                   <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
@@ -2662,7 +2656,6 @@ export default function BudgetPage() {
                     ...current,
                     description: current.description.trim() ? current.description : next.name,
                     equipmentCostType: next.costType,
-                    costCode: current.costCode?.trim() ? current.costCode : next.serialNumber,
                   }));
                 }}
               />
@@ -3025,7 +3018,7 @@ export default function BudgetPage() {
           />
           {equipmentCatalogError && <p className="text-xs text-accent-700">{equipmentCatalogError}</p>}
           <div className="max-h-[65vh] overflow-y-auto space-y-2 pr-1">
-            {sortedEquipmentAssets.filter((asset) => asset.status !== 'inactive').length === 0 ? (
+            {sortedEquipmentAssets.length === 0 ? (
               <div className="text-sm text-gray-500 p-2">
                 <p>No equipment in your catalog yet.</p>
                 <div className="mt-2">
@@ -3044,7 +3037,7 @@ export default function BudgetPage() {
                   return (
                     <div key={asset.id} className="rounded-lg border border-gray-100 p-3 bg-white">
                       <p className="text-sm font-medium text-gray-900 leading-tight">{asset.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">{[asset.type, asset.serialNumber].filter(Boolean).join(' • ') || 'Equipment'}</p>
+                      <p className="text-xs text-gray-500 mt-1">{asset.type || 'Equipment'}</p>
                       <div className="mt-2">
                         {added ? (
                           <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
