@@ -81,6 +81,25 @@ test('budget screens use free-text division input and keep detail display format
   assert.match(combinedBudgetSource, /Back to Budgets/);
 });
 
+test('budget list row navigation and control interactions remain consistent', () => {
+  assert.match(budgetsSource, /onClick=\{\(\) => navigate\(`\/budgets\/\$\{budget\.id\}`\)\}/);
+  assert.match(budgetsSource, /tabIndex=\{0\}/);
+  assert.match(budgetsSource, /if \(event\.target !== event\.currentTarget\) return;/);
+  assert.match(budgetsSource, /if \(event\.key === 'Enter' \|\| event\.key === ' '\)/);
+  assert.match(budgetsSource, /<td className="px-4 py-3 font-medium text-gray-900">/);
+  assert.doesNotMatch(budgetsSource, /<td className="px-4 py-3 font-medium text-gray-900" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
+
+  assert.match(budgetsSource, /<td className="px-4 py-3" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
+  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*startInlineBudgetNameEdit\(budget\.id, budget\.name\);/);
+  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*setBudgetToDelete\(budget\.id\);/);
+  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*saveInlineBudgetNameEdit\(budget\.id\);/);
+  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*cancelInlineBudgetNameEdit\(\);/);
+  assert.match(budgetsSource, /<div className="space-y-2" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
+
+  assert.match(budgetsSource, /View Combined Budget/);
+  assert.match(budgetsSource, /Select all visible budgets/);
+});
+
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {
   for (const tab of ['info', 'work-areas', 'proposal', 'project-management', 'analysis', 'invoices']) {
     assert.match(jobWorkspaceSource, new RegExp(`key: '${tab}'`));

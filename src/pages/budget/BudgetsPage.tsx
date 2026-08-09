@@ -249,7 +249,15 @@ export default function BudgetsPage() {
                   <tr
                     key={budget.id}
                     className="hover:bg-gray-50 cursor-pointer"
+                    tabIndex={0}
                     onClick={() => navigate(`/budgets/${budget.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        navigate(`/budgets/${budget.id}`);
+                      }
+                    }}
                   >
                     <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                       <input
@@ -260,9 +268,9 @@ export default function BudgetsPage() {
                         className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900" onClick={(event) => event.stopPropagation()}>
+                    <td className="px-4 py-3 font-medium text-gray-900">
                       {editingBudgetId === budget.id ? (
-                        <div className="space-y-2">
+                        <div className="space-y-2" onClick={(event) => event.stopPropagation()}>
                           <input
                             type="text"
                             value={editingBudgetName}

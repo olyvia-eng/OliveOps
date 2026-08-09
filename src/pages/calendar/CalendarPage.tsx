@@ -73,7 +73,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const filteredJobs = useMemo(() => {
     return jobs.filter((job) => {
       if (jobFilter !== 'all' && job.id !== jobFilter) return false;
-      if (employeeFilter !== 'all' && !job.assignedEmployeeIds.includes(employeeFilter)) return false;
+      if (employeeFilter !== 'all' && !(job.assignedEmployeeIds ?? []).includes(employeeFilter)) return false;
       if (divisionFilter !== 'all') {
         const division = job.pricingBudgetId ? budgetDivisionById.get(job.pricingBudgetId) : undefined;
         if (division !== divisionFilter) return false;
@@ -89,7 +89,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         if (!schedule) return null;
 
         const customer = customers.find((item) => item.id === job.customerId) ?? null;
-        const assignedEmployees = employees.filter((employee) => job.assignedEmployeeIds.includes(employee.id));
+        const assignedEmployees = employees.filter((employee) => (job.assignedEmployeeIds ?? []).includes(employee.id));
         const assignedEquipment = getAssignedEquipmentForJob(job, equipmentAssets);
 
         return {
@@ -141,7 +141,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       jobId: selectedEvent.job.id,
       jobs,
       scheduleWindow: selectedEvent.schedule,
-      assignedEmployeeIds: selectedEvent.job.assignedEmployeeIds,
+      assignedEmployeeIds: selectedEvent.job.assignedEmployeeIds ?? [],
       assignedEquipmentIds: selectedEvent.job.assignedEquipmentIds ?? [],
     });
   }, [jobs, selectedEvent]);

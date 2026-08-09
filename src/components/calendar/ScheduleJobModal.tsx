@@ -77,7 +77,7 @@ const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[]): ScheduleFormS
   startTime: timeValueFromIso(job.scheduledStartAt),
   endTime: timeValueFromIso(job.scheduledEndAt),
   allDay: job.scheduleAllDay !== false,
-  assignedEmployeeIds: [...job.assignedEmployeeIds],
+  assignedEmployeeIds: [...(job.assignedEmployeeIds ?? [])],
   assignedEquipmentIds: getAssignedEquipmentForJob(job, equipmentAssets).map((asset) => asset.id),
   notes: job.scheduleNotes ?? '',
 });
