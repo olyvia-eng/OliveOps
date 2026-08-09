@@ -13,6 +13,7 @@ import type {
   BudgetCategory,
   LabourBudgetPlan,
   EquipmentCostType,
+  EquipmentStatus,
   RevenueSalesGoal,
   EmployeeLabourType,
 } from '../../types';
@@ -90,6 +91,28 @@ const normalizedEquipmentIdentity = (item: Pick<BudgetItem, 'equipmentId' | 'cos
   if (item.description.trim()) return `desc:${item.description.trim().toLowerCase()}`;
   return null;
 };
+
+interface EquipmentAssetFormState {
+  name: string;
+  type: string;
+  status: EquipmentStatus;
+  costType: EquipmentCostType;
+  serialNumber: string;
+  purchaseDate: string;
+  hourlyCost: number;
+  notes: string;
+}
+
+const emptyEquipmentAssetForm = (): EquipmentAssetFormState => ({
+  name: '',
+  type: '',
+  status: 'available',
+  costType: 'owned',
+  serialNumber: '',
+  purchaseDate: '',
+  hourlyCost: 0,
+  notes: '',
+});
 
 const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   budgetId,
@@ -203,6 +226,7 @@ export default function BudgetPage() {
     equipmentAssets,
     addBudget,
     updateBudget,
+    addEquipmentAsset,
     employees,
     updateEmployee,
     addBudgetItem,
@@ -230,10 +254,16 @@ export default function BudgetPage() {
   const [averageFuelBurnPerHourInput, setAverageFuelBurnPerHourInput] = useState('0');
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
+  const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
+  const [createEquipmentOpen, setCreateEquipmentOpen] = useState(false);
+  const [equipmentForm, setEquipmentForm] = useState<EquipmentAssetFormState>(emptyEquipmentAssetForm());
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
+  const [equipmentCatalogSearch, setEquipmentCatalogSearch] = useState('');
+  const [equipmentCatalogCollapsed, setEquipmentCatalogCollapsed] = useState(false);
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
+  const [equipmentCatalogError, setEquipmentCatalogError] = useState('');
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
   const [removePlanId, setRemovePlanId] = useState<string | null>(null);
@@ -339,13 +369,14 @@ export default function BudgetPage() {
   }, [activeBudgetId, budgetRates]);
 
   const equipmentAssetsById = useMemo(() => {
-    const next: Record<string, { id: string; name: string; type: string; serialNumber: string }> = {};
+    const next: Record<string, { id: string; name: string; type: string; serialNumber: string; costType: EquipmentCostType }> = {};
     for (const asset of equipmentAssets) {
       next[asset.id] = {
         id: asset.id,
         name: asset.name,
         type: asset.type,
         serialNumber: asset.serialNumber,
+        costType: asset.costType,
       };
     }
     return next;
@@ -364,6 +395,36 @@ export default function BudgetPage() {
       .filter((b) => b.period.startsWith(`${year}-`))
       .sort(compareBudgetItemsByCostCode);
   }, [scopedBudgetItems, year]);
+  const equipmentBudgetItemsForYear = useMemo(() => {
+    return items.filter((item) => item.category === 'equipment');
+  }, [items]);
+  const equipmentBudgetItemByEquipmentId = useMemo(() => {
+    const byId: Record<string, BudgetItem> = {};
+    for (const item of equipmentBudgetItemsForYear) {
+      if (!item.equipmentId) continue;
+      byId[item.equipmentId] = item;
+    }
+    return byId;
+  }, [equipmentBudgetItemsForYear]);
+  const availableCatalogEquipment = useMemo(() => {
+    return sortedEquipmentAssets
+      .filter((asset) => asset.status !== 'inactive')
+      .filter((asset) => asset.id && asset.id.trim().length > 0 && asset.id in equipmentAssetsById);
+  }, [equipmentAssetsById, sortedEquipmentAssets]);
+  const allAvailableEquipmentIncluded = useMemo(() => {
+    if (availableCatalogEquipment.length === 0) return false;
+    return availableCatalogEquipment.every((asset) => Boolean(equipmentBudgetItemByEquipmentId[asset.id]));
+  }, [availableCatalogEquipment, equipmentBudgetItemByEquipmentId]);
+  const normalizedEquipmentCatalogSearch = equipmentCatalogSearch.trim().toLowerCase();
+  const filteredCatalogEquipment = useMemo(() => {
+    if (!normalizedEquipmentCatalogSearch) return availableCatalogEquipment;
+
+    return availableCatalogEquipment.filter((asset) => {
+      return asset.name.toLowerCase().includes(normalizedEquipmentCatalogSearch)
+        || asset.type.toLowerCase().includes(normalizedEquipmentCatalogSearch)
+        || asset.serialNumber.toLowerCase().includes(normalizedEquipmentCatalogSearch);
+    });
+  }, [availableCatalogEquipment, normalizedEquipmentCatalogSearch]);
   const scopeLabel = year;
   const revenueScopeType: 'year' = 'year';
   const revenueScopeValue = scopeLabel;
@@ -565,6 +626,63 @@ export default function BudgetPage() {
       }
       return next;
     });
+  };
+
+  const addEquipmentToCurrentBudget = (equipmentId: string) => {
+    if (!activeBudgetId) return;
+    if (equipmentBudgetItemByEquipmentId[equipmentId]) {
+      setEquipmentCatalogError('This equipment is already included in this budget.');
+      return;
+    }
+    const selected = equipmentAssetsById[equipmentId];
+    if (!selected) {
+      setEquipmentCatalogError('Selected equipment was not found.');
+      return;
+    }
+
+    const costCode = selected.serialNumber?.trim() || undefined;
+    addBudgetItem({
+      ...empty(activeBudgetId),
+      ...equipmentInfoDefaults(),
+      budgetId: activeBudgetId,
+      category: 'equipment',
+      equipmentId,
+      equipmentCostType: selected.costType,
+      costCode,
+      description: selected.name,
+      period: `${year}-01`,
+      budgeted: 0,
+      actual: 0,
+    });
+    setEquipmentCatalogError('');
+  };
+
+  const handleCreateEquipmentAndAddToBudget = async () => {
+    if (!equipmentForm.name.trim() || !equipmentForm.type.trim()) {
+      setEquipmentCatalogError('Equipment name and type are required.');
+      return;
+    }
+
+    const payload = {
+      name: equipmentForm.name.trim(),
+      type: equipmentForm.type.trim(),
+      status: equipmentForm.status,
+      costType: equipmentForm.costType,
+      serialNumber: equipmentForm.serialNumber.trim(),
+      purchaseDate: equipmentForm.purchaseDate || undefined,
+      hourlyCost: Number(equipmentForm.hourlyCost || 0),
+      notes: equipmentForm.notes.trim(),
+    };
+
+    const created = await addEquipmentAsset(payload);
+    if (!created.ok || !created.id) {
+      setEquipmentCatalogError('Could not create equipment.');
+      return;
+    }
+
+    addEquipmentToCurrentBudget(created.id);
+    setCreateEquipmentOpen(false);
+    setEquipmentForm(emptyEquipmentAssetForm());
   };
 
   const openCategoryEditor = (category: BudgetCategory) => {
@@ -776,6 +894,7 @@ export default function BudgetPage() {
         actual: displayCategoryItems.reduce((sum, item) => sum + item.actual, 0),
       }
     : { budgeted: 0, actual: 0 };
+  const confirmDeleteItem = confirmDelete ? items.find((item) => item.id === confirmDelete) : null;
 
   const tabLabel = categoryTabs.find((tab) => tab.key === activeTab)?.label ?? 'Analysis';
 
@@ -1575,6 +1694,8 @@ export default function BudgetPage() {
             <Button variant="secondary" onClick={() => exportToPdf('budgeted')}><FileDown size={16} /> Export Budget PDF</Button>
             {activeTab === 'labour' ? (
               <Button className="lg:hidden" onClick={() => setMobileCatalogOpen(true)}><Plus size={16} /> Add Employees</Button>
+            ) : activeTab === 'equipment' ? (
+              <Button className="lg:hidden" onClick={() => setMobileEquipmentCatalogOpen(true)}><Plus size={16} /> Add Equipment</Button>
             ) : (
               <Button onClick={openNew}><Plus size={16} /> Add Budget Item</Button>
             )}
@@ -2113,6 +2234,151 @@ export default function BudgetPage() {
               </button>
             </div>
           </div>
+
+          <div className={`grid grid-cols-1 gap-5 mb-6 ${equipmentCatalogCollapsed ? 'lg:grid-cols-[minmax(0,1fr)_auto]' : 'lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)]'}`}>
+            <div>
+              <Card className="overflow-hidden">
+                <div className="p-4 border-b border-gray-100">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="font-semibold text-gray-900">Current Budget Equipment Plan</h2>
+                      <p className="text-xs text-gray-500 mt-1">Budget-specific assumptions for equipment linked to this budget.</p>
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => openCategoryEditor('equipment')}>
+                      <Plus size={13} /> Add Custom Equipment Row
+                    </Button>
+                  </div>
+                </div>
+                {equipmentFilteredItems.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">
+                    <p>No equipment in this budget yet.</p>
+                    <p className="text-xs mt-1">Add existing equipment from your Equipment Catalog.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[960px]">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+                          <th className="px-4 py-3 font-medium">Equipment</th>
+                          <th className="px-4 py-3 font-medium">Cost Type</th>
+                          <th className="px-4 py-3 font-medium text-right">Budgeted</th>
+                          <th className="px-4 py-3 font-medium text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {equipmentFilteredItems.map((item) => {
+                          const linkedAsset = item.equipmentId ? equipmentAssetsById[item.equipmentId] : undefined;
+                          return (
+                            <tr key={item.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 text-gray-700">
+                                <p className="font-medium text-gray-900">{linkedAsset?.name ?? item.description}</p>
+                                <p className="text-xs text-gray-500 mt-1">{linkedAsset ? [linkedAsset.type, linkedAsset.serialNumber].filter(Boolean).join(' • ') : 'Unlinked custom budget row'}</p>
+                              </td>
+                              <td className="px-4 py-2">
+                                <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
+                                  {normalizeEquipmentCostType(item.equipmentCostType).replace('_', ' ')}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-right">{formatCurrency(item.budgeted)}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Pencil size={13} /></Button>
+                                  <button
+                                    type="button"
+                                    className="text-accent-700 hover:text-accent-800 text-xs font-medium"
+                                    onClick={() => setConfirmDelete(item.id)}
+                                  >
+                                    Remove from Budget
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            <div className="hidden lg:block">
+              {equipmentCatalogCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setEquipmentCatalogCollapsed(false)}
+                  className="flex h-full min-h-[220px] items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-4 text-sm font-medium text-gray-600 shadow-sm hover:border-brand-200 hover:text-brand-700"
+                >
+                  <ChevronLeft size={16} />
+                  <span className="[writing-mode:vertical-rl] rotate-180">Equipment Catalog</span>
+                </button>
+              ) : (
+                <Card className="h-full">
+                  <div className="p-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">Equipment Catalog</h3>
+                        <p className="text-xs text-gray-500 mt-1">Add existing equipment to this budget.</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={13} /> New Equipment</Button>
+                        <button
+                          type="button"
+                          onClick={() => setEquipmentCatalogCollapsed(true)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-brand-200 hover:text-brand-700"
+                          aria-label="Collapse equipment catalog"
+                          title="Collapse equipment catalog"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                    <Input
+                      className="mt-3"
+                      value={equipmentCatalogSearch}
+                      onChange={(event) => setEquipmentCatalogSearch(event.target.value)}
+                      placeholder="Search equipment..."
+                    />
+                    {equipmentCatalogError && <p className="mt-2 text-xs text-accent-700">{equipmentCatalogError}</p>}
+                  </div>
+                  <div className="p-3 space-y-2 max-h-[680px] overflow-y-auto">
+                    {sortedEquipmentAssets.filter((asset) => asset.status !== 'inactive').length === 0 ? (
+                      <div className="text-sm text-gray-500 p-2">
+                        <p>No equipment in your catalog yet.</p>
+                        <div className="mt-2">
+                          <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={12} /> New Equipment</Button>
+                        </div>
+                      </div>
+                    ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
+                      <p className="text-sm text-gray-500 p-2">No equipment match your search.</p>
+                    ) : (
+                      <>
+                        {allAvailableEquipmentIncluded && normalizedEquipmentCatalogSearch.length === 0 && (
+                          <p className="text-sm text-gray-500 p-2">All available equipment is included in this budget.</p>
+                        )}
+                        {filteredCatalogEquipment.map((asset) => {
+                          const added = Boolean(equipmentBudgetItemByEquipmentId[asset.id]);
+                          return (
+                            <div key={asset.id} className="rounded-lg border border-gray-100 p-3 bg-white">
+                              <p className="text-sm font-medium text-gray-900 leading-tight">{asset.name}</p>
+                              <p className="text-xs text-gray-500 mt-1">{[asset.type, asset.serialNumber].filter(Boolean).join(' • ') || 'Equipment'}</p>
+                              <div className="mt-2">
+                                {added ? (
+                                  <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
+                                ) : (
+                                  <Button size="sm" onClick={() => addEquipmentToCurrentBudget(asset.id)}><Plus size={12} /> Add</Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                </Card>
+              )}
+            </div>
+          </div>
         </>
       )}
 
@@ -2156,7 +2422,7 @@ export default function BudgetPage() {
         </div>
       )}
 
-      {activeTab !== 'labour' && (items.length === 0 ? (
+      {activeTab !== 'labour' && activeTab !== 'equipment' && (items.length === 0 ? (
         <EmptyState title={`No budget items for ${scopeLabel}`} />
       ) : activeTab === 'analysis' ? (
         <div className="space-y-6">
@@ -2703,6 +2969,131 @@ export default function BudgetPage() {
         </div>
       </Modal>
 
+      <Modal
+        open={mobileEquipmentCatalogOpen}
+        onClose={() => setMobileEquipmentCatalogOpen(false)}
+        title="Equipment Catalog"
+        footer={<Button variant="secondary" onClick={() => setMobileEquipmentCatalogOpen(false)}>Close</Button>}
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-gray-600">Add existing equipment to this budget.</p>
+            <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={13} /> New Equipment</Button>
+          </div>
+          <Input
+            value={equipmentCatalogSearch}
+            onChange={(event) => setEquipmentCatalogSearch(event.target.value)}
+            placeholder="Search equipment..."
+          />
+          {equipmentCatalogError && <p className="text-xs text-accent-700">{equipmentCatalogError}</p>}
+          <div className="max-h-[65vh] overflow-y-auto space-y-2 pr-1">
+            {sortedEquipmentAssets.filter((asset) => asset.status !== 'inactive').length === 0 ? (
+              <div className="text-sm text-gray-500 p-2">
+                <p>No equipment in your catalog yet.</p>
+                <div className="mt-2">
+                  <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={12} /> New Equipment</Button>
+                </div>
+              </div>
+            ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
+              <p className="text-sm text-gray-500 p-2">No equipment match your search.</p>
+            ) : (
+              <>
+                {allAvailableEquipmentIncluded && normalizedEquipmentCatalogSearch.length === 0 && (
+                  <p className="text-sm text-gray-500 p-2">All available equipment is included in this budget.</p>
+                )}
+                {filteredCatalogEquipment.map((asset) => {
+                  const added = Boolean(equipmentBudgetItemByEquipmentId[asset.id]);
+                  return (
+                    <div key={asset.id} className="rounded-lg border border-gray-100 p-3 bg-white">
+                      <p className="text-sm font-medium text-gray-900 leading-tight">{asset.name}</p>
+                      <p className="text-xs text-gray-500 mt-1">{[asset.type, asset.serialNumber].filter(Boolean).join(' • ') || 'Equipment'}</p>
+                      <div className="mt-2">
+                        {added ? (
+                          <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
+                        ) : (
+                          <Button size="sm" onClick={() => addEquipmentToCurrentBudget(asset.id)}><Plus size={12} /> Add</Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={createEquipmentOpen}
+        onClose={() => setCreateEquipmentOpen(false)}
+        title="New Equipment"
+        footer={<>
+          <Button variant="secondary" onClick={() => setCreateEquipmentOpen(false)}>Cancel</Button>
+          <Button onClick={() => void handleCreateEquipmentAndAddToBudget()}>Create & Add</Button>
+        </>}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input
+            label="Name"
+            required
+            value={equipmentForm.name}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, name: event.target.value }))}
+          />
+          <Input
+            label="Type"
+            required
+            value={equipmentForm.type}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, type: event.target.value }))}
+          />
+          <Select
+            label="Status"
+            value={equipmentForm.status}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, status: event.target.value as EquipmentStatus }))}
+          >
+            <option value="available">Available</option>
+            <option value="in_use">In Use</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="inactive">Inactive</option>
+          </Select>
+          <Select
+            label="Cost Type"
+            value={equipmentForm.costType}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, costType: event.target.value as EquipmentCostType }))}
+          >
+            {EQUIPMENT_COST_TYPES.map((costType) => (
+              <option key={costType} value={costType}>{toOptionLabel(costType)}</option>
+            ))}
+          </Select>
+          <Input
+            label="Serial Number"
+            value={equipmentForm.serialNumber}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, serialNumber: event.target.value }))}
+          />
+          <Input
+            label="Purchase Date"
+            type="date"
+            value={equipmentForm.purchaseDate}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, purchaseDate: event.target.value }))}
+          />
+          <Input
+            label="Hourly Cost"
+            type="number"
+            min={0}
+            step={0.01}
+            value={equipmentForm.hourlyCost}
+            onChange={(event) => setEquipmentForm((current) => ({ ...current, hourlyCost: Number(event.target.value) }))}
+          />
+          <div className="sm:col-span-2">
+            <TextArea
+              label="Notes"
+              value={equipmentForm.notes}
+              onChange={(event) => setEquipmentForm((current) => ({ ...current, notes: event.target.value }))}
+            />
+          </div>
+          {equipmentCatalogError && <p className="sm:col-span-2 text-xs text-accent-700">{equipmentCatalogError}</p>}
+        </div>
+      </Modal>
+
       <EmployeeCreateModal
         open={createEmployeeOpen}
         onClose={() => setCreateEmployeeOpen(false)}
@@ -2731,13 +3122,17 @@ export default function BudgetPage() {
         <p className="text-gray-600">This removes the employee row from this budget only. The employee record will not be deleted.</p>
       </Modal>
 
-      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Budget Item"
+      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title={confirmDeleteItem?.category === 'equipment' ? 'Remove from Budget' : 'Delete Budget Item'}
         footer={<>
           <Button variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => { deleteBudgetItem(confirmDelete!); setConfirmDelete(null); }}>Delete</Button>
+          <Button variant="danger" onClick={() => { deleteBudgetItem(confirmDelete!); setConfirmDelete(null); }}>{confirmDeleteItem?.category === 'equipment' ? 'Remove' : 'Delete'}</Button>
         </>}
       >
-        <p className="text-gray-600">Delete this budget item?</p>
+        <p className="text-gray-600">
+          {confirmDeleteItem?.category === 'equipment'
+            ? 'This removes the equipment from this budget only. The equipment record and other budget links are not deleted.'
+            : 'Delete this budget item?'}
+        </p>
       </Modal>
 
       <Modal

@@ -857,6 +857,41 @@ async function validateJobRelationships({ businessId, record }) {
   return null;
 }
 
+async function validateBudgetItemRelationships({ businessId, record }) {
+  if (record.category !== 'equipment') {
+    return null;
+  }
+
+  if (!isNonEmptyString(record.equipmentId)) {
+    return null;
+  }
+
+  const equipment = await getEquipmentAssetForBusiness(businessId, record.equipmentId);
+  if (!equipment) {
+    return 'Linked equipment must belong to this business.';
+  }
+
+  if (!isNonEmptyString(record.budgetId) || !isNonEmptyString(record.period) || !PERIOD_REGEX.test(record.period)) {
+    return null;
+  }
+
+  const recordYear = record.period.slice(0, 4);
+  const budgetItems = await listBudgetItemsForBusiness(businessId);
+  const duplicate = budgetItems.find((item) => {
+    if (item.id === record.id) return false;
+    if (item.category !== 'equipment') return false;
+    if (!isNonEmptyString(item.budgetId) || item.budgetId !== record.budgetId) return false;
+    if (!isNonEmptyString(item.period) || item.period.slice(0, 4) !== recordYear) return false;
+    return item.equipmentId === record.equipmentId;
+  });
+
+  if (duplicate) {
+    return 'This equipment is already linked to this budget for the selected fiscal year.';
+  }
+
+  return null;
+}
+
 function validateEstimateLineItem(item) {
   if (!isNonEmptyString(item?.id)) return 'Line item id is required.';
   if (!ESTIMATE_LINE_ITEM_CATEGORIES.has(item?.category)) return 'Line item category is invalid.';
@@ -1220,6 +1255,14 @@ export default async function handler(req, res) {
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
+
+      const relationshipError = await validateBudgetItemRelationships({
+        businessId: session.businessId,
+        record,
+      });
+      if (relationshipError) {
+        return res.status(400).json({ ok: false, error: relationshipError });
+      }
     }
 
     if (entity === 'labour-budget-plans') {
@@ -1420,6 +1463,14 @@ export default async function handler(req, res) {
         const validationError = validateBudgetItemRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
+        }
+
+        const relationshipError = await validateBudgetItemRelationships({
+          businessId: session.businessId,
+          record: next,
+        });
+        if (relationshipError) {
+          return res.status(400).json({ ok: false, error: relationshipError });
         }
       }
 

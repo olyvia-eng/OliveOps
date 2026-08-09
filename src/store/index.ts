@@ -128,7 +128,7 @@ interface AppState {
   deleteExpense: (id: ID) => void;
 
   // Equipment
-  addEquipmentAsset: (e: Omit<EquipmentAsset, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  addEquipmentAsset: (e: Omit<EquipmentAsset, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; id?: ID }>;
   updateEquipmentAsset: (id: ID, data: Partial<EquipmentAsset>) => void;
   deleteEquipmentAsset: (id: ID) => void;
   addUnbillableTimeCategory: (category: Omit<UnbillableTimeCategory, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -588,22 +588,26 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Equipment ────────────────────────────────────────────────────────
-      addEquipmentAsset: (e) => {
+      addEquipmentAsset: async (e) => {
         const previous = get().equipmentAssets;
         const equipmentAsset = { ...e, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
         set((s) => ({ equipmentAssets: [equipmentAsset, ...s.equipmentAssets] }));
 
-        void ensureOk(fetch(dataUrl('equipment-assets'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: equipmentAsset }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('equipment-assets'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: equipmentAsset }),
+          }));
+          return { ok: true, id: equipmentAsset.id };
+        } catch (error: unknown) {
           set({ equipmentAssets: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Equipment asset could not be saved.') });
-        });
+          return { ok: false };
+        }
       },
       updateEquipmentAsset: (id, data) => {
         const previous = get().equipmentAssets;

@@ -42,3 +42,39 @@ test('equipment list rows display allocation summary status badges', () => {
   assert.match(source, /Over by \$\{allocationStatus\.overAllocatedPercent\.toFixed\(1\)\}%/);
   assert.match(source, /unallocated/);
 });
+
+test('budget equipment tab renders split equipment planner and equipment catalog experience', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /Current Budget Equipment Plan/);
+  assert.match(source, /Equipment Catalog/);
+  assert.match(source, /Add existing equipment to this budget\./);
+  assert.match(source, /Search equipment\.\.\./);
+  assert.match(source, /lg:grid-cols-\[minmax\(0,7fr\)_minmax\(300px,3fr\)\]/);
+});
+
+test('equipment catalog supports add state and remove-from-budget behavior without deleting equipment', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /This equipment is already included in this budget\./);
+  assert.match(source, /Remove from Budget/);
+  assert.match(source, /This removes the equipment from this budget only\./);
+  assert.match(source, /All available equipment is included in this budget\./);
+});
+
+test('new equipment can be created in place and linked to current budget', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /handleCreateEquipmentAndAddToBudget/);
+  assert.match(source, /Create & Add/);
+  assert.match(source, /addEquipmentAsset\(payload\)/);
+  assert.match(source, /addEquipmentToCurrentBudget\(created\.id\)/);
+});
+
+test('budget equipment API validates tenant ownership and duplicate links', () => {
+  const source = readFileSync('api/data.js', 'utf8');
+
+  assert.match(source, /validateBudgetItemRelationships/);
+  assert.match(source, /Linked equipment must belong to this business\./);
+  assert.match(source, /already linked to this budget for the selected fiscal year/);
+});
