@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, FileDown, Info, Users } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileDown, Info, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BUDGET_CATEGORIES } from '../../config/budgetCategories.js';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
@@ -219,6 +219,7 @@ export default function BudgetPage() {
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
+  const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
@@ -951,7 +952,7 @@ export default function BudgetPage() {
       const suggestedChargeOutRate = (hourlyRate + labourOverheadRecoveryPerHour) / marginDivisor;
       const annualRevenueGenerated = suggestedChargeOutRate * annualBillableHours;
       const grossProfitGenerated = annualRevenueGenerated - totalEmployeeCostPerYear;
-      const description = plan.description?.trim() ?? '';
+      const description = typeof plan.description === 'string' ? plan.description : '';
 
       return {
         employee,
@@ -1634,7 +1635,7 @@ export default function BudgetPage() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)] gap-5 mb-6">
+          <div className={`grid grid-cols-1 gap-5 mb-6 ${employeeCatalogCollapsed ? 'lg:grid-cols-[minmax(0,1fr)_auto]' : 'lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)]'}`}>
             <div>
               <Card className="overflow-hidden">
                 <div className="p-4 border-b border-gray-100">
@@ -1722,50 +1723,72 @@ export default function BudgetPage() {
             </div>
 
             <div className="hidden lg:block">
-              <Card className="h-full">
-                <div className="p-4 border-b border-gray-100">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900">Employee Catalog</h3>
-                    <Button size="sm" onClick={() => setCreateEmployeeOpen(true)}><Plus size={13} /> New Employee</Button>
-                  </div>
-                  <Input
-                    className="mt-3"
-                    value={employeeCatalogSearch}
-                    onChange={(event) => setEmployeeCatalogSearch(event.target.value)}
-                    placeholder="Search employees..."
-                  />
-                  {plannerEmployeeError && <p className="mt-2 text-xs text-accent-700">{plannerEmployeeError}</p>}
-                </div>
-                <div className="p-3 space-y-2 max-h-[680px] overflow-y-auto">
-                  {activeEmployees.length === 0 ? (
-                    <div className="text-sm text-gray-500 p-2">
-                      <p>No employees yet.</p>
-                      <p className="text-xs mt-1">Create an employee to add them to this labour plan.</p>
+              {employeeCatalogCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setEmployeeCatalogCollapsed(false)}
+                  className="flex h-full min-h-[220px] items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-4 text-sm font-medium text-gray-600 shadow-sm hover:border-brand-200 hover:text-brand-700"
+                >
+                  <ChevronLeft size={16} />
+                  <span className="[writing-mode:vertical-rl] rotate-180">Employee Catalog</span>
+                </button>
+              ) : (
+                <Card className="h-full">
+                  <div className="p-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-gray-900">Employee Catalog</h3>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" onClick={() => setCreateEmployeeOpen(true)}><Plus size={13} /> New Employee</Button>
+                        <button
+                          type="button"
+                          onClick={() => setEmployeeCatalogCollapsed(true)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-brand-200 hover:text-brand-700"
+                          aria-label="Collapse employee catalog"
+                          title="Collapse employee catalog"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
                     </div>
-                  ) : filteredCatalogEmployees.length === 0 ? (
-                    <p className="text-sm text-gray-500 p-2">No employees match your search.</p>
-                  ) : filteredCatalogEmployees.every((employee) => Boolean(plansByEmployeeId[employee.id])) ? (
-                    <p className="text-sm text-gray-500 p-2">All active employees are included in this labour plan.</p>
-                  ) : (
-                    filteredCatalogEmployees.map((employee) => {
-                      const added = Boolean(plansByEmployeeId[employee.id]);
-                      return (
-                        <div key={employee.id} className="rounded-lg border border-gray-100 p-3 bg-white">
-                          <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
-                          <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role ?? 'crew_member')}</p>
-                          <div className="mt-2">
-                            {added ? (
-                              <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
-                            ) : (
-                              <Button size="sm" onClick={() => void handleAddPlannerEmployee(employee.id)}><Plus size={12} /> Add</Button>
-                            )}
+                    <Input
+                      className="mt-3"
+                      value={employeeCatalogSearch}
+                      onChange={(event) => setEmployeeCatalogSearch(event.target.value)}
+                      placeholder="Search employees..."
+                    />
+                    {plannerEmployeeError && <p className="mt-2 text-xs text-accent-700">{plannerEmployeeError}</p>}
+                  </div>
+                  <div className="p-3 space-y-2 max-h-[680px] overflow-y-auto">
+                    {activeEmployees.length === 0 ? (
+                      <div className="text-sm text-gray-500 p-2">
+                        <p>No employees yet.</p>
+                        <p className="text-xs mt-1">Create an employee to add them to this labour plan.</p>
+                      </div>
+                    ) : filteredCatalogEmployees.length === 0 ? (
+                      <p className="text-sm text-gray-500 p-2">No employees match your search.</p>
+                    ) : filteredCatalogEmployees.every((employee) => Boolean(plansByEmployeeId[employee.id])) ? (
+                      <p className="text-sm text-gray-500 p-2">All active employees are included in this labour plan.</p>
+                    ) : (
+                      filteredCatalogEmployees.map((employee) => {
+                        const added = Boolean(plansByEmployeeId[employee.id]);
+                        return (
+                          <div key={employee.id} className="rounded-lg border border-gray-100 p-3 bg-white">
+                            <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
+                            <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role ?? 'crew_member')}</p>
+                            <div className="mt-2">
+                              {added ? (
+                                <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
+                              ) : (
+                                <Button size="sm" onClick={() => void handleAddPlannerEmployee(employee.id)}><Plus size={12} /> Add</Button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </Card>
+                        );
+                      })
+                    )}
+                  </div>
+                </Card>
+              )}
             </div>
           </div>
 

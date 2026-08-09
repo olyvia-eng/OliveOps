@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
-import { Layers3, Plus, Trash2, Wallet } from 'lucide-react';
+import { Layers3, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { useStore } from '../../store';
 import type { BudgetStatus } from '../../types';
 
@@ -31,12 +31,15 @@ const emptyBudgetForm = () => ({
 
 export default function BudgetsPage() {
   const navigate = useNavigate();
-  const { budgets, budgetItems, addBudget, deleteBudget } = useStore();
+  const { budgets, budgetItems, addBudget, updateBudget, deleteBudget } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyBudgetForm());
   const [formError, setFormError] = useState('');
   const [budgetToDelete, setBudgetToDelete] = useState<string | null>(null);
   const [selectedBudgetIds, setSelectedBudgetIds] = useState<string[]>([]);
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
+  const [editingBudgetName, setEditingBudgetName] = useState('');
+  const [budgetNameError, setBudgetNameError] = useState('');
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const budgetRows = useMemo(() => {
@@ -117,7 +120,36 @@ export default function BudgetsPage() {
     setModalOpen(true);
   };
 
-  const createNewBudget = async () => {
+  const startInlineBudgetNameEdit = (budgetId: string, currentName: string) => {
+    setEditingBudgetId(budgetId);
+    setEditingBudgetName(currentName);
+    setBudgetNameError('');
+  };
+
+  const cancelInlineBudgetNameEdit = () => {
+    setEditingBudgetId(null);
+    setEditingBudgetName('');
+    setBudgetNameError('');
+  };
+
+  const saveInlineBudgetNameEdit = (budgetId: string) => {
+    const nextName = editingBudgetName.trim();
+    if (!nextName) {
+      setBudgetNameError('Budget name is required.');
+      return;
+    }
+
+    const existingBudget = budgets.find((budget) => budget.id === budgetId);
+    if (!existingBudget) {
+      cancelInlineBudgetNameEdit();
+      return;
+    }
+
+    updateBudget(budgetId, { name: nextName });
+    cancelInlineBudgetNameEdit();
+  };
+
+  const saveBudget = async () => {
     setFormError('');
 
     if (!form.name.trim()) {
@@ -135,17 +167,16 @@ export default function BudgetsPage() {
       return;
     }
 
-    const created = await addBudget({
+    const payload = {
       name: form.name.trim(),
-      budgetType: 'operating',
+      budgetType: 'operating' as const,
       division: form.division.trim(),
       fiscalYear: form.fiscalYear,
       status: form.status,
-    });
+    };
 
-    if (!created) {
-      return;
-    }
+    const created = await addBudget(payload);
+    if (!created) return;
 
     setModalOpen(false);
     navigate(`/budgets/${created.id}`);
@@ -229,7 +260,35 @@ export default function BudgetsPage() {
                         className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{budget.name}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900" onClick={(event) => event.stopPropagation()}>
+                      {editingBudgetId === budget.id ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={editingBudgetName}
+                            onChange={(event) => {
+                              setEditingBudgetName(event.target.value);
+                              if (budgetNameError) setBudgetNameError('');
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                saveInlineBudgetNameEdit(budget.id);
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                cancelInlineBudgetNameEdit();
+                              }
+                            }}
+                            autoFocus
+                            className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm text-gray-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                          />
+                          {budgetNameError && <p className="text-xs text-accent-700">{budgetNameError}</p>}
+                        </div>
+                      ) : (
+                        budget.name
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{toFriendlyLabel(budget.division)}</td>
                     <td className="px-4 py-3 text-gray-700">{budget.fiscalYear}</td>
                     <td className="px-4 py-3">
@@ -242,17 +301,55 @@ export default function BudgetsPage() {
                       {new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(totalBudget)}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setBudgetToDelete(budget.id);
-                        }}
-                        aria-label={`Delete ${budget.name}`}
-                      >
-                        <Trash2 size={14} className="text-accent-700" />
-                      </Button>
+                      <div className="flex items-center justify-center gap-1">
+                        {editingBudgetId === budget.id ? (
+                          <>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                saveInlineBudgetNameEdit(budget.id);
+                              }}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                cancelInlineBudgetNameEdit();
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startInlineBudgetNameEdit(budget.id, budget.name);
+                            }}
+                            aria-label={`Edit ${budget.name}`}
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setBudgetToDelete(budget.id);
+                          }}
+                          aria-label={`Delete ${budget.name}`}
+                        >
+                          <Trash2 size={14} className="text-accent-700" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -269,7 +366,7 @@ export default function BudgetsPage() {
         footer={(
           <>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={createNewBudget}>Create Budget</Button>
+            <Button onClick={saveBudget}>Create Budget</Button>
           </>
         )}
       >

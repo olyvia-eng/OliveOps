@@ -10,5 +10,6 @@ test('budget labour planner keeps explicit entries and supports reorder/remove i
   assert.match(source, /draggable/);
   assert.match(source, /Remove from Budget/);
   assert.match(source, /updateLabourPlan\(row\.employee\.id, 'description'/);
+  assert.match(source, /const description = typeof plan\.description === 'string' \? plan\.description : '';/);
   assert.match(source, /sortOrder/);
 });

@@ -64,7 +64,14 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
 
 test('budget screens use free-text division input and keep detail display formatting', () => {
   assert.match(budgetsSource, /<Input\s+label="Division"/);
-  assert.match(budgetsSource, /const created = await addBudget\(\{/);
+  assert.match(budgetsSource, /const payload = \{/);
+  assert.match(budgetsSource, /const created = await addBudget\(payload\);/);
+  assert.match(budgetsSource, /const startInlineBudgetNameEdit = \(budgetId: string, currentName: string\) => \{/);
+  assert.match(budgetsSource, /const saveInlineBudgetNameEdit = \(budgetId: string\) => \{/);
+  assert.match(budgetsSource, /onKeyDown=\{\(event\) => \{/);
+  assert.match(budgetsSource, /if \(event.key === 'Enter'\)/);
+  assert.match(budgetsSource, /if \(event.key === 'Escape'\)/);
+  assert.match(budgetsSource, /aria-label=\{`Edit \$\{budget\.name\}`\}/);
   assert.match(budgetDetailSource, /Budget not found/);
   assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);
   assert.match(budgetsSource, /View Combined Budget/);
