@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Clock, LogOut, Users } from 'lucide-react';
@@ -8,6 +8,8 @@ import type { Employee, EmployeeRole } from '../../types';
 import ClockInModal from './ClockInModal';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
+
+const EMPLOYEES_VIEW_MODE_STORAGE_KEY = 'oliveops.employees.viewMode';
 
 type CompensationType = 'hourly' | 'salary';
 type LabourType = 'field_producing' | 'overhead';
@@ -59,8 +61,16 @@ export default function EmployeesPage() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
   const [clockOutSubmitting, setClockOutSubmitting] = useState(false);
-  const [employeeViewMode, setEmployeeViewMode] = useState<'card' | 'list'>('card');
+  const [employeeViewMode, setEmployeeViewMode] = useState<'card' | 'list'>(() => {
+    if (typeof window === 'undefined') return 'card';
+    return window.localStorage.getItem(EMPLOYEES_VIEW_MODE_STORAGE_KEY) === 'list' ? 'list' : 'card';
+  });
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(EMPLOYEES_VIEW_MODE_STORAGE_KEY, employeeViewMode);
+  }, [employeeViewMode]);
 
   const openNew = () => {
     setCreateEmployeeOpen(true);
