@@ -433,24 +433,16 @@ export default function BudgetPage() {
       openNewCategoryItem('equipment', { createCatalogAssetOnSave: true });
       return;
     }
-    const defaultEquipmentInfo = defaultCategory === 'equipment' ? equipmentInfoDefaults() : null;
     setEditing(null);
     setForm({
       ...empty(activeBudgetId ?? undefined),
       category: defaultCategory,
-      equipmentCostType: defaultCategory === 'equipment' ? 'financed' : undefined,
-      ...(defaultEquipmentInfo ?? {}),
+      equipmentCostType: undefined,
       period: defaultPeriod,
     });
-    if (defaultEquipmentInfo) {
-      setAverageFuelPriceInput(formatNumericDisplayValue(defaultEquipmentInfo.averageFuelPrice));
-      setAverageFuelBurnPerHourInput(formatNumericDisplayValue(defaultEquipmentInfo.averageFuelBurnPerHour));
-      setShowEquipmentCalcDetails(false);
-    } else {
-      setAverageFuelPriceInput('0');
-      setAverageFuelBurnPerHourInput('0');
-      setShowEquipmentCalcDetails(false);
-    }
+    setAverageFuelPriceInput('0');
+    setAverageFuelBurnPerHourInput('0');
+    setShowEquipmentCalcDetails(false);
     setCreateCatalogEquipmentOnSave(false);
     setModalOpen(true);
   };

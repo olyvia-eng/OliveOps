@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PencilLine, PlusCircle, Trash2 } from 'lucide-react';
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
 import type { EquipmentAsset } from '../../types';
@@ -298,7 +298,7 @@ export default function EquipmentCatalogPage() {
           <TextArea
             label="Notes"
             value={materialForm.notes}
-            onChange={(event) => setMaterialForm((current) => ({ ...current, notes: event.target.value }))}
+            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setMaterialForm((current) => ({ ...current, notes: event.target.value }))}
             placeholder="Preferred supplier or spec notes"
           />
           <div className="flex items-end">
