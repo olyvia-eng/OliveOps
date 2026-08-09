@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, FileDown, Info, Users } from 'lucide-react';
+import { BUDGET_CATEGORIES } from '../../config/budgetCategories.js';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import type {
@@ -24,7 +25,6 @@ type BudgetTab = 'analysis' | 'revenue' | 'labour' | 'materials' | 'equipment' |
 type LabourTableView = 'all' | 'hourly' | 'salaried';
 type EquipmentTableView = 'all' | EquipmentCostType;
 type ExportColumnMode = 'budgeted' | 'actual';
-const CATEGORIES: BudgetCategory[] = ['labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance'];
 const EQUIPMENT_COST_TYPES: EquipmentCostType[] = ['financed', 'leased', 'owned'];
 const RATE_CATEGORIES = ['labour', 'equipment', 'material', 'subcontractor'] as const;
 const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = {
@@ -40,6 +40,18 @@ const normalizeEquipmentCostType = (value: EquipmentCostType | undefined): Equip
   if (value === 'financed' || value === 'leased' || value === 'owned') return value;
   return 'owned';
 };
+
+const createBudgetCategoryGroups = (): Record<BudgetCategory, BudgetItem[]> => ({
+  revenue: [],
+  labour: [],
+  materials: [],
+  equipment: [],
+  subcontractors: [],
+  overhead: [],
+  marketing: [],
+  insurance: [],
+  other: [],
+});
 
 const emptyBudgetRate = (budgetId?: string): Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'> => ({
   budgetId: budgetId ?? '',
@@ -559,10 +571,13 @@ export default function BudgetPage() {
   const totalBudgetedExpenses = expenses.reduce((s, b) => s + b.budgeted, 0);
   const budgetedProfit = totalBudgetedRevenue - totalBudgetedExpenses;
 
-  const grouped = CATEGORIES.reduce<Record<BudgetCategory, BudgetItem[]>>((acc, cat) => {
-    acc[cat] = items.filter((b) => b.category === cat);
-    return acc;
-  }, {} as Record<BudgetCategory, BudgetItem[]>);
+  const grouped = useMemo(() => {
+    const next = createBudgetCategoryGroups();
+    for (const item of items) {
+      next[item.category].push(item);
+    }
+    return next;
+  }, [items]);
 
   const categoryTabs: Array<{ key: BudgetTab; label: string }> = [
     { key: 'revenue', label: 'Sales / Revenue' },
@@ -599,7 +614,7 @@ export default function BudgetPage() {
     };
   }, [grouped]);
 
-  const categoryRows = CATEGORIES.map((category) => {
+  const categoryRows = BUDGET_CATEGORIES.map((category) => {
     const catItems = grouped[category];
     const budgeted = catItems.reduce((sum, item) => sum + item.budgeted, 0);
     const actual = catItems.reduce((sum, item) => sum + item.actual, 0);

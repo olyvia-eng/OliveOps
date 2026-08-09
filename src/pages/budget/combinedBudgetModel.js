@@ -1,4 +1,5 @@
-const BUDGET_CATEGORIES = ['revenue', 'labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance', 'other'];
+import { BUDGET_CATEGORIES } from '../../config/budgetCategories.js';
+
 const DEFAULT_WORKING_DAYS_YEAR = 260;
 
 const normalizeEquipmentCostType = (value) => {
@@ -116,7 +117,17 @@ const groupBudgetItemsByCategory = (items) => {
   return BUDGET_CATEGORIES.reduce((acc, category) => {
     acc[category] = items.filter((item) => item.category === category);
     return acc;
-  }, {});
+  }, {
+    revenue: [],
+    labour: [],
+    materials: [],
+    equipment: [],
+    subcontractors: [],
+    overhead: [],
+    marketing: [],
+    insurance: [],
+    other: [],
+  });
 };
 
 const buildTotalsByCategory = (grouped) => {

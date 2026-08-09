@@ -1,3 +1,5 @@
+import { BUDGET_CATEGORIES } from '../config/budgetCategories.js';
+
 // ─── Shared ──────────────────────────────────────────────────────────────────
 
 export type ID = string;
@@ -528,16 +530,9 @@ export interface FormResponse {
 
 // ─── Budget ──────────────────────────────────────────────────────────────────
 
-export type BudgetCategory =
-  | 'revenue'
-  | 'labour'
-  | 'materials'
-  | 'equipment'
-  | 'subcontractors'
-  | 'overhead'
-  | 'marketing'
-  | 'insurance'
-  | 'other';
+export { BUDGET_CATEGORIES };
+
+export type BudgetCategory = typeof BUDGET_CATEGORIES[number];
 
 export type BudgetType = 'operating' | 'capital' | 'project' | 'forecast' | 'custom';
 export type BudgetDivision = string;
