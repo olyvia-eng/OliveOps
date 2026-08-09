@@ -201,6 +201,7 @@ export default function BudgetPage() {
     labourBudgetPlans,
     revenueSalesGoals,
     equipmentAssets,
+    addEquipmentAsset,
     addBudget,
     updateBudget,
     employees,
@@ -231,6 +232,7 @@ export default function BudgetPage() {
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
+  const [createCatalogEquipmentOnSave, setCreateCatalogEquipmentOnSave] = useState(false);
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
@@ -425,6 +427,7 @@ export default function BudgetPage() {
       setAverageFuelBurnPerHourInput('0');
       setShowEquipmentCalcDetails(false);
     }
+    setCreateCatalogEquipmentOnSave(false);
     setModalOpen(true);
   };
 
@@ -504,12 +507,13 @@ export default function BudgetPage() {
     setAverageFuelPriceInput(formatNumericDisplayValue(averageFuelPrice));
     setAverageFuelBurnPerHourInput(formatNumericDisplayValue(averageFuelBurnPerHour));
     setShowEquipmentCalcDetails(false);
+    setCreateCatalogEquipmentOnSave(false);
     setModalOpen(true);
   };
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.description.trim()) return;
     const normalizedCostCode = form.costCode?.trim();
-    const normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
+    let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
     const normalizedFuelPriceUnit: BudgetItem['fuelPriceUnit'] = form.fuelPriceUnit === 'gal' ? 'gal' : 'L';
     const normalizedFuelPrice = normalizeNumber(form.averageFuelPrice);
@@ -532,6 +536,28 @@ export default function BudgetPage() {
     const normalizedTotalEquipmentCostPerYear =
       normalizedAllocatedFixedOwnershipCostPerYear
       + normalizedVariableOperatingCostPerYear;
+
+    if (!editing && form.category === 'equipment' && createCatalogEquipmentOnSave) {
+      const created = await addEquipmentAsset({
+        name: form.description.trim(),
+        type: toOptionLabel(normalizeEquipmentCostType(form.equipmentCostType)),
+        status: 'available',
+        costType: normalizeEquipmentCostType(form.equipmentCostType),
+        serialNumber: normalizedCostCode ? normalizedCostCode.toUpperCase() : '',
+        purchaseDate: undefined,
+        hourlyCost: normalizedBillableHoursPerYear > 0 ? (normalizedTotalEquipmentCostPerYear / normalizedBillableHoursPerYear) : 0,
+        notes: '',
+      });
+
+      if (!created.ok || !created.id) {
+        setEquipmentCatalogError('Could not create equipment in the catalog.');
+        return;
+      }
+
+      normalizedEquipmentId = created.id;
+      setEquipmentCatalogError('');
+    }
+
     const equipmentFields = form.category === 'equipment'
       ? {
           equipmentId: normalizedEquipmentId,
@@ -579,28 +605,10 @@ export default function BudgetPage() {
     };
     if (editing) updateBudgetItem(editing.id, yearlyForm);
     else addBudgetItem(yearlyForm);
+    setCreateCatalogEquipmentOnSave(false);
     setModalOpen(false);
   };
   const set = (key: keyof typeof form, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
-
-  const handleLinkedEquipmentSelect = (value: string) => {
-    setForm((current) => {
-      const equipmentId = value.trim() ? value : undefined;
-      if (!equipmentId) {
-        return { ...current, equipmentId: undefined };
-      }
-      const selected = equipmentAssetsById[equipmentId];
-      if (!selected) {
-        return { ...current, equipmentId };
-      }
-
-      const next = { ...current, equipmentId };
-      if (!next.description.trim()) {
-        next.description = selected.name;
-      }
-      return next;
-    });
-  };
 
   const addEquipmentToCurrentBudget = (equipmentId: string) => {
     if (!activeBudgetId) return;
@@ -631,7 +639,7 @@ export default function BudgetPage() {
     setEquipmentCatalogError('');
   };
 
-  const openCategoryEditor = (category: BudgetCategory) => {
+  const openCategoryEditor = (category: BudgetCategory, options?: { createCatalogAssetOnSave?: boolean }) => {
     const existingItem = items.find((item) => item.category === category);
     if (existingItem) {
       openEdit(existingItem);
@@ -657,6 +665,7 @@ export default function BudgetPage() {
       setAverageFuelBurnPerHourInput('0');
       setShowEquipmentCalcDetails(false);
     }
+    setCreateCatalogEquipmentOnSave(Boolean(options?.createCatalogAssetOnSave && category === 'equipment'));
     setModalOpen(true);
   };
 
@@ -2197,18 +2206,24 @@ export default function BudgetPage() {
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[960px]">
+                    <table className="w-full text-sm min-w-[1240px]">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
                           <th className="px-4 py-3 font-medium">Equipment</th>
                           <th className="px-4 py-3 font-medium">Cost Type</th>
-                          <th className="px-4 py-3 font-medium text-right">Budgeted</th>
+                          <th className="px-4 py-3 font-medium text-right">Cost / Year</th>
+                          <th className="px-4 py-3 font-medium text-right">Cost / Day</th>
+                          <th className="px-4 py-3 font-medium text-right">Cost / Hour</th>
                           <th className="px-4 py-3 font-medium text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {equipmentFilteredItems.map((item) => {
                           const linkedAsset = item.equipmentId ? equipmentAssetsById[item.equipmentId] : undefined;
+                          const billableHoursPerYear = Math.max(0, item.sellableHoursPerYear ?? 0);
+                          const equipmentHoursPerDay = Math.max(0, item.equipmentHoursPerDay ?? 0);
+                          const costPerHour = billableHoursPerYear > 0 ? item.budgeted / billableHoursPerYear : 0;
+                          const costPerDay = equipmentHoursPerDay > 0 ? costPerHour * equipmentHoursPerDay : 0;
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
                               <td className="px-4 py-2 text-gray-700">
@@ -2221,6 +2236,8 @@ export default function BudgetPage() {
                                 </span>
                               </td>
                               <td className="px-4 py-2 text-right">{formatCurrency(item.budgeted)}</td>
+                              <td className="px-4 py-2 text-right">{formatCurrency(costPerDay)}</td>
+                              <td className="px-4 py-2 text-right">{formatCurrency(costPerHour)}</td>
                               <td className="px-4 py-2">
                                 <div className="flex items-center justify-end gap-2">
                                   <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Pencil size={13} /></Button>
@@ -2262,7 +2279,7 @@ export default function BudgetPage() {
                         <p className="text-xs text-gray-500 mt-1">Add existing equipment to this budget.</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={13} /> New Equipment</Button>
+                        <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
                         <button
                           type="button"
                           onClick={() => setEquipmentCatalogCollapsed(true)}
@@ -2287,7 +2304,7 @@ export default function BudgetPage() {
                       <div className="text-sm text-gray-500 p-2">
                         <p>No equipment in your catalog yet.</p>
                         <div className="mt-2">
-                          <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={12} /> New Equipment</Button>
+                          <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
                         </div>
                       </div>
                     ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
@@ -2539,7 +2556,7 @@ export default function BudgetPage() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Budget Item' : 'New Budget Item'}
         footer={<>
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={() => void handleSave()}>Save</Button>
         </>}
       >
         <div className="space-y-4">
@@ -2569,19 +2586,6 @@ export default function BudgetPage() {
                   <option key={costType} value={costType}>{costType.charAt(0).toUpperCase() + costType.slice(1)}</option>
                 ))}
               </Select>
-              <Select
-                label="Linked Equipment Asset"
-                value={form.equipmentId ?? ''}
-                onChange={(e) => handleLinkedEquipmentSelect(e.target.value)}
-              >
-                <option value="">Unlinked (manual equipment row)</option>
-                {sortedEquipmentAssets.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.name}{asset.type ? ` - ${asset.type}` : ''}{asset.serialNumber ? ` (${asset.serialNumber})` : ''}
-                  </option>
-                ))}
-              </Select>
-
               <fieldset className="border border-gray-200 rounded-lg p-3">
                 <legend className="text-sm font-medium text-gray-700 px-1">Equipment Info</legend>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
@@ -2919,7 +2923,7 @@ export default function BudgetPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-gray-600">Add existing equipment to this budget.</p>
-            <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={13} /> New Equipment</Button>
+            <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
           </div>
           <Input
             value={equipmentCatalogSearch}
@@ -2932,7 +2936,7 @@ export default function BudgetPage() {
               <div className="text-sm text-gray-500 p-2">
                 <p>No equipment in your catalog yet.</p>
                 <div className="mt-2">
-                  <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={12} /> New Equipment</Button>
+                  <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
                 </div>
               </div>
             ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (

@@ -26,12 +26,12 @@ test('budget item API validates months used and allocation percent on budget ent
   assert.match(source, /Equipment cost allocation percent must be zero or greater\./);
 });
 
-test('budget equipment editor exposes explicit linked equipment selection', () => {
+test('budget equipment editor removes linked catalog selector from add equipment form', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /label="Linked Equipment Asset"/);
-  assert.match(source, /Unlinked \(manual equipment row\)/);
-  assert.match(source, /handleLinkedEquipmentSelect/);
+  assert.doesNotMatch(source, /label="Linked Equipment Asset"/);
+  assert.doesNotMatch(source, /Unlinked \(manual equipment row\)/);
+  assert.doesNotMatch(source, /handleLinkedEquipmentSelect/);
 });
 
 test('equipment list rows display allocation summary status badges', () => {
@@ -50,6 +50,9 @@ test('budget equipment tab renders split equipment planner and equipment catalog
   assert.match(source, /Equipment Catalog/);
   assert.match(source, /Add existing equipment to this budget\./);
   assert.match(source, /Search equipment\.\.\./);
+  assert.match(source, /Cost \/ Year/);
+  assert.match(source, /Cost \/ Day/);
+  assert.match(source, /Cost \/ Hour/);
   assert.match(source, /lg:grid-cols-\[minmax\(0,7fr\)_minmax\(300px,3fr\)\]/);
 });
 
@@ -66,7 +69,9 @@ test('new equipment uses equipment budget row form and custom row CTA is removed
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
   assert.match(source, /New Equipment/);
-  assert.match(source, /onClick=\{\(\) => openCategoryEditor\('equipment'\)\}/);
+  assert.match(source, /openCategoryEditor\('equipment', \{ createCatalogAssetOnSave: true \}\)/);
+  assert.match(source, /createCatalogEquipmentOnSave/);
+  assert.match(source, /addEquipmentAsset\(\{/);
   assert.doesNotMatch(source, /Add Custom Equipment Row/);
   assert.doesNotMatch(source, /handleCreateEquipmentAndAddToBudget/);
   assert.doesNotMatch(source, /Create & Add/);
