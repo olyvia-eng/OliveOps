@@ -180,8 +180,8 @@ interface AppState {
   addBudgetRate: (rate: Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateBudgetRate: (id: ID, data: Partial<BudgetRate>) => void;
   deleteBudgetRate: (id: ID) => void;
-  upsertLabourBudgetPlan: (plan: LabourBudgetPlan) => void;
-  deleteLabourBudgetPlan: (id: ID) => void;
+  upsertLabourBudgetPlan: (plan: LabourBudgetPlan) => Promise<boolean>;
+  deleteLabourBudgetPlan: (id: ID) => Promise<boolean>;
   upsertLabourHoursSalesGoal: (goal: LabourHoursSalesGoal) => void;
   deleteLabourHoursSalesGoal: (id: ID) => void;
   upsertRevenueSalesGoal: (goal: RevenueSalesGoal) => void;
@@ -1583,7 +1583,7 @@ export const useStore = create<AppState>()((set, get) => ({
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget rate could not be deleted.') });
         });
       },
-      upsertLabourBudgetPlan: (plan) => {
+      upsertLabourBudgetPlan: async (plan) => {
         const previous = get().labourBudgetPlans;
         const exists = previous.some((value) => value.id === plan.id);
 
@@ -1596,29 +1596,37 @@ export const useStore = create<AppState>()((set, get) => ({
         const method = exists ? 'PATCH' : 'POST';
         const url = exists ? dataUrl('labour-budget-plans', plan.id) : dataUrl('labour-budget-plans');
 
-        void ensureOk(fetch(url, {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: exists ? plan : plan }),
-        })).catch(() => {
+        try {
+          await ensureOk(fetch(url, {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: plan }),
+          }));
+          return true;
+        } catch {
           set({ labourBudgetPlans: previous });
           emitAppToast({ tone: 'error', message: 'Labour planner could not be saved.' });
-        });
+          return false;
+        }
       },
-      deleteLabourBudgetPlan: (id) => {
+      deleteLabourBudgetPlan: async (id) => {
         const previous = get().labourBudgetPlans;
         set((state) => ({ labourBudgetPlans: state.labourBudgetPlans.filter((plan) => plan.id !== id) }));
 
-        void ensureOk(fetch(dataUrl('labour-budget-plans', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).catch(() => {
+        try {
+          await ensureOk(fetch(dataUrl('labour-budget-plans', id), {
+            method: 'DELETE',
+            credentials: 'include',
+          }));
+          return true;
+        } catch {
           set({ labourBudgetPlans: previous });
           emitAppToast({ tone: 'error', message: 'Labour planner could not be deleted.' });
-        });
+          return false;
+        }
       },
       upsertLabourHoursSalesGoal: (goal) => {
         const previous = get().labourHoursSalesGoals;

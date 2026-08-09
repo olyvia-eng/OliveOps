@@ -873,6 +873,59 @@ function validateBudgetRateRecord(record) {
   return null;
 }
 
+function validateLabourBudgetPlanRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Labour plan id is required.';
+  if (!isNonEmptyString(record.budgetId)) return 'Labour plan budget id is required.';
+  if (!isNonEmptyString(record.employeeId)) return 'Labour plan employee id is required.';
+  if (!isNonEmptyString(record.year) || !YEAR_REGEX.test(record.year)) return 'Labour plan year must use YYYY format.';
+  if (record.compType !== 'hourly' && record.compType !== 'salaried') {
+    return 'Labour plan compensation type is invalid.';
+  }
+  if (record.description !== undefined && record.description !== null && typeof record.description !== 'string') {
+    return 'Labour plan description must be a string.';
+  }
+  if (record.sortOrder !== undefined && record.sortOrder !== null && !isFiniteNumber(record.sortOrder)) {
+    return 'Labour plan sort order must be a number.';
+  }
+  if (!isFiniteNumber(record.billableHoursYear) || record.billableHoursYear < 0) {
+    return 'Labour plan billable hours per year must be zero or greater.';
+  }
+  if (!isFiniteNumber(record.unbillableHoursYear) || record.unbillableHoursYear < 0) {
+    return 'Labour plan unbillable hours per year must be zero or greater.';
+  }
+  if (!isFiniteNumber(record.overtimeHoursYear) || record.overtimeHoursYear < 0) {
+    return 'Labour plan overtime hours per year must be zero or greater.';
+  }
+  if (!isFiniteNumber(record.overtimeMultiplier) || record.overtimeMultiplier < 1) {
+    return 'Labour plan overtime multiplier must be at least 1.';
+  }
+  if (!isFiniteNumber(record.hourlyRate) || record.hourlyRate < 0) {
+    return 'Labour plan hourly rate must be zero or greater.';
+  }
+  if (!isFiniteNumber(record.annualSalary) || record.annualSalary < 0) {
+    return 'Labour plan annual salary must be zero or greater.';
+  }
+  if (!isFiniteNumber(record.labourBurdenPct) || record.labourBurdenPct < 0) {
+    return 'Labour plan labour burden percent must be zero or greater.';
+  }
+  if (record.hoursPerYear !== undefined && record.hoursPerYear !== null && (!isFiniteNumber(record.hoursPerYear) || record.hoursPerYear < 0)) {
+    return 'Labour plan hours per year must be zero or greater.';
+  }
+  if (record.billablePct !== undefined && record.billablePct !== null && (!isFiniteNumber(record.billablePct) || record.billablePct < 0 || record.billablePct > 100)) {
+    return 'Labour plan billable percent must be between 0 and 100.';
+  }
+  if (record.payrollBurdenPct !== undefined && record.payrollBurdenPct !== null && (!isFiniteNumber(record.payrollBurdenPct) || record.payrollBurdenPct < 0)) {
+    return 'Labour plan payroll burden percent must be zero or greater.';
+  }
+  if (record.benefitsExtraCost !== undefined && record.benefitsExtraCost !== null && (!isFiniteNumber(record.benefitsExtraCost) || record.benefitsExtraCost < 0)) {
+    return 'Labour plan benefits/extra cost must be zero or greater.';
+  }
+  if (record.bonus !== undefined && record.bonus !== null && (!isFiniteNumber(record.bonus) || record.bonus < 0)) {
+    return 'Labour plan bonus must be zero or greater.';
+  }
+  return null;
+}
+
 function validateFormRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Form id is required.';
   if (!isNonEmptyString(record.name)) return 'Form name is required.';
@@ -1076,6 +1129,13 @@ export default async function handler(req, res) {
       }
     }
 
+    if (entity === 'labour-budget-plans') {
+      const validationError = validateLabourBudgetPlanRecord(record);
+      if (validationError) {
+        return res.status(400).json({ ok: false, error: validationError });
+      }
+    }
+
     if (entity === 'forms') {
       const validationError = validateFormRecord(record);
       if (validationError) {
@@ -1258,6 +1318,13 @@ export default async function handler(req, res) {
 
       if (entity === 'budget-rates') {
         const validationError = validateBudgetRateRecord(next);
+        if (validationError) {
+          return res.status(400).json({ ok: false, error: validationError });
+        }
+      }
+
+      if (entity === 'labour-budget-plans') {
+        const validationError = validateLabourBudgetPlanRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }

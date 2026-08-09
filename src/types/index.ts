@@ -611,7 +611,8 @@ export interface LabourBudgetPlan {
   employeeId: ID;
   year: string; // YYYY
   compType: LabourCompType;
-  roleTitle?: string;
+  description?: string;
+  sortOrder?: number;
   hoursPerYear?: number;
   billablePct?: number;
   overtimeFactorPct?: number;

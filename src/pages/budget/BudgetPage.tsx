@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, FileDown, Info, Users } from 'lucide-react';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
-import type { BusinessUserSummary } from '../../auth/types';
 import type {
   BudgetItem,
   BudgetRate,
@@ -15,10 +14,9 @@ import type {
   LabourCompType,
   EquipmentCostType,
   RevenueSalesGoal,
-  Employee,
-  EmployeeRole,
   EmployeeLabourType,
 } from '../../types';
+import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -121,13 +119,14 @@ const buildRevenueSalesGoalId = (budgetId: string, scopeType: 'year', scopeValue
 const DEFAULT_WORKING_DAYS_YEAR = 260;
 const isSalariedCompType = (value: string | undefined) => value === 'salaried' || value === 'salary';
 
-const defaultLabourPlan = (budgetId: string, employeeId: string, year: string, hourlyRate: number, role: EmployeeRole): LabourBudgetPlan => ({
+const defaultLabourPlan = (budgetId: string, employeeId: string, year: string, hourlyRate: number, sortOrder: number): LabourBudgetPlan => ({
   id: buildLabourPlanId(budgetId, employeeId, year),
   budgetId,
   employeeId,
   year,
   compType: 'hourly',
-  roleTitle: toOptionLabel(role),
+  description: '',
+  sortOrder,
   hoursPerYear: 1900,
   billablePct: 84,
   overtimeFactorPct: 0,
@@ -143,36 +142,7 @@ const defaultLabourPlan = (budgetId: string, employeeId: string, year: string, h
   labourBurdenPct: 18,
 });
 
-const LABOUR_ITEM_ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
-const LABOUR_ITEM_COMP_TYPES = ['hourly', 'salary'] as const;
 const LABOUR_ITEM_TYPES: EmployeeLabourType[] = ['field_producing', 'overhead'];
-
-type LabourItemCompType = (typeof LABOUR_ITEM_COMP_TYPES)[number];
-type LabourAccountAccessMode = 'none' | 'link_existing' | 'create_login';
-
-type LabourItemForm = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  role: EmployeeRole;
-  hourlyRate: number;
-  compensationType: LabourItemCompType;
-  labourType: EmployeeLabourType;
-  active: boolean;
-};
-
-const emptyLabourItemForm = (): LabourItemForm => ({
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  role: 'crew_member',
-  hourlyRate: 30,
-  compensationType: 'hourly',
-  labourType: 'field_producing',
-  active: true,
-});
 
 const toOptionLabel = (value: string) => value
   .split('_')
@@ -220,6 +190,7 @@ export default function BudgetPage() {
     updateBudgetRate,
     deleteBudgetRate,
     upsertLabourBudgetPlan,
+    deleteLabourBudgetPlan,
     upsertRevenueSalesGoal,
   } = useStore();
   const [year, setYear] = useState(currentPeriod().slice(0, 4));
@@ -236,16 +207,14 @@ export default function BudgetPage() {
   const [averageFuelPriceInput, setAverageFuelPriceInput] = useState('0');
   const [averageFuelBurnPerHourInput, setAverageFuelBurnPerHourInput] = useState('0');
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
-  const [labourItemModalOpen, setLabourItemModalOpen] = useState(false);
-  const [labourItemForm, setLabourItemForm] = useState<LabourItemForm>(emptyLabourItemForm());
-  const [labourAccountMode, setLabourAccountMode] = useState<LabourAccountAccessMode>('none');
-  const [labourExistingUserId, setLabourExistingUserId] = useState('');
-  const [labourLoginEmail, setLabourLoginEmail] = useState('');
-  const [labourItemPassword, setLabourItemPassword] = useState('');
-  const [labourLoginRole, setLabourLoginRole] = useState<EmployeeRole>('crew_member');
-  const [availableUsers, setAvailableUsers] = useState<BusinessUserSummary[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [labourItemError, setLabourItemError] = useState('');
+  const [addPlannerEmployeeOpen, setAddPlannerEmployeeOpen] = useState(false);
+  const [plannerEmployeeId, setPlannerEmployeeId] = useState('');
+  const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
+  const [plannerDescription, setPlannerDescription] = useState('');
+  const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
+  const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
+  const [removePlanId, setRemovePlanId] = useState<string | null>(null);
+  const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
   const [ratesModalOpen, setRatesModalOpen] = useState(false);
   const [editingRate, setEditingRate] = useState<BudgetRate | null>(null);
   const [rateForm, setRateForm] = useState<Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>>(emptyBudgetRate());
@@ -550,152 +519,51 @@ export default function BudgetPage() {
     setModalOpen(true);
   };
 
-  const setLabourField = (key: keyof LabourItemForm, value: unknown) => {
-    setLabourItemForm((current) => ({ ...current, [key]: value }));
+  const openPlannerEmployeeModal = () => {
+    setPlannerEmployeeError('');
+    setPlannerDescription('');
+    setPlannerEmployeeId('');
+    setAddPlannerEmployeeOpen(true);
   };
 
-  const openLabourItemModal = () => {
-    setLabourItemForm(emptyLabourItemForm());
-    setLabourAccountMode('none');
-    setLabourExistingUserId('');
-    setLabourLoginEmail('');
-    setLabourItemPassword('');
-    setLabourLoginRole('crew_member');
-    setLabourItemError('');
-    setLabourItemModalOpen(true);
-  };
-
-  useEffect(() => {
-    if (!labourItemModalOpen) return;
-
-    let cancelled = false;
-    setLoadingUsers(true);
-
-    void fetch('/api/users', { credentials: 'include' })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (cancelled) return;
-
-        if (response.ok && payload && typeof payload === 'object' && Array.isArray((payload as { users?: unknown[] }).users)) {
-          setAvailableUsers((payload as { users: BusinessUserSummary[] }).users);
-        } else {
-          setAvailableUsers([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingUsers(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [labourItemModalOpen]);
-
-  const handleCreateLabourItem = async () => {
-    setLabourItemError('');
-    const firstName = labourItemForm.firstName.trim();
-    const lastName = labourItemForm.lastName.trim();
-    if (!firstName || !lastName) {
-      setLabourItemError('First and last name are required.');
+  const handleAddPlannerEmployee = async () => {
+    if (!activeBudgetId) return;
+    if (!plannerEmployeeId) {
+      setPlannerEmployeeError('Select an employee to add to this budget.');
       return;
     }
 
-    const fullName = `${firstName} ${lastName}`.trim();
-    const normalizedEmail = labourItemForm.email.trim();
-
-    const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
-      name: fullName,
-      email: normalizedEmail,
-      phone: labourItemForm.phone,
-      role: labourItemForm.role,
-      hourlyRate: labourItemForm.hourlyRate,
-      compensationType: labourItemForm.compensationType,
-      labourType: labourItemForm.labourType,
-      active: labourItemForm.active,
-    };
-
-    let accountAccess: Record<string, unknown>;
-    if (labourAccountMode === 'none') {
-      accountAccess = { mode: 'none' };
-    } else if (labourAccountMode === 'link_existing') {
-      if (!labourExistingUserId.trim()) {
-        setLabourItemError('Select an existing OliveOps account to link.');
-        return;
-      }
-      accountAccess = {
-        mode: 'link_existing',
-        userId: labourExistingUserId.trim(),
-      };
-    } else {
-      if (!labourLoginEmail.trim()) {
-        setLabourItemError('Login email is required when creating login access.');
-        return;
-      }
-      if (labourItemPassword.length < 8) {
-        setLabourItemError('Password must be at least 8 characters.');
-        return;
-      }
-      accountAccess = {
-        mode: 'create_login',
-        loginEmail: labourLoginEmail.trim(),
-        password: labourItemPassword,
-        role: labourLoginRole,
-      };
-    }
-
-    let response: Response;
-    try {
-      response = await fetch('/api/data?entity=employees', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          data: employeePayload,
-          accountAccess,
-        }),
-      });
-    } catch {
-      setLabourItemError('Could not reach the API. Run npm run dev:full for local API routes.');
+    const employee = employees.find((value) => value.id === plannerEmployeeId);
+    if (!employee) {
+      setPlannerEmployeeError('Selected employee was not found.');
       return;
     }
 
-    let parsedPayload: unknown = null;
-    let apiError = 'Could not create employee record.';
-    try {
-      const payload = await response.json();
-      parsedPayload = payload;
-      if (typeof payload?.error === 'string') apiError = payload.error;
-    } catch {
-      // Ignore JSON parsing errors and use generic message.
-    }
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type') ?? '';
-      if (
-        apiError === 'Could not create employee record.'
-        && (response.status === 404 || !contentType.includes('application/json'))
-      ) {
-        apiError = 'API route unavailable. Run npm run dev:full for local API routes.';
-      }
-      setLabourItemError(apiError);
+    const existingPlan = plansByEmployeeId[employee.id];
+    if (existingPlan) {
+      setPlannerEmployeeError('That employee is already in this budget labour planner.');
       return;
     }
 
-    const created = (parsedPayload as { employee?: Employee } | null)?.employee;
-    if (created) {
-      useStore.setState((state) => {
-        const exists = state.employees.some((item) => item.id === created.id);
-        return {
-          employees: exists
-            ? state.employees.map((item) => (item.id === created.id ? created : item))
-            : [...state.employees, created],
-        };
-      });
+    const nextSortOrder = scopedLabourBudgetPlans
+      .filter((plan) => plan.year === plannerYear)
+      .reduce((max, plan) => Math.max(max, plan.sortOrder ?? 0), -1) + 1;
+
+    const seededPlan = defaultLabourPlan(activeBudgetId, employee.id, plannerYear, employee.hourlyRate, nextSortOrder);
+    const isSalariedEmployee = employee.compensationType === 'salary';
+    const saved = await upsertLabourBudgetPlan({
+      ...seededPlan,
+      description: plannerDescription.trim(),
+      compType: isSalariedEmployee ? 'salaried' : 'hourly',
+      annualSalary: isSalariedEmployee ? employee.hourlyRate : seededPlan.annualSalary,
+    });
+
+    if (!saved) {
+      setPlannerEmployeeError('Could not add employee to labour planner.');
+      return;
     }
 
-    setLabourItemModalOpen(false);
+    setAddPlannerEmployeeOpen(false);
   };
 
   // Summaries
@@ -856,19 +724,19 @@ export default function BudgetPage() {
     return byEmployeeId;
   }, [scopedLabourBudgetPlans, plannerYear]);
 
-  useEffect(() => {
-    if (!activeBudgetId) return;
-    for (const employee of employees.filter((value) => value.active)) {
-      if (plansByEmployeeId[employee.id]) continue;
-      const seededPlan = defaultLabourPlan(activeBudgetId, employee.id, plannerYear, employee.hourlyRate, employee.role);
-      const isSalariedEmployee = employee.compensationType === 'salary';
-      upsertLabourBudgetPlan({
-        ...seededPlan,
-        compType: isSalariedEmployee ? 'salaried' : 'hourly',
-        annualSalary: isSalariedEmployee ? employee.hourlyRate : seededPlan.annualSalary,
+  const labourPlansForYear = useMemo(() => {
+    return scopedLabourBudgetPlans
+      .filter((plan) => plan.year === plannerYear)
+      .slice()
+      .sort((a, b) => {
+        const aOrder = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        const bOrder = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        const aName = employees.find((employee) => employee.id === a.employeeId)?.name ?? '';
+        const bName = employees.find((employee) => employee.id === b.employeeId)?.name ?? '';
+        return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
       });
-    }
-  }, [activeBudgetId, employees, plannerYear, plansByEmployeeId, upsertLabourBudgetPlan]);
+  }, [employees, plannerYear, scopedLabourBudgetPlans]);
 
   const exportToPdf = (mode: ExportColumnMode = 'budgeted') => {
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -1002,16 +870,15 @@ export default function BudgetPage() {
   const overheadMonthlyCost = Math.max(0, Number.isFinite(form.budgeted) ? form.budgeted / 12 : 0);
 
   const marginDivisor = Math.max(0.01, 1 - pricingInputs.targetMarginPct / 100);
-  const activeEmployees = employees.filter((employee) => employee.active);
 
   const updateLabourPlan = (employeeId: string, key: keyof LabourBudgetPlan, value: LabourBudgetPlan[keyof LabourBudgetPlan]) => {
-    const employee = activeEmployees.find((value) => value.id === employeeId);
+    const employee = employees.find((value) => value.id === employeeId);
     if (!employee) return;
     if (!activeBudgetId) return;
 
-    const existing = plansByEmployeeId[employeeId] ?? defaultLabourPlan(activeBudgetId, employee.id, plannerYear, employee.hourlyRate, employee.role);
+    const existing = plansByEmployeeId[employeeId] ?? defaultLabourPlan(activeBudgetId, employee.id, plannerYear, employee.hourlyRate, labourPlansForYear.length);
     const next = { ...existing, [key]: value };
-    upsertLabourBudgetPlan(next);
+    void upsertLabourBudgetPlan(next);
   };
 
   const updatePlannerEmployeeLabourType = (employeeId: string, labourType: EmployeeLabourType) => {
@@ -1019,18 +886,18 @@ export default function BudgetPage() {
   };
 
   const plannedBillableHoursTotal = useMemo(() => {
-    return activeEmployees.reduce((sum, employee) => {
-      const plan = plansByEmployeeId[employee.id] ?? defaultLabourPlan(activeBudgetId ?? 'budget', employee.id, plannerYear, employee.hourlyRate, employee.role);
+    return labourPlansForYear.reduce((sum, plan) => {
       const hoursPerYear = Math.max(0, Number.isFinite(plan.hoursPerYear ?? 0) ? (plan.hoursPerYear ?? 0) : 0);
       const fallbackBillablePct = (plan.billableHoursYear / Math.max(1, plan.billableHoursYear + plan.unbillableHoursYear + plan.overtimeHoursYear)) * 100;
       const billablePct = Math.max(0, Math.min(100, Number.isFinite(plan.billablePct ?? fallbackBillablePct) ? (plan.billablePct ?? fallbackBillablePct) : 0));
       return sum + (hoursPerYear * (billablePct / 100));
     }, 0);
-  }, [activeBudgetId, activeEmployees, plannerYear, plansByEmployeeId]);
+  }, [labourPlansForYear]);
 
   const labourPlannerRows = useMemo(() => {
-    return activeEmployees.map((employee) => {
-      const plan = plansByEmployeeId[employee.id] ?? defaultLabourPlan(activeBudgetId ?? 'budget', employee.id, plannerYear, employee.hourlyRate, employee.role);
+    return labourPlansForYear.map((plan) => {
+      const employee = employees.find((value) => value.id === plan.employeeId);
+      if (!employee) return null;
       const isSalariedEmployee = isSalariedCompType(plan.compType) || employee.compensationType === 'salary';
 
       const hoursPerYear = Math.max(
@@ -1085,12 +952,12 @@ export default function BudgetPage() {
       const suggestedChargeOutRate = (hourlyRate + labourOverheadRecoveryPerHour) / marginDivisor;
       const annualRevenueGenerated = suggestedChargeOutRate * annualBillableHours;
       const grossProfitGenerated = annualRevenueGenerated - totalEmployeeCostPerYear;
-      const roleTitle = plan.roleTitle?.trim() || toOptionLabel(employee.role);
+      const description = plan.description?.trim() ?? '';
 
       return {
         employee,
         plan,
-        roleTitle,
+        description,
         hoursPerYear,
         overtimeHoursYear,
         billablePct,
@@ -1106,8 +973,8 @@ export default function BudgetPage() {
         annualRevenueGenerated,
         grossProfitGenerated,
       };
-    });
-  }, [activeBudgetId, activeEmployees, marginDivisor, plannerYear, plansByEmployeeId, plannedBillableHoursTotal, overheadRecoveryAllocation.labourPercent, totalsByCategory.overhead.budgeted]);
+    }).filter((row): row is NonNullable<typeof row> => Boolean(row));
+  }, [employees, labourPlansForYear, marginDivisor, overheadRecoveryAllocation.labourPercent, plannedBillableHoursTotal, totalsByCategory.overhead.budgeted]);
 
   const visibleLabourPlannerRows = useMemo(() => {
     if (labourTableView === 'all') return labourPlannerRows;
@@ -1222,10 +1089,61 @@ export default function BudgetPage() {
     return rows;
   }, [categoryRows, labourPlannerRows.length, labourPlannerTotalsAll.annualLabourCost]);
 
+  const persistLabourSortOrder = async (orderedPlanIds: string[]) => {
+    const byPlanId = new Map(labourPlansForYear.map((plan) => [plan.id, plan]));
+    for (let index = 0; index < orderedPlanIds.length; index += 1) {
+      const planId = orderedPlanIds[index];
+      const plan = byPlanId.get(planId);
+      if (!plan) continue;
+      if ((plan.sortOrder ?? Number.MAX_SAFE_INTEGER) === index) continue;
+      const saved = await upsertLabourBudgetPlan({ ...plan, sortOrder: index });
+      if (!saved) break;
+    }
+  };
+
+  const handleLabourDrop = (targetPlanId: string) => {
+    if (!draggedPlanId || draggedPlanId === targetPlanId) {
+      setDraggedPlanId(null);
+      setDragOverPlanId(null);
+      return;
+    }
+
+    const currentOrder = labourPlannerRows.map((row) => row.plan.id);
+    const draggedIndex = currentOrder.indexOf(draggedPlanId);
+    const targetIndex = currentOrder.indexOf(targetPlanId);
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedPlanId(null);
+      setDragOverPlanId(null);
+      return;
+    }
+
+    const nextOrder = [...currentOrder];
+    const [dragged] = nextOrder.splice(draggedIndex, 1);
+    nextOrder.splice(targetIndex, 0, dragged);
+
+    setDraggedPlanId(null);
+    setDragOverPlanId(null);
+    void persistLabourSortOrder(nextOrder);
+  };
+
   const renderLabourPlannerRow = (row: typeof labourPlannerRows[number]) => (
-    <tr key={row.employee.id} className="hover:bg-gray-50">
+    <tr
+      key={row.plan.id}
+      draggable
+      onDragStart={() => setDraggedPlanId(row.plan.id)}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragOverPlanId(row.plan.id);
+      }}
+      onDragLeave={() => {
+        if (dragOverPlanId === row.plan.id) setDragOverPlanId(null);
+      }}
+      onDrop={() => handleLabourDrop(row.plan.id)}
+      className={`hover:bg-gray-50 ${dragOverPlanId === row.plan.id ? 'bg-brand-50' : ''}`}
+    >
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
+          <div className="cursor-move text-gray-400" aria-label="Drag to reorder">::</div>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold uppercase text-brand-700">
             {row.employee.name
               .split(' ')
@@ -1250,8 +1168,8 @@ export default function BudgetPage() {
       <td className="px-4 py-3 text-right">
         <input
           type="text"
-          value={row.roleTitle}
-          onChange={(e) => updateLabourPlan(row.employee.id, 'roleTitle', e.target.value)}
+          value={row.description}
+          onChange={(e) => updateLabourPlan(row.employee.id, 'description', e.target.value)}
           className="w-32 border border-gray-300 rounded px-2 py-1 text-xs"
         />
       </td>
@@ -1393,9 +1311,14 @@ export default function BudgetPage() {
       <td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.totalEmployeeCostPerYear)}</td>
       <td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.hourlyRate)}</td>
       <td className="px-4 py-3 text-center">
-        <Link to="/employees" className="text-gray-500 hover:text-brand-700" aria-label="Edit employee">
-          <Pencil size={14} />
-        </Link>
+        <div className="flex items-center justify-center gap-2">
+          <button type="button" className="text-gray-500 hover:text-brand-700" aria-label="Edit employee" onClick={() => setEditEmployeeId(row.employee.id)}>
+            <Pencil size={14} />
+          </button>
+          <button type="button" className="text-accent-700 hover:text-accent-800" aria-label="Remove from budget" onClick={() => setRemovePlanId(row.plan.id)}>
+            <Trash2 size={14} />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -1444,9 +1367,10 @@ export default function BudgetPage() {
           : 'Track your company budget with category breakdowns for pricing and planning.'}
         action={
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => navigate('/budgets')}>Back to Budgets</Button>
             <Button variant="secondary" onClick={() => exportToPdf('budgeted')}><FileDown size={16} /> Export Budget PDF</Button>
             {activeTab === 'labour' ? (
-              <Button onClick={openLabourItemModal}><Plus size={16} /> Add Labour Item</Button>
+              <Button onClick={openPlannerEmployeeModal}><Plus size={16} /> Add Employee to Budget</Button>
             ) : (
               <Button onClick={openNew}><Plus size={16} /> Add Budget Item</Button>
             )}
@@ -1696,6 +1620,7 @@ export default function BudgetPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 className="font-semibold text-gray-900">Employee Labour Planner</h2>
+                  <p className="text-xs text-gray-500 mt-1">Rows are budget-specific entries. Drag rows to reorder and use remove to unlink from this budget only.</p>
                 </div>
                 <div className="inline-flex border border-gray-200 rounded-lg p-0.5 self-start">
                   <button
@@ -1723,14 +1648,14 @@ export default function BudgetPage() {
               </div>
             </div>
             {labourPlannerRows.length === 0 ? (
-              <p className="text-sm text-gray-400 p-4">No active labour items yet. Add a labour item to start your planner.</p>
+              <p className="text-sm text-gray-400 p-4">No planned labour rows yet. Add an employee to this budget to start planning.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[1980px]">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
                       <th className="px-4 py-3 font-medium">Employee</th>
-                      <th className="px-4 py-3 font-medium text-right">Role</th>
+                      <th className="px-4 py-3 font-medium text-right">Description</th>
                       <th className="px-4 py-3 font-medium text-center">Wage Type</th>
                       <th className="px-4 py-3 font-medium text-right">Wage</th>
                       <th className="px-4 py-3 font-medium text-right">Hours per Year</th>
@@ -1771,8 +1696,8 @@ export default function BudgetPage() {
             )}
 
             <div className="px-4 py-3 border-t border-gray-100">
-              <Button variant="secondary" onClick={openLabourItemModal}>
-                <Plus size={14} /> Add Labour Item
+              <Button variant="secondary" onClick={openPlannerEmployeeModal}>
+                <Plus size={14} /> Add Employee to Budget
               </Button>
             </div>
           </Card>
@@ -2363,141 +2288,62 @@ export default function BudgetPage() {
       </Modal>
 
       <Modal
-        open={labourItemModalOpen}
-        onClose={() => setLabourItemModalOpen(false)}
-        title="Add Labour Item"
+        open={addPlannerEmployeeOpen}
+        onClose={() => setAddPlannerEmployeeOpen(false)}
+        title="Add Employee to Budget"
         footer={<>
-          <Button variant="secondary" onClick={() => setLabourItemModalOpen(false)}>Cancel</Button>
-          <Button onClick={() => void handleCreateLabourItem()}>Save Labour Item</Button>
+          <Button variant="secondary" onClick={() => setAddPlannerEmployeeOpen(false)}>Cancel</Button>
+          <Button onClick={() => void handleAddPlannerEmployee()}>Add to Budget</Button>
         </>}
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="First Name *" required value={labourItemForm.firstName} onChange={(e) => setLabourField('firstName', e.target.value)} />
-            <Input label="Last Name *" required value={labourItemForm.lastName} onChange={(e) => setLabourField('lastName', e.target.value)} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Role" value={labourItemForm.role} onChange={(e) => setLabourField('role', e.target.value as EmployeeRole)}>
-              {LABOUR_ITEM_ROLES.map((role) => (
-                <option key={role} value={role}>{toOptionLabel(role)}</option>
+          <Select
+            label="Employee *"
+            value={plannerEmployeeId}
+            onChange={(event) => setPlannerEmployeeId(event.target.value)}
+          >
+            <option value="">Select employee</option>
+            {employees
+              .filter((employee) => !plansByEmployeeId[employee.id])
+              .map((employee) => (
+                <option key={employee.id} value={employee.id}>
+                  {employee.name} {employee.active ? '' : '[inactive]'}
+                </option>
               ))}
-            </Select>
-            <Select
-              label="Labour Type"
-              value={labourItemForm.labourType}
-              onChange={(e) => setLabourField('labourType', e.target.value as EmployeeLabourType)}
-            >
-              {LABOUR_ITEM_TYPES.map((labourType) => (
-                <option key={labourType} value={labourType}>{toOptionLabel(labourType)}</option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-700">Pay Type</p>
-            <div className="inline-flex border border-gray-200 rounded-lg p-0.5 bg-white">
-              {LABOUR_ITEM_COMP_TYPES.map((compType) => (
-                <button
-                  key={compType}
-                  type="button"
-                  onClick={() => setLabourField('compensationType', compType)}
-                  className={`px-3 py-1 text-xs rounded ${labourItemForm.compensationType === compType ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                >
-                  {toOptionLabel(compType)}
-                </button>
-              ))}
-            </div>
-          </div>
+          </Select>
 
           <Input
-            label={labourItemForm.compensationType === 'salary' ? 'Salary Rate ($)' : 'Hourly Rate ($)'}
-            type="number"
-            min={0}
-            value={labourItemForm.hourlyRate}
-            onChange={(e) => setLabourField('hourlyRate', parseNumericInputValue(e.target.value))}
+            label="Description"
+            value={plannerDescription}
+            onChange={(event) => setPlannerDescription(event.target.value)}
+            placeholder="Optional budget-specific description"
           />
 
-          <div className="flex items-center gap-2">
-            <input
-              id="labour-item-active"
-              type="checkbox"
-              checked={labourItemForm.active}
-              onChange={(e) => setLabourField('active', e.target.checked)}
-            />
-            <label htmlFor="labour-item-active" className="text-sm text-gray-700">Active Labour Item</label>
-          </div>
-
-          <div className="border-t border-gray-200 pt-4 space-y-3">
-            <Select
-              label="Account Access"
-              value={labourAccountMode}
-              onChange={(e) => setLabourAccountMode(e.target.value as LabourAccountAccessMode)}
-            >
-              <option value="none">No OliveOps access</option>
-              <option value="link_existing">Link existing account</option>
-              <option value="create_login">Create login access</option>
-            </Select>
-
-            {labourAccountMode === 'link_existing' && (
-              <Select
-                label="Existing Account *"
-                value={labourExistingUserId}
-                onChange={(e) => setLabourExistingUserId(e.target.value)}
-              >
-                <option value="">{loadingUsers ? 'Loading accounts...' : 'Select account'}</option>
-                {availableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name} ({user.email}) {user.active ? '' : '[inactive]'}
-                  </option>
-                ))}
-              </Select>
-            )}
-
-            {labourAccountMode === 'create_login' && (
-              <>
-                <Input
-                  label="Login Email *"
-                  type="email"
-                  required
-                  value={labourLoginEmail}
-                  onChange={(e) => setLabourLoginEmail(e.target.value)}
-                />
-                <Select
-                  label="Login Role"
-                  value={labourLoginRole}
-                  onChange={(e) => setLabourLoginRole(e.target.value as EmployeeRole)}
-                >
-                  {LABOUR_ITEM_ROLES.map((role) => (
-                    <option key={role} value={role}>{toOptionLabel(role)}</option>
-                  ))}
-                </Select>
-                <Input
-                  label="Employee Login Password *"
-                  type="password"
-                  required
-                  value={labourItemPassword}
-                  onChange={(e) => setLabourItemPassword(e.target.value)}
-                />
-              </>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Email"
-              type="email"
-              value={labourItemForm.email}
-              onChange={(e) => setLabourField('email', e.target.value)}
-            />
-            <Input
-              label="Phone"
-              value={labourItemForm.phone}
-              onChange={(e) => setLabourField('phone', e.target.value)}
-            />
-          </div>
-
-          {labourItemError && <p className="text-sm text-accent-700">{labourItemError}</p>}
+          {plannerEmployeeError && <p className="text-sm text-accent-700">{plannerEmployeeError}</p>}
         </div>
+      </Modal>
+
+      <EmployeeEditModal open={Boolean(editEmployeeId)} employeeId={editEmployeeId} onClose={() => setEditEmployeeId(null)} />
+
+      <Modal
+        open={Boolean(removePlanId)}
+        onClose={() => setRemovePlanId(null)}
+        title="Remove from Budget"
+        footer={<>
+          <Button variant="secondary" onClick={() => setRemovePlanId(null)}>Cancel</Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (!removePlanId) return;
+              void deleteLabourBudgetPlan(removePlanId);
+              setRemovePlanId(null);
+            }}
+          >
+            Remove
+          </Button>
+        </>}
+      >
+        <p className="text-gray-600">This removes the employee row from this budget only. The employee record will not be deleted.</p>
       </Modal>
 
       <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Budget Item"

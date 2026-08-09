@@ -7,6 +7,7 @@ import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { Employee, EmployeeRole } from '../../types';
 import type { BusinessUserSummary } from '../../auth/types';
 import ClockInModal from './ClockInModal';
+import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 
 const ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
 const COMPENSATION_TYPES = ['hourly', 'salary'] as const;
@@ -76,16 +77,6 @@ const empty = (): EmployeeForm => ({
   active: true,
 });
 
-const parseName = (name: string) => {
-  const trimmed = name.trim();
-  if (!trimmed) return { firstName: '', lastName: '' };
-  const [firstName, ...rest] = trimmed.split(/\s+/);
-  return {
-    firstName,
-    lastName: rest.join(' '),
-  };
-};
-
 export default function EmployeesPage() {
   const { employees, timeEntries, jobs, addEmployee, deleteEmployee, clockOut } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
@@ -100,6 +91,7 @@ export default function EmployeesPage() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [sessionUserId, setSessionUserId] = useState('');
   const [formError, setFormError] = useState('');
+  const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clockInOpen, setClockInOpen] = useState(false);
   const [clockOutEntry, setClockOutEntry] = useState<string | null>(null);
@@ -123,29 +115,6 @@ export default function EmployeesPage() {
     setFormError('');
     setModalOpen(true);
   };
-  const openEdit = (e: Employee) => {
-    const parsed = parseName(e.name);
-    setEditing(e);
-    setForm({
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
-      email: e.email,
-      phone: e.phone,
-      role: e.role,
-      hourlyRate: e.hourlyRate,
-      compensationType: e.compensationType ?? 'hourly',
-      labourType: e.labourType ?? 'field_producing',
-      active: e.active,
-    });
-    setAccessMode(e.userId ? 'link_existing' : 'none');
-    setSelectedUserId(e.userId ?? '');
-    setLoginEmail(e.email ?? '');
-    setNewPassword('');
-    setLoginRole(e.role);
-    setFormError('');
-    setModalOpen(true);
-  };
-
   const mapApiError = (fallback: string, payload: unknown) => {
     if (payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string') {
       return (payload as { error: string }).error;
@@ -395,7 +364,7 @@ export default function EmployeesPage() {
         )}
 
         <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-          <Button variant="secondary" size="sm" onClick={() => openEdit(emp)}><Pencil size={13} /> Edit</Button>
+          <Button variant="secondary" size="sm" onClick={() => setEditEmployeeId(emp.id)}><Pencil size={13} /> Edit</Button>
           <Button variant="danger" size="sm" onClick={() => setConfirmDelete(emp.id)}><Trash2 size={13} /></Button>
         </div>
       </Card>
@@ -443,7 +412,7 @@ export default function EmployeesPage() {
         </td>
         <td className="px-4 py-3 text-right">
           <div className="flex justify-end gap-1">
-            <Button variant="secondary" size="sm" onClick={() => openEdit(emp)}><Pencil size={13} /></Button>
+            <Button variant="secondary" size="sm" onClick={() => setEditEmployeeId(emp.id)}><Pencil size={13} /></Button>
             <Button variant="danger" size="sm" onClick={() => setConfirmDelete(emp.id)}><Trash2 size={13} /></Button>
           </div>
         </td>
@@ -712,6 +681,8 @@ export default function EmployeesPage() {
       </Modal>
 
       {/* Delete confirm */}
+      <EmployeeEditModal open={Boolean(editEmployeeId)} employeeId={editEmployeeId} onClose={() => setEditEmployeeId(null)} />
+
       <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Employee"
         footer={<>
           <Button variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>
