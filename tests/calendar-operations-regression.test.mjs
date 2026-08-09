@@ -20,6 +20,10 @@ test('calendar uses operations scheduling language and month-first controls', ()
   assert.match(calendarSource, /Month/);
   assert.match(calendarSource, /Week/);
   assert.match(calendarSource, /Day/);
+  assert.match(calendarSource, /@fullcalendar\/react/);
+  assert.match(calendarSource, /timeGridWeek/);
+  assert.match(calendarSource, /timeGridDay/);
+  assert.match(calendarSource, /eventDrop/);
   assert.match(calendarSource, /All Divisions/);
   assert.match(calendarSource, /All Jobs/);
   assert.match(calendarSource, /All Employees/);
@@ -30,10 +34,11 @@ test('calendar uses operations scheduling language and month-first controls', ()
 
 test('calendar events are built from canonical job scheduling fields and open details instead of direct navigation', () => {
   assert.match(calendarSource, /getJobScheduleWindow/);
-  assert.match(calendarSource, /getScheduledDayKeys/);
   assert.match(scheduleUtilsSource, /scheduleConfirmed/);
   assert.match(scheduleUtilsSource, /scheduledStartAt/);
   assert.match(scheduleUtilsSource, /scheduledEndAt/);
+  assert.match(scheduleUtilsSource, /getScheduleWindowFromValues/);
+  assert.match(scheduleUtilsSource, /getJobAssignmentConflicts/);
   assert.match(calendarSource, /Open Job/);
   assert.match(calendarSource, /Edit Schedule/);
   assert.doesNotMatch(calendarSource, /Link to=\{`\/jobs\/\$\{job\.id\}`\}/);
@@ -47,6 +52,8 @@ test('job detail page exposes the same schedule workflow and equipment context',
   assert.match(jobDetailSource, /formatScheduleTimeLabel/);
   assert.match(scheduleModalSource, /Assigned Employees/);
   assert.match(scheduleModalSource, /Assigned Equipment/);
+  assert.match(scheduleModalSource, /Employee overlap warning/);
+  assert.match(scheduleModalSource, /Equipment conflict warning/);
 });
 
 test('estimate conversion marks only explicit conversion schedules as confirmed', () => {

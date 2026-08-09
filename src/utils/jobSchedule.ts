@@ -1,5 +1,5 @@
 import { eachDayOfInterval, endOfDay, format, parseISO, startOfDay } from 'date-fns';
-import type { Customer, EquipmentAsset, Job } from '../types';
+import type { Customer, EquipmentAsset, ID, Job } from '../types';
 
 export type JobScheduleWindow = {
   start: Date;
@@ -7,6 +7,21 @@ export type JobScheduleWindow = {
   startKey: string;
   endKey: string;
   allDay: boolean;
+};
+
+type ScheduleWindowInput = {
+  startDate?: string;
+  endDate?: string;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  scheduleAllDay?: boolean;
+};
+
+export type JobAssignmentConflict = {
+  job: Job;
+  schedule: JobScheduleWindow;
+  conflictingEmployeeIds: ID[];
+  conflictingEquipmentIds: ID[];
 };
 
 const isValidDate = (value: Date) => !Number.isNaN(value.getTime());
@@ -41,14 +56,18 @@ export const isJobExplicitlyScheduled = (job: Job): boolean => {
   return true;
 };
 
-export const getJobScheduleWindow = (job: Job): JobScheduleWindow | null => {
-  if (!isJobExplicitlyScheduled(job)) return null;
-
-  const explicitStart = parseDateTime(job.scheduledStartAt);
-  const explicitEnd = parseDateTime(job.scheduledEndAt);
-  const fallbackStart = parseDateOnly(job.startDate);
-  const fallbackEnd = parseDateOnly(job.endDate) ?? fallbackStart;
-  const allDay = job.scheduleAllDay !== false;
+export const getScheduleWindowFromValues = ({
+  startDate,
+  endDate,
+  scheduledStartAt,
+  scheduledEndAt,
+  scheduleAllDay,
+}: ScheduleWindowInput): JobScheduleWindow | null => {
+  const explicitStart = parseDateTime(scheduledStartAt);
+  const explicitEnd = parseDateTime(scheduledEndAt);
+  const fallbackStart = parseDateOnly(startDate);
+  const fallbackEnd = parseDateOnly(endDate) ?? fallbackStart;
+  const allDay = scheduleAllDay !== false;
 
   const start = explicitStart ?? fallbackStart;
   const end = explicitEnd ?? fallbackEnd;
@@ -65,6 +84,56 @@ export const getJobScheduleWindow = (job: Job): JobScheduleWindow | null => {
     endKey: format(safeEnd, 'yyyy-MM-dd'),
     allDay,
   };
+};
+
+export const getJobScheduleWindow = (job: Job): JobScheduleWindow | null => {
+  if (!isJobExplicitlyScheduled(job)) return null;
+  return getScheduleWindowFromValues(job);
+};
+
+export const scheduleWindowsOverlap = (left: JobScheduleWindow | null, right: JobScheduleWindow | null) => {
+  if (!left || !right) return false;
+  return left.start < right.end && left.end > right.start;
+};
+
+export const getJobAssignmentConflicts = ({
+  jobId,
+  jobs,
+  scheduleWindow,
+  assignedEmployeeIds,
+  assignedEquipmentIds,
+}: {
+  jobId: string;
+  jobs: Job[];
+  scheduleWindow: JobScheduleWindow | null;
+  assignedEmployeeIds: ID[];
+  assignedEquipmentIds: ID[];
+}): JobAssignmentConflict[] => {
+  if (!scheduleWindow) return [];
+
+  const employeeIds = new Set(assignedEmployeeIds);
+  const equipmentIds = new Set(assignedEquipmentIds);
+
+  return jobs
+    .map((job) => {
+      if (job.id === jobId) return null;
+
+      const otherSchedule = getJobScheduleWindow(job);
+      if (!scheduleWindowsOverlap(scheduleWindow, otherSchedule)) return null;
+
+      const conflictingEmployeeIds = (job.assignedEmployeeIds ?? []).filter((id) => employeeIds.has(id));
+      const conflictingEquipmentIds = (job.assignedEquipmentIds ?? []).filter((id) => equipmentIds.has(id));
+
+      if (conflictingEmployeeIds.length === 0 && conflictingEquipmentIds.length === 0) return null;
+
+      return {
+        job,
+        schedule: otherSchedule!,
+        conflictingEmployeeIds,
+        conflictingEquipmentIds,
+      };
+    })
+    .filter((value): value is JobAssignmentConflict => Boolean(value));
 };
 
 export const getScheduledDayKeys = (job: Job): string[] => {

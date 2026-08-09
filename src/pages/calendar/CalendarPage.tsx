@@ -1,24 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
 import {
-  addMonths,
-  eachDayOfInterval,
-  endOfMonth,
-  endOfWeek,
   format,
-  isSameMonth,
-  isToday,
-  isWithinInterval,
   startOfMonth,
-  startOfWeek,
-  subMonths,
+  endOfMonth,
+  addDays,
+  subDays,
 } from 'date-fns';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, PageHeader, Select } from '../../components/ui';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { formatDate, statusColor } from '../../utils';
-import { formatCustomerPropertyLabel, formatScheduleTimeLabel, getAssignedEquipmentForJob, getJobScheduleWindow, getScheduledDayKeys } from '../../utils/jobSchedule';
+import {
+  formatCustomerPropertyLabel,
+  formatScheduleTimeLabel,
+  getAssignedEquipmentForJob,
+  getJobAssignmentConflicts,
+  getJobScheduleWindow,
+} from '../../utils/jobSchedule';
 
 interface Props {
   currentUserRole: string;
@@ -26,24 +30,26 @@ interface Props {
 
 type CalendarView = 'month' | 'week' | 'day';
 
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+type CalendarEventExtendedProps = {
+  summary: string;
+  timeLabel: string;
+  status: string;
+  employeeCount: number;
+  equipmentCount: number;
+};
+
+const CALENDAR_VIEW_MAP: Record<CalendarView, 'dayGridMonth' | 'timeGridWeek' | 'timeGridDay'> = {
+  month: 'dayGridMonth',
+  week: 'timeGridWeek',
+  day: 'timeGridDay',
+};
 
 const canManageScheduleRole = (role: string) => role === 'owner' || role === 'admin' || role === 'foreman';
-
-const segmentClassName = (segment: 'single' | 'start' | 'middle' | 'end', selected: boolean) => {
-  const shape = {
-    single: 'rounded-xl',
-    start: 'rounded-l-xl rounded-r-md',
-    middle: 'rounded-md',
-    end: 'rounded-r-xl rounded-l-md',
-  }[segment];
-  return `${shape} ${selected ? 'ring-2 ring-brand-300 border-brand-400' : 'border-brand-100'} border`;
-};
 
 export default function CalendarPage({ currentUserRole }: Props) {
   const navigate = useNavigate();
   const { jobs, customers, employees, budgets, equipmentAssets, updateJob } = useStore();
-  const [monthCursor, setMonthCursor] = useState(new Date());
+  const calendarRef = useRef<any>(null);
   const [activeView, setActiveView] = useState<CalendarView>('month');
   const [divisionFilter, setDivisionFilter] = useState('all');
   const [jobFilter, setJobFilter] = useState('all');
@@ -51,15 +57,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleJobId, setScheduleJobId] = useState<string | undefined>(undefined);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [visibleRange, setVisibleRange] = useState(() => ({
+    start: startOfMonth(new Date()),
+    end: endOfMonth(new Date()),
+    title: format(new Date(), 'MMMM yyyy'),
+  }));
   const canManageSchedule = canManageScheduleRole(currentUserRole);
-
-  const monthDays = useMemo(() => {
-    const monthStart = startOfMonth(monthCursor);
-    const monthEnd = endOfMonth(monthCursor);
-    const gridStart = startOfWeek(monthStart);
-    const gridEnd = endOfWeek(monthEnd);
-    return eachDayOfInterval({ start: gridStart, end: gridEnd });
-  }, [monthCursor]);
 
   const budgetDivisionById = useMemo(() => {
     const map = new Map<string, string>();
@@ -103,65 +106,45 @@ export default function CalendarPage({ currentUserRole }: Props) {
       .sort((left, right) => left.schedule.start.getTime() - right.schedule.start.getTime() || left.job.title.localeCompare(right.job.title));
   }, [customers, employees, equipmentAssets, filteredJobs]);
 
-  const eventsByDate = useMemo(() => {
-    const map = new Map<string, Array<{
-      jobId: string;
-      title: string;
-      summary: string;
-      timeLabel: string;
-      status: string;
-      segment: 'single' | 'start' | 'middle' | 'end';
-      employeeCount: number;
-    }>>();
-
-    scheduledJobs.forEach((entry) => {
-      const dayKeys = getScheduledDayKeys(entry.job);
-      dayKeys.forEach((dayKey, index) => {
-        const existing = map.get(dayKey) ?? [];
-        const segment = dayKeys.length === 1
-          ? 'single'
-          : index === 0
-            ? 'start'
-            : index === dayKeys.length - 1
-              ? 'end'
-              : 'middle';
-
-        existing.push({
-          jobId: entry.job.id,
-          title: entry.job.title,
-          summary: entry.summary,
-          timeLabel: entry.timeLabel,
-          status: entry.job.status,
-          segment,
-          employeeCount: entry.assignedEmployees.length,
-        });
-        map.set(dayKey, existing);
-      });
-    });
-
-    return map;
+  const calendarEvents = useMemo(() => {
+    return scheduledJobs.map((entry) => ({
+      id: entry.job.id,
+      title: entry.job.title,
+      start: entry.schedule.start,
+      end: entry.schedule.allDay ? addDays(entry.schedule.end, 1) : entry.schedule.end,
+      allDay: entry.schedule.allDay,
+      backgroundColor: 'transparent',
+      borderColor: 'transparent',
+      textColor: 'inherit',
+      extendedProps: {
+        summary: entry.summary,
+        timeLabel: entry.timeLabel,
+        status: entry.job.status,
+        employeeCount: entry.assignedEmployees.length,
+        equipmentCount: entry.assignedEquipment.length,
+      } satisfies CalendarEventExtendedProps,
+    }));
   }, [scheduledJobs]);
 
-  const mobileAgendaDays = useMemo(() => {
-    return monthDays
-      .filter((day) => isSameMonth(day, monthCursor))
-      .map((day) => ({
-        day,
-        key: format(day, 'yyyy-MM-dd'),
-        events: eventsByDate.get(format(day, 'yyyy-MM-dd')) ?? [],
-      }))
-      .filter((entry) => entry.events.length > 0);
-  }, [eventsByDate, monthCursor, monthDays]);
-
-  const currentMonthHasJobs = useMemo(() => {
-    const start = startOfMonth(monthCursor);
-    const end = endOfMonth(monthCursor);
-    return scheduledJobs.some((entry) => isWithinInterval(entry.schedule.start, { start, end }) || isWithinInterval(entry.schedule.end, { start, end }) || (entry.schedule.start < start && entry.schedule.end > end));
-  }, [monthCursor, scheduledJobs]);
+  const currentRangeHasJobs = useMemo(() => {
+    return scheduledJobs.some((entry) => entry.schedule.start < visibleRange.end && entry.schedule.end >= visibleRange.start);
+  }, [scheduledJobs, visibleRange.end, visibleRange.start]);
 
   const selectedEvent = useMemo(() => {
     return scheduledJobs.find((entry) => entry.job.id === selectedJobId) ?? null;
   }, [scheduledJobs, selectedJobId]);
+
+  const selectedEventConflicts = useMemo(() => {
+    if (!selectedEvent) return [];
+
+    return getJobAssignmentConflicts({
+      jobId: selectedEvent.job.id,
+      jobs,
+      scheduleWindow: selectedEvent.schedule,
+      assignedEmployeeIds: selectedEvent.job.assignedEmployeeIds,
+      assignedEquipmentIds: selectedEvent.job.assignedEquipmentIds ?? [],
+    });
+  }, [jobs, selectedEvent]);
 
   const divisionOptions = useMemo(() => {
     return [...new Set(budgets.map((budget) => budget.division).filter(Boolean))].sort((left, right) => left.localeCompare(right));
@@ -172,6 +155,84 @@ export default function CalendarPage({ currentUserRole }: Props) {
       setSelectedJobId(null);
     }
   }, [scheduledJobs, selectedJobId]);
+
+  const formatConflictWindow = (start: Date, end: Date, allDay: boolean) => {
+    if (allDay) {
+      const startLabel = format(start, 'MMM d');
+      const endLabel = format(end, 'MMM d');
+      return startLabel === endLabel ? `${startLabel} · All day` : `${startLabel} - ${endLabel} · All day`;
+    }
+    return `${format(start, 'MMM d, h:mm a')} - ${format(end, 'MMM d, h:mm a')}`;
+  };
+
+  const handleDatesSet = (arg: any) => {
+    setVisibleRange({
+      start: arg.start,
+      end: arg.end,
+      title: arg.view.title,
+    });
+  };
+
+  const handleCalendarNavigation = (action: 'today' | 'prev' | 'next') => {
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+
+    if (action === 'today') api.today();
+    if (action === 'prev') api.prev();
+    if (action === 'next') api.next();
+  };
+
+  const handleViewChange = (view: CalendarView) => {
+    setActiveView(view);
+    calendarRef.current?.getApi().changeView(CALENDAR_VIEW_MAP[view]);
+  };
+
+  const handleEventDrop = async (eventDrop: any) => {
+    const start = eventDrop.event.start;
+    const end = eventDrop.event.end ?? eventDrop.event.start;
+
+    if (!start || !end) {
+      eventDrop.revert();
+      return;
+    }
+
+    const payload = eventDrop.event.allDay
+      ? {
+          startDate: format(start, 'yyyy-MM-dd'),
+          endDate: format(subDays(end, 1), 'yyyy-MM-dd'),
+          scheduledStartAt: undefined,
+          scheduledEndAt: undefined,
+          scheduleAllDay: true,
+          scheduleConfirmed: true,
+        }
+      : {
+          startDate: format(start, 'yyyy-MM-dd'),
+          endDate: format(end, 'yyyy-MM-dd'),
+          scheduledStartAt: start.toISOString(),
+          scheduledEndAt: end.toISOString(),
+          scheduleAllDay: false,
+          scheduleConfirmed: true,
+        };
+
+    const saved = await updateJob(eventDrop.event.id, payload);
+    if (!saved) {
+      eventDrop.revert();
+    }
+  };
+
+  const renderEventContent = (content: any) => {
+    const props = content.event.extendedProps as CalendarEventExtendedProps;
+    const selected = content.event.id === selectedJobId;
+    const compact = content.view.type === 'dayGridMonth';
+
+    return (
+      <div className={`rounded-lg border px-2 py-1 text-left ${selected ? 'border-brand-400 bg-brand-100 ring-2 ring-brand-300' : 'border-brand-100 bg-brand-50'} text-brand-900`}>
+        <p className="truncate text-xs font-semibold">{content.event.title}</p>
+        {!compact ? <p className="truncate text-[11px] text-brand-700">{props.summary}</p> : null}
+        <p className="truncate text-[10px] text-brand-600">{props.timeLabel}{props.employeeCount > 0 ? ` · ${props.employeeCount} crew` : ''}{props.equipmentCount > 0 ? ` · ${props.equipmentCount} equip` : ''}</p>
+      </div>
+    );
+  };
 
   const handleScheduleSave = async (payload: {
     jobId: string;
@@ -200,13 +261,13 @@ export default function CalendarPage({ currentUserRole }: Props) {
         <div className="border-b border-brand-100 px-4 py-4 dark:border-brand-600">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setMonthCursor(new Date())}>Today</Button>
-              <Button variant="secondary" size="sm" onClick={() => setMonthCursor((prev) => subMonths(prev, 1))}><ChevronLeft size={16} /></Button>
+              <Button variant="secondary" size="sm" onClick={() => handleCalendarNavigation('today')}>Today</Button>
+              <Button variant="secondary" size="sm" onClick={() => handleCalendarNavigation('prev')}><ChevronLeft size={16} /></Button>
               <h2 className="inline-flex items-center gap-2 px-2 text-base font-semibold text-brand-900 dark:text-brand-50">
                 <CalendarDays size={18} className="text-brand-600 dark:text-brand-200" />
-                {format(monthCursor, 'MMMM yyyy')}
+                {visibleRange.title}
               </h2>
-              <Button variant="secondary" size="sm" onClick={() => setMonthCursor((prev) => addMonths(prev, 1))}><ChevronRight size={16} /></Button>
+              <Button variant="secondary" size="sm" onClick={() => handleCalendarNavigation('next')}><ChevronRight size={16} /></Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {(['month', 'week', 'day'] as CalendarView[]).map((view) => (
@@ -214,9 +275,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
                   key={view}
                   size="sm"
                   variant={activeView === view ? 'primary' : 'secondary'}
-                  disabled={view !== 'month'}
-                  title={view === 'month' ? undefined : 'Week and Day views are planned next without changing calendar libraries in this phase.'}
-                  onClick={() => setActiveView(view)}
+                  onClick={() => handleViewChange(view)}
                 >
                   {view.charAt(0).toUpperCase() + view.slice(1)}
                 </Button>
@@ -242,95 +301,40 @@ export default function CalendarPage({ currentUserRole }: Props) {
         </div>
 
         <div className="p-4">
-          {!currentMonthHasJobs ? (
+          {!currentRangeHasJobs ? (
             <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-dashed border-brand-200 bg-brand-50/60 px-4 py-3 text-sm text-brand-700 dark:border-brand-500/40 dark:bg-brand-800/50 dark:text-brand-100 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="font-semibold">No work scheduled this month.</p>
+                <p className="font-semibold">{activeView === 'month' ? 'No work scheduled this month.' : activeView === 'week' ? 'No work scheduled this week.' : 'No work scheduled this day.'}</p>
                 <p className="text-brand-500 dark:text-brand-200">Schedule a Job to start building your operations calendar.</p>
               </div>
               {canManageSchedule ? <Button size="sm" onClick={() => { setScheduleJobId(undefined); setScheduleOpen(true); }}><Plus size={14} /> Schedule Job</Button> : null}
             </div>
           ) : null}
 
-          <div className="space-y-3 md:hidden">
-            {mobileAgendaDays.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-brand-200 px-4 py-6 text-sm text-brand-500 dark:border-brand-500/40 dark:text-brand-200">
-                No work scheduled this month.
-              </div>
-            ) : mobileAgendaDays.map((entry) => (
-              <div key={entry.key} className="rounded-2xl border border-brand-100 p-3 dark:border-brand-600">
-                <p className="text-sm font-semibold text-brand-900 dark:text-brand-50">{format(entry.day, 'EEEE, MMM d')}</p>
-                <div className="mt-3 space-y-2">
-                  {entry.events.map((event) => (
-                    <button
-                      key={`${entry.key}:${event.jobId}:${event.segment}`}
-                      type="button"
-                      onClick={() => setSelectedJobId(event.jobId)}
-                      className={`w-full rounded-2xl bg-white px-3 py-2 text-left transition-colors hover:bg-brand-50 dark:bg-brand-700 dark:hover:bg-brand-600 ${segmentClassName(event.segment, event.jobId === selectedJobId)}`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-brand-900 dark:text-brand-50">{event.title}</p>
-                          <p className="truncate text-xs text-brand-500 dark:text-brand-200">{event.summary}</p>
-                        </div>
-                        <Badge label={event.status} className={statusColor[event.status]} />
-                      </div>
-                      <p className="mt-1 text-xs text-brand-500 dark:text-brand-200">{event.timeLabel}{event.employeeCount > 0 ? ` · ${event.employeeCount} assigned` : ''}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="hidden md:block">
-            <div className="mb-2 grid grid-cols-7 text-xs text-brand-400 dark:text-brand-200">
-              {WEEKDAY_LABELS.map((day) => (
-                <div key={day} className="px-2 py-1 font-medium">{day}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-2">
-              {monthDays.map((day) => {
-                const key = format(day, 'yyyy-MM-dd');
-                const dayEvents = eventsByDate.get(key) ?? [];
-
-                return (
-                  <div
-                    key={key}
-                    className={`min-h-36 rounded-2xl border p-2 ${
-                      isSameMonth(day, monthCursor)
-                        ? 'bg-white border-brand-100 dark:bg-brand-700 dark:border-brand-600'
-                        : 'bg-brand-50/50 border-brand-100 text-brand-300 dark:bg-brand-800/70 dark:border-brand-700 dark:text-brand-400'
-                    } ${isToday(day) ? 'ring-2 ring-brand-300' : ''}`}
-                  >
-                    <p className={`mb-2 text-xs ${isToday(day) ? 'font-bold text-brand-700 dark:text-brand-100' : 'text-brand-500 dark:text-brand-200'}`}>
-                      {format(day, 'd')}
-                    </p>
-
-                    <div className="space-y-1.5">
-                      {dayEvents.slice(0, 3).map((event) => {
-                        const showFull = event.segment === 'single' || event.segment === 'start';
-                        return (
-                          <button
-                            key={`${key}:${event.jobId}:${event.segment}`}
-                            type="button"
-                            onClick={() => setSelectedJobId(event.jobId)}
-                            className={`block w-full bg-brand-50 px-2 py-1.5 text-left text-[11px] text-brand-800 transition-colors hover:bg-brand-100 dark:bg-brand-600 dark:text-brand-50 dark:hover:bg-brand-500 ${segmentClassName(event.segment, event.jobId === selectedJobId)}`}
-                            title={`${event.title} · ${event.summary}`}
-                          >
-                            <p className="truncate font-semibold">{event.title}</p>
-                            {showFull ? <p className="truncate text-[10px] text-brand-500 dark:text-brand-100">{event.summary}</p> : null}
-                            {showFull ? <p className="truncate text-[10px] text-brand-500 dark:text-brand-100">{event.timeLabel}{event.employeeCount > 0 ? ` · ${event.employeeCount} crew` : ''}</p> : null}
-                          </button>
-                        );
-                      })}
-                      {dayEvents.length > 3 ? <p className="px-1 text-[11px] text-brand-400 dark:text-brand-200">+{dayEvents.length - 3} more</p> : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <FullCalendar
+            ref={calendarRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin] as any}
+            initialView={CALENDAR_VIEW_MAP[activeView]}
+            initialDate={new Date()}
+            events={calendarEvents}
+            headerToolbar={false}
+            editable={canManageSchedule}
+            eventStartEditable={canManageSchedule}
+            dayMaxEvents={3}
+            weekends
+            allDaySlot
+            moreLinkClick="popover"
+            height="auto"
+            nowIndicator
+            eventOverlap
+            slotEventOverlap
+            slotMinTime="05:00:00"
+            slotMaxTime="22:00:00"
+            datesSet={handleDatesSet}
+            eventContent={renderEventContent}
+            eventClick={(eventClick) => setSelectedJobId(eventClick.event.id)}
+            eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}
+          />
         </div>
       </Card>
 
@@ -384,6 +388,31 @@ export default function CalendarPage({ currentUserRole }: Props) {
                     : selectedEvent.assignedEquipment.map((asset) => <Badge key={asset.id} label={asset.name} className="bg-accent-50 text-accent-700 dark:bg-accent-900/20 dark:text-accent-100" />)}
                 </div>
               </div>
+
+              {selectedEventConflicts.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-accent-700">Scheduling Conflicts</p>
+                  <div className="mt-2 space-y-2">
+                    {selectedEventConflicts.map((conflict) => {
+                      const employeeNames = conflict.conflictingEmployeeIds
+                        .map((employeeId) => employees.find((employee) => employee.id === employeeId)?.name ?? employeeId)
+                        .join(', ');
+                      const equipmentNames = conflict.conflictingEquipmentIds
+                        .map((assetId) => equipmentAssets.find((asset) => asset.id === assetId)?.name ?? assetId)
+                        .join(', ');
+
+                      return (
+                        <div key={`selected-conflict-${conflict.job.id}`} className="rounded-2xl border border-accent-200 bg-accent-50/80 p-3 text-sm text-accent-900">
+                          <p className="font-medium">{conflict.job.title}</p>
+                          <p className="mt-1 text-xs text-accent-700">{formatConflictWindow(conflict.schedule.start, conflict.schedule.end, conflict.schedule.allDay)}</p>
+                          {employeeNames ? <p className="mt-1 text-xs">Employees: {employeeNames}</p> : null}
+                          {equipmentNames ? <p className="mt-1 text-xs">Equipment: {equipmentNames}</p> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-6 flex flex-wrap gap-2">

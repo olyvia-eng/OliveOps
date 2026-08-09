@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import { format } from 'date-fns';
+import { AlertTriangle } from 'lucide-react';
 import { Badge, Button, Input, Modal, TextArea } from '../ui';
 import type { Customer, Employee, EquipmentAsset, Job, ID } from '../../types';
-import { formatCustomerPropertyLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
+import {
+  formatCustomerPropertyLabel,
+  getAssignedEquipmentForJob,
+  getJobAssignmentConflicts,
+  getScheduleWindowFromValues,
+} from '../../utils/jobSchedule';
 
 type ScheduleFormState = {
   jobId: string;
@@ -106,6 +113,8 @@ export default function ScheduleJobModal({
     () => customers.find((customer) => customer.id === selectedJob?.customerId) ?? null,
     [customers, selectedJob?.customerId]
   );
+  const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
+  const equipmentById = useMemo(() => new Map(equipmentAssets.map((asset) => [asset.id, asset])), [equipmentAssets]);
   const availableEquipment = useMemo(
     () => equipmentAssets.filter((asset) => !asset.currentJobId || asset.currentJobId === selectedJob?.id),
     [equipmentAssets, selectedJob?.id]
@@ -138,6 +147,43 @@ export default function ScheduleJobModal({
         ? current.assignedEquipmentIds.filter((value) => value !== equipmentId)
         : [...current.assignedEquipmentIds, equipmentId],
     }));
+  };
+
+  const draftScheduleWindow = useMemo(() => {
+    return getScheduleWindowFromValues({
+      startDate: form.startDate,
+      endDate: form.endDate || form.startDate,
+      scheduledStartAt: form.allDay ? undefined : buildIsoDateTime(form.startDate, form.startTime),
+      scheduledEndAt: form.allDay ? undefined : buildIsoDateTime(form.endDate || form.startDate, form.endTime || form.startTime),
+      scheduleAllDay: form.allDay,
+    });
+  }, [form.allDay, form.endDate, form.endTime, form.startDate, form.startTime]);
+
+  const assignmentConflicts = useMemo(() => {
+    if (!selectedJob) return [];
+
+    return getJobAssignmentConflicts({
+      jobId: selectedJob.id,
+      jobs,
+      scheduleWindow: draftScheduleWindow,
+      assignedEmployeeIds: form.assignedEmployeeIds,
+      assignedEquipmentIds: form.assignedEquipmentIds,
+    });
+  }, [draftScheduleWindow, form.assignedEmployeeIds, form.assignedEquipmentIds, jobs, selectedJob]);
+
+  const employeeConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEmployeeIds.length > 0);
+  const equipmentConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEquipmentIds.length > 0);
+
+  const formatConflictWindow = (start: Date, end: Date, allDay: boolean) => {
+    if (allDay) {
+      const startLabel = format(start, 'MMM d');
+      const endLabel = format(end, 'MMM d');
+      return startLabel === endLabel ? `${startLabel} · All day` : `${startLabel} - ${endLabel} · All day`;
+    }
+
+    const startLabel = format(start, 'MMM d, h:mm a');
+    const endLabel = format(end, 'MMM d, h:mm a');
+    return `${startLabel} - ${endLabel}`;
   };
 
   const handleSave = async () => {
@@ -236,6 +282,50 @@ export default function ScheduleJobModal({
             <h3 className="mt-3 text-lg font-semibold text-brand-900 dark:text-brand-50">{selectedJob?.title ?? 'Select a job'}</h3>
             <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">{selectedJob ? formatCustomerPropertyLabel(selectedJob, selectedCustomer) : 'Choose a job to derive the property and customer details.'}</p>
           </div>
+
+          {employeeConflicts.length > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 text-amber-600" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">Employee overlap warning</h3>
+                  <div className="mt-2 space-y-3 text-sm">
+                    {employeeConflicts.map((conflict) => (
+                      <div key={`employee-conflict-${conflict.job.id}`} className="rounded-xl border border-amber-200 bg-white/70 p-3">
+                        <p className="font-medium">{conflict.job.title}</p>
+                        <p className="mt-1 text-xs text-amber-700">{formatConflictWindow(conflict.schedule.start, conflict.schedule.end, conflict.schedule.allDay)}</p>
+                        <p className="mt-1 text-xs text-amber-800">
+                          Conflicting employees: {conflict.conflictingEmployeeIds.map((employeeId) => employeeById.get(employeeId)?.name ?? employeeId).join(', ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {equipmentConflicts.length > 0 ? (
+            <div className="rounded-2xl border border-accent-200 bg-accent-50 p-4 text-accent-900">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 text-accent-700" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">Equipment conflict warning</h3>
+                  <div className="mt-2 space-y-3 text-sm">
+                    {equipmentConflicts.map((conflict) => (
+                      <div key={`equipment-conflict-${conflict.job.id}`} className="rounded-xl border border-accent-200 bg-white/70 p-3">
+                        <p className="font-medium">{conflict.job.title}</p>
+                        <p className="mt-1 text-xs text-accent-700">{formatConflictWindow(conflict.schedule.start, conflict.schedule.end, conflict.schedule.allDay)}</p>
+                        <p className="mt-1 text-xs text-accent-800">
+                          Conflicting equipment: {conflict.conflictingEquipmentIds.map((assetId) => equipmentById.get(assetId)?.name ?? assetId).join(', ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border border-brand-100 p-4 dark:border-brand-600">
             <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Equipment</h3>
