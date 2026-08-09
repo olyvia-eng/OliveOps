@@ -11,7 +11,7 @@ test('catalog and budget both use shared canonical equipment form', () => {
   assert.match(catalogSource, /<EquipmentAssetForm value=\{form\} onChange=\{setForm\} \/>/);
 
   assert.match(budgetSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentAssetForm'/);
-  assert.match(budgetSource, /Canonical Equipment Asset/);
+  assert.match(budgetSource, /Equipment Record/);
   assert.match(budgetSource, /<EquipmentAssetForm/);
   assert.match(budgetSource, /createCatalogEquipmentOnSave/);
 

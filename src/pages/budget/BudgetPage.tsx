@@ -2646,7 +2646,7 @@ export default function BudgetPage() {
           />
           {form.category === 'equipment' && createCatalogEquipmentOnSave && !editing && (
             <fieldset className="border border-gray-200 rounded-lg p-3">
-              <legend className="text-sm font-medium text-gray-700 px-1">Canonical Equipment Asset</legend>
+              <legend className="text-sm font-medium text-gray-700 px-1">Equipment Record</legend>
               <p className="mb-3 text-xs text-gray-500">This machine record is saved to the company equipment catalog and linked to this budget row.</p>
               <EquipmentAssetForm
                 value={canonicalEquipmentForm}
