@@ -69,12 +69,33 @@ test('new equipment uses equipment budget row form and custom row CTA is removed
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
   assert.match(source, /New Equipment/);
-  assert.match(source, /openCategoryEditor\('equipment', \{ createCatalogAssetOnSave: true \}\)/);
+  assert.match(source, /openNewCategoryItem\('equipment', \{ createCatalogAssetOnSave: true \}\)/);
   assert.match(source, /createCatalogEquipmentOnSave/);
   assert.match(source, /addEquipmentAsset\(\{/);
   assert.doesNotMatch(source, /Add Custom Equipment Row/);
   assert.doesNotMatch(source, /handleCreateEquipmentAndAddToBudget/);
   assert.doesNotMatch(source, /Create & Add/);
+});
+
+test('equipment add flow does not use first-item category lookup and preserves explicit add-vs-edit save branching', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.doesNotMatch(source, /items\.find\(\(item\) => item\.category === category\)/);
+  assert.match(source, /const openNewCategoryItem = \(category: BudgetCategory, options\?: \{ createCatalogAssetOnSave\?: boolean \}\) => \{/);
+  assert.match(source, /setEditing\(null\);/);
+  assert.match(source, /if \(editing\) updateBudgetItem\(editing\.id, yearlyForm\);/);
+  assert.match(source, /else addBudgetItem\(yearlyForm\);/);
+  assert.match(source, /const addEquipmentToCurrentBudget = \(equipmentId: string\) => \{/);
+});
+
+test('multi-row category summary cards no longer open ambiguous first-item editors', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.doesNotMatch(source, /openCategoryEditor\('revenue'\)/);
+  assert.doesNotMatch(source, /openCategoryEditor\('materials'\)/);
+  assert.doesNotMatch(source, /openCategoryEditor\('equipment'\)/);
+  assert.doesNotMatch(source, /openCategoryEditor\('subcontractors'\)/);
+  assert.doesNotMatch(source, /openCategoryEditor\('overhead'\)/);
 });
 
 test('budget equipment API validates tenant ownership and duplicate links', () => {

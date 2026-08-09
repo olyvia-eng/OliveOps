@@ -639,13 +639,7 @@ export default function BudgetPage() {
     setEquipmentCatalogError('');
   };
 
-  const openCategoryEditor = (category: BudgetCategory, options?: { createCatalogAssetOnSave?: boolean }) => {
-    const existingItem = items.find((item) => item.category === category);
-    if (existingItem) {
-      openEdit(existingItem);
-      return;
-    }
-
+  const openNewCategoryItem = (category: BudgetCategory, options?: { createCatalogAssetOnSave?: boolean }) => {
     const defaultPeriod = `${year}-01`;
     const defaultEquipmentInfo = category === 'equipment' ? equipmentInfoDefaults() : null;
     setEditing(null);
@@ -1712,13 +1706,12 @@ export default function BudgetPage() {
       {activeTab === 'analysis' && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <button type="button" onClick={() => openCategoryEditor('revenue')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Revenue</p>
                 <p className="text-xl font-bold text-brand-700">{formatCurrency(totalBudgetedRevenue)}</p>
-                <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
+            </div>
             <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
               <Card className="p-4 hover:border-brand-300 cursor-pointer">
                 <p className="text-xs text-gray-500">Profit</p>
@@ -1726,13 +1719,12 @@ export default function BudgetPage() {
                 <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
             </button>
-            <button type="button" onClick={() => openCategoryEditor('overhead')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Expenses</p>
                 <p className="text-xl font-bold text-accent-700">{formatCurrency(totalBudgetedExpenses)}</p>
-                <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
+            </div>
           </div>
 
           <Card className="p-4 mb-6">
@@ -2059,13 +2051,12 @@ export default function BudgetPage() {
       {activeTab === 'revenue' && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <button type="button" onClick={() => openCategoryEditor('revenue')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Sales / Revenue</p>
                 <p className="text-xl font-bold text-brand-700">{formatCurrency(totalsByCategory.revenue.budgeted)}</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
+            </div>
           </div>
 
           <Card className="p-4 mb-6">
@@ -2103,13 +2094,12 @@ export default function BudgetPage() {
 
       {activeTab === 'materials' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <button type="button" onClick={() => openCategoryEditor('materials')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <Card className="p-4 hover:border-brand-300 cursor-pointer">
+          <div className="text-left rounded-xl">
+            <Card className="p-4">
               <p className="text-xs text-gray-500">Materials</p>
               <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.materials.budgeted)}</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
-          </button>
+          </div>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
               <p className="text-xs text-gray-500">Materials Recovery</p>
@@ -2124,37 +2114,33 @@ export default function BudgetPage() {
       {activeTab === 'equipment' && (
         <>
           <div className="grid grid-cols-1 gap-4 mb-4">
-            <button type="button" onClick={() => openCategoryEditor('equipment')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Equipment</p>
                 <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.equipment.budgeted)}</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <button type="button" onClick={() => openCategoryEditor('equipment')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Financed Equipment</p>
                 <p className="text-xl font-bold text-gray-900">{formatCurrency(equipmentByCostType.financed.budgeted)}</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
-            <button type="button" onClick={() => openCategoryEditor('equipment')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            </div>
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Leased Equipment</p>
                 <p className="text-xl font-bold text-gray-900">{formatCurrency(equipmentByCostType.leased.budgeted)}</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
-            <button type="button" onClick={() => openCategoryEditor('equipment')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+            </div>
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
                 <p className="text-xs text-gray-500">Owned Equipment</p>
                 <p className="text-xl font-bold text-gray-900">{formatCurrency(equipmentByCostType.owned.budgeted)}</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
               </Card>
-            </button>
+            </div>
           </div>
 
           <div className="mb-6">
@@ -2279,7 +2265,7 @@ export default function BudgetPage() {
                         <p className="text-xs text-gray-500 mt-1">Add existing equipment to this budget.</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
+                        <Button size="sm" onClick={() => openNewCategoryItem('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
                         <button
                           type="button"
                           onClick={() => setEquipmentCatalogCollapsed(true)}
@@ -2304,7 +2290,7 @@ export default function BudgetPage() {
                       <div className="text-sm text-gray-500 p-2">
                         <p>No equipment in your catalog yet.</p>
                         <div className="mt-2">
-                          <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
+                          <Button size="sm" onClick={() => openNewCategoryItem('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
                         </div>
                       </div>
                     ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
@@ -2342,13 +2328,12 @@ export default function BudgetPage() {
 
       {activeTab === 'subcontractors' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <button type="button" onClick={() => openCategoryEditor('subcontractors')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <Card className="p-4 hover:border-brand-300 cursor-pointer">
+          <div className="text-left rounded-xl">
+            <Card className="p-4">
               <p className="text-xs text-gray-500">Subcontractors</p>
               <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.subcontractors.budgeted)}</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
-          </button>
+          </div>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
               <p className="text-xs text-gray-500">Subcontractor Recovery</p>
@@ -2362,13 +2347,12 @@ export default function BudgetPage() {
 
       {activeTab === 'overhead' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <button type="button" onClick={() => openCategoryEditor('overhead')} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <Card className="p-4 hover:border-brand-300 cursor-pointer">
+          <div className="text-left rounded-xl">
+            <Card className="p-4">
               <p className="text-xs text-gray-500">Overhead</p>
               <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.overhead.budgeted)}</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
-          </button>
+          </div>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
               <p className="text-xs text-gray-500">Overhead Recovery Total</p>
@@ -2923,7 +2907,7 @@ export default function BudgetPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-gray-600">Add existing equipment to this budget.</p>
-            <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
+            <Button size="sm" onClick={() => openNewCategoryItem('equipment', { createCatalogAssetOnSave: true })}><Plus size={13} /> New Equipment</Button>
           </div>
           <Input
             value={equipmentCatalogSearch}
@@ -2936,7 +2920,7 @@ export default function BudgetPage() {
               <div className="text-sm text-gray-500 p-2">
                 <p>No equipment in your catalog yet.</p>
                 <div className="mt-2">
-                  <Button size="sm" onClick={() => openCategoryEditor('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
+                  <Button size="sm" onClick={() => openNewCategoryItem('equipment', { createCatalogAssetOnSave: true })}><Plus size={12} /> New Equipment</Button>
                 </div>
               </div>
             ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
