@@ -1313,6 +1313,20 @@ export default function BudgetPage() {
     });
   }, [labourPlannerRows]);
 
+  const overheadLabourPlannerRows = useMemo(() => {
+    return labourPlannerRows.filter((row) => (row.employee.labourType ?? 'field_producing') === 'overhead');
+  }, [labourPlannerRows]);
+
+  const overheadLabourTotals = useMemo(() => {
+    return overheadLabourPlannerRows.reduce((acc, row) => ({
+      annualLabourCost: acc.annualLabourCost + row.totalEmployeeCostPerYear,
+      count: acc.count + 1,
+    }), {
+      annualLabourCost: 0,
+      count: 0,
+    });
+  }, [overheadLabourPlannerRows]);
+
   const totalOverheadBudget = totalsByCategory.overhead.budgeted;
   const allocationTotalPct = overheadRecoveryAllocation.labourPercent
     + overheadRecoveryAllocation.equipmentPercent
@@ -2391,22 +2405,62 @@ export default function BudgetPage() {
       )}
 
       {activeTab === 'overhead' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="text-left rounded-xl">
-            <Card className="p-4">
-              <p className="text-xs text-gray-500">Overhead</p>
-              <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.overhead.budgeted)}</p>
-            </Card>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Overhead</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(totalsByCategory.overhead.budgeted)}</p>
+              </Card>
+            </div>
+            <div className="text-left rounded-xl">
+              <Card className="p-4">
+                <p className="text-xs text-gray-500">Labour Overhead</p>
+                <p className="text-xl font-bold text-brand-700">{formatCurrency(overheadLabourTotals.annualLabourCost)}</p>
+                <p className="text-sm text-gray-600 mt-1">{overheadLabourTotals.count} overhead employees</p>
+              </Card>
+            </div>
+            <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
+              <Card className="p-4 hover:border-brand-300 cursor-pointer">
+                <p className="text-xs text-gray-500">Overhead Recovery Total</p>
+                <p className="text-xl font-bold text-brand-700">{formatCurrency(totalOverheadBudget)}</p>
+                <p className="text-sm text-gray-600 mt-1">{allocationTotalPct.toFixed(1)}% allocated</p>
+                <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
+              </Card>
+            </button>
           </div>
-          <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-            <Card className="p-4 hover:border-brand-300 cursor-pointer">
-              <p className="text-xs text-gray-500">Overhead Recovery Total</p>
-              <p className="text-xl font-bold text-brand-700">{formatCurrency(totalOverheadBudget)}</p>
-              <p className="text-sm text-gray-600 mt-1">{allocationTotalPct.toFixed(1)}% allocated</p>
-              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
-            </Card>
-          </button>
-        </div>
+
+          <Card className="overflow-hidden mb-6">
+            <div className="p-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900">Overhead Labour Employees</h2>
+              <p className="text-xs text-gray-500 mt-1">Employees tagged as overhead in the labour planner appear here.</p>
+            </div>
+            {overheadLabourPlannerRows.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">
+                No overhead employees selected yet. Set Labour Type to Overhead in the Labour tab.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+                    <th className="px-4 py-3 font-medium">Employee</th>
+                    <th className="px-4 py-3 font-medium">Comp Type</th>
+                    <th className="px-4 py-3 font-medium text-right">Total Cost per Year</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {overheadLabourPlannerRows.map((row) => (
+                    <tr key={row.plan.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 text-gray-700">{row.employee.name}</td>
+                      <td className="px-4 py-2 text-gray-700 capitalize">{row.plan.compType}</td>
+                      <td className="px-4 py-2 text-right">{formatCurrency(row.totalEmployeeCostPerYear)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+        </>
       )}
 
       {activeTab !== 'labour' && activeTab !== 'equipment' && (items.length === 0 ? (

@@ -20,6 +20,14 @@ test('budget page exposes a persisted overhead recovery strategy', () => {
   assert.doesNotMatch(budgetPageSource, /Suggested Subcontractor Markup/);
 });
 
+test('overhead tab includes labour overhead summary and overhead employee section', () => {
+  assert.match(budgetPageSource, /Labour Overhead/);
+  assert.match(budgetPageSource, /Overhead Labour Employees/);
+  assert.match(budgetPageSource, /Employees tagged as overhead in the labour planner appear here\./);
+  assert.match(budgetPageSource, /No overhead employees selected yet\. Set Labour Type to Overhead in the Labour tab\./);
+  assert.match(budgetPageSource, /\(row\.employee\.labourType \?\? 'field_producing'\) === 'overhead'/);
+});
+
 test('budget rates and estimate add-items use a single combined entry per catalog item', () => {
   assert.match(budgetPageSource, /Suggested Sell/);
   assert.match(budgetPageSource, /Final Sell/);
