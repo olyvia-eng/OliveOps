@@ -583,7 +583,7 @@ export default function App() {
               <Route path="estimates/templates" element={<TemplatesPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
-              <Route path="calendar" element={<CalendarPage />} />
+              <Route path="calendar" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/:budgetId" element={<BudgetPage />} />

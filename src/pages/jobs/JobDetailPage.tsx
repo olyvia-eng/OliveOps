@@ -3,12 +3,14 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useStore } from '../../store';
 import { Card, Button, Badge, EmptyState, Modal, Input, Select } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
+import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import type { CostEntry, LineItemCategory, JobStatus } from '../../types';
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
+import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 
 const CATEGORIES: LineItemCategory[] = ['material', 'equipment', 'labour', 'subcontractor'];
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
@@ -27,7 +29,7 @@ export default function JobDetailPage({ currentUserRole }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, invoices, timeEntries, timeCorrections, updateJob, addCostEntry, deleteTimeEntry } = useStore();
+  const { jobs, customers, employees, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, addCostEntry, deleteTimeEntry } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -40,10 +42,13 @@ export default function JobDetailPage({ currentUserRole }: Props) {
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
+  const assignedEquipment = useMemo(() => (job ? getAssignedEquipmentForJob(job, equipmentAssets) : []), [equipmentAssets, job]);
   const jobInvoices = useMemo(
     () => invoices.filter((invoice) => invoice.jobId === id),
     [id, invoices]
   );
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
 
   useEffect(() => {
     const validTabs: JobTab[] = ['info', 'work-areas', 'proposal', 'project-management', 'analysis', 'invoices'];
@@ -237,16 +242,19 @@ export default function JobDetailPage({ currentUserRole }: Props) {
               <Badge label={job.status} className={statusColor[job.status]} />
               <h1 className="text-2xl font-bold text-gray-900">{job.title}</h1>
             </div>
-            <p className="text-gray-500">{customer?.name ?? '—'} · Started {formatDate(job.startDate)}</p>
+            <p className="text-gray-500">{customer?.name ?? '—'} · {formatScheduleTimeLabel(job)} · Started {formatDate(job.startDate)}</p>
           </div>
-          <Select
-            value={job.status}
-            onChange={(e) => updateJob(job.id, { status: e.target.value as JobStatus })}
-          >
-            {(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'] as JobStatus[]).map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-            ))}
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            {canManageSchedule ? <Button variant="secondary" onClick={() => setScheduleModalOpen(true)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}</Button> : null}
+            <Select
+              value={job.status}
+              onChange={(e) => { void updateJob(job.id, { status: e.target.value as JobStatus }); }}
+            >
+              {(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'] as JobStatus[]).map((s) => (
+                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+              ))}
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -282,15 +290,21 @@ export default function JobDetailPage({ currentUserRole }: Props) {
             <p className="text-gray-600">Customer: <span className="font-medium text-gray-900">{customer?.name ?? 'N/A'}</span></p>
             <p className="text-gray-600">Start Date: <span className="font-medium text-gray-900">{formatDate(job.startDate)}</span></p>
             <p className="text-gray-600">End Date: <span className="font-medium text-gray-900">{job.endDate ? formatDate(job.endDate) : 'Not set'}</span></p>
+            <p className="text-gray-600">Time: <span className="font-medium text-gray-900">{formatScheduleTimeLabel(job)}</span></p>
             <p className="text-gray-600">Contract Value: <span className="font-medium text-gray-900">{formatCurrency(job.contractValue)}</span></p>
             <p className="text-gray-600">Source Estimate: <span className="font-medium text-gray-900">{job.sourceEstimateId ?? 'Manual Job'}</span></p>
             <p className="text-gray-600">Converted At: <span className="font-medium text-gray-900">{job.convertedFromEstimateAt ? formatDateTime(job.convertedFromEstimateAt) : 'N/A'}</span></p>
             <p className="text-gray-600">Property: <span className="font-medium text-gray-900">{job.propertyLabel ?? 'N/A'}</span></p>
             <p className="text-gray-600">Address Snapshot: <span className="font-medium text-gray-900">{job.propertyAddressSnapshot ?? 'N/A'}</span></p>
+            <p className="text-gray-600">Schedule Status: <span className="font-medium text-gray-900">{job.scheduleConfirmed ? 'Scheduled' : 'Needs scheduling'}</span></p>
           </div>
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h3 className="text-sm font-semibold text-gray-900">Description</h3>
             <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{job.description || 'No description.'}</p>
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-gray-900">Schedule Notes</h3>
+              <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{job.scheduleNotes?.trim() || 'No schedule notes.'}</p>
+            </div>
           </div>
         </Card>
       )}
@@ -508,6 +522,12 @@ export default function JobDetailPage({ currentUserRole }: Props) {
                 <ul className="space-y-2">{assignedEmployees.map((employee) => <li key={employee.id} className="flex items-center justify-between text-sm"><span>{employee.name}</span><span className="text-gray-400 capitalize">{employee.role.replace('_', ' ')} · ${employee.hourlyRate}/hr</span></li>)}</ul>
               )}
             </Card>
+            <Card className="p-4">
+              <h2 className="mb-3 font-semibold">Assigned Equipment</h2>
+              {assignedEquipment.length === 0 ? <p className="text-sm text-gray-400">No equipment assigned.</p> : (
+                <ul className="space-y-2">{assignedEquipment.map((asset) => <li key={asset.id} className="flex items-center justify-between text-sm"><span>{asset.name}</span><span className="text-gray-400">{asset.type}</span></li>)}</ul>
+              )}
+            </Card>
             <Card className="p-4"><h2 className="mb-3 font-semibold">Notes</h2><p className="whitespace-pre-line text-sm text-gray-600">{job.notes || 'No notes.'}</p></Card>
           </div>
         </div>
@@ -561,6 +581,18 @@ export default function JobDetailPage({ currentUserRole }: Props) {
           <p className="text-sm font-semibold">Total: {formatCurrency(costForm.total)}</p>
         </div>
       </Modal>
+
+      <ScheduleJobModal
+        open={scheduleModalOpen}
+        title={job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}
+        jobs={jobs}
+        customers={customers}
+        employees={employees}
+        equipmentAssets={equipmentAssets}
+        initialJobId={job.id}
+        onClose={() => setScheduleModalOpen(false)}
+        onSave={(payload) => updateJob(payload.jobId, payload)}
+      />
     </div>
   );
 }

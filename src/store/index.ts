@@ -140,7 +140,7 @@ interface AppState {
 
   // Jobs
   addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateJob: (id: ID, data: Partial<Job>) => void;
+  updateJob: (id: ID, data: Partial<Job>) => Promise<boolean>;
   deleteJob: (id: ID) => void;
   addCostEntry: (jobId: ID, entry: Omit<CostEntry, 'id'>) => void;
 
@@ -766,7 +766,7 @@ export const useStore = create<AppState>()((set, get) => ({
           emitAppToast({ tone: 'error', message: 'Job could not be saved.' });
         });
       },
-      updateJob: (id, data) => {
+      updateJob: async (id, data) => {
         const previous = get().jobs;
         const updatedAt = nowISO();
         set((s) => ({
@@ -775,17 +775,23 @@ export const useStore = create<AppState>()((set, get) => ({
           ),
         }));
 
-        void ensureOk(fetch(dataUrl('jobs', id), {
+        const request = fetch(dataUrl('jobs', id), {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
           body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch(() => {
-          set({ jobs: previous });
-          emitAppToast({ tone: 'error', message: 'Job changes could not be saved.' });
         });
+
+        try {
+          await ensureOk(request);
+          return true;
+        } catch (error: unknown) {
+          set({ jobs: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Job changes could not be saved.') });
+          return false;
+        }
       },
       deleteJob: (id) => {
         const previous = get().jobs;

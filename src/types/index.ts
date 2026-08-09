@@ -296,12 +296,18 @@ export interface Job {
   status: JobStatus;
   startDate: string;
   endDate?: string;
+  scheduleConfirmed?: boolean;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  scheduleAllDay?: boolean;
+  scheduleNotes?: string;
   estimatedHours: number;
   actualHours: number;
   estimatedCost: number;
   actualCosts: CostEntry[];
   contractValue: number;
   assignedEmployeeIds: ID[];
+  assignedEquipmentIds?: ID[];
   notes: string;
   createdAt: string;
   updatedAt: string;

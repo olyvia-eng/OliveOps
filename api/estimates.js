@@ -148,6 +148,7 @@ function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
 function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   const operationalWorkAreas = buildJobWorkAreasFromEstimate(estimate);
   const snapshot = buildOriginalEstimateSnapshot(estimate, operationalWorkAreas);
+  const hasExplicitSchedule = isNonEmptyString(startDate) || isNonEmptyString(endDate);
   const estimatedHours = operationalWorkAreas
     .flatMap((workArea) => workArea.lineItems)
     .filter((lineItem) => lineItem.category === 'labour')
@@ -173,6 +174,8 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     status: 'scheduled',
     startDate: isNonEmptyString(startDate) ? startDate : convertedAt.slice(0, 10),
     endDate: isNonEmptyString(endDate) ? endDate : undefined,
+    scheduleConfirmed: hasExplicitSchedule,
+    scheduleAllDay: true,
     estimatedHours,
     actualHours: 0,
     estimatedCost: snapshot.subtotal,

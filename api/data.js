@@ -143,7 +143,7 @@ const ENTITY_CONFIG = {
   },
   jobs: {
     readRoles: null,
-    writeRoles: ['owner', 'admin'],
+    writeRoles: ['owner', 'admin', 'foreman'],
     list: listJobsForBusiness,
     get: getJobForBusiness,
     create: createJobForBusiness,
@@ -338,7 +338,7 @@ const ENTITY_CONFIG = {
   },
   'equipment-assets': {
     readRoles: null,
-    writeRoles: ['owner', 'admin'],
+    writeRoles: ['owner', 'admin', 'foreman'],
     list: listEquipmentAssetsForBusiness,
     get: getEquipmentAssetForBusiness,
     create: createEquipmentAssetForBusiness,
@@ -410,6 +410,7 @@ function getConfig(entity) {
 const INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue']);
 const EXPENSE_STATUSES = new Set(['pending', 'approved', 'paid']);
 const EXPENSE_CATEGORIES = new Set(['materials', 'equipment', 'subcontractor', 'travel', 'permits', 'overhead', 'other']);
+const JOB_STATUSES = new Set(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled']);
 const EQUIPMENT_STATUSES = new Set(['available', 'in_use', 'maintenance', 'inactive']);
 const EQUIPMENT_COST_TYPES = new Set(['financed', 'leased', 'owned']);
 const BUDGET_TYPES = new Set(['operating', 'capital', 'project', 'forecast', 'custom']);
@@ -698,6 +699,78 @@ function validateBudgetRecord(record) {
   return null;
 }
 
+function isValidIsoDateTime(value) {
+  if (!isNonEmptyString(value)) return false;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp);
+}
+
+function uniqueStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((entry) => typeof entry === 'string' && entry.trim().length > 0))];
+}
+
+function validateJobRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Job id is required.';
+  if (!isNonEmptyString(record.customerId)) return 'Job customer is required.';
+  if (!isNonEmptyString(record.title)) return 'Job title is required.';
+  if (!JOB_STATUSES.has(record.status)) return 'Job status is invalid.';
+  if (!isValidDateOnly(record.startDate)) return 'Job start date must use YYYY-MM-DD format.';
+  if (record.endDate !== undefined && record.endDate !== null && record.endDate !== '' && !isValidDateOnly(record.endDate)) {
+    return 'Job end date must use YYYY-MM-DD format.';
+  }
+  if (record.scheduleConfirmed !== undefined && typeof record.scheduleConfirmed !== 'boolean') {
+    return 'Job schedule confirmed flag is invalid.';
+  }
+  if (record.scheduleAllDay !== undefined && typeof record.scheduleAllDay !== 'boolean') {
+    return 'Job schedule all-day flag is invalid.';
+  }
+  if (record.scheduledStartAt !== undefined && record.scheduledStartAt !== null && record.scheduledStartAt !== '' && !isValidIsoDateTime(record.scheduledStartAt)) {
+    return 'Job scheduled start must be a valid ISO datetime.';
+  }
+  if (record.scheduledEndAt !== undefined && record.scheduledEndAt !== null && record.scheduledEndAt !== '' && !isValidIsoDateTime(record.scheduledEndAt)) {
+    return 'Job scheduled end must be a valid ISO datetime.';
+  }
+  if (
+    isNonEmptyString(record.scheduledStartAt)
+    && isNonEmptyString(record.scheduledEndAt)
+    && Date.parse(record.scheduledEndAt) < Date.parse(record.scheduledStartAt)
+  ) {
+    return 'Job scheduled end must be on or after the scheduled start.';
+  }
+  if (record.scheduleNotes !== undefined && record.scheduleNotes !== null && typeof record.scheduleNotes !== 'string') {
+    return 'Job schedule notes must be a string.';
+  }
+  if (!Array.isArray(record.assignedEmployeeIds) || record.assignedEmployeeIds.some((value) => typeof value !== 'string' || !value.trim())) {
+    return 'Assigned employees are invalid.';
+  }
+  if (Array.isArray(record.assignedEquipmentIds) && record.assignedEquipmentIds.some((value) => typeof value !== 'string' || !value.trim())) {
+    return 'Assigned equipment is invalid.';
+  }
+  return null;
+}
+
+async function validateJobRelationships({ businessId, record }) {
+  const assignedEmployeeIds = uniqueStringList(record.assignedEmployeeIds);
+  const assignedEquipmentIds = uniqueStringList(record.assignedEquipmentIds);
+
+  for (const employeeId of assignedEmployeeIds) {
+    const employee = await getEmployeeForBusiness(businessId, employeeId);
+    if (!employee) {
+      return 'Assigned employees must belong to this business.';
+    }
+  }
+
+  for (const equipmentId of assignedEquipmentIds) {
+    const equipment = await getEquipmentAssetForBusiness(businessId, equipmentId);
+    if (!equipment) {
+      return 'Assigned equipment must belong to this business.';
+    }
+  }
+
+  return null;
+}
+
 function validateEstimateLineItem(item) {
   if (!isNonEmptyString(item?.id)) return 'Line item id is required.';
   if (!ESTIMATE_LINE_ITEM_CATEGORIES.has(item?.category)) return 'Line item category is invalid.';
@@ -958,6 +1031,16 @@ export default async function handler(req, res) {
       }
     }
 
+    if (entity === 'jobs') {
+      const validationError = validateJobRecord(record) ?? await validateJobRelationships({
+        businessId: session.businessId,
+        record,
+      });
+      if (validationError) {
+        return res.status(400).json({ ok: false, error: validationError });
+      }
+    }
+
     if (entity === 'equipment-assets') {
       const validationError = validateEquipmentAssetRecord(record);
       if (validationError) {
@@ -1130,6 +1213,16 @@ export default async function handler(req, res) {
 
       if (entity === 'expenses') {
         const validationError = validateExpenseRecord(next);
+        if (validationError) {
+          return res.status(400).json({ ok: false, error: validationError });
+        }
+      }
+
+      if (entity === 'jobs') {
+        const validationError = validateJobRecord(next) ?? await validateJobRelationships({
+          businessId: session.businessId,
+          record: next,
+        });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
