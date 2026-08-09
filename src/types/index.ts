@@ -220,6 +220,28 @@ export interface FeedbackRecord {
   updatedAt: string;
 }
 
+// ─── Tasks ───────────────────────────────────────────────────────────────────
+
+export type TaskStatus = 'open' | 'completed';
+export type TaskPriority = 'low' | 'normal' | 'high';
+export type TaskRelatedEntityType = 'customer' | 'estimate' | 'job' | 'invoice' | 'employee';
+
+export interface Task {
+  id: ID;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  assignedUserId: ID;
+  status: TaskStatus;
+  priority?: TaskPriority;
+  relatedEntityType?: TaskRelatedEntityType;
+  relatedEntityId?: ID;
+  createdByUserId: ID;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 // ─── Jobs ────────────────────────────────────────────────────────────────────
 
 export type JobStatus = 'scheduled' | 'in_progress' | 'on_hold' | 'completed' | 'cancelled';

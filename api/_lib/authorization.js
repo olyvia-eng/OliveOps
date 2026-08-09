@@ -20,6 +20,7 @@ const ENTITY_READ_ROLES = {
   'material-catalog-items': ['owner', 'admin', 'foreman'],
   'unbillable-time-categories': ['owner', 'admin', 'foreman', 'crew_member'],
   feedback: ['owner', 'admin', 'foreman', 'crew_member'],
+  tasks: ['owner', 'admin', 'foreman', 'crew_member'],
   'time-entries': ['owner', 'admin', 'foreman', 'crew_member'],
   'time-corrections': ['owner', 'admin', 'crew_member'],
   'audit-events': ['owner', 'admin'],
@@ -47,6 +48,7 @@ const ENTITY_WRITE_ROLES = {
   'material-catalog-items': ['owner', 'admin', 'foreman'],
   'unbillable-time-categories': ['owner', 'admin'],
   feedback: ['owner', 'admin', 'foreman', 'crew_member'],
+  tasks: ['owner', 'admin', 'foreman', 'crew_member'],
   'time-entries': ['owner', 'admin', 'foreman'],
   'time-corrections': ['owner', 'admin', 'crew_member'],
   'audit-events': ['owner', 'admin'],
@@ -94,6 +96,10 @@ export function authorizeRecordAccess(session, entity, record) {
       ? record.assignedEmployeeIds
       : [];
     return assignedEmployeeIds.includes(session.employeeId);
+  }
+
+  if (entity === 'tasks') {
+    return record.assignedUserId === session.id || record.createdByUserId === session.id;
   }
 
   return false;

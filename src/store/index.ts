@@ -23,6 +23,7 @@ import type {
   LabourHoursSalesGoal,
   RevenueSalesGoal,
   TimeCorrectionRequest,
+  Task,
   CostEntry,
   ID,
 } from '../types';
@@ -88,6 +89,7 @@ interface AppState {
   employees: Employee[];
   timeEntries: TimeEntry[];
   timeCorrections: TimeCorrectionRequest[];
+  tasks: Task[];
   clockInInFlightEmployeeIds: ID[];
   clockOutInFlightEntryIds: ID[];
   budgetItems: BudgetItem[];
@@ -170,6 +172,12 @@ interface AppState {
   approveTimeCorrectionRequest: (id: ID, reviewNote?: string) => Promise<{ ok: boolean; error?: string; correction?: TimeCorrectionRequest }>;
   rejectTimeCorrectionRequest: (id: ID, reviewNote?: string) => Promise<{ ok: boolean; error?: string; correction?: TimeCorrectionRequest }>;
 
+  // Tasks
+  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; task?: Task; error?: string }>;
+  updateTask: (id: ID, data: Partial<Task>) => Promise<{ ok: boolean; task?: Task; error?: string }>;
+  completeTask: (id: ID) => Promise<{ ok: boolean; task?: Task; error?: string }>;
+  deleteTask: (id: ID) => Promise<{ ok: boolean; error?: string }>;
+
   // Budget
   addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget | null>;
   updateBudget: (id: ID, data: Partial<Budget>) => void;
@@ -215,6 +223,7 @@ export const useStore = create<AppState>()((set, get) => ({
       employees: [],
       timeEntries: [],
       timeCorrections: [],
+      tasks: [],
       clockInInFlightEmployeeIds: [],
       clockOutInFlightEntryIds: [],
       budgetItems: [],
@@ -1204,6 +1213,84 @@ export const useStore = create<AppState>()((set, get) => ({
             ok: false,
             error: errorMessage(error, 'Could not reject correction request.'),
           };
+        }
+      },
+
+      // ── Tasks ───────────────────────────────────────────────────────────
+      addTask: async (taskInput) => {
+        const task: Task = {
+          ...taskInput,
+          id: generateId(),
+          createdAt: nowISO(),
+          updatedAt: nowISO(),
+        };
+        const previous = get().tasks;
+        set((s) => ({ tasks: [task, ...s.tasks] }));
+
+        try {
+          await ensureOk(fetch(dataUrl('tasks'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: task }),
+          }));
+
+          return { ok: true, task };
+        } catch (error: unknown) {
+          set({ tasks: previous });
+          const message = errorMessage(error, 'Task could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      updateTask: async (id, data) => {
+        const previous = get().tasks;
+        const updatedAt = nowISO();
+        const nextPatch = { ...data, updatedAt };
+        set((s) => ({
+          tasks: s.tasks.map((task) => (task.id === id ? { ...task, ...nextPatch } : task)),
+        }));
+
+        try {
+          await ensureOk(fetch(dataUrl('tasks', id), {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: nextPatch }),
+          }));
+          return { ok: true, task: get().tasks.find((task) => task.id === id) };
+        } catch (error: unknown) {
+          set({ tasks: previous });
+          const message = errorMessage(error, 'Task changes could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      completeTask: async (id) => {
+        return get().updateTask(id, {
+          status: 'completed',
+          completedAt: nowISO(),
+        });
+      },
+      deleteTask: async (id) => {
+        const previous = get().tasks;
+        set((s) => ({ tasks: s.tasks.filter((task) => task.id !== id) }));
+
+        try {
+          await ensureOk(fetch(dataUrl('tasks', id), {
+            method: 'DELETE',
+            credentials: 'include',
+          }));
+          return { ok: true };
+        } catch (error: unknown) {
+          set({ tasks: previous });
+          const message = errorMessage(error, 'Task could not be deleted.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
         }
       },
 

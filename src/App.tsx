@@ -3,10 +3,11 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetItem, BudgetRate, Customer, Employee, EquipmentAsset, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetItem, BudgetRate, Customer, Employee, EquipmentAsset, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const HomePage = lazy(() => import('./pages/home/HomePage'));
 const CRMPage = lazy(() => import('./pages/crm/CRMPage'));
 const EstimatesPage = lazy(() => import('./pages/estimates/EstimatesPage'));
 const EstimateWorkspacePage = lazy(() => import('./pages/estimates/EstimateWorkspacePage'));
@@ -99,6 +100,7 @@ export default function App() {
         labourHoursSalesGoals?: LabourHoursSalesGoal[];
         revenueSalesGoals?: RevenueSalesGoal[];
         employees?: Employee[];
+        tasks?: Task[];
         timeEntries?: TimeEntry[];
         timeCorrections?: TimeCorrectionRequest[];
       }>(response);
@@ -130,6 +132,7 @@ export default function App() {
         labourHoursSalesGoals: payload.labourHoursSalesGoals ?? [],
         revenueSalesGoals: payload.revenueSalesGoals ?? [],
         employees: payload.employees ?? [],
+        tasks: payload.tasks ?? [],
         timeEntries: payload.timeEntries ?? [],
         timeCorrections: payload.timeCorrections ?? [],
       }));
@@ -236,6 +239,7 @@ export default function App() {
       templates: [],
       jobs: [],
       employees: [],
+      tasks: [],
       timeEntries: [],
       timeCorrections: [],
       budgetItems: [],
@@ -459,8 +463,8 @@ export default function App() {
             </>
           ) : (
           <>
-            <Route path="login" element={<Navigate to="/" replace />} />
-            <Route path="signup" element={<Navigate to="/" replace />} />
+              <Route path="login" element={<Navigate to="/home" replace />} />
+              <Route path="signup" element={<Navigate to="/home" replace />} />
             <Route
               path="/"
               element={
@@ -473,7 +477,9 @@ export default function App() {
                 />
               }
             >
-              <Route index element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
+              <Route index element={<Navigate to="/home" replace />} />
+              <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionUser.name} />} />
+              <Route path="company-dashboard" element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
               <Route path="crm" element={<CRMPage />} />
               <Route path="revenue/dashboard" element={<RevenueDashboardPage />} />
               <Route

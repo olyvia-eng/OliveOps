@@ -22,6 +22,7 @@ import {
   createLabourBudgetPlanForBusiness,
   createTemplateForBusiness,
   createTimeEntryForBusiness,
+  createTaskForBusiness,
   deleteBudgetForBusiness,
   deleteBudgetItemForBusiness,
   deleteBudgetRateForBusiness,
@@ -44,6 +45,7 @@ import {
   deleteLabourBudgetPlanForBusiness,
   deleteTemplateForBusiness,
   deleteTimeEntryForBusiness,
+  deleteTaskForBusiness,
   getBudgetForBusiness,
   getBudgetItemForBusiness,
   getBudgetRateForBusiness,
@@ -66,6 +68,7 @@ import {
   getLabourBudgetPlanForBusiness,
   getTemplateForBusiness,
   getTimeEntryForBusiness,
+  getTaskForBusiness,
   listBudgetsForBusiness,
   listBudgetItemsForBusiness,
   listBudgetRatesForBusiness,
@@ -88,6 +91,7 @@ import {
   listLabourBudgetPlansForBusiness,
   listTemplatesForBusiness,
   listTimeEntriesForBusiness,
+  listTasksForBusiness,
   updateBudgetForBusiness,
   updateBudgetItemForBusiness,
   updateBudgetRateForBusiness,
@@ -111,6 +115,7 @@ import {
   updateLabourBudgetPlanForBusiness,
   updateTemplateForBusiness,
   updateTimeEntryForBusiness,
+  updateTaskForBusiness,
 } from './_lib/authRepo.js';
 import { requireSession } from './_lib/session.js';
 
@@ -140,6 +145,19 @@ const ENTITY_CONFIG = {
     idParam: 'customerId',
     createArgKey: 'customer',
     updateArgKey: 'customer',
+  },
+  tasks: {
+    readRoles: null,
+    writeRoles: null,
+    list: listTasksForBusiness,
+    get: getTaskForBusiness,
+    create: createTaskForBusiness,
+    update: updateTaskForBusiness,
+    remove: deleteTaskForBusiness,
+    payloadKey: 'task',
+    idParam: 'taskId',
+    createArgKey: 'task',
+    updateArgKey: 'task',
   },
   jobs: {
     readRoles: null,
@@ -453,6 +471,9 @@ const FORM_FIELD_TYPES = new Set([
   'customer_selector',
 ]);
 const FORM_SUBMISSION_STATUSES = new Set(['draft', 'submitted', 'approved', 'rejected']);
+const TASK_STATUSES = new Set(['open', 'completed']);
+const TASK_PRIORITIES = new Set(['low', 'normal', 'high']);
+const TASK_RELATED_ENTITY_TYPES = new Set(['customer', 'estimate', 'job', 'invoice', 'employee']);
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_REGEX = /^\d{4}$/;
 const PERIOD_REGEX = /^\d{4}-\d{2}$/;
@@ -1144,6 +1165,67 @@ function validateFormResponseRecord(record) {
   return null;
 }
 
+function validateTaskRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Task id is required.';
+  if (!isNonEmptyString(record.title)) return 'Task title is required.';
+  if (!isNonEmptyString(record.assignedUserId)) return 'Task assignee is required.';
+  if (!TASK_STATUSES.has(record.status)) return 'Task status is invalid.';
+  if (!isNonEmptyString(record.createdByUserId)) return 'Task creator is required.';
+  if (!isNonEmptyString(record.createdAt)) return 'Task createdAt is required.';
+  if (!isNonEmptyString(record.updatedAt)) return 'Task updatedAt is required.';
+  if (record.description !== undefined && record.description !== null && typeof record.description !== 'string') {
+    return 'Task description is invalid.';
+  }
+  if (record.dueDate !== undefined && record.dueDate !== null && record.dueDate !== '' && !isValidDateOnly(record.dueDate)) {
+    return 'Task due date must use YYYY-MM-DD format.';
+  }
+  if (record.priority !== undefined && record.priority !== null && !TASK_PRIORITIES.has(record.priority)) {
+    return 'Task priority is invalid.';
+  }
+  if (record.relatedEntityType !== undefined && record.relatedEntityType !== null && !TASK_RELATED_ENTITY_TYPES.has(record.relatedEntityType)) {
+    return 'Task related entity type is invalid.';
+  }
+  if (record.relatedEntityType !== undefined && record.relatedEntityType !== null && !isNonEmptyString(record.relatedEntityId)) {
+    return 'Task related entity id is required when related entity type is provided.';
+  }
+  if ((record.relatedEntityType === undefined || record.relatedEntityType === null) && record.relatedEntityId !== undefined && record.relatedEntityId !== null && record.relatedEntityId !== '') {
+    return 'Task related entity type is required when related entity id is provided.';
+  }
+  if (record.completedAt !== undefined && record.completedAt !== null && record.completedAt !== '' && !isValidIsoDateTime(record.completedAt)) {
+    return 'Task completedAt must be a valid ISO datetime.';
+  }
+  return null;
+}
+
+async function validateTaskRelationships({ businessId, record }) {
+  if (!isNonEmptyString(record.relatedEntityType) || !isNonEmptyString(record.relatedEntityId)) {
+    return null;
+  }
+
+  if (record.relatedEntityType === 'customer') {
+    const customer = await getCustomerForBusiness(businessId, record.relatedEntityId);
+    if (!customer) return 'Task related customer must belong to this business.';
+  }
+  if (record.relatedEntityType === 'estimate') {
+    const estimate = await getEstimateForBusiness(businessId, record.relatedEntityId);
+    if (!estimate) return 'Task related estimate must belong to this business.';
+  }
+  if (record.relatedEntityType === 'job') {
+    const job = await getJobForBusiness(businessId, record.relatedEntityId);
+    if (!job) return 'Task related job must belong to this business.';
+  }
+  if (record.relatedEntityType === 'invoice') {
+    const invoice = await getInvoiceForBusiness(businessId, record.relatedEntityId);
+    if (!invoice) return 'Task related invoice must belong to this business.';
+  }
+  if (record.relatedEntityType === 'employee') {
+    const employee = await getEmployeeForBusiness(businessId, record.relatedEntityId);
+    if (!employee) return 'Task related employee must belong to this business.';
+  }
+
+  return null;
+}
+
 async function findInvoiceNumberConflict({ businessId, invoiceNumber, excludeInvoiceId }) {
   if (!isNonEmptyString(invoiceNumber)) return null;
 
@@ -1239,6 +1321,16 @@ export default async function handler(req, res) {
 
     if (entity === 'jobs') {
       const validationError = validateJobRecord(record) ?? await validateJobRelationships({
+        businessId: session.businessId,
+        record,
+      });
+      if (validationError) {
+        return res.status(400).json({ ok: false, error: validationError });
+      }
+    }
+
+    if (entity === 'tasks') {
+      const validationError = validateTaskRecord(record) ?? await validateTaskRelationships({
         businessId: session.businessId,
         record,
       });
@@ -1448,6 +1540,16 @@ export default async function handler(req, res) {
 
       if (entity === 'jobs') {
         const validationError = validateJobRecord(next) ?? await validateJobRelationships({
+          businessId: session.businessId,
+          record: next,
+        });
+        if (validationError) {
+          return res.status(400).json({ ok: false, error: validationError });
+        }
+      }
+
+      if (entity === 'tasks') {
+        const validationError = validateTaskRecord(next) ?? await validateTaskRelationships({
           businessId: session.businessId,
           record: next,
         });

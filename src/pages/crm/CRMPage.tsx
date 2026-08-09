@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin, Users, FilterX } from 'lucide-react';
@@ -62,6 +63,8 @@ const emptyCustomer = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt'> => ({
 
 export default function CRMPage() {
   const { customers, addCustomer, updateCustomer, deleteCustomer } = useStore();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'all'>('all');
   const [crmViewMode, setCrmViewMode] = useState<CRMViewMode>(() => {
@@ -94,6 +97,18 @@ export default function CRMPage() {
     setForm(emptyCustomer());
     setModalOpen(true);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== 'customer') return;
+
+    openNew();
+    params.delete('create');
+    navigate({
+      pathname: location.pathname,
+      search: params.toString() ? `?${params.toString()}` : '',
+    }, { replace: true });
+  }, [location.pathname, location.search, navigate]);
 
   const openEdit = (c: Customer) => {
     const { firstName, lastName } = deriveNameParts(c);

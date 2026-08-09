@@ -19,6 +19,7 @@ import {
   listInvoicesForBusiness,
   listJobsForBusiness,
   listTemplatesForBusiness,
+  listTasksForBusiness,
   listTimeCorrectionsForBusiness,
   getTimeEntryForBusiness,
   listTimeEntriesForBusiness,
@@ -54,7 +55,7 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -75,6 +76,7 @@ export default async function handler(req, res) {
       listLabourHoursSalesGoalsForBusiness(session.businessId),
       listRevenueSalesGoalsForBusiness(session.businessId),
       listEmployeesForBusiness(session.businessId),
+      listTasksForBusiness(session.businessId),
       listTimeEntriesForBusiness(session.businessId),
       listTimeCorrectionsForBusiness(session.businessId),
     ]);
@@ -104,6 +106,7 @@ export default async function handler(req, res) {
       labourHoursSalesGoals: filterRecordsForSession(session, 'labour-hours-sales-goals', labourHoursSalesGoals),
       revenueSalesGoals: filterRecordsForSession(session, 'revenue-sales-goals', revenueSalesGoals),
       employees: filterRecordsForSession(session, 'employees', employees),
+      tasks: filterRecordsForSession(session, 'tasks', tasks),
       timeEntries: filterRecordsForSession(session, 'time-entries', timeEntries),
       timeCorrections: filterRecordsForSession(session, 'time-corrections', timeCorrections),
       currentActiveEntryId: activeShift?.activeEntryId ?? null,

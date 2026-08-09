@@ -209,6 +209,18 @@ export default function EstimatesPage() {
     }
   }, [location.search]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== 'estimate') return;
+
+    openNew();
+    params.delete('create');
+    navigate({
+      pathname: location.pathname,
+      search: params.toString() ? `?${params.toString()}` : '',
+    }, { replace: true });
+  }, [location.pathname, location.search, navigate]);
+
   const proposalEstimate = proposalEstimateId
     ? estimates.find((estimate) => estimate.id === proposalEstimateId) ?? null
     : null;

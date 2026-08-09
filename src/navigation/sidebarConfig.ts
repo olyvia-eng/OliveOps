@@ -20,7 +20,9 @@ const ownerAdminRoles: BusinessUserRole[] = ['owner', 'admin'];
 const icon = (value: LucideIcon): LucideIcon => value;
 
 const NAVIGATION_CONFIG: SidebarConfig = {
-  topLevel: [],
+  topLevel: [
+    { id: 'top-home', type: 'link', to: '/home', end: true, label: 'Home', icon: icon(LayoutDashboard) },
+  ],
   pinnedPages: [
     { id: 'pin-calendar', type: 'link', to: '/calendar', label: 'Calendar', icon: icon(CalendarDays) },
     { id: 'pin-clients', type: 'link', to: '/crm', label: 'Clients', icon: icon(Users) },
@@ -33,7 +35,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
       collapsible: true,
       defaultExpanded: false,
       items: [
-        { id: 'data-center-company-dashboard', type: 'link', to: '/', end: true, label: 'Company Dashboard', icon: icon(LayoutDashboard) },
+        { id: 'data-center-company-dashboard', type: 'link', to: '/company-dashboard', end: true, label: 'Company Dashboard', icon: icon(LayoutDashboard) },
         { id: 'data-center-documents', type: 'link', to: '/data-center/documents', label: 'Documents', icon: icon(FolderOpen) },
       ],
     },

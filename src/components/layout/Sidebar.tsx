@@ -325,10 +325,14 @@ export default function Sidebar({
     <>
       {/* Mobile top bar */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-brand-800 border-b border-brand-100 dark:border-brand-600 flex items-center justify-between px-4 h-14">
-        <div className="flex items-center gap-2 font-semibold text-brand-800 dark:text-brand-100">
+        <button
+          type="button"
+          onClick={() => navigate('/home')}
+          className="flex items-center gap-2 font-semibold text-brand-800 dark:text-brand-100"
+        >
           <Leaf size={22} />
           OliveOps
-        </div>
+        </button>
         <button
           onClick={() => setMobileOpen((v) => !v)}
           className="p-2 rounded-lg text-brand-800 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-700"
@@ -455,10 +459,14 @@ export default function Sidebar({
         }`}
       >
         <div className="flex items-center justify-between gap-2 font-semibold text-brand-800 dark:text-brand-100 text-[28px] mb-4 px-1">
-          <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate('/home')}
+            className="flex items-center gap-2 min-w-0"
+          >
             <Leaf size={24} />
             <span className="text-2xl truncate">OliveOps</span>
-          </div>
+          </button>
           <button
             type="button"
             onClick={onToggleDesktopCollapsed}

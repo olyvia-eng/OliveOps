@@ -46,7 +46,8 @@ const isRouteActive = (pathname: string, to: string, end?: boolean) => {
 };
 
 const toFallbackLabel = (pathname: string) => {
-  if (pathname === '/') return 'Company Dashboard';
+  if (pathname === '/' || pathname === '/home') return 'Home';
+  if (pathname === '/company-dashboard') return 'Company Dashboard';
   return pathname
     .split('/')
     .filter(Boolean)

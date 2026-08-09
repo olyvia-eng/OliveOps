@@ -146,6 +146,10 @@ function auditEventSk(eventId) {
   return `AUDIT#${eventId}`;
 }
 
+function taskSk(taskId) {
+  return `TASK#${taskId}`;
+}
+
 function emailPk(email) {
   return `EMAIL#${normalizeEmail(email)}`;
 }
@@ -2671,6 +2675,119 @@ export async function deleteUnbillableTimeCategoryForBusiness(businessId, catego
       Key: {
         PK: businessPk(businessId),
         SK: unbillableTimeCategorySk(categoryId),
+      },
+    })
+  );
+
+  return { ok: true };
+}
+
+export async function listTasksForBusiness(businessId) {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': businessPk(businessId),
+        ':prefix': 'TASK#',
+      },
+    })
+  );
+
+  return (result.Items ?? [])
+    .map((item) => ({
+      id: item.taskId,
+      title: item.title,
+      description: item.description,
+      dueDate: item.dueDate,
+      assignedUserId: item.assignedUserId,
+      status: item.status,
+      priority: item.priority,
+      relatedEntityType: item.relatedEntityType,
+      relatedEntityId: item.relatedEntityId,
+      createdByUserId: item.createdByUserId,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      completedAt: item.completedAt,
+    }))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+export async function createTaskForBusiness({ businessId, task }) {
+  await ddb.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        PK: businessPk(businessId),
+        SK: taskSk(task.id),
+        entityType: 'TASK',
+        businessId,
+        taskId: task.id,
+        ...task,
+      },
+      ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    })
+  );
+
+  return { ok: true };
+}
+
+export async function getTaskForBusiness(businessId, taskId) {
+  const result = await ddb.send(
+    new GetCommand({
+      TableName: tableName,
+      Key: {
+        PK: businessPk(businessId),
+        SK: taskSk(taskId),
+      },
+    })
+  );
+
+  return result.Item
+    ? {
+        id: result.Item.taskId,
+        title: result.Item.title,
+        description: result.Item.description,
+        dueDate: result.Item.dueDate,
+        assignedUserId: result.Item.assignedUserId,
+        status: result.Item.status,
+        priority: result.Item.priority,
+        relatedEntityType: result.Item.relatedEntityType,
+        relatedEntityId: result.Item.relatedEntityId,
+        createdByUserId: result.Item.createdByUserId,
+        createdAt: result.Item.createdAt,
+        updatedAt: result.Item.updatedAt,
+        completedAt: result.Item.completedAt,
+      }
+    : null;
+}
+
+export async function updateTaskForBusiness({ businessId, task }) {
+  await ddb.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        PK: businessPk(businessId),
+        SK: taskSk(task.id),
+        entityType: 'TASK',
+        businessId,
+        taskId: task.id,
+        ...task,
+      },
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+    })
+  );
+
+  return { ok: true };
+}
+
+export async function deleteTaskForBusiness(businessId, taskId) {
+  await ddb.send(
+    new DeleteCommand({
+      TableName: tableName,
+      Key: {
+        PK: businessPk(businessId),
+        SK: taskSk(taskId),
       },
     })
   );

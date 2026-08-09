@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
@@ -32,6 +32,7 @@ const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'upd
 export default function JobsPage() {
   const { jobs, customers, employees, estimates, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all');
   const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
@@ -132,6 +133,18 @@ export default function JobsPage() {
     setForm(empty(customers));
     setModalOpen(true);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== 'job') return;
+
+    openNew();
+    params.delete('create');
+    navigate({
+      pathname: location.pathname,
+      search: params.toString() ? `?${params.toString()}` : '',
+    }, { replace: true });
+  }, [location.pathname, location.search, navigate, customers]);
 
   const openEdit = (j: Job) => {
     setEditing(j);
