@@ -1,28 +1,16 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { useStore } from '../../store';
-import { PageHeader, Button, Card, Badge, Modal, Input, Select, EmptyState } from '../../components/ui';
+import { PageHeader, Button, Card, Badge, Modal, Input, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Clock, LogOut, Users } from 'lucide-react';
 import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { Employee, EmployeeRole } from '../../types';
-import type { BusinessUserSummary } from '../../auth/types';
 import ClockInModal from './ClockInModal';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
+import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
 
-const ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
-const COMPENSATION_TYPES = ['hourly', 'salary'] as const;
-const LABOUR_TYPES = ['field_producing', 'overhead'] as const;
-
-type CompensationType = (typeof COMPENSATION_TYPES)[number];
-type LabourType = (typeof LABOUR_TYPES)[number];
-type AccountAccessMode = 'none' | 'link_existing' | 'create_login';
-
-type EmployeeForm = Omit<Employee, 'id' | 'createdAt' | 'name'> & {
-  firstName: string;
-  lastName: string;
-  compensationType: CompensationType;
-  labourType: LabourType;
-};
+type CompensationType = 'hourly' | 'salary';
+type LabourType = 'field_producing' | 'overhead';
 
 const roleLabel: Record<EmployeeRole, string> = {
   admin: 'admin',
@@ -58,39 +46,9 @@ const accountAccessMeta = (employee: Employee) => {
   return { label: 'No Access', className: 'bg-gray-100 text-gray-700' };
 };
 
-const toOptionLabel = (value: string) => value
-  .split('_')
-  .join(' ')
-  .split(' ')
-  .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-  .join(' ');
-
-const empty = (): EmployeeForm => ({
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  role: 'crew_member',
-  hourlyRate: 30,
-  compensationType: 'hourly',
-  labourType: 'field_producing',
-  active: true,
-});
-
 export default function EmployeesPage() {
-  const { employees, timeEntries, jobs, addEmployee, deleteEmployee, clockOut } = useStore();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Employee | null>(null);
-  const [form, setForm] = useState(empty());
-  const [accessMode, setAccessMode] = useState<AccountAccessMode>('none');
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [loginEmail, setLoginEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [loginRole, setLoginRole] = useState<EmployeeRole>('crew_member');
-  const [availableUsers, setAvailableUsers] = useState<BusinessUserSummary[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [sessionUserId, setSessionUserId] = useState('');
-  const [formError, setFormError] = useState('');
+  const { employees, timeEntries, jobs, deleteEmployee, clockOut } = useStore();
+  const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clockInOpen, setClockInOpen] = useState(false);
@@ -105,208 +63,8 @@ export default function EmployeesPage() {
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const openNew = () => {
-    setEditing(null);
-    setForm(empty());
-    setAccessMode('none');
-    setSelectedUserId('');
-    setLoginEmail('');
-    setNewPassword('');
-    setLoginRole('crew_member');
-    setFormError('');
-    setModalOpen(true);
+    setCreateEmployeeOpen(true);
   };
-  const mapApiError = (fallback: string, payload: unknown) => {
-    if (payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string') {
-      return (payload as { error: string }).error;
-    }
-    return fallback;
-  };
-
-  const upsertEmployeeInStore = (employee: Employee) => {
-    useStore.setState((state) => {
-      const exists = state.employees.some((item) => item.id === employee.id);
-      return {
-        employees: exists
-          ? state.employees.map((item) => (item.id === employee.id ? employee : item))
-          : [...state.employees, employee],
-      };
-    });
-  };
-
-  const buildAccountAccessPayload = () => {
-    if (accessMode === 'none') {
-      return { mode: 'none' as const };
-    }
-
-    if (accessMode === 'link_existing') {
-      if (!selectedUserId.trim()) {
-        setFormError('Select an existing OliveOps account to link.');
-        return null;
-      }
-      return {
-        mode: 'link_existing' as const,
-        userId: selectedUserId.trim(),
-      };
-    }
-
-    if (!loginEmail.trim()) {
-      setFormError('Login email is required when creating access.');
-      return null;
-    }
-
-    if (newPassword.length < 8) {
-      setFormError('Password must be at least 8 characters for employee login.');
-      return null;
-    }
-
-    return {
-      mode: 'create_login' as const,
-      loginEmail: loginEmail.trim(),
-      password: newPassword,
-      role: loginRole,
-    };
-  };
-
-  const handleSave = async () => {
-    setFormError('');
-
-    const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
-
-    if (!form.firstName.trim() || !form.lastName.trim()) {
-      setFormError('First and last name are required.');
-      return;
-    }
-
-    const employeePayload: Omit<Employee, 'id' | 'createdAt'> = {
-      name: fullName,
-      email: form.email.trim(),
-      phone: form.phone,
-      role: form.role,
-      hourlyRate: form.hourlyRate,
-      compensationType: form.compensationType,
-      labourType: form.labourType,
-      active: form.active,
-    };
-
-    if (editing) {
-      const accountAccess = buildAccountAccessPayload();
-      if (!accountAccess) return;
-
-      const response = await fetch(`/api/data?entity=employees&id=${encodeURIComponent(editing.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          data: employeePayload,
-          accountAccess,
-        }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setFormError(mapApiError('Could not save employee changes.', payload));
-        return;
-      }
-
-      if (payload && typeof payload === 'object' && (payload as { employee?: Employee }).employee) {
-        upsertEmployeeInStore((payload as { employee: Employee }).employee);
-      }
-      setModalOpen(false);
-      return;
-    }
-
-    if (accessMode === 'none') {
-      addEmployee(employeePayload);
-      setModalOpen(false);
-      return;
-    }
-
-    const accountAccess = buildAccountAccessPayload();
-    if (!accountAccess) return;
-
-    const result = await fetch('/api/data?entity=employees', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        data: employeePayload,
-        accountAccess,
-      }),
-    }).then(async (response) => {
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        return { ok: false, error: typeof payload?.error === 'string' ? payload.error : 'Could not create employee login.' };
-      }
-      return {
-        ok: true,
-        employee: payload?.employee as Employee | undefined,
-      };
-    });
-
-    if (!result?.ok) {
-      setFormError(result?.error ?? 'Could not create employee login.');
-      return;
-    }
-
-    if (result.employee) {
-      upsertEmployeeInStore(result.employee);
-    }
-    setModalOpen(false);
-  };
-
-  useEffect(() => {
-    if (!modalOpen) {
-      setFormError('');
-      setLoginEmail('');
-      setNewPassword('');
-      setSelectedUserId('');
-      setAccessMode('none');
-      setLoginRole('crew_member');
-    }
-  }, [modalOpen]);
-
-  useEffect(() => {
-    if (!modalOpen) return;
-
-    let cancelled = false;
-    setLoadingUsers(true);
-
-    void Promise.all([
-      fetch('/api/users', { credentials: 'include' }),
-      fetch('/api/auth?action=session', { credentials: 'include' }),
-    ])
-      .then(async ([usersRes, sessionRes]) => {
-        const usersPayload = await usersRes.json().catch(() => ({}));
-        const sessionPayload = await sessionRes.json().catch(() => ({}));
-
-        if (cancelled) return;
-
-        if (usersRes.ok && usersPayload && typeof usersPayload === 'object' && Array.isArray((usersPayload as { users?: unknown[] }).users)) {
-          setAvailableUsers((usersPayload as { users: BusinessUserSummary[] }).users);
-        } else {
-          setAvailableUsers([]);
-        }
-
-        if (sessionRes.ok && sessionPayload && typeof sessionPayload === 'object' && (sessionPayload as { user?: { id?: string } }).user?.id) {
-          setSessionUserId((sessionPayload as { user: { id: string } }).user.id);
-        } else {
-          setSessionUserId('');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingUsers(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [modalOpen]);
-
-  const set = (key: keyof typeof form, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
 
   const getActiveEntry = (empId: string) =>
     timeEntries.find((te) => te.employeeId === empId && te.status === 'clocked_in');
@@ -571,114 +329,7 @@ export default function EmployeesPage() {
         </Card>
       )}
 
-      {/* Employee form modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Employee' : 'New Employee'}
-        footer={<>
-          <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={() => void handleSave()}>Save</Button>
-        </>}
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="First Name *" required value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
-            <Input label="Last Name *" required value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Role" value={form.role} onChange={(e) => set('role', e.target.value as EmployeeRole)}>
-              {ROLES.map((r) => <option key={r} value={r}>{toOptionLabel(roleLabel[r])}</option>)}
-            </Select>
-            <Select label="Labour Type" value={form.labourType} onChange={(e) => set('labourType', e.target.value as LabourType)}>
-              {LABOUR_TYPES.map((type) => <option key={type} value={type}>{toOptionLabel(labourTypeLabel[type])}</option>)}
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Email" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-            <Input label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-700">Pay Type</p>
-            <div className="inline-flex border border-gray-200 rounded-lg p-0.5 bg-white">
-              {COMPENSATION_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => set('compensationType', type)}
-                  className={`px-3 py-1 text-xs rounded ${form.compensationType === type ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                >
-                  {type === 'salary' ? 'Salary' : 'Hourly'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <Input
-            label={form.compensationType === 'salary' ? 'Salary Rate ($)' : 'Hourly Rate ($)'}
-            type="number"
-            min={0}
-            value={form.hourlyRate}
-            onChange={(e) => set('hourlyRate', Number(e.target.value))}
-          />
-          <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <p className="text-sm font-medium text-gray-700">Account Access</p>
-            {editing && (
-              <p className="text-xs text-gray-600">
-                Current: {editing.userId ? 'Linked OliveOps account' : 'No OliveOps access'}
-              </p>
-            )}
-            <Select label="Access Mode" value={accessMode} onChange={(e) => setAccessMode(e.target.value as AccountAccessMode)}>
-              <option value="none">No OliveOps access</option>
-              <option value="link_existing">Link existing account</option>
-              <option value="create_login">Create login access</option>
-            </Select>
-
-            {accessMode === 'link_existing' && (
-              <Select label="Existing Account *" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-                <option value="">{loadingUsers ? 'Loading accounts...' : 'Select account'}</option>
-                {availableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name} ({user.email}) {user.active ? '' : '[inactive]'}
-                  </option>
-                ))}
-              </Select>
-            )}
-
-            {accessMode === 'create_login' && (
-              <>
-                <Input
-                  label="Login Email *"
-                  type="email"
-                  required
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                />
-                <Select label="Login Role" value={loginRole} onChange={(e) => setLoginRole(e.target.value as EmployeeRole)}>
-                  {ROLES.map((role) => (
-                    <option key={role} value={role}>{toOptionLabel(role)}</option>
-                  ))}
-                </Select>
-                <Input
-                  label="Employee Login Password *"
-                  type="password"
-                  required
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
-              </>
-            )}
-
-            {editing && editing.userId && accessMode === 'none' && editing.userId === sessionUserId && (
-              <p className="text-xs text-accent-700">Owner self-unlink is blocked by policy.</p>
-            )}
-            {editing && editing.userId && accessMode === 'none' && editing.userId !== sessionUserId && (
-              <p className="text-xs text-gray-600">Saving with this mode will unlink this employee from their OliveOps account.</p>
-            )}
-          </div>
-          {formError && <p className="text-sm text-accent-700">{formError}</p>}
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="active" checked={form.active} onChange={(e) => set('active', e.target.checked)} />
-            <label htmlFor="active" className="text-sm text-gray-700">Active Employee</label>
-          </div>
-        </div>
-      </Modal>
+      <EmployeeCreateModal open={createEmployeeOpen} onClose={() => setCreateEmployeeOpen(false)} />
 
       {/* Delete confirm */}
       <EmployeeEditModal open={Boolean(editEmployeeId)} employeeId={editEmployeeId} onClose={() => setEditEmployeeId(null)} />

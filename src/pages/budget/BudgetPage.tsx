@@ -11,28 +11,22 @@ import type {
   Budget,
   BudgetCategory,
   LabourBudgetPlan,
-  LabourCompType,
   EquipmentCostType,
   RevenueSalesGoal,
   EmployeeLabourType,
 } from '../../types';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
+import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const CATEGORIES: BudgetCategory[] = ['revenue', 'labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance', 'other'];
 type BudgetTab = 'analysis' | 'revenue' | 'labour' | 'materials' | 'equipment' | 'subcontractors' | 'overhead';
-type ExportColumnMode = 'budgeted';
-type LabourTableView = 'all' | LabourCompType;
+type LabourTableView = 'all' | 'hourly' | 'salaried';
 type EquipmentTableView = 'all' | EquipmentCostType;
-
+type ExportColumnMode = 'budgeted' | 'actual';
+const CATEGORIES: BudgetCategory[] = ['labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance'];
 const EQUIPMENT_COST_TYPES: EquipmentCostType[] = ['financed', 'leased', 'owned'];
-
-const normalizeEquipmentCostType = (value: string | undefined): EquipmentCostType => {
-  if (value === 'financed' || value === 'leased' || value === 'owned') return value;
-  return 'owned';
-};
-
+const RATE_CATEGORIES = ['labour', 'equipment', 'material', 'subcontractor'] as const;
 const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = {
   revenue: 'revenue',
   labour: 'labour',
@@ -42,7 +36,10 @@ const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = 
   overhead: 'overhead',
 };
 
-const RATE_CATEGORIES = ['labour', 'equipment', 'material', 'subcontractor'] as const;
+const normalizeEquipmentCostType = (value: EquipmentCostType | undefined): EquipmentCostType => {
+  if (value === 'financed' || value === 'leased' || value === 'owned') return value;
+  return 'owned';
+};
 
 const emptyBudgetRate = (budgetId?: string): Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'> => ({
   budgetId: budgetId ?? '',
@@ -207,10 +204,10 @@ export default function BudgetPage() {
   const [averageFuelPriceInput, setAverageFuelPriceInput] = useState('0');
   const [averageFuelBurnPerHourInput, setAverageFuelBurnPerHourInput] = useState('0');
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
-  const [addPlannerEmployeeOpen, setAddPlannerEmployeeOpen] = useState(false);
-  const [plannerEmployeeId, setPlannerEmployeeId] = useState('');
+  const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
+  const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
+  const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
-  const [plannerDescription, setPlannerDescription] = useState('');
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
   const [removePlanId, setRemovePlanId] = useState<string | null>(null);
@@ -519,21 +516,9 @@ export default function BudgetPage() {
     setModalOpen(true);
   };
 
-  const openPlannerEmployeeModal = () => {
-    setPlannerEmployeeError('');
-    setPlannerDescription('');
-    setPlannerEmployeeId('');
-    setAddPlannerEmployeeOpen(true);
-  };
-
-  const handleAddPlannerEmployee = async () => {
+  const handleAddPlannerEmployee = async (employeeId: string) => {
     if (!activeBudgetId) return;
-    if (!plannerEmployeeId) {
-      setPlannerEmployeeError('Select an employee to add to this budget.');
-      return;
-    }
-
-    const employee = employees.find((value) => value.id === plannerEmployeeId);
+    const employee = employees.find((value) => value.id === employeeId);
     if (!employee) {
       setPlannerEmployeeError('Selected employee was not found.');
       return;
@@ -553,7 +538,7 @@ export default function BudgetPage() {
     const isSalariedEmployee = employee.compensationType === 'salary';
     const saved = await upsertLabourBudgetPlan({
       ...seededPlan,
-      description: plannerDescription.trim(),
+      description: '',
       compType: isSalariedEmployee ? 'salaried' : 'hourly',
       annualSalary: isSalariedEmployee ? employee.hourlyRate : seededPlan.annualSalary,
     });
@@ -562,8 +547,7 @@ export default function BudgetPage() {
       setPlannerEmployeeError('Could not add employee to labour planner.');
       return;
     }
-
-    setAddPlannerEmployeeOpen(false);
+    setPlannerEmployeeError('');
   };
 
   // Summaries
@@ -982,6 +966,26 @@ export default function BudgetPage() {
     return labourPlannerRows.filter((row) => row.plan.compType === labourTableView);
   }, [labourPlannerRows, labourTableView]);
 
+  const activeEmployees = useMemo(() => {
+    return employees
+      .filter((employee) => employee.active)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [employees]);
+
+  const normalizedCatalogSearch = employeeCatalogSearch.trim().toLowerCase();
+  const filteredCatalogEmployees = useMemo(() => {
+    if (!normalizedCatalogSearch) return activeEmployees;
+
+    return activeEmployees.filter((employee) => {
+      const roleLabel = toOptionLabel(employee.role).toLowerCase();
+      const labourLabel = toOptionLabel(employee.labourType ?? 'field_producing').toLowerCase();
+      return employee.name.toLowerCase().includes(normalizedCatalogSearch)
+        || roleLabel.includes(normalizedCatalogSearch)
+        || labourLabel.includes(normalizedCatalogSearch);
+    });
+  }, [activeEmployees, normalizedCatalogSearch]);
+
   const labourPlannerTotalsAll = useMemo(() => {
     return labourPlannerRows.reduce((acc, row) => ({
       annualLabourCost: acc.annualLabourCost + row.totalEmployeeCostPerYear,
@@ -1370,7 +1374,7 @@ export default function BudgetPage() {
             <Button variant="secondary" onClick={() => navigate('/budgets')}>Back to Budgets</Button>
             <Button variant="secondary" onClick={() => exportToPdf('budgeted')}><FileDown size={16} /> Export Budget PDF</Button>
             {activeTab === 'labour' ? (
-              <Button onClick={openPlannerEmployeeModal}><Plus size={16} /> Add Employee to Budget</Button>
+              <Button className="lg:hidden" onClick={() => setMobileCatalogOpen(true)}><Plus size={16} /> Add Employees</Button>
             ) : (
               <Button onClick={openNew}><Plus size={16} /> Add Budget Item</Button>
             )}
@@ -1615,92 +1619,140 @@ export default function BudgetPage() {
             </Card>
           </div>
 
-          <Card className="overflow-hidden mb-6">
-            <div className="p-4 border-b border-gray-100">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="font-semibold text-gray-900">Employee Labour Planner</h2>
-                  <p className="text-xs text-gray-500 mt-1">Rows are budget-specific entries. Drag rows to reorder and use remove to unlink from this budget only.</p>
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(300px,3fr)] gap-5 mb-6">
+            <div>
+              <Card className="overflow-hidden">
+                <div className="p-4 border-b border-gray-100">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="font-semibold text-gray-900">Employee Labour Planner</h2>
+                      <p className="text-xs text-gray-500 mt-1">Rows are budget-specific entries. Drag rows to reorder and use remove to unlink from this budget only.</p>
+                    </div>
+                    <div className="inline-flex border border-gray-200 rounded-lg p-0.5 self-start">
+                      <button
+                        type="button"
+                        onClick={() => setLabourTableView('all')}
+                        className={`px-3 py-1 text-xs rounded ${labourTableView === 'all' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                      >
+                        All ({labourPlannerRows.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabourTableView('hourly')}
+                        className={`px-3 py-1 text-xs rounded ${labourTableView === 'hourly' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                      >
+                        Hourly ({labourPlannerRows.filter((row) => row.plan.compType === 'hourly').length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabourTableView('salaried')}
+                        className={`px-3 py-1 text-xs rounded ${labourTableView === 'salaried' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                      >
+                        Salaried ({labourPlannerRows.filter((row) => isSalariedCompType(row.plan.compType)).length})
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="inline-flex border border-gray-200 rounded-lg p-0.5 self-start">
-                  <button
-                    type="button"
-                    onClick={() => setLabourTableView('all')}
-                    className={`px-3 py-1 text-xs rounded ${labourTableView === 'all' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    All ({labourPlannerRows.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLabourTableView('hourly')}
-                    className={`px-3 py-1 text-xs rounded ${labourTableView === 'hourly' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Hourly ({labourPlannerRows.filter((row) => row.plan.compType === 'hourly').length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLabourTableView('salaried')}
-                    className={`px-3 py-1 text-xs rounded ${labourTableView === 'salaried' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    Salaried ({labourPlannerRows.filter((row) => isSalariedCompType(row.plan.compType)).length})
-                  </button>
-                </div>
-              </div>
+                {labourPlannerRows.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">
+                    <p>No employees in this labour plan yet.</p>
+                    <p className="text-xs mt-1">Add employees from the Employee Catalog.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[1980px]">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+                          <th className="px-4 py-3 font-medium">Employee</th>
+                          <th className="px-4 py-3 font-medium text-right">Description</th>
+                          <th className="px-4 py-3 font-medium text-center">Wage Type</th>
+                          <th className="px-4 py-3 font-medium text-right">Wage</th>
+                          <th className="px-4 py-3 font-medium text-right">Hours per Year</th>
+                          <th className="px-4 py-3 font-medium text-center">Billable %</th>
+                          <th className="px-4 py-3 font-medium text-right">Overtime Hours</th>
+                          <th className="px-4 py-3 font-medium text-right">Overtime Multiplier</th>
+                          <th className="px-4 py-3 font-medium text-right">Payroll Burden (%)</th>
+                          <th className="px-4 py-3 font-medium text-right">Benefits / Extra Cost</th>
+                          <th className="px-4 py-3 font-medium text-right">Bonus</th>
+                          <th className="px-4 py-3 font-medium text-right">Total Cost per Year</th>
+                          <th className="px-4 py-3 font-medium text-right">Hourly Rate</th>
+                          <th className="px-4 py-3 font-medium text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {labourTableView === 'all' ? (
+                          <>
+                            <tr className="bg-gray-50">
+                              <td className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500" colSpan={14}>Hourly Employees</td>
+                            </tr>
+                            {labourPlannerRows.filter((row) => row.plan.compType === 'hourly').map((row) => renderLabourPlannerRow(row))}
+                            <tr className="bg-gray-50">
+                              <td className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500" colSpan={14}>Salaried Employees</td>
+                            </tr>
+                            {labourPlannerRows.filter((row) => isSalariedCompType(row.plan.compType)).map((row) => renderLabourPlannerRow(row))}
+                          </>
+                        ) : (
+                          visibleLabourPlannerRows.map((row) => renderLabourPlannerRow(row))
+                        )}
+                        {visibleLabourPlannerRows.length === 0 && (
+                          <tr>
+                            <td className="px-4 py-4 text-sm text-gray-400" colSpan={14}>No employees in this compensation type view yet.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
             </div>
-            {labourPlannerRows.length === 0 ? (
-              <p className="text-sm text-gray-400 p-4">No planned labour rows yet. Add an employee to this budget to start planning.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[1980px]">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
-                      <th className="px-4 py-3 font-medium">Employee</th>
-                      <th className="px-4 py-3 font-medium text-right">Description</th>
-                      <th className="px-4 py-3 font-medium text-center">Wage Type</th>
-                      <th className="px-4 py-3 font-medium text-right">Wage</th>
-                      <th className="px-4 py-3 font-medium text-right">Hours per Year</th>
-                      <th className="px-4 py-3 font-medium text-center">Billable %</th>
-                      <th className="px-4 py-3 font-medium text-right">Overtime Hours</th>
-                      <th className="px-4 py-3 font-medium text-right">Overtime Multiplier</th>
-                      <th className="px-4 py-3 font-medium text-right">Payroll Burden (%)</th>
-                      <th className="px-4 py-3 font-medium text-right">Benefits / Extra Cost</th>
-                      <th className="px-4 py-3 font-medium text-right">Bonus</th>
-                      <th className="px-4 py-3 font-medium text-right">Total Cost per Year</th>
-                      <th className="px-4 py-3 font-medium text-right">Hourly Rate</th>
-                      <th className="px-4 py-3 font-medium text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {labourTableView === 'all' ? (
-                      <>
-                        <tr className="bg-gray-50">
-                          <td className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500" colSpan={14}>Hourly Employees</td>
-                        </tr>
-                        {labourPlannerRows.filter((row) => row.plan.compType === 'hourly').map((row) => renderLabourPlannerRow(row))}
-                        <tr className="bg-gray-50">
-                          <td className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500" colSpan={14}>Salaried Employees</td>
-                        </tr>
-                        {labourPlannerRows.filter((row) => isSalariedCompType(row.plan.compType)).map((row) => renderLabourPlannerRow(row))}
-                      </>
-                    ) : (
-                      visibleLabourPlannerRows.map((row) => renderLabourPlannerRow(row))
-                    )}
-                    {visibleLabourPlannerRows.length === 0 && (
-                      <tr>
-                        <td className="px-4 py-4 text-sm text-gray-400" colSpan={14}>No employees in this compensation type view yet.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
 
-            <div className="px-4 py-3 border-t border-gray-100">
-              <Button variant="secondary" onClick={openPlannerEmployeeModal}>
-                <Plus size={14} /> Add Employee to Budget
-              </Button>
+            <div className="hidden lg:block">
+              <Card className="h-full">
+                <div className="p-4 border-b border-gray-100">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-gray-900">Employee Catalog</h3>
+                    <Button size="sm" onClick={() => setCreateEmployeeOpen(true)}><Plus size={13} /> New Employee</Button>
+                  </div>
+                  <Input
+                    className="mt-3"
+                    value={employeeCatalogSearch}
+                    onChange={(event) => setEmployeeCatalogSearch(event.target.value)}
+                    placeholder="Search employees..."
+                  />
+                  {plannerEmployeeError && <p className="mt-2 text-xs text-accent-700">{plannerEmployeeError}</p>}
+                </div>
+                <div className="p-3 space-y-2 max-h-[680px] overflow-y-auto">
+                  {activeEmployees.length === 0 ? (
+                    <div className="text-sm text-gray-500 p-2">
+                      <p>No employees yet.</p>
+                      <p className="text-xs mt-1">Create an employee to add them to this labour plan.</p>
+                    </div>
+                  ) : filteredCatalogEmployees.length === 0 ? (
+                    <p className="text-sm text-gray-500 p-2">No employees match your search.</p>
+                  ) : filteredCatalogEmployees.every((employee) => Boolean(plansByEmployeeId[employee.id])) ? (
+                    <p className="text-sm text-gray-500 p-2">All active employees are included in this labour plan.</p>
+                  ) : (
+                    filteredCatalogEmployees.map((employee) => {
+                      const added = Boolean(plansByEmployeeId[employee.id]);
+                      return (
+                        <div key={employee.id} className="rounded-lg border border-gray-100 p-3 bg-white">
+                          <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
+                          <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role)}</p>
+                          <div className="mt-2">
+                            {added ? (
+                              <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
+                            ) : (
+                              <Button size="sm" onClick={() => void handleAddPlannerEmployee(employee.id)}><Plus size={12} /> Add</Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </Card>
             </div>
-          </Card>
+          </div>
 
           <p className="text-xs text-gray-500 flex items-center gap-1 -mt-2 mb-4"><Info size={12} /> Hourly Rate = Total Cost of Employee per Year / Hours per Year.</p>
         </>
@@ -2288,40 +2340,53 @@ export default function BudgetPage() {
       </Modal>
 
       <Modal
-        open={addPlannerEmployeeOpen}
-        onClose={() => setAddPlannerEmployeeOpen(false)}
-        title="Add Employee to Budget"
-        footer={<>
-          <Button variant="secondary" onClick={() => setAddPlannerEmployeeOpen(false)}>Cancel</Button>
-          <Button onClick={() => void handleAddPlannerEmployee()}>Add to Budget</Button>
-        </>}
+        open={mobileCatalogOpen}
+        onClose={() => setMobileCatalogOpen(false)}
+        title="Employee Catalog"
+        footer={<Button variant="secondary" onClick={() => setMobileCatalogOpen(false)}>Close</Button>}
       >
-        <div className="space-y-4">
-          <Select
-            label="Employee *"
-            value={plannerEmployeeId}
-            onChange={(event) => setPlannerEmployeeId(event.target.value)}
-          >
-            <option value="">Select employee</option>
-            {employees
-              .filter((employee) => !plansByEmployeeId[employee.id])
-              .map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.name} {employee.active ? '' : '[inactive]'}
-                </option>
-              ))}
-          </Select>
-
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-gray-600">Add active employees to this labour plan.</p>
+            <Button size="sm" onClick={() => setCreateEmployeeOpen(true)}><Plus size={13} /> New Employee</Button>
+          </div>
           <Input
-            label="Description"
-            value={plannerDescription}
-            onChange={(event) => setPlannerDescription(event.target.value)}
-            placeholder="Optional budget-specific description"
+            value={employeeCatalogSearch}
+            onChange={(event) => setEmployeeCatalogSearch(event.target.value)}
+            placeholder="Search employees..."
           />
-
-          {plannerEmployeeError && <p className="text-sm text-accent-700">{plannerEmployeeError}</p>}
+          {plannerEmployeeError && <p className="text-xs text-accent-700">{plannerEmployeeError}</p>}
+          <div className="max-h-[65vh] overflow-y-auto space-y-2 pr-1">
+            {activeEmployees.length === 0 ? (
+              <p className="text-sm text-gray-500">No employees yet.</p>
+            ) : filteredCatalogEmployees.length === 0 ? (
+              <p className="text-sm text-gray-500">No employees match your search.</p>
+            ) : (
+              filteredCatalogEmployees.map((employee) => {
+                const added = Boolean(plansByEmployeeId[employee.id]);
+                return (
+                  <div key={employee.id} className="rounded-lg border border-gray-100 p-3">
+                    <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
+                    <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role)}</p>
+                    <div className="mt-2">
+                      {added ? (
+                        <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
+                      ) : (
+                        <Button size="sm" onClick={() => void handleAddPlannerEmployee(employee.id)}><Plus size={12} /> Add</Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </Modal>
+
+      <EmployeeCreateModal
+        open={createEmployeeOpen}
+        onClose={() => setCreateEmployeeOpen(false)}
+      />
 
       <EmployeeEditModal open={Boolean(editEmployeeId)} employeeId={editEmployeeId} onClose={() => setEditEmployeeId(null)} />
 
