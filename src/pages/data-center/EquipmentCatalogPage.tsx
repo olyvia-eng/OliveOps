@@ -1,31 +1,14 @@
 import { useMemo, useState } from 'react';
 import { PencilLine, PlusCircle, Trash2 } from 'lucide-react';
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
-import type { EquipmentAsset, EquipmentCostType, EquipmentStatus } from '../../types';
-
-interface EquipmentFormState {
-  name: string;
-  type: string;
-  status: EquipmentStatus;
-  costType: EquipmentCostType;
-  serialNumber: string;
-  purchaseDate: string;
-  hourlyCost: number;
-  notes: string;
-}
-
-const emptyForm = (): EquipmentFormState => ({
-  name: '',
-  type: '',
-  status: 'available',
-  costType: 'owned',
-  serialNumber: '',
-  purchaseDate: '',
-  hourlyCost: 0,
-  notes: '',
-});
+import type { EquipmentAsset } from '../../types';
+import EquipmentAssetForm, {
+  emptyEquipmentAssetFormValue,
+  toEquipmentAssetPayload,
+  type EquipmentAssetFormValue,
+} from '../../components/equipment/EquipmentAssetForm';
 
 type MaterialCatalogRow = {
   key: string;
@@ -71,7 +54,7 @@ export default function EquipmentCatalogPage() {
   const updateEquipmentAsset = useStore((state) => state.updateEquipmentAsset);
   const deleteEquipmentAsset = useStore((state) => state.deleteEquipmentAsset);
 
-  const [form, setForm] = useState<EquipmentFormState>(emptyForm());
+  const [form, setForm] = useState<EquipmentAssetFormValue>(emptyEquipmentAssetFormValue());
   const [materialForm, setMaterialForm] = useState<MaterialFormState>(emptyMaterialForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [materialQuery, setMaterialQuery] = useState('');
@@ -204,7 +187,7 @@ export default function EquipmentCatalogPage() {
   }, [materialQuery, materialRows, materialSort]);
 
   const resetForm = () => {
-    setForm(emptyForm());
+    setForm(emptyEquipmentAssetFormValue());
     setEditingId(null);
   };
 
@@ -229,16 +212,7 @@ export default function EquipmentCatalogPage() {
       return;
     }
 
-    const payload = {
-      name: form.name.trim(),
-      type: form.type.trim(),
-      status: form.status,
-      costType: form.costType,
-      serialNumber: form.serialNumber.trim(),
-      purchaseDate: form.purchaseDate || undefined,
-      hourlyCost: Number(form.hourlyCost || 0),
-      notes: form.notes.trim(),
-    };
+    const payload = toEquipmentAssetPayload(form);
 
     if (editingId) {
       updateEquipmentAsset(editingId, payload);
@@ -259,6 +233,14 @@ export default function EquipmentCatalogPage() {
       serialNumber: asset.serialNumber,
       purchaseDate: asset.purchaseDate ?? '',
       hourlyCost: asset.hourlyCost,
+      purchasePrice: asset.purchasePrice ?? 0,
+      equipmentPayment: asset.equipmentPayment ?? 0,
+      equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
+      fuelPriceUnit: asset.fuelPriceUnit ?? 'L',
+      averageFuelPrice: asset.averageFuelPrice ?? 0,
+      averageFuelBurnPerHour: asset.averageFuelBurnPerHour ?? 0,
+      yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
+      yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
       notes: asset.notes,
     });
   };
@@ -411,67 +393,7 @@ export default function EquipmentCatalogPage() {
           </div>
 
           <form id="equipment-catalog-form" onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              label="Equipment Name"
-              required
-              value={form.name}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-            />
-            <Input
-              label="Type"
-              required
-              value={form.type}
-              onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-              placeholder="Excavator"
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Select
-                label="Status"
-                value={form.status}
-                onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as EquipmentStatus }))}
-              >
-                <option value="available">Available</option>
-                <option value="in_use">In Use</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="inactive">Inactive</option>
-              </Select>
-              <Select
-                label="Cost Type"
-                value={form.costType}
-                onChange={(event) => setForm((current) => ({ ...current, costType: event.target.value as EquipmentCostType }))}
-              >
-                <option value="owned">Owned</option>
-                <option value="leased">Leased</option>
-                <option value="financed">Financed</option>
-              </Select>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label="Serial Number"
-                value={form.serialNumber}
-                onChange={(event) => setForm((current) => ({ ...current, serialNumber: event.target.value }))}
-              />
-              <Input
-                label="Purchase Date"
-                type="date"
-                value={form.purchaseDate}
-                onChange={(event) => setForm((current) => ({ ...current, purchaseDate: event.target.value }))}
-              />
-            </div>
-            <Input
-              label="Hourly Cost"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.hourlyCost}
-              onChange={(event) => setForm((current) => ({ ...current, hourlyCost: Number(event.target.value || 0) }))}
-            />
-            <TextArea
-              label="Notes"
-              value={form.notes}
-              onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              placeholder="Maintenance note, special handling, or job notes"
-            />
+            <EquipmentAssetForm value={form} onChange={setForm} />
 
             <div className="flex gap-2">
               <Button type="submit" className="flex-1 justify-center">

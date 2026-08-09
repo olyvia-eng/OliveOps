@@ -13,11 +13,16 @@ import type {
   BudgetCategory,
   LabourBudgetPlan,
   EquipmentCostType,
+  EquipmentAsset,
   RevenueSalesGoal,
   EmployeeLabourType,
 } from '../../types';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
+import EquipmentAssetForm, {
+  emptyEquipmentAssetFormValue,
+  toEquipmentAssetPayload,
+} from '../../components/equipment/EquipmentAssetForm';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -134,6 +139,26 @@ const equipmentInfoDefaults = () => ({
   equipmentCostAllocationPercent: 100,
 });
 
+const equipmentInfoDefaultsFromAsset = (asset: EquipmentAsset) => {
+  const averageFuelPrice = asset.averageFuelPrice ?? 0;
+  const averageFuelBurnPerHour = asset.averageFuelBurnPerHour ?? 0;
+  return {
+    equipmentPayment: asset.equipmentPayment ?? 0,
+    equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
+    fuelPriceUnit: asset.fuelPriceUnit ?? 'L' as const,
+    averageFuelPrice,
+    averageFuelBurnPerHour,
+    fuelCostPerHour: averageFuelPrice * averageFuelBurnPerHour,
+    yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
+    yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
+    equipmentHoursPerDay: 8,
+    sellableHoursPerYear: 0,
+    actualMachineHoursPerYear: 0,
+    monthsUsedPerYear: 12,
+    equipmentCostAllocationPercent: 100,
+  };
+};
+
 const yearlyHoursBase = 2080;
 const buildLabourPlanId = (budgetId: string, employeeId: string, year: string) => `${budgetId}-${employeeId}-${year}`;
 const buildRevenueSalesGoalId = (budgetId: string, scopeType: 'year', scopeValue: string) => `revenue-goal-${budgetId}-${scopeType}-${scopeValue}`;
@@ -233,6 +258,7 @@ export default function BudgetPage() {
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
   const [createCatalogEquipmentOnSave, setCreateCatalogEquipmentOnSave] = useState(false);
+  const [canonicalEquipmentForm, setCanonicalEquipmentForm] = useState(emptyEquipmentAssetFormValue());
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
@@ -345,15 +371,9 @@ export default function BudgetPage() {
   }, [activeBudgetId, budgetRates]);
 
   const equipmentAssetsById = useMemo(() => {
-    const next: Record<string, { id: string; name: string; type: string; serialNumber: string; costType: EquipmentCostType }> = {};
+    const next: Record<string, EquipmentAsset> = {};
     for (const asset of equipmentAssets) {
-      next[asset.id] = {
-        id: asset.id,
-        name: asset.name,
-        type: asset.type,
-        serialNumber: asset.serialNumber,
-        costType: asset.costType,
-      };
+      next[asset.id] = asset;
     }
     return next;
   }, [equipmentAssets]);
@@ -409,6 +429,10 @@ export default function BudgetPage() {
   const openNew = () => {
     const defaultPeriod = `${year}-01`;
     const defaultCategory = activeTab === 'analysis' ? 'revenue' : CATEGORY_BY_TAB[activeTab];
+    if (defaultCategory === 'equipment') {
+      openNewCategoryItem('equipment', { createCatalogAssetOnSave: true });
+      return;
+    }
     const defaultEquipmentInfo = defaultCategory === 'equipment' ? equipmentInfoDefaults() : null;
     setEditing(null);
     setForm({
@@ -511,9 +535,11 @@ export default function BudgetPage() {
     setModalOpen(true);
   };
   const handleSave = async () => {
-    if (!form.description.trim()) return;
-    const normalizedCostCode = form.costCode?.trim();
+    const normalizedDescription = form.description.trim() || (createCatalogEquipmentOnSave ? canonicalEquipmentForm.name.trim() : '');
+    if (!normalizedDescription) return;
+    let normalizedCostCode = form.costCode?.trim();
     let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
+    let createdEquipmentAssetPayload: ReturnType<typeof toEquipmentAssetPayload> | null = null;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
     const normalizedFuelPriceUnit: BudgetItem['fuelPriceUnit'] = form.fuelPriceUnit === 'gal' ? 'gal' : 'L';
     const normalizedFuelPrice = normalizeNumber(form.averageFuelPrice);
@@ -538,16 +564,13 @@ export default function BudgetPage() {
       + normalizedVariableOperatingCostPerYear;
 
     if (!editing && form.category === 'equipment' && createCatalogEquipmentOnSave) {
-      const created = await addEquipmentAsset({
-        name: form.description.trim(),
-        type: toOptionLabel(normalizeEquipmentCostType(form.equipmentCostType)),
-        status: 'available',
-        costType: normalizeEquipmentCostType(form.equipmentCostType),
-        serialNumber: normalizedCostCode ? normalizedCostCode.toUpperCase() : '',
-        purchaseDate: undefined,
-        hourlyCost: normalizedBillableHoursPerYear > 0 ? (normalizedTotalEquipmentCostPerYear / normalizedBillableHoursPerYear) : 0,
-        notes: '',
-      });
+      createdEquipmentAssetPayload = toEquipmentAssetPayload(canonicalEquipmentForm);
+      if (!createdEquipmentAssetPayload.name || !createdEquipmentAssetPayload.type) {
+        setEquipmentCatalogError('Equipment name and type are required.');
+        return;
+      }
+
+      const created = await addEquipmentAsset(createdEquipmentAssetPayload);
 
       if (!created.ok || !created.id) {
         setEquipmentCatalogError('Could not create equipment in the catalog.');
@@ -555,20 +578,29 @@ export default function BudgetPage() {
       }
 
       normalizedEquipmentId = created.id;
+      normalizedCostCode = normalizedCostCode || createdEquipmentAssetPayload.serialNumber;
       setEquipmentCatalogError('');
     }
+
+    const linkedEquipmentAsset = normalizedEquipmentId
+      ? (equipmentAssetsById[normalizedEquipmentId] ?? (createdEquipmentAssetPayload ? { ...createdEquipmentAssetPayload, id: normalizedEquipmentId } as EquipmentAsset : undefined))
+      : undefined;
+    const canonicalFuelPrice = linkedEquipmentAsset?.averageFuelPrice ?? normalizedFuelPrice;
+    const canonicalFuelBurnPerHour = linkedEquipmentAsset?.averageFuelBurnPerHour ?? normalizedFuelBurnPerHour;
+    const canonicalFuelPriceUnit = linkedEquipmentAsset?.fuelPriceUnit ?? normalizedFuelPriceUnit;
+    const canonicalFuelCostPerHour = canonicalFuelPrice * canonicalFuelBurnPerHour;
 
     const equipmentFields = form.category === 'equipment'
       ? {
           equipmentId: normalizedEquipmentId,
-          equipmentPayment: normalizedEquipmentPayment,
-          equipmentPaymentFrequencyPerYear: normalizedEquipmentPaymentFrequencyPerYear,
-          fuelPriceUnit: normalizedFuelPriceUnit,
-          averageFuelPrice: normalizedFuelPrice,
-          averageFuelBurnPerHour: normalizedFuelBurnPerHour,
-          fuelCostPerHour: normalizedFuelCostPerHour,
-          yearlyInsuranceCost: normalizedYearlyInsuranceCost,
-          yearlyMaintenanceCost: normalizedYearlyMaintenanceCost,
+          equipmentPayment: linkedEquipmentAsset?.equipmentPayment ?? normalizedEquipmentPayment,
+          equipmentPaymentFrequencyPerYear: linkedEquipmentAsset?.equipmentPaymentFrequencyPerYear ?? normalizedEquipmentPaymentFrequencyPerYear,
+          fuelPriceUnit: canonicalFuelPriceUnit,
+          averageFuelPrice: canonicalFuelPrice,
+          averageFuelBurnPerHour: canonicalFuelBurnPerHour,
+          fuelCostPerHour: canonicalFuelCostPerHour,
+          yearlyInsuranceCost: linkedEquipmentAsset?.yearlyInsuranceCost ?? normalizedYearlyInsuranceCost,
+          yearlyMaintenanceCost: linkedEquipmentAsset?.yearlyMaintenanceCost ?? normalizedYearlyMaintenanceCost,
           equipmentHoursPerDay: normalizedEquipmentHoursPerDay,
           monthlyInsuranceCost: undefined,
           monthlyMaintenanceCost: undefined,
@@ -599,6 +631,10 @@ export default function BudgetPage() {
       ...form,
       budgetId: activeBudgetId ?? undefined,
       budgeted: form.category === 'equipment' ? normalizedTotalEquipmentCostPerYear : normalizeNumber(form.budgeted),
+      description: normalizedDescription,
+      equipmentCostType: form.category === 'equipment'
+        ? normalizeEquipmentCostType(linkedEquipmentAsset?.costType ?? form.equipmentCostType)
+        : form.equipmentCostType,
       costCode: normalizedCostCode ? normalizedCostCode.toUpperCase() : undefined,
       ...equipmentFields,
       period: `${year}-01`,
@@ -623,9 +659,10 @@ export default function BudgetPage() {
     }
 
     const costCode = selected.serialNumber?.trim() || undefined;
+    const equipmentDefaults = equipmentInfoDefaultsFromAsset(selected);
     addBudgetItem({
       ...empty(activeBudgetId),
-      ...equipmentInfoDefaults(),
+      ...equipmentDefaults,
       budgetId: activeBudgetId,
       category: 'equipment',
       equipmentId,
@@ -660,6 +697,14 @@ export default function BudgetPage() {
       setShowEquipmentCalcDetails(false);
     }
     setCreateCatalogEquipmentOnSave(Boolean(options?.createCatalogAssetOnSave && category === 'equipment'));
+    if (category === 'equipment') {
+      setCanonicalEquipmentForm(() => ({
+        ...emptyEquipmentAssetFormValue(),
+        costType: 'financed',
+        name: '',
+        serialNumber: '',
+      }));
+    }
     setModalOpen(true);
   };
 
@@ -2559,6 +2604,24 @@ export default function BudgetPage() {
             onChange={(e) => set('costCode', e.target.value)}
             placeholder="e.g. 06-200"
           />
+          {form.category === 'equipment' && createCatalogEquipmentOnSave && !editing && (
+            <fieldset className="border border-gray-200 rounded-lg p-3">
+              <legend className="text-sm font-medium text-gray-700 px-1">Canonical Equipment Asset</legend>
+              <p className="mb-3 text-xs text-gray-500">This machine record is saved to the company equipment catalog and linked to this budget row.</p>
+              <EquipmentAssetForm
+                value={canonicalEquipmentForm}
+                onChange={(next) => {
+                  setCanonicalEquipmentForm(next);
+                  setForm((current) => ({
+                    ...current,
+                    description: current.description.trim() ? current.description : next.name,
+                    equipmentCostType: next.costType,
+                    costCode: current.costCode?.trim() ? current.costCode : next.serialNumber,
+                  }));
+                }}
+              />
+            </fieldset>
+          )}
           {form.category === 'equipment' && (
             <div className="space-y-4">
               <Select

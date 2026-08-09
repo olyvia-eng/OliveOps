@@ -71,7 +71,8 @@ test('new equipment uses equipment budget row form and custom row CTA is removed
   assert.match(source, /New Equipment/);
   assert.match(source, /openNewCategoryItem\('equipment', \{ createCatalogAssetOnSave: true \}\)/);
   assert.match(source, /createCatalogEquipmentOnSave/);
-  assert.match(source, /addEquipmentAsset\(\{/);
+  assert.match(source, /toEquipmentAssetPayload\(canonicalEquipmentForm\)/);
+  assert.match(source, /addEquipmentAsset\(createdEquipmentAssetPayload\)/);
   assert.doesNotMatch(source, /Add Custom Equipment Row/);
   assert.doesNotMatch(source, /handleCreateEquipmentAndAddToBudget/);
   assert.doesNotMatch(source, /Create & Add/);

@@ -655,6 +655,38 @@ function validateEquipmentAssetRecord(record) {
   if (typeof record.hourlyCost !== 'number' || Number.isNaN(record.hourlyCost) || record.hourlyCost < 0) {
     return 'Equipment hourly cost must be zero or greater.';
   }
+  if (record.purchasePrice !== undefined && record.purchasePrice !== null && (!isFiniteNumber(record.purchasePrice) || record.purchasePrice < 0)) {
+    return 'Equipment purchase price must be zero or greater.';
+  }
+  if (record.equipmentPayment !== undefined && record.equipmentPayment !== null && (!isFiniteNumber(record.equipmentPayment) || record.equipmentPayment < 0)) {
+    return 'Equipment payment must be zero or greater.';
+  }
+  if (
+    record.equipmentPaymentFrequencyPerYear !== undefined
+    && record.equipmentPaymentFrequencyPerYear !== null
+    && (!isFiniteNumber(record.equipmentPaymentFrequencyPerYear) || record.equipmentPaymentFrequencyPerYear < 0)
+  ) {
+    return 'Equipment payment frequency must be zero or greater.';
+  }
+  if (record.fuelPriceUnit !== undefined && record.fuelPriceUnit !== null && record.fuelPriceUnit !== 'L' && record.fuelPriceUnit !== 'gal') {
+    return 'Fuel price unit is invalid.';
+  }
+  if (record.averageFuelPrice !== undefined && record.averageFuelPrice !== null && (!isFiniteNumber(record.averageFuelPrice) || record.averageFuelPrice < 0)) {
+    return 'Average fuel price must be zero or greater.';
+  }
+  if (
+    record.averageFuelBurnPerHour !== undefined
+    && record.averageFuelBurnPerHour !== null
+    && (!isFiniteNumber(record.averageFuelBurnPerHour) || record.averageFuelBurnPerHour < 0)
+  ) {
+    return 'Average fuel burned per hour must be zero or greater.';
+  }
+  if (record.yearlyInsuranceCost !== undefined && record.yearlyInsuranceCost !== null && (!isFiniteNumber(record.yearlyInsuranceCost) || record.yearlyInsuranceCost < 0)) {
+    return 'Yearly insurance cost must be zero or greater.';
+  }
+  if (record.yearlyMaintenanceCost !== undefined && record.yearlyMaintenanceCost !== null && (!isFiniteNumber(record.yearlyMaintenanceCost) || record.yearlyMaintenanceCost < 0)) {
+    return 'Yearly maintenance cost must be zero or greater.';
+  }
   if (record.currentJobId !== undefined && record.currentJobId !== null && typeof record.currentJobId !== 'string') {
     return 'Equipment job assignment is invalid.';
   }

@@ -171,6 +171,14 @@ export interface EquipmentAsset {
   serialNumber: string;
   purchaseDate?: string;
   hourlyCost: number;
+  purchasePrice?: number;
+  equipmentPayment?: number;
+  equipmentPaymentFrequencyPerYear?: number;
+  fuelPriceUnit?: 'L' | 'gal';
+  averageFuelPrice?: number;
+  averageFuelBurnPerHour?: number;
+  yearlyInsuranceCost?: number;
+  yearlyMaintenanceCost?: number;
   currentJobId?: ID;
   notes: string;
   createdAt: string;
