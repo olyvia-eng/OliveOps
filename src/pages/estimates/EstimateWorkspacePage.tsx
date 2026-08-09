@@ -6,7 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { useStore } from '../../store';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
 import { emitAppToast } from '../../toast';
-import { formatCurrency, formatDate, formatDateTime, generateId, statusColor } from '../../utils';
+import { formatCurrency, formatDate, formatDateTime, statusColor } from '../../utils';
 import {
   computeWorkAreaCategoryCostTotals,
   computeWorkAreaEstimatedCost,
@@ -14,6 +14,7 @@ import {
   computeEstimateTax,
   computeEstimateTotal,
   computeWorkAreaSubtotal,
+  createNewEstimateWorkArea,
   flattenWorkAreaLineItems,
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
@@ -198,6 +199,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmConvert, setConfirmConvert] = useState(false);
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
+  const [savingEstimate, setSavingEstimate] = useState(false);
   const [convertForm, setConvertForm] = useState({
     title: '',
     startDate: '',
@@ -242,8 +244,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     });
   };
 
-  const persistEstimateForm = (nextForm: EstimateFormState) => {
-    if (!estimate) return;
+  const persistEstimateForm = async (nextForm: EstimateFormState) => {
+    if (!estimate) return false;
 
     const normalizedWorkAreas = nextForm.workAreas.map((area, index) => ({
       ...area,
@@ -262,41 +264,45 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       validUntil: nextForm.validUntil,
     };
 
-    updateEstimate(estimate.id, payload);
+    return updateEstimate(estimate.id, payload);
   };
 
-  const addWorkArea = () => {
-    if (!estimate || !form) return;
+  const addWorkArea = async () => {
+    if (!estimate || !form || savingEstimate) return;
 
-    const workAreaId = generateId();
+    setSavingEstimate(true);
+    const nextWorkArea = createNewEstimateWorkArea(form.workAreas);
+    const workAreaId = nextWorkArea.id;
     const nextForm: EstimateFormState = {
       ...form,
       workAreas: [
         ...form.workAreas,
-        {
-          id: workAreaId,
-          name: `Work Area ${form.workAreas.length + 1}`,
-          description: '',
-          sortOrder: form.workAreas.length,
-          lineItems: [],
-        },
+        nextWorkArea,
       ],
     };
 
     setForm(nextForm);
-    persistEstimateForm(nextForm);
-    navigate(`/estimates/${estimate.id}/work-areas/${workAreaId}`);
+    const saved = await persistEstimateForm(nextForm);
+        navigate(`/estimates/${estimate.id}/work-areas/${workAreaId}`);
+
+    if (saved) {
+      navigate(`/estimates/${estimate.id}/work-areas/${nextWorkArea.id}`);
+    }
   };
 
-  const save = () => {
-    if (!estimate || !form) return;
+  const save = async () => {
+    if (!estimate || !form || savingEstimate) return;
     if (!form.title.trim() || !form.customerId || !form.pricingBudgetId || !form.validUntil) {
       emitAppToast({ tone: 'error', message: 'Title, customer, pricing budget, and valid-until date are required.' });
       return;
     }
 
-    persistEstimateForm(form);
-    emitAppToast({ tone: 'success', message: 'Estimate saved.' });
+    setSavingEstimate(true);
+    const saved = await persistEstimateForm(form);
+    setSavingEstimate(false);
+    if (saved) {
+      emitAppToast({ tone: 'success', message: 'Estimate saved.' });
+    }
   };
 
   const createProposalPdf = (item: Estimate) => {
@@ -462,7 +468,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
             <Button variant="secondary" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={14} /> Delete
             </Button>
-            <Button onClick={save}>Save Changes</Button>
+            <Button onClick={() => void save()} disabled={savingEstimate}>Save Changes</Button>
           </div>
         )}
       />
@@ -567,8 +573,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
           <Card className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-900">Work Areas</h2>
-              <Button variant="secondary" size="sm" onClick={addWorkArea}>
-                <Plus size={14} /> Add Work Area
+              <Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}>
+                <Plus size={14} /> {savingEstimate ? 'Saving...' : 'Add Work Area'}
               </Button>
             </div>
             <p className="text-xs text-gray-500">Use Work Areas to break an estimate into sections of the project.</p>
@@ -577,7 +583,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <EmptyState
                 title="No work areas yet"
                 description="Break the project into sections of work such as Excavation, Backfilling, or Interlock Patio."
-                action={<Button variant="secondary" size="sm" onClick={addWorkArea}><Plus size={14} /> Add Work Area</Button>}
+                action={<Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}><Plus size={14} /> Add Work Area</Button>}
               />
             ) : (
               <div className="space-y-3">

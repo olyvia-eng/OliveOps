@@ -544,6 +544,12 @@ export interface Budget {
   division: BudgetDivision;
   fiscalYear: string;
   status: BudgetStatus;
+  overheadRecoveryAllocation?: {
+    labourPercent: number;
+    equipmentPercent: number;
+    materialsPercent: number;
+    subcontractorsPercent: number;
+  };
   createdAt: string;
   updatedAt: string;
 }

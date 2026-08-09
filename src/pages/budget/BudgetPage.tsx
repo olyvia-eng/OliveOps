@@ -210,6 +210,7 @@ export default function BudgetPage() {
     labourBudgetPlans,
     revenueSalesGoals,
     addBudget,
+    updateBudget,
     employees,
     updateEmployee,
     addBudgetItem,
@@ -250,6 +251,13 @@ export default function BudgetPage() {
   const [rateForm, setRateForm] = useState<Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>>(emptyBudgetRate());
   const [confirmDeleteRate, setConfirmDeleteRate] = useState<string | null>(null);
   const legacyBudgetBootstrapStarted = useRef(false);
+  const defaultOverheadRecoveryAllocation = {
+    labourPercent: 50,
+    equipmentPercent: 30,
+    materialsPercent: 20,
+    subcontractorsPercent: 0,
+  };
+  const [overheadRecoveryAllocation, setOverheadRecoveryAllocation] = useState(defaultOverheadRecoveryAllocation);
   const [pricingInputs, setPricingInputs] = useState({
     payrollBurdenPct: 18,
     overheadRecoveryPct: 15,
@@ -268,6 +276,15 @@ export default function BudgetPage() {
   const activeBudgetId = routeBudgetId ?? sortedBudgets[0]?.id ?? null;
   const activeBudget = activeBudgetId ? (budgets.find((budget) => budget.id === activeBudgetId) ?? null) : null;
   const hasLegacyBudgetData = budgetItems.length > 0 || labourBudgetPlans.length > 0 || revenueSalesGoals.length > 0;
+
+  useEffect(() => {
+    if (!activeBudget) {
+      setOverheadRecoveryAllocation(defaultOverheadRecoveryAllocation);
+      return;
+    }
+
+    setOverheadRecoveryAllocation(activeBudget.overheadRecoveryAllocation ?? defaultOverheadRecoveryAllocation);
+  }, [activeBudget?.id, activeBudget?.overheadRecoveryAllocation]);
 
 
   useEffect(() => {
@@ -943,6 +960,18 @@ export default function BudgetPage() {
     setPricingInputs((current) => ({ ...current, [key]: Math.max(0, next) }));
   };
 
+  const updateOverheadRecoveryAllocation = (key: keyof typeof overheadRecoveryAllocation, value: number) => {
+    if (!activeBudgetId) return;
+
+    const next = {
+      ...overheadRecoveryAllocation,
+      [key]: Math.max(0, Number.isFinite(value) ? value : 0),
+    };
+
+    setOverheadRecoveryAllocation(next);
+    updateBudget(activeBudgetId, { overheadRecoveryAllocation: next });
+  };
+
   const normalizedAverageFuelPrice = Math.max(0, Number.isFinite(form.averageFuelPrice ?? 0) ? (form.averageFuelPrice ?? 0) : 0);
   const normalizedAverageFuelBurnPerHour = Math.max(0, Number.isFinite(form.averageFuelBurnPerHour ?? 0) ? (form.averageFuelBurnPerHour ?? 0) : 0);
   const calculatedFuelCostPerHour = normalizedAverageFuelPrice * normalizedAverageFuelBurnPerHour;
@@ -974,22 +1003,6 @@ export default function BudgetPage() {
 
   const marginDivisor = Math.max(0.01, 1 - pricingInputs.targetMarginPct / 100);
   const activeEmployees = employees.filter((employee) => employee.active);
-  const averageBaseLaborRate =
-    activeEmployees.length > 0
-      ? activeEmployees.reduce((sum, employee) => sum + employee.hourlyRate, 0) / activeEmployees.length
-      : 0;
-
-  const loadedLaborCostPerHour = averageBaseLaborRate * (1 + pricingInputs.payrollBurdenPct / 100);
-  const laborBreakEvenRate = loadedLaborCostPerHour * (1 + pricingInputs.overheadRecoveryPct / 100);
-  const suggestedLaborSellRate = laborBreakEvenRate / marginDivisor;
-
-  const materialSellMultiplier =
-    (1 + pricingInputs.materialWastePct / 100) * (1 + pricingInputs.overheadRecoveryPct / 100) / marginDivisor;
-  const suggestedMaterialMarkupPct = (materialSellMultiplier - 1) * 100;
-
-  const subcontractorSellMultiplier =
-    (1 + pricingInputs.subcontractorRiskPct / 100) * (1 + pricingInputs.overheadRecoveryPct / 100) / marginDivisor;
-  const suggestedSubcontractorMarkupPct = (subcontractorSellMultiplier - 1) * 100;
 
   const updateLabourPlan = (employeeId: string, key: keyof LabourBudgetPlan, value: LabourBudgetPlan[keyof LabourBudgetPlan]) => {
     const employee = activeEmployees.find((value) => value.id === employeeId);
@@ -1004,6 +1017,16 @@ export default function BudgetPage() {
   const updatePlannerEmployeeLabourType = (employeeId: string, labourType: EmployeeLabourType) => {
     updateEmployee(employeeId, { labourType });
   };
+
+  const plannedBillableHoursTotal = useMemo(() => {
+    return activeEmployees.reduce((sum, employee) => {
+      const plan = plansByEmployeeId[employee.id] ?? defaultLabourPlan(activeBudgetId ?? 'budget', employee.id, plannerYear, employee.hourlyRate, employee.role);
+      const hoursPerYear = Math.max(0, Number.isFinite(plan.hoursPerYear ?? 0) ? (plan.hoursPerYear ?? 0) : 0);
+      const fallbackBillablePct = (plan.billableHoursYear / Math.max(1, plan.billableHoursYear + plan.unbillableHoursYear + plan.overtimeHoursYear)) * 100;
+      const billablePct = Math.max(0, Math.min(100, Number.isFinite(plan.billablePct ?? fallbackBillablePct) ? (plan.billablePct ?? fallbackBillablePct) : 0));
+      return sum + (hoursPerYear * (billablePct / 100));
+    }, 0);
+  }, [activeBudgetId, activeEmployees, plannerYear, plansByEmployeeId]);
 
   const labourPlannerRows = useMemo(() => {
     return activeEmployees.map((employee) => {
@@ -1056,7 +1079,10 @@ export default function BudgetPage() {
         ? totalEmployeeCostPerYear / hoursPerYear
         : 0;
 
-      const suggestedChargeOutRate = (hourlyRate * (1 + pricingInputs.overheadRecoveryPct / 100)) / marginDivisor;
+      const labourOverheadRecoveryPerHour = plannedBillableHoursTotal > 0
+        ? (totalsByCategory.overhead.budgeted * (overheadRecoveryAllocation.labourPercent / 100)) / plannedBillableHoursTotal
+        : 0;
+      const suggestedChargeOutRate = (hourlyRate + labourOverheadRecoveryPerHour) / marginDivisor;
       const annualRevenueGenerated = suggestedChargeOutRate * annualBillableHours;
       const grossProfitGenerated = annualRevenueGenerated - totalEmployeeCostPerYear;
       const roleTitle = plan.roleTitle?.trim() || toOptionLabel(employee.role);
@@ -1081,7 +1107,7 @@ export default function BudgetPage() {
         grossProfitGenerated,
       };
     });
-  }, [activeBudgetId, activeEmployees, marginDivisor, plannerYear, plansByEmployeeId, pricingInputs.overheadRecoveryPct]);
+  }, [activeBudgetId, activeEmployees, marginDivisor, plannerYear, plansByEmployeeId, plannedBillableHoursTotal, overheadRecoveryAllocation.labourPercent, totalsByCategory.overhead.budgeted]);
 
   const visibleLabourPlannerRows = useMemo(() => {
     if (labourTableView === 'all') return labourPlannerRows;
@@ -1102,6 +1128,71 @@ export default function BudgetPage() {
       billableHoursYear: 0,
     });
   }, [labourPlannerRows]);
+
+  const totalOverheadBudget = totalsByCategory.overhead.budgeted;
+  const allocationTotalPct = overheadRecoveryAllocation.labourPercent
+    + overheadRecoveryAllocation.equipmentPercent
+    + overheadRecoveryAllocation.materialsPercent
+    + overheadRecoveryAllocation.subcontractorsPercent;
+  const allocationAmounts = {
+    labour: totalOverheadBudget * (overheadRecoveryAllocation.labourPercent / 100),
+    equipment: totalOverheadBudget * (overheadRecoveryAllocation.equipmentPercent / 100),
+    materials: totalOverheadBudget * (overheadRecoveryAllocation.materialsPercent / 100),
+    subcontractors: totalOverheadBudget * (overheadRecoveryAllocation.subcontractorsPercent / 100),
+  };
+  const labourOverheadRecoveryPerHour = labourPlannerTotalsAll.billableHoursYear > 0
+    ? allocationAmounts.labour / labourPlannerTotalsAll.billableHoursYear
+    : 0;
+  const equipmentOverheadRecoveryPerHour = pricingInputs.equipmentUtilizationHours > 0
+    ? allocationAmounts.equipment / pricingInputs.equipmentUtilizationHours
+    : 0;
+  const materialsOverheadRecoveryPercent = totalsByCategory.materials.budgeted > 0
+    ? allocationAmounts.materials / totalsByCategory.materials.budgeted
+    : 0;
+  const subcontractorOverheadRecoveryPercent = totalsByCategory.subcontractors.budgeted > 0
+    ? allocationAmounts.subcontractors / totalsByCategory.subcontractors.budgeted
+    : 0;
+
+  const getSuggestedSellPrice = (rate: BudgetRate) => {
+    if (rate.category === 'labour') {
+      const loadedCost = rate.unitCost * (1 + pricingInputs.payrollBurdenPct / 100);
+      return (loadedCost + labourOverheadRecoveryPerHour) / marginDivisor;
+    }
+
+    if (rate.category === 'equipment') {
+      return (rate.unitCost + equipmentOverheadRecoveryPerHour) / marginDivisor;
+    }
+
+    if (rate.category === 'material') {
+      return rate.unitCost * (1 + materialsOverheadRecoveryPercent) / marginDivisor;
+    }
+
+    return rate.unitCost * (1 + subcontractorOverheadRecoveryPercent) / marginDivisor;
+  };
+
+  const getOverheadRecoverySummary = (rate: BudgetRate) => {
+    if (rate.category === 'labour') {
+      return labourPlannerTotalsAll.billableHoursYear > 0
+        ? `${formatCurrency(labourOverheadRecoveryPerHour)}/${rate.unit}`
+        : 'Add planned billable labour hours';
+    }
+
+    if (rate.category === 'equipment') {
+      return pricingInputs.equipmentUtilizationHours > 0
+        ? `${formatCurrency(equipmentOverheadRecoveryPerHour)}/${rate.unit}`
+        : 'Add planned equipment utilization';
+    }
+
+    if (rate.category === 'material') {
+      return totalsByCategory.materials.budgeted > 0
+        ? `${(materialsOverheadRecoveryPercent * 100).toFixed(1)}% of cost`
+        : 'Add expected material spend';
+    }
+
+    return totalsByCategory.subcontractors.budgeted > 0
+      ? `${(subcontractorOverheadRecoveryPercent * 100).toFixed(1)}% of cost`
+      : 'Add expected subcontractor spend';
+  };
 
   const categoryAnalysisRows = useMemo(() => {
     const rows = [...categoryRows];
@@ -1316,10 +1407,11 @@ export default function BudgetPage() {
         <p>Overtime Cost = Overtime Hours x Hourly Rate x (Overtime Multiplier - 1)</p>
         <p>Total Cost per Employee per Year = Annual Wage + Overtime Cost + Payroll Burden + Benefits/Extra Cost + Bonus</p>
         <p>Hourly Rate = Total Cost per Employee per Year / Hours per Year</p>
-        <p>Suggested Charge-Out Rate = Hourly Rate x (1 + Overhead Recovery %) / (1 - Target Margin %)</p>
-        <p>Annual Revenue Generated = Annual Billable Hours x Suggested Charge-Out Rate</p>
+        <p>Labour Overhead Recovery = Labour Overhead Allocation / Planned Billable Labour Hours</p>
+        <p>Suggested Labour Sell Rate = (Loaded Labour Cost + Labour Overhead Recovery) / (1 - Target Margin %)</p>
+        <p>Annual Revenue Generated = Annual Billable Hours x Suggested Labour Sell Rate</p>
         <p>Gross Profit Generated = Annual Revenue Generated - Annual Labour Cost</p>
-        <p className="text-xs text-gray-500 mt-2">Current assumptions: Overhead Recovery {pricingInputs.overheadRecoveryPct.toFixed(1)}%, Target Margin {pricingInputs.targetMarginPct.toFixed(1)}%.</p>
+        <p className="text-xs text-gray-500 mt-2">Current assumptions: Labour {overheadRecoveryAllocation.labourPercent.toFixed(1)}%, Equipment {overheadRecoveryAllocation.equipmentPercent.toFixed(1)}%, Materials {overheadRecoveryAllocation.materialsPercent.toFixed(1)}%, Subcontractors {overheadRecoveryAllocation.subcontractorsPercent.toFixed(1)}%, Target Margin {pricingInputs.targetMarginPct.toFixed(1)}%.</p>
       </div>
     </details>
   );
@@ -1441,60 +1533,76 @@ export default function BudgetPage() {
 
           <Card className="p-4 mb-6">
             <div className="mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Estimate Pricing Calculator</h2>
-              <p className="text-sm text-gray-500 mt-1">Use current budget + payroll assumptions to set charge-out rates for labour, machine time, materials, and subcontractors.</p>
+              <h2 className="text-lg font-semibold text-gray-900">Overhead Recovery &amp; Pricing Strategy</h2>
+              <p className="text-sm text-gray-500 mt-1">Choose how this budget&apos;s overhead should be recovered across labour, equipment, materials and subcontractors.</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
               <Input
-                label="Payroll Burden (%)"
+                label="Labour %"
                 type="number"
                 min={0}
-                value={pricingInputs.payrollBurdenPct}
-                onChange={(e) => updatePricingInput('payrollBurdenPct', Number(e.target.value))}
+                max={100}
+                step={0.1}
+                value={overheadRecoveryAllocation.labourPercent}
+                onChange={(e) => updateOverheadRecoveryAllocation('labourPercent', Number(e.target.value))}
               />
               <Input
-                label="Overhead Recovery (%)"
+                label="Equipment %"
                 type="number"
                 min={0}
-                value={pricingInputs.overheadRecoveryPct}
-                onChange={(e) => updatePricingInput('overheadRecoveryPct', Number(e.target.value))}
+                max={100}
+                step={0.1}
+                value={overheadRecoveryAllocation.equipmentPercent}
+                onChange={(e) => updateOverheadRecoveryAllocation('equipmentPercent', Number(e.target.value))}
               />
               <Input
-                label="Target Margin (%)"
+                label="Materials %"
                 type="number"
                 min={0}
-                max={95}
-                value={pricingInputs.targetMarginPct}
-                onChange={(e) => updatePricingInput('targetMarginPct', Number(e.target.value))}
+                max={100}
+                step={0.1}
+                value={overheadRecoveryAllocation.materialsPercent}
+                onChange={(e) => updateOverheadRecoveryAllocation('materialsPercent', Number(e.target.value))}
+              />
+              <Input
+                label="Subcontractors %"
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={overheadRecoveryAllocation.subcontractorsPercent}
+                onChange={(e) => updateOverheadRecoveryAllocation('subcontractorsPercent', Number(e.target.value))}
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-                <Card className="p-4 hover:border-brand-300 cursor-pointer">
-                  <p className="text-xs text-gray-500">Suggested Labour Charge-Out</p>
-                  <p className="text-xl font-bold text-gray-900">{formatCurrency(suggestedLaborSellRate)}/hr</p>
-                  <p className="text-xs text-gray-400 mt-1">Avg pay {formatCurrency(averageBaseLaborRate)}/hr, loaded {formatCurrency(loadedLaborCostPerHour)}/hr</p>
-                  <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
+            <div className={`rounded-xl border p-3 mb-4 ${Math.abs(allocationTotalPct - 100) <= 0.1 ? 'border-brand-100 bg-brand-50/50' : 'border-accent-200 bg-accent-50/60'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <p className="font-semibold text-gray-900">Total Allocation: {allocationTotalPct.toFixed(1)}%</p>
+                <p className={`font-medium ${Math.abs(allocationTotalPct - 100) <= 0.1 ? 'text-brand-700' : 'text-accent-700'}`}>
+                  {Math.abs(allocationTotalPct - 100) <= 0.1
+                    ? 'Allocation is balanced.'
+                    : allocationTotalPct < 100
+                      ? `Allocate the remaining ${(100 - allocationTotalPct).toFixed(1)}% of overhead.`
+                      : `Reduce allocation by ${(allocationTotalPct - 100).toFixed(1)}%.`}
+                </p>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">Total budgeted overhead: {formatCurrency(totalOverheadBudget)}.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {([
+                { key: 'labour', label: 'Labour', percent: overheadRecoveryAllocation.labourPercent, amount: allocationAmounts.labour },
+                { key: 'equipment', label: 'Equipment', percent: overheadRecoveryAllocation.equipmentPercent, amount: allocationAmounts.equipment },
+                { key: 'materials', label: 'Materials', percent: overheadRecoveryAllocation.materialsPercent, amount: allocationAmounts.materials },
+                { key: 'subcontractors', label: 'Subcontractors', percent: overheadRecoveryAllocation.subcontractorsPercent, amount: allocationAmounts.subcontractors },
+              ]).map((item) => (
+                <Card key={item.key} className="p-3 bg-white border border-gray-100">
+                  <p className="text-xs text-gray-500">{item.label}</p>
+                  <p className="text-lg font-semibold text-gray-900">{item.percent.toFixed(1)}%</p>
+                  <p className="text-sm text-gray-600 mt-1">{formatCurrency(item.amount)}</p>
                 </Card>
-              </button>
-              <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-                <Card className="p-4 hover:border-brand-300 cursor-pointer">
-                  <p className="text-xs text-gray-500">Material Markup Guidance</p>
-                  <p className="text-xl font-bold text-gray-900">{suggestedMaterialMarkupPct.toFixed(1)}%</p>
-                  <p className="text-xs text-gray-400 mt-1">Includes waste + overhead + target margin</p>
-                  <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
-                </Card>
-              </button>
-              <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
-                <Card className="p-4 hover:border-brand-300 cursor-pointer">
-                  <p className="text-xs text-gray-500">Subcontractor Markup Guidance</p>
-                  <p className="text-xl font-bold text-gray-900">{suggestedSubcontractorMarkupPct.toFixed(1)}%</p>
-                  <p className="text-xs text-gray-400 mt-1">Includes risk buffer + overhead + target margin</p>
-                  <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
-                </Card>
-              </button>
+              ))}
             </div>
           </Card>
 
@@ -1522,9 +1630,10 @@ export default function BudgetPage() {
                       <th className="py-2 font-medium">Category</th>
                       <th className="py-2 font-medium">Item</th>
                       <th className="py-2 font-medium">Unit</th>
-                      <th className="py-2 font-medium text-right">Unit Cost</th>
-                      <th className="py-2 font-medium text-right">Default Markup</th>
-                      <th className="py-2 font-medium text-right">Default Sell</th>
+                      <th className="py-2 font-medium text-right">Direct Cost</th>
+                      <th className="py-2 font-medium text-right">Overhead Recovery</th>
+                      <th className="py-2 font-medium text-right">Suggested Sell</th>
+                      <th className="py-2 font-medium text-right">Final Sell</th>
                       <th className="py-2 font-medium">Status</th>
                       <th className="py-2 font-medium">Actions</th>
                     </tr>
@@ -1536,8 +1645,9 @@ export default function BudgetPage() {
                         <td className="py-2">{rate.itemName}</td>
                         <td className="py-2">{rate.unit}</td>
                         <td className="py-2 text-right">{formatCurrency(rate.unitCost)}</td>
-                        <td className="py-2 text-right">{rate.defaultMarkupPercent.toFixed(1)}%</td>
-                        <td className="py-2 text-right">{formatCurrency(rate.defaultSellPrice)}</td>
+                        <td className="py-2 text-right">{getOverheadRecoverySummary(rate)}</td>
+                        <td className="py-2 text-right">{formatCurrency(getSuggestedSellPrice(rate))}</td>
+                        <td className="py-2 text-right">{formatCurrency(rate.defaultSellPrice > 0 ? rate.defaultSellPrice : getSuggestedSellPrice(rate))}</td>
                         <td className="py-2">{rate.active ? 'Active' : 'Archived'}</td>
                         <td className="py-2">
                           <div className="flex gap-1">
@@ -1727,9 +1837,10 @@ export default function BudgetPage() {
           </button>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
-              <p className="text-xs text-gray-500">Suggested Material Markup</p>
-              <p className="text-xl font-bold text-brand-700">{suggestedMaterialMarkupPct.toFixed(1)}%</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
+              <p className="text-xs text-gray-500">Materials Recovery</p>
+              <p className="text-xl font-bold text-brand-700">{overheadRecoveryAllocation.materialsPercent.toFixed(1)}%</p>
+              <p className="text-sm text-gray-600 mt-1">{formatCurrency(allocationAmounts.materials)}</p>
+              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
           </button>
         </div>
@@ -1817,9 +1928,10 @@ export default function BudgetPage() {
           </button>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
-              <p className="text-xs text-gray-500">Suggested Subcontractor Markup</p>
-              <p className="text-xl font-bold text-brand-700">{suggestedSubcontractorMarkupPct.toFixed(1)}%</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
+              <p className="text-xs text-gray-500">Subcontractor Recovery</p>
+              <p className="text-xl font-bold text-brand-700">{overheadRecoveryAllocation.subcontractorsPercent.toFixed(1)}%</p>
+              <p className="text-sm text-gray-600 mt-1">{formatCurrency(allocationAmounts.subcontractors)}</p>
+              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
           </button>
         </div>
@@ -1836,9 +1948,10 @@ export default function BudgetPage() {
           </button>
           <button type="button" onClick={() => setAssumptionsModalOpen(true)} className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500">
             <Card className="p-4 hover:border-brand-300 cursor-pointer">
-              <p className="text-xs text-gray-500">Overhead Recovery Setting</p>
-              <p className="text-xl font-bold text-brand-700">{pricingInputs.overheadRecoveryPct.toFixed(1)}%</p>
-            <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
+              <p className="text-xs text-gray-500">Overhead Recovery Total</p>
+              <p className="text-xl font-bold text-brand-700">{formatCurrency(totalOverheadBudget)}</p>
+              <p className="text-sm text-gray-600 mt-1">{allocationTotalPct.toFixed(1)}% allocated</p>
+              <p className="text-[11px] text-gray-400 mt-2">Click to edit</p>
             </Card>
           </button>
         </div>
@@ -2458,13 +2571,6 @@ export default function BudgetPage() {
             onChange={(e) => updatePricingInput('payrollBurdenPct', Number(e.target.value))}
           />
           <Input
-            label="Overhead Recovery (%)"
-            type="number"
-            min={0}
-            value={pricingInputs.overheadRecoveryPct}
-            onChange={(e) => updatePricingInput('overheadRecoveryPct', Number(e.target.value))}
-          />
-          <Input
             label="Target Margin (%)"
             type="number"
             min={0}
@@ -2478,20 +2584,6 @@ export default function BudgetPage() {
             min={1}
             value={pricingInputs.equipmentUtilizationHours}
             onChange={(e) => updatePricingInput('equipmentUtilizationHours', Number(e.target.value))}
-          />
-          <Input
-            label="Material Waste Buffer (%)"
-            type="number"
-            min={0}
-            value={pricingInputs.materialWastePct}
-            onChange={(e) => updatePricingInput('materialWastePct', Number(e.target.value))}
-          />
-          <Input
-            label="Subcontractor Risk Buffer (%)"
-            type="number"
-            min={0}
-            value={pricingInputs.subcontractorRiskPct}
-            onChange={(e) => updatePricingInput('subcontractorRiskPct', Number(e.target.value))}
           />
         </div>
       </Modal>

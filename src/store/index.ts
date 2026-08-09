@@ -107,7 +107,7 @@ interface AppState {
 
   // Estimates
   addEstimate: (e: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'>) => ID;
-  updateEstimate: (id: ID, data: Partial<Estimate>) => void;
+  updateEstimate: (id: ID, data: Partial<Estimate>) => Promise<boolean>;
   deleteEstimate: (id: ID) => void;
   sendEstimate: (id: ID) => void;
   convertEstimateToJob: (estimateId: ID, options?: { title?: string; startDate?: string; endDate?: string }) => Promise<{ ok: boolean; jobId?: ID; error?: string }>;
@@ -301,7 +301,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
         return estimate.id;
       },
-      updateEstimate: (id, data) => {
+      updateEstimate: async (id, data) => {
         const previous = get().estimates;
         const updatedAt = nowISO();
         set((s) => ({
@@ -310,17 +310,23 @@ export const useStore = create<AppState>()((set, get) => ({
           ),
         }));
 
-        void ensureOk(fetch(dataUrl('estimates', id), {
+        const request = fetch(dataUrl('estimates', id), {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
           body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
+        });
+
+        try {
+          await ensureOk(request);
+          return true;
+        } catch (error: unknown) {
           set({ estimates: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate changes could not be saved.') });
-        });
+          return false;
+        }
       },
       deleteEstimate: (id) => {
         const previous = get().estimates;

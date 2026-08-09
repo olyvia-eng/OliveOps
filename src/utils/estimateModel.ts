@@ -158,6 +158,18 @@ export function flattenWorkAreaLineItems(workAreas: EstimateWorkArea[]): Estimat
     .flatMap((area) => area.lineItems.map((item) => normalizeEstimateLineItem(item)));
 }
 
+export function createNewEstimateWorkArea(workAreas: EstimateWorkArea[]): EstimateWorkArea {
+  const sortOrder = workAreas.length;
+
+  return {
+    id: generateId(),
+    name: `Work Area ${sortOrder + 1}`,
+    description: '',
+    sortOrder,
+    lineItems: [],
+  };
+}
+
 export function computeWorkAreaSubtotal(workArea: EstimateWorkArea): number {
   return workArea.lineItems.reduce((sum, item) => sum + asNumber(item.total, 0), 0);
 }

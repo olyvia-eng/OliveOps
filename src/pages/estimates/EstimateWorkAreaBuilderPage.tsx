@@ -109,6 +109,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
   const [showCatalogSheet, setShowCatalogSheet] = useState(false);
   const [addingCandidateKey, setAddingCandidateKey] = useState<string | null>(null);
+  const [savingWorkArea, setSavingWorkArea] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
@@ -238,21 +239,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       });
     }
 
-    for (const rate of budgetRatesByCategory.equipment.filter((value) => !matchedEquipmentRateIds.has(value.id))) {
-      candidates.push({
-        key: `rate:${rate.id}`,
-        category: 'equipment',
-        displayName: rate.itemName,
-        description: rate.description || 'Equipment pricing rate',
-        unit: rate.unit,
-        priceText: `${formatCurrency(rateSellPrice(rate))}/${rate.unit}`,
-        rate,
-        alreadyAdded: alreadyAddedRateIds.has(rate.id),
-        source: 'rate',
-        searchText: `${rate.itemName} ${rate.description} equipment ${rate.unit}`.toLowerCase(),
-      });
-    }
-
     for (const material of materialCatalogItems) {
       const matchedRate = findMatchingRate('material', [material.name, material.unit, material.notes]);
       if (matchedRate) matchedMaterialRateIds.add(matchedRate.id);
@@ -269,21 +255,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         alreadyAdded: matchedRate ? alreadyAddedRateIds.has(matchedRate.id) : false,
         source: 'material',
         searchText: `${material.name} ${material.unit} ${material.notes} material ${matchedRate?.description ?? ''}`.toLowerCase(),
-      });
-    }
-
-    for (const rate of budgetRatesByCategory.material.filter((value) => !matchedMaterialRateIds.has(value.id))) {
-      candidates.push({
-        key: `rate:${rate.id}`,
-        category: 'material',
-        displayName: rate.itemName,
-        description: rate.description || 'Material pricing rate',
-        unit: rate.unit,
-        priceText: `${formatCurrency(rateSellPrice(rate))}/${rate.unit}`,
-        rate,
-        alreadyAdded: alreadyAddedRateIds.has(rate.id),
-        source: 'rate',
-        searchText: `${rate.itemName} ${rate.description} material ${rate.unit}`.toLowerCase(),
       });
     }
 
@@ -425,7 +396,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     setCustomItemOpen(false);
   };
 
-  const persistWorkArea = (goBack: boolean) => {
+  const persistWorkArea = async (goBack: boolean) => {
+    if (savingWorkArea) return;
+
+    setSavingWorkArea(true);
     const nextWorkAreas = workAreas.map((area) => (
       area.id === workArea.id
         ? {
@@ -438,7 +412,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     ));
 
     const payload = createWorkAreaPayload(estimate, nextWorkAreas);
-    updateEstimate(estimate.id, payload);
+    const saved = await updateEstimate(estimate.id, payload);
+    setSavingWorkArea(false);
+
+    if (!saved) return;
+
     emitAppToast({ tone: 'success', message: 'Work area saved.' });
 
     if (goBack) {
@@ -453,12 +431,19 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     navigate(`/estimates/${estimate.id}?tab=work-areas`);
   };
 
-  const handleDeleteWorkArea = () => {
+  const handleDeleteWorkArea = async () => {
+    if (savingWorkArea) return;
+
     const nextWorkAreas = workAreas
       .filter((area) => area.id !== workArea.id)
       .map((area, index) => ({ ...area, sortOrder: index }));
     const payload = createWorkAreaPayload(estimate, nextWorkAreas);
-    updateEstimate(estimate.id, payload);
+    setSavingWorkArea(true);
+    const saved = await updateEstimate(estimate.id, payload);
+    setSavingWorkArea(false);
+
+    if (!saved) return;
+
     emitAppToast({ tone: 'success', message: 'Work area deleted.' });
     navigate(`/estimates/${estimate.id}?tab=work-areas`);
   };
@@ -523,12 +508,21 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <Button
                     size="sm"
                     variant={candidate.rate ? 'secondary' : 'ghost'}
-                    onClick={() => handleAddFromCandidate(candidate)}
-                    disabled={!candidate.rate || addingCandidateKey === candidate.key}
+                    onClick={() => {
+                      if (candidate.rate) {
+                        handleAddFromCandidate(candidate);
+                        return;
+                      }
+
+                      if (estimate.pricingBudgetId) {
+                        navigate(`/budgets/${estimate.pricingBudgetId}`);
+                      }
+                    }}
+                    disabled={candidate.rate ? addingCandidateKey === candidate.key : false}
                     className="mt-2"
                     title={candidate.disabledReason}
                   >
-                    <Plus size={14} /> Add
+                    <Plus size={14} /> {candidate.rate ? 'Add' : 'Add Pricing Rate'}
                   </Button>
                 </div>
               </div>
@@ -743,8 +737,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             </div>
 
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" onClick={() => persistWorkArea(false)} disabled={!isDirty}>Save</Button>
-              <Button onClick={() => persistWorkArea(true)}>Save &amp; Back</Button>
+              <Button variant="secondary" onClick={() => void persistWorkArea(false)} disabled={!isDirty || savingWorkArea}>Save</Button>
+              <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
             </div>
           </Card>
         </div>
