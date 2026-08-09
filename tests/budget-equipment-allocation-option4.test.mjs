@@ -62,13 +62,14 @@ test('equipment catalog supports add state and remove-from-budget behavior witho
   assert.match(source, /All available equipment is included in this budget\./);
 });
 
-test('new equipment can be created in place and linked to current budget', () => {
+test('new equipment uses equipment budget row form and custom row CTA is removed', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /handleCreateEquipmentAndAddToBudget/);
-  assert.match(source, /Create & Add/);
-  assert.match(source, /addEquipmentAsset\(payload\)/);
-  assert.match(source, /addEquipmentToCurrentBudget\(created\.id\)/);
+  assert.match(source, /New Equipment/);
+  assert.match(source, /onClick=\{\(\) => openCategoryEditor\('equipment'\)\}/);
+  assert.doesNotMatch(source, /Add Custom Equipment Row/);
+  assert.doesNotMatch(source, /handleCreateEquipmentAndAddToBudget/);
+  assert.doesNotMatch(source, /Create & Add/);
 });
 
 test('budget equipment API validates tenant ownership and duplicate links', () => {

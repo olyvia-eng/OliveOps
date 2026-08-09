@@ -13,7 +13,6 @@ import type {
   BudgetCategory,
   LabourBudgetPlan,
   EquipmentCostType,
-  EquipmentStatus,
   RevenueSalesGoal,
   EmployeeLabourType,
 } from '../../types';
@@ -91,28 +90,6 @@ const normalizedEquipmentIdentity = (item: Pick<BudgetItem, 'equipmentId' | 'cos
   if (item.description.trim()) return `desc:${item.description.trim().toLowerCase()}`;
   return null;
 };
-
-interface EquipmentAssetFormState {
-  name: string;
-  type: string;
-  status: EquipmentStatus;
-  costType: EquipmentCostType;
-  serialNumber: string;
-  purchaseDate: string;
-  hourlyCost: number;
-  notes: string;
-}
-
-const emptyEquipmentAssetForm = (): EquipmentAssetFormState => ({
-  name: '',
-  type: '',
-  status: 'available',
-  costType: 'owned',
-  serialNumber: '',
-  purchaseDate: '',
-  hourlyCost: 0,
-  notes: '',
-});
 
 const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   budgetId,
@@ -226,7 +203,6 @@ export default function BudgetPage() {
     equipmentAssets,
     addBudget,
     updateBudget,
-    addEquipmentAsset,
     employees,
     updateEmployee,
     addBudgetItem,
@@ -256,8 +232,6 @@ export default function BudgetPage() {
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
-  const [createEquipmentOpen, setCreateEquipmentOpen] = useState(false);
-  const [equipmentForm, setEquipmentForm] = useState<EquipmentAssetFormState>(emptyEquipmentAssetForm());
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
   const [equipmentCatalogSearch, setEquipmentCatalogSearch] = useState('');
@@ -655,34 +629,6 @@ export default function BudgetPage() {
       actual: 0,
     });
     setEquipmentCatalogError('');
-  };
-
-  const handleCreateEquipmentAndAddToBudget = async () => {
-    if (!equipmentForm.name.trim() || !equipmentForm.type.trim()) {
-      setEquipmentCatalogError('Equipment name and type are required.');
-      return;
-    }
-
-    const payload = {
-      name: equipmentForm.name.trim(),
-      type: equipmentForm.type.trim(),
-      status: equipmentForm.status,
-      costType: equipmentForm.costType,
-      serialNumber: equipmentForm.serialNumber.trim(),
-      purchaseDate: equipmentForm.purchaseDate || undefined,
-      hourlyCost: Number(equipmentForm.hourlyCost || 0),
-      notes: equipmentForm.notes.trim(),
-    };
-
-    const created = await addEquipmentAsset(payload);
-    if (!created.ok || !created.id) {
-      setEquipmentCatalogError('Could not create equipment.');
-      return;
-    }
-
-    addEquipmentToCurrentBudget(created.id);
-    setCreateEquipmentOpen(false);
-    setEquipmentForm(emptyEquipmentAssetForm());
   };
 
   const openCategoryEditor = (category: BudgetCategory) => {
@@ -2239,14 +2185,9 @@ export default function BudgetPage() {
             <div>
               <Card className="overflow-hidden">
                 <div className="p-4 border-b border-gray-100">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h2 className="font-semibold text-gray-900">Current Budget Equipment Plan</h2>
-                      <p className="text-xs text-gray-500 mt-1">Budget-specific assumptions for equipment linked to this budget.</p>
-                    </div>
-                    <Button size="sm" variant="secondary" onClick={() => openCategoryEditor('equipment')}>
-                      <Plus size={13} /> Add Custom Equipment Row
-                    </Button>
+                  <div>
+                    <h2 className="font-semibold text-gray-900">Current Budget Equipment Plan</h2>
+                    <p className="text-xs text-gray-500 mt-1">Budget-specific assumptions for equipment linked to this budget.</p>
                   </div>
                 </div>
                 {equipmentFilteredItems.length === 0 ? (
@@ -2321,7 +2262,7 @@ export default function BudgetPage() {
                         <p className="text-xs text-gray-500 mt-1">Add existing equipment to this budget.</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={13} /> New Equipment</Button>
+                        <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={13} /> New Equipment</Button>
                         <button
                           type="button"
                           onClick={() => setEquipmentCatalogCollapsed(true)}
@@ -2346,7 +2287,7 @@ export default function BudgetPage() {
                       <div className="text-sm text-gray-500 p-2">
                         <p>No equipment in your catalog yet.</p>
                         <div className="mt-2">
-                          <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={12} /> New Equipment</Button>
+                          <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={12} /> New Equipment</Button>
                         </div>
                       </div>
                     ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
@@ -2978,7 +2919,7 @@ export default function BudgetPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-gray-600">Add existing equipment to this budget.</p>
-            <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={13} /> New Equipment</Button>
+            <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={13} /> New Equipment</Button>
           </div>
           <Input
             value={equipmentCatalogSearch}
@@ -2991,7 +2932,7 @@ export default function BudgetPage() {
               <div className="text-sm text-gray-500 p-2">
                 <p>No equipment in your catalog yet.</p>
                 <div className="mt-2">
-                  <Button size="sm" onClick={() => setCreateEquipmentOpen(true)}><Plus size={12} /> New Equipment</Button>
+                  <Button size="sm" onClick={() => openCategoryEditor('equipment')}><Plus size={12} /> New Equipment</Button>
                 </div>
               </div>
             ) : filteredCatalogEquipment.length === 0 && normalizedEquipmentCatalogSearch.length > 0 ? (
@@ -3020,77 +2961,6 @@ export default function BudgetPage() {
               </>
             )}
           </div>
-        </div>
-      </Modal>
-
-      <Modal
-        open={createEquipmentOpen}
-        onClose={() => setCreateEquipmentOpen(false)}
-        title="New Equipment"
-        footer={<>
-          <Button variant="secondary" onClick={() => setCreateEquipmentOpen(false)}>Cancel</Button>
-          <Button onClick={() => void handleCreateEquipmentAndAddToBudget()}>Create & Add</Button>
-        </>}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Input
-            label="Name"
-            required
-            value={equipmentForm.name}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, name: event.target.value }))}
-          />
-          <Input
-            label="Type"
-            required
-            value={equipmentForm.type}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, type: event.target.value }))}
-          />
-          <Select
-            label="Status"
-            value={equipmentForm.status}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, status: event.target.value as EquipmentStatus }))}
-          >
-            <option value="available">Available</option>
-            <option value="in_use">In Use</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="inactive">Inactive</option>
-          </Select>
-          <Select
-            label="Cost Type"
-            value={equipmentForm.costType}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, costType: event.target.value as EquipmentCostType }))}
-          >
-            {EQUIPMENT_COST_TYPES.map((costType) => (
-              <option key={costType} value={costType}>{toOptionLabel(costType)}</option>
-            ))}
-          </Select>
-          <Input
-            label="Serial Number"
-            value={equipmentForm.serialNumber}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, serialNumber: event.target.value }))}
-          />
-          <Input
-            label="Purchase Date"
-            type="date"
-            value={equipmentForm.purchaseDate}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, purchaseDate: event.target.value }))}
-          />
-          <Input
-            label="Hourly Cost"
-            type="number"
-            min={0}
-            step={0.01}
-            value={equipmentForm.hourlyCost}
-            onChange={(event) => setEquipmentForm((current) => ({ ...current, hourlyCost: Number(event.target.value) }))}
-          />
-          <div className="sm:col-span-2">
-            <TextArea
-              label="Notes"
-              value={equipmentForm.notes}
-              onChange={(event) => setEquipmentForm((current) => ({ ...current, notes: event.target.value }))}
-            />
-          </div>
-          {equipmentCatalogError && <p className="sm:col-span-2 text-xs text-accent-700">{equipmentCatalogError}</p>}
         </div>
       </Modal>
 
