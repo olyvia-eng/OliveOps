@@ -721,6 +721,9 @@ function validateBudgetItemRecord(record) {
   if (record.equipmentCostType !== undefined && record.equipmentCostType !== null && !EQUIPMENT_COST_TYPES.has(record.equipmentCostType)) {
     return 'Budget item equipment cost type is invalid.';
   }
+  if (record.equipmentId !== undefined && record.equipmentId !== null && !isNonEmptyString(record.equipmentId)) {
+    return 'Budget item equipment id is invalid.';
+  }
   if (record.equipmentPayment !== undefined && record.equipmentPayment !== null && (!isFiniteNumber(record.equipmentPayment) || record.equipmentPayment < 0)) {
     return 'Equipment payment must be zero or greater.';
   }

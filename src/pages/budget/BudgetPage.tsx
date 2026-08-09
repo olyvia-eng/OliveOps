@@ -200,6 +200,7 @@ export default function BudgetPage() {
     budgetRates,
     labourBudgetPlans,
     revenueSalesGoals,
+    equipmentAssets,
     addBudget,
     updateBudget,
     employees,
@@ -337,6 +338,25 @@ export default function BudgetPage() {
       .sort((a, b) => a.sortOrder - b.sortOrder || a.itemName.localeCompare(b.itemName));
   }, [activeBudgetId, budgetRates]);
 
+  const equipmentAssetsById = useMemo(() => {
+    const next: Record<string, { id: string; name: string; type: string; serialNumber: string }> = {};
+    for (const asset of equipmentAssets) {
+      next[asset.id] = {
+        id: asset.id,
+        name: asset.name,
+        type: asset.type,
+        serialNumber: asset.serialNumber,
+      };
+    }
+    return next;
+  }, [equipmentAssets]);
+
+  const sortedEquipmentAssets = useMemo(() => {
+    return equipmentAssets
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }, [equipmentAssets]);
+
   const allYears = [...new Set(scopedBudgetItems.map((b) => b.period.slice(0, 4)))].sort().reverse();
 
   const items = useMemo(() => {
@@ -454,6 +474,7 @@ export default function BudgetPage() {
   const handleSave = () => {
     if (!form.description.trim()) return;
     const normalizedCostCode = form.costCode?.trim();
+    const normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
     const normalizedFuelPriceUnit: BudgetItem['fuelPriceUnit'] = form.fuelPriceUnit === 'gal' ? 'gal' : 'L';
     const normalizedFuelPrice = normalizeNumber(form.averageFuelPrice);
@@ -478,7 +499,7 @@ export default function BudgetPage() {
       + normalizedVariableOperatingCostPerYear;
     const equipmentFields = form.category === 'equipment'
       ? {
-          equipmentId: form.equipmentId,
+          equipmentId: normalizedEquipmentId,
           equipmentPayment: normalizedEquipmentPayment,
           equipmentPaymentFrequencyPerYear: normalizedEquipmentPaymentFrequencyPerYear,
           fuelPriceUnit: normalizedFuelPriceUnit,
@@ -526,6 +547,25 @@ export default function BudgetPage() {
     setModalOpen(false);
   };
   const set = (key: keyof typeof form, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleLinkedEquipmentSelect = (value: string) => {
+    setForm((current) => {
+      const equipmentId = value.trim() ? value : undefined;
+      if (!equipmentId) {
+        return { ...current, equipmentId: undefined };
+      }
+      const selected = equipmentAssetsById[equipmentId];
+      if (!selected) {
+        return { ...current, equipmentId };
+      }
+
+      const next = { ...current, equipmentId };
+      if (!next.description.trim()) {
+        next.description = selected.name;
+      }
+      return next;
+    });
+  };
 
   const openCategoryEditor = (category: BudgetCategory) => {
     const existingItem = items.find((item) => item.category === category);
@@ -667,6 +707,59 @@ export default function BudgetPage() {
       owned: totalFor('owned'),
     };
   }, [grouped.equipment]);
+
+  const equipmentAllocationStatusByItemId = useMemo(() => {
+    const statuses: Record<string, {
+      totalAllocatedPercent: number;
+      unallocatedPercent: number;
+      overAllocatedPercent: number;
+      isBalanced: boolean;
+      isOverAllocated: boolean;
+    }> = {};
+
+    const activeBudgetIds = new Set(
+      budgets
+        .filter((budget) => budget.fiscalYear === year && budget.status === 'active')
+        .map((budget) => budget.id)
+    );
+
+    const groupedByIdentity: Record<string, BudgetItem[]> = {};
+    for (const item of budgetItems) {
+      if (item.category !== 'equipment') continue;
+      if (!item.period.startsWith(`${year}-`)) continue;
+      if (!item.budgetId || !activeBudgetIds.has(item.budgetId)) continue;
+      const identity = normalizedEquipmentIdentity(item);
+      if (!identity) continue;
+      if (!groupedByIdentity[identity]) groupedByIdentity[identity] = [];
+      groupedByIdentity[identity].push(item);
+    }
+
+    for (const identity of Object.keys(groupedByIdentity)) {
+      const rows = groupedByIdentity[identity];
+      const totalAllocatedPercent = rows.reduce((sum, item) => {
+        const value = Number.isFinite(item.equipmentCostAllocationPercent ?? 0)
+          ? Math.max(0, item.equipmentCostAllocationPercent ?? 0)
+          : 0;
+        return sum + value;
+      }, 0);
+      const unallocatedPercent = Math.max(0, 100 - totalAllocatedPercent);
+      const overAllocatedPercent = Math.max(0, totalAllocatedPercent - 100);
+      const isBalanced = Math.abs(totalAllocatedPercent - 100) <= 0.1;
+      const isOverAllocated = totalAllocatedPercent > 100;
+
+      for (const row of rows) {
+        statuses[row.id] = {
+          totalAllocatedPercent,
+          unallocatedPercent,
+          overAllocatedPercent,
+          isBalanced,
+          isOverAllocated,
+        };
+      }
+    }
+
+    return statuses;
+  }, [budgetItems, budgets, year]);
 
   const selectedCategory = activeTab !== 'analysis' ? activeTab : null;
   const selectedCategoryItems = selectedCategory ? grouped[selectedCategory] : [];
@@ -2120,6 +2213,28 @@ export default function BudgetPage() {
                             </span>
                           )}
                         </div>
+                        {b.category === 'equipment' && (() => {
+                          const allocationStatus = equipmentAllocationStatusByItemId[b.id];
+                          const linkedAsset = b.equipmentId ? equipmentAssetsById[b.equipmentId] : undefined;
+                          return (
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                              {linkedAsset && (
+                                <span className="inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-700">
+                                  Linked: {linkedAsset.name}
+                                </span>
+                              )}
+                              {allocationStatus && (
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${allocationStatus.isBalanced ? 'bg-brand-50 text-brand-700' : allocationStatus.isOverAllocated ? 'bg-accent-50 text-accent-700' : 'bg-gray-100 text-gray-700'}`}>
+                                  {allocationStatus.isBalanced
+                                    ? `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · Fully allocated`
+                                    : allocationStatus.isOverAllocated
+                                      ? `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · Over by ${allocationStatus.overAllocatedPercent.toFixed(1)}%`
+                                      : `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · ${allocationStatus.unallocatedPercent.toFixed(1)}% unallocated`}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-2 text-right">{formatCurrency(b.budgeted)}</td>
                       <td className="px-4 py-2">
@@ -2173,6 +2288,28 @@ export default function BudgetPage() {
                               </span>
                             )}
                           </div>
+                          {b.category === 'equipment' && (() => {
+                            const allocationStatus = equipmentAllocationStatusByItemId[b.id];
+                            const linkedAsset = b.equipmentId ? equipmentAssetsById[b.equipmentId] : undefined;
+                            return (
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                                {linkedAsset && (
+                                  <span className="inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 font-medium text-brand-700">
+                                    Linked: {linkedAsset.name}
+                                  </span>
+                                )}
+                                {allocationStatus && (
+                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${allocationStatus.isBalanced ? 'bg-brand-50 text-brand-700' : allocationStatus.isOverAllocated ? 'bg-accent-50 text-accent-700' : 'bg-gray-100 text-gray-700'}`}>
+                                    {allocationStatus.isBalanced
+                                      ? `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · Fully allocated`
+                                      : allocationStatus.isOverAllocated
+                                        ? `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · Over by ${allocationStatus.overAllocatedPercent.toFixed(1)}%`
+                                        : `Allocated ${allocationStatus.totalAllocatedPercent.toFixed(1)}% · ${allocationStatus.unallocatedPercent.toFixed(1)}% unallocated`}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-2 text-right">{formatCurrency(b.budgeted)}</td>
                         <td className="px-4 py-2">
@@ -2223,6 +2360,18 @@ export default function BudgetPage() {
               >
                 {EQUIPMENT_COST_TYPES.map((costType) => (
                   <option key={costType} value={costType}>{costType.charAt(0).toUpperCase() + costType.slice(1)}</option>
+                ))}
+              </Select>
+              <Select
+                label="Linked Equipment Asset"
+                value={form.equipmentId ?? ''}
+                onChange={(e) => handleLinkedEquipmentSelect(e.target.value)}
+              >
+                <option value="">Unlinked (manual equipment row)</option>
+                {sortedEquipmentAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name}{asset.type ? ` - ${asset.type}` : ''}{asset.serialNumber ? ` (${asset.serialNumber})` : ''}
+                  </option>
                 ))}
               </Select>
 

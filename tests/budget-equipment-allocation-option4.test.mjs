@@ -25,3 +25,20 @@ test('budget item API validates months used and allocation percent on budget ent
   assert.match(source, /Months used per year must be a whole number between 1 and 12\./);
   assert.match(source, /Equipment cost allocation percent must be zero or greater\./);
 });
+
+test('budget equipment editor exposes explicit linked equipment selection', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /label="Linked Equipment Asset"/);
+  assert.match(source, /Unlinked \(manual equipment row\)/);
+  assert.match(source, /handleLinkedEquipmentSelect/);
+});
+
+test('equipment list rows display allocation summary status badges', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /Allocated \$\{allocationStatus\.totalAllocatedPercent\.toFixed\(1\)\}%/);
+  assert.match(source, /Fully allocated/);
+  assert.match(source, /Over by \$\{allocationStatus\.overAllocatedPercent\.toFixed\(1\)\}%/);
+  assert.match(source, /unallocated/);
+});
