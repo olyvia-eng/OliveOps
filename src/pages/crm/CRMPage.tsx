@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin, Users, FilterX } from 'lucide-react';
@@ -6,6 +6,8 @@ import { statusColor } from '../../utils';
 import type { Address, Customer, CustomerStatus } from '../../types';
 
 const STATUSES: CustomerStatus[] = ['lead', 'prospect', 'active', 'inactive'];
+const CRM_VIEW_MODE_STORAGE_KEY = 'oliveops.crm.viewMode';
+type CRMViewMode = 'card' | 'list';
 
 const emptyProperty = (): Address => ({
   nickname: '',
@@ -62,10 +64,19 @@ export default function CRMPage() {
   const { customers, addCustomer, updateCustomer, deleteCustomer } = useStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'all'>('all');
+  const [crmViewMode, setCrmViewMode] = useState<CRMViewMode>(() => {
+    if (typeof window === 'undefined') return 'card';
+    return window.localStorage.getItem(CRM_VIEW_MODE_STORAGE_KEY) === 'list' ? 'list' : 'card';
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyCustomer());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(CRM_VIEW_MODE_STORAGE_KEY, crmViewMode);
+  }, [crmViewMode]);
 
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
@@ -157,7 +168,27 @@ export default function CRMPage() {
       <PageHeader
         title="CRM"
         subtitle="Manage your customers, leads, and contacts."
-        action={<Button onClick={openNew}><Plus size={16} /> New Customer</Button>}
+        action={(
+          <div className="flex flex-wrap gap-2">
+            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setCrmViewMode('card')}
+                className={`px-3 py-1 text-xs font-medium rounded ${crmViewMode === 'card' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                Card View
+              </button>
+              <button
+                type="button"
+                onClick={() => setCrmViewMode('list')}
+                className={`px-3 py-1 text-xs font-medium rounded ${crmViewMode === 'list' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+              >
+                List View
+              </button>
+            </div>
+            <Button onClick={openNew}><Plus size={16} /> New Customer</Button>
+          </div>
+        )}
       />
 
       {/* Filters */}
@@ -197,7 +228,7 @@ export default function CRMPage() {
             action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear Filters</Button> : undefined}
           />
         )
-      ) : (
+      ) : crmViewMode === 'card' ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((c) => (
             (() => {
@@ -258,6 +289,64 @@ export default function CRMPage() {
             })()
           ))}
         </div>
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[980px]">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-left text-gray-500">
+                  <th className="px-4 py-3 font-medium">Client</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Contact</th>
+                  <th className="px-4 py-3 font-medium">Primary Property</th>
+                  <th className="px-4 py-3 font-medium text-right">Properties</th>
+                  <th className="px-4 py-3 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map((customer) => {
+                  const properties = normalizeProperties(customer.properties, customer.address);
+                  const primaryProperty = properties[0];
+                  return (
+                    <tr key={customer.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-900">{customer.name}</p>
+                        {customer.company && <p className="text-sm text-gray-500">{customer.company}</p>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge label={customer.status} className={statusColor[customer.status]} />
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {customer.email && <p className="truncate">{customer.email}</p>}
+                        {customer.phone && <p>{customer.phone}</p>}
+                        {!customer.email && !customer.phone && <span className="text-gray-400">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {primaryProperty.city ? (
+                          <span>
+                            {primaryProperty.nickname?.trim() ? `${primaryProperty.nickname} - ` : ''}
+                            {primaryProperty.city}, {primaryProperty.province}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-600">
+                        {properties.length}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="secondary" size="sm" onClick={() => openEdit(customer)}><Pencil size={13} /> Edit</Button>
+                          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(customer.id)}><Trash2 size={13} /> Delete</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Form Modal */}
