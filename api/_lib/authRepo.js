@@ -3537,7 +3537,7 @@ export async function listEmployeesForBusiness(businessId) {
     name: item.name,
     email: item.email,
     phone: item.phone,
-    role: item.role,
+    role: normalizeEmployeeRole(item.role),
     hourlyRate: item.hourlyRate,
     compensationType: item.compensationType ?? 'hourly',
     labourType: item.labourType ?? 'field_producing',

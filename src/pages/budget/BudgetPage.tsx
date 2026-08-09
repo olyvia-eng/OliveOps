@@ -978,7 +978,7 @@ export default function BudgetPage() {
     if (!normalizedCatalogSearch) return activeEmployees;
 
     return activeEmployees.filter((employee) => {
-      const roleLabel = toOptionLabel(employee.role).toLowerCase();
+      const roleLabel = toOptionLabel(employee.role ?? 'crew_member').toLowerCase();
       const labourLabel = toOptionLabel(employee.labourType ?? 'field_producing').toLowerCase();
       return employee.name.toLowerCase().includes(normalizedCatalogSearch)
         || roleLabel.includes(normalizedCatalogSearch)
@@ -1737,7 +1737,7 @@ export default function BudgetPage() {
                       return (
                         <div key={employee.id} className="rounded-lg border border-gray-100 p-3 bg-white">
                           <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
-                          <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role)}</p>
+                          <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role ?? 'crew_member')}</p>
                           <div className="mt-2">
                             {added ? (
                               <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
@@ -2367,7 +2367,7 @@ export default function BudgetPage() {
                 return (
                   <div key={employee.id} className="rounded-lg border border-gray-100 p-3">
                     <p className="text-sm font-medium text-gray-900 leading-tight">{employee.name}</p>
-                    <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role)}</p>
+                    <p className="text-xs text-gray-500 mt-1">{toOptionLabel(employee.role ?? 'crew_member')}</p>
                     <div className="mt-2">
                       {added ? (
                         <span className="inline-flex rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Added</span>
