@@ -84,9 +84,17 @@ const compareBudgetItemsByCostCode = (a: BudgetItem, b: BudgetItem) => {
   return a.description.localeCompare(b.description, undefined, { sensitivity: 'base' });
 };
 
+const normalizedEquipmentIdentity = (item: Pick<BudgetItem, 'equipmentId' | 'costCode' | 'description'>) => {
+  if (item.equipmentId?.trim()) return `id:${item.equipmentId.trim()}`;
+  if (item.costCode?.trim()) return `code:${item.costCode.trim().toUpperCase()}`;
+  if (item.description.trim()) return `desc:${item.description.trim().toLowerCase()}`;
+  return null;
+};
+
 const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   budgetId,
   category: 'labour',
+  equipmentId: undefined,
   equipmentCostType: undefined,
   costCode: '',
   equipmentPayment: undefined,
@@ -102,6 +110,8 @@ const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   monthlyMaintenanceCost: undefined,
   sellableHoursPerYear: undefined,
   actualMachineHoursPerYear: undefined,
+  monthsUsedPerYear: undefined,
+  equipmentCostAllocationPercent: undefined,
   description: '',
   budgeted: 0,
   actual: 0,
@@ -120,6 +130,8 @@ const equipmentInfoDefaults = () => ({
   equipmentHoursPerDay: 8,
   sellableHoursPerYear: 0,
   actualMachineHoursPerYear: 0,
+  monthsUsedPerYear: 12,
+  equipmentCostAllocationPercent: 100,
 });
 
 const yearlyHoursBase = 2080;
@@ -413,6 +425,7 @@ export default function BudgetPage() {
     setForm({
       budgetId: b.budgetId ?? activeBudgetId ?? undefined,
       category: b.category,
+      equipmentId: b.equipmentId,
       equipmentCostType: normalizeEquipmentCostType(b.equipmentCostType),
       costCode: b.costCode ?? '',
       equipmentPayment: b.equipmentPayment,
@@ -426,6 +439,8 @@ export default function BudgetPage() {
       equipmentHoursPerDay: b.equipmentHoursPerDay ?? 8,
       sellableHoursPerYear: b.sellableHoursPerYear,
       actualMachineHoursPerYear: b.actualMachineHoursPerYear,
+      monthsUsedPerYear: b.monthsUsedPerYear ?? 12,
+      equipmentCostAllocationPercent: b.equipmentCostAllocationPercent ?? 100,
       description: b.description,
       budgeted: b.budgeted,
       actual: b.actual,
@@ -450,13 +465,20 @@ export default function BudgetPage() {
     const normalizedYearlyMaintenanceCost = normalizeNumber(form.yearlyMaintenanceCost);
     const normalizedEquipmentHoursPerDay = normalizeNumber(form.equipmentHoursPerDay);
     const normalizedBillableHoursPerYear = normalizeNumber(form.sellableHoursPerYear);
-    const normalizedTotalEquipmentCostPerYear =
+    const normalizedMonthsUsedPerYear = Math.max(1, Math.min(12, Math.round(normalizeNumber(form.monthsUsedPerYear) || 1)));
+    const normalizedEquipmentCostAllocationPercent = normalizeNumber(form.equipmentCostAllocationPercent);
+    const normalizedFixedOwnershipCostBasePerYear =
       (normalizedEquipmentPayment * normalizedEquipmentPaymentFrequencyPerYear)
-      + (normalizedFuelCostPerHour * normalizedBillableHoursPerYear)
       + normalizedYearlyInsuranceCost
       + normalizedYearlyMaintenanceCost;
+    const normalizedAllocatedFixedOwnershipCostPerYear = normalizedFixedOwnershipCostBasePerYear * (normalizedEquipmentCostAllocationPercent / 100);
+    const normalizedVariableOperatingCostPerYear = normalizedFuelCostPerHour * normalizedBillableHoursPerYear;
+    const normalizedTotalEquipmentCostPerYear =
+      normalizedAllocatedFixedOwnershipCostPerYear
+      + normalizedVariableOperatingCostPerYear;
     const equipmentFields = form.category === 'equipment'
       ? {
+          equipmentId: form.equipmentId,
           equipmentPayment: normalizedEquipmentPayment,
           equipmentPaymentFrequencyPerYear: normalizedEquipmentPaymentFrequencyPerYear,
           fuelPriceUnit: normalizedFuelPriceUnit,
@@ -470,8 +492,11 @@ export default function BudgetPage() {
           monthlyMaintenanceCost: undefined,
           sellableHoursPerYear: normalizedBillableHoursPerYear,
           actualMachineHoursPerYear: normalizeNumber(form.actualMachineHoursPerYear),
+          monthsUsedPerYear: normalizedMonthsUsedPerYear,
+          equipmentCostAllocationPercent: normalizedEquipmentCostAllocationPercent,
         }
       : {
+          equipmentId: undefined,
           equipmentPayment: undefined,
           equipmentPaymentFrequencyPerYear: undefined,
           fuelPriceUnit: undefined,
@@ -485,6 +510,8 @@ export default function BudgetPage() {
           monthlyMaintenanceCost: undefined,
           sellableHoursPerYear: undefined,
           actualMachineHoursPerYear: undefined,
+          monthsUsedPerYear: undefined,
+          equipmentCostAllocationPercent: undefined,
         };
     const yearlyForm = {
       ...form,
@@ -852,21 +879,85 @@ export default function BudgetPage() {
   const normalizedYearlyMaintenanceCost = Math.max(0, Number.isFinite(form.yearlyMaintenanceCost ?? 0) ? (form.yearlyMaintenanceCost ?? 0) : 0);
   const normalizedEquipmentHoursPerDay = Math.max(0, Number.isFinite(form.equipmentHoursPerDay ?? 0) ? (form.equipmentHoursPerDay ?? 0) : 0);
   const normalizedBillableHoursPerYear = Math.max(0, Number.isFinite(form.sellableHoursPerYear ?? 0) ? (form.sellableHoursPerYear ?? 0) : 0);
+  const normalizedMonthsUsedPerYear = Math.max(1, Math.min(12, Math.round(Number.isFinite(form.monthsUsedPerYear ?? 0) ? (form.monthsUsedPerYear ?? 0) : 1)));
+  const normalizedEquipmentCostAllocationPercent = Math.max(0, Number.isFinite(form.equipmentCostAllocationPercent ?? 0) ? (form.equipmentCostAllocationPercent ?? 0) : 0);
   const calculatedAnnualPaymentCost = normalizedEquipmentPayment * normalizedEquipmentPaymentFrequencyPerYear;
+  const calculatedFixedOwnershipCostBasePerYear =
+    calculatedAnnualPaymentCost
+    + normalizedYearlyInsuranceCost
+    + normalizedYearlyMaintenanceCost;
+  const calculatedAllocatedFixedOwnershipCostPerYear = calculatedFixedOwnershipCostBasePerYear * (normalizedEquipmentCostAllocationPercent / 100);
   const calculatedAnnualFuelCost = calculatedFuelCostPerHour * normalizedBillableHoursPerYear;
   const calculatedAnnualInsuranceCost = normalizedYearlyInsuranceCost;
   const calculatedAnnualMaintenanceCost = normalizedYearlyMaintenanceCost;
   const calculatedTotalEquipmentCostPerYear =
-    calculatedAnnualPaymentCost
-    + calculatedAnnualFuelCost
-    + calculatedAnnualInsuranceCost
-    + calculatedAnnualMaintenanceCost;
+    calculatedAllocatedFixedOwnershipCostPerYear
+    + calculatedAnnualFuelCost;
   const calculatedTotalEquipmentCostPerHour = normalizedBillableHoursPerYear > 0
     ? calculatedTotalEquipmentCostPerYear / normalizedBillableHoursPerYear
     : 0;
   const calculatedTotalEquipmentCostPerDay = normalizedEquipmentHoursPerDay > 0
     ? calculatedTotalEquipmentCostPerHour * normalizedEquipmentHoursPerDay
     : 0;
+  const equipmentAllocationPreview = useMemo(() => {
+    if (form.category !== 'equipment') return null;
+
+    const identity = normalizedEquipmentIdentity({
+      equipmentId: form.equipmentId,
+      costCode: form.costCode,
+      description: form.description,
+    });
+    if (!identity) return null;
+
+    const activeBudgetIds = new Set(
+      budgets
+        .filter((budget) => budget.fiscalYear === year && budget.status === 'active')
+        .map((budget) => budget.id)
+    );
+
+    const peers = budgetItems.filter((item) => {
+      if (item.category !== 'equipment') return false;
+      if (!item.period.startsWith(`${year}-`)) return false;
+      if (!item.budgetId || !activeBudgetIds.has(item.budgetId)) return false;
+      return normalizedEquipmentIdentity(item) === identity;
+    });
+
+    const existingTotal = peers
+      .filter((item) => item.id !== editing?.id)
+      .reduce((sum, item) => {
+        const value = Number.isFinite(item.equipmentCostAllocationPercent ?? 0)
+          ? Math.max(0, item.equipmentCostAllocationPercent ?? 0)
+          : 0;
+        return sum + value;
+      }, 0);
+
+    const includeCurrentBudget = Boolean(activeBudgetId && activeBudgetIds.has(activeBudgetId));
+    const totalAllocatedPercent = includeCurrentBudget
+      ? existingTotal + normalizedEquipmentCostAllocationPercent
+      : existingTotal;
+    const unallocatedPercent = Math.max(0, 100 - totalAllocatedPercent);
+    const overAllocatedPercent = Math.max(0, totalAllocatedPercent - 100);
+    const isBalanced = Math.abs(totalAllocatedPercent - 100) <= 0.1;
+
+    return {
+      totalAllocatedPercent,
+      unallocatedPercent,
+      overAllocatedPercent,
+      isBalanced,
+      activeBudgetCount: peers.filter((item) => item.id !== editing?.id).length + (includeCurrentBudget ? 1 : 0),
+    };
+  }, [
+    activeBudgetId,
+    budgetItems,
+    budgets,
+    editing?.id,
+    form.category,
+    form.costCode,
+    form.description,
+    form.equipmentId,
+    normalizedEquipmentCostAllocationPercent,
+    year,
+  ]);
   const overheadMonthlyCost = Math.max(0, Number.isFinite(form.budgeted) ? form.budgeted / 12 : 0);
 
   const marginDivisor = Math.max(0.01, 1 - pricingInputs.targetMarginPct / 100);
@@ -2263,7 +2354,40 @@ export default function BudgetPage() {
                       value={form.equipmentHoursPerDay ?? 0}
                       onChange={(e) => set('equipmentHoursPerDay', Number(e.target.value))}
                     />
+                    <Input
+                      label="Months Used per Year (Planning)"
+                      type="number"
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={form.monthsUsedPerYear ?? 12}
+                      onChange={(e) => set('monthsUsedPerYear', Number(e.target.value))}
+                    />
+                    <Input
+                      label="Cost Allocation % (Fixed Ownership)"
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      value={form.equipmentCostAllocationPercent ?? 100}
+                      onChange={(e) => set('equipmentCostAllocationPercent', Number(e.target.value))}
+                    />
                   </div>
+                  <p className="text-xs text-gray-500 sm:col-span-2">
+                    Months Used per Year is operational planning context only. Fixed ownership allocation is calculated from Cost Allocation %.
+                  </p>
+                  {equipmentAllocationPreview && (
+                    <div className={`sm:col-span-2 rounded-xl border p-3 ${equipmentAllocationPreview.isBalanced ? 'border-brand-100 bg-brand-50/50' : equipmentAllocationPreview.totalAllocatedPercent > 100 ? 'border-accent-200 bg-accent-50/60' : 'border-gray-200 bg-gray-50'}`}>
+                      <p className="text-sm font-semibold text-gray-900">Allocated: {equipmentAllocationPreview.totalAllocatedPercent.toFixed(1)}%</p>
+                      <p className={`mt-1 text-xs font-medium ${equipmentAllocationPreview.isBalanced ? 'text-brand-700' : equipmentAllocationPreview.totalAllocatedPercent > 100 ? 'text-accent-700' : 'text-gray-700'}`}>
+                        {equipmentAllocationPreview.isBalanced
+                          ? 'Fully allocated.'
+                          : equipmentAllocationPreview.totalAllocatedPercent > 100
+                            ? `Warning: Over-allocated by ${equipmentAllocationPreview.overAllocatedPercent.toFixed(1)}%.`
+                            : `${equipmentAllocationPreview.unallocatedPercent.toFixed(1)}% Unallocated.`}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">Across active budgets in fiscal year {year}. Saving above 100% remains allowed.</p>
+                    </div>
+                  )}
                 </div>
               </fieldset>
             </div>
@@ -2313,7 +2437,13 @@ export default function BudgetPage() {
                       Annual Payments: {formatCurrency(normalizedEquipmentPayment)} x {formatNumericDisplayValue(normalizedEquipmentPaymentFrequencyPerYear)} = {formatCurrency(calculatedAnnualPaymentCost)}
                     </p>
                     <p>
-                      Annual Fuel: {formatCurrency(calculatedFuelCostPerHour)} x {formatNumericDisplayValue(normalizedBillableHoursPerYear)} hrs = {formatCurrency(calculatedAnnualFuelCost)}
+                      Fixed Ownership Base: {formatCurrency(calculatedAnnualPaymentCost)} + {formatCurrency(calculatedAnnualInsuranceCost)} + {formatCurrency(calculatedAnnualMaintenanceCost)} = {formatCurrency(calculatedFixedOwnershipCostBasePerYear)}
+                    </p>
+                    <p>
+                      Allocated Fixed Ownership: {formatCurrency(calculatedFixedOwnershipCostBasePerYear)} x {formatNumericDisplayValue(normalizedEquipmentCostAllocationPercent)}% = {formatCurrency(calculatedAllocatedFixedOwnershipCostPerYear)}
+                    </p>
+                    <p>
+                      Variable Operating Cost: {formatCurrency(calculatedFuelCostPerHour)} x {formatNumericDisplayValue(normalizedBillableHoursPerYear)} hrs = {formatCurrency(calculatedAnnualFuelCost)}
                     </p>
                     <p>
                       Yearly Insurance: {formatCurrency(calculatedAnnualInsuranceCost)}
@@ -2329,6 +2459,9 @@ export default function BudgetPage() {
                     </p>
                     <p>
                       Total Cost per Day: {formatCurrency(calculatedTotalEquipmentCostPerDay)} ({formatNumericDisplayValue(normalizedEquipmentHoursPerDay)} hrs/day)
+                    </p>
+                    <p>
+                      Planning Months (not used in allocation formula): {formatNumericDisplayValue(normalizedMonthsUsedPerYear)}
                     </p>
                   </div>
                 )}

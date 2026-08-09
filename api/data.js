@@ -415,6 +415,7 @@ const EQUIPMENT_STATUSES = new Set(['available', 'in_use', 'maintenance', 'inact
 const EQUIPMENT_COST_TYPES = new Set(['financed', 'leased', 'owned']);
 const BUDGET_TYPES = new Set(['operating', 'capital', 'project', 'forecast', 'custom']);
 const BUDGET_STATUSES = new Set(['draft', 'active', 'archived']);
+const BUDGET_ITEM_CATEGORIES = new Set(['revenue', 'labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance', 'other']);
 const ESTIMATE_STATUSES = new Set(['draft', 'sent', 'accepted', 'declined', 'converted']);
 const ESTIMATE_LINE_ITEM_CATEGORIES = new Set(['material', 'equipment', 'labour', 'subcontractor']);
 const BUDGET_RATE_CATEGORIES = new Set(['material', 'equipment', 'labour', 'subcontractor']);
@@ -454,6 +455,7 @@ const FORM_FIELD_TYPES = new Set([
 const FORM_SUBMISSION_STATUSES = new Set(['draft', 'submitted', 'approved', 'rejected']);
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_REGEX = /^\d{4}$/;
+const PERIOD_REGEX = /^\d{4}-\d{2}$/;
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -696,6 +698,87 @@ function validateBudgetRecord(record) {
     return 'Fiscal year must use YYYY format.';
   }
   if (!BUDGET_STATUSES.has(record.status)) return 'Budget status is invalid.';
+  return null;
+}
+
+function validateBudgetItemRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Budget item id is required.';
+  if (record.budgetId !== undefined && record.budgetId !== null && !isNonEmptyString(record.budgetId)) {
+    return 'Budget item budget id is invalid.';
+  }
+  if (!BUDGET_ITEM_CATEGORIES.has(record.category)) return 'Budget item category is invalid.';
+  if (!isNonEmptyString(record.description)) return 'Budget item description is required.';
+  if (!isFiniteNumber(record.budgeted) || record.budgeted < 0) return 'Budget item budgeted must be zero or greater.';
+  if (!isFiniteNumber(record.actual) || record.actual < 0) return 'Budget item actual must be zero or greater.';
+  if (!isNonEmptyString(record.period) || !PERIOD_REGEX.test(record.period)) {
+    return 'Budget item period must use YYYY-MM format.';
+  }
+
+  if (record.category !== 'equipment') {
+    return null;
+  }
+
+  if (record.equipmentCostType !== undefined && record.equipmentCostType !== null && !EQUIPMENT_COST_TYPES.has(record.equipmentCostType)) {
+    return 'Budget item equipment cost type is invalid.';
+  }
+  if (record.equipmentPayment !== undefined && record.equipmentPayment !== null && (!isFiniteNumber(record.equipmentPayment) || record.equipmentPayment < 0)) {
+    return 'Equipment payment must be zero or greater.';
+  }
+  if (
+    record.equipmentPaymentFrequencyPerYear !== undefined
+    && record.equipmentPaymentFrequencyPerYear !== null
+    && (!isFiniteNumber(record.equipmentPaymentFrequencyPerYear) || record.equipmentPaymentFrequencyPerYear < 0)
+  ) {
+    return 'Equipment payment frequency must be zero or greater.';
+  }
+  if (record.fuelPriceUnit !== undefined && record.fuelPriceUnit !== null && record.fuelPriceUnit !== 'L' && record.fuelPriceUnit !== 'gal') {
+    return 'Fuel price unit is invalid.';
+  }
+  if (record.averageFuelPrice !== undefined && record.averageFuelPrice !== null && (!isFiniteNumber(record.averageFuelPrice) || record.averageFuelPrice < 0)) {
+    return 'Average fuel price must be zero or greater.';
+  }
+  if (
+    record.averageFuelBurnPerHour !== undefined
+    && record.averageFuelBurnPerHour !== null
+    && (!isFiniteNumber(record.averageFuelBurnPerHour) || record.averageFuelBurnPerHour < 0)
+  ) {
+    return 'Average fuel burned per hour must be zero or greater.';
+  }
+  if (record.fuelCostPerHour !== undefined && record.fuelCostPerHour !== null && (!isFiniteNumber(record.fuelCostPerHour) || record.fuelCostPerHour < 0)) {
+    return 'Fuel cost per hour must be zero or greater.';
+  }
+  if (record.yearlyInsuranceCost !== undefined && record.yearlyInsuranceCost !== null && (!isFiniteNumber(record.yearlyInsuranceCost) || record.yearlyInsuranceCost < 0)) {
+    return 'Yearly insurance cost must be zero or greater.';
+  }
+  if (record.yearlyMaintenanceCost !== undefined && record.yearlyMaintenanceCost !== null && (!isFiniteNumber(record.yearlyMaintenanceCost) || record.yearlyMaintenanceCost < 0)) {
+    return 'Yearly maintenance cost must be zero or greater.';
+  }
+  if (record.equipmentHoursPerDay !== undefined && record.equipmentHoursPerDay !== null && (!isFiniteNumber(record.equipmentHoursPerDay) || record.equipmentHoursPerDay < 0)) {
+    return 'Equipment hours per day must be zero or greater.';
+  }
+  if (record.sellableHoursPerYear !== undefined && record.sellableHoursPerYear !== null && (!isFiniteNumber(record.sellableHoursPerYear) || record.sellableHoursPerYear < 0)) {
+    return 'Sellable hours per year must be zero or greater.';
+  }
+  if (
+    record.actualMachineHoursPerYear !== undefined
+    && record.actualMachineHoursPerYear !== null
+    && (!isFiniteNumber(record.actualMachineHoursPerYear) || record.actualMachineHoursPerYear < 0)
+  ) {
+    return 'Actual machine hours per year must be zero or greater.';
+  }
+  if (record.monthsUsedPerYear !== undefined && record.monthsUsedPerYear !== null) {
+    if (!Number.isInteger(record.monthsUsedPerYear) || record.monthsUsedPerYear < 1 || record.monthsUsedPerYear > 12) {
+      return 'Months used per year must be a whole number between 1 and 12.';
+    }
+  }
+  if (
+    record.equipmentCostAllocationPercent !== undefined
+    && record.equipmentCostAllocationPercent !== null
+    && (!isFiniteNumber(record.equipmentCostAllocationPercent) || record.equipmentCostAllocationPercent < 0)
+  ) {
+    return 'Equipment cost allocation percent must be zero or greater.';
+  }
+
   return null;
 }
 
@@ -1129,6 +1212,13 @@ export default async function handler(req, res) {
       }
     }
 
+    if (entity === 'budget') {
+      const validationError = validateBudgetItemRecord(record);
+      if (validationError) {
+        return res.status(400).json({ ok: false, error: validationError });
+      }
+    }
+
     if (entity === 'labour-budget-plans') {
       const validationError = validateLabourBudgetPlanRecord(record);
       if (validationError) {
@@ -1318,6 +1408,13 @@ export default async function handler(req, res) {
 
       if (entity === 'budget-rates') {
         const validationError = validateBudgetRateRecord(next);
+        if (validationError) {
+          return res.status(400).json({ ok: false, error: validationError });
+        }
+      }
+
+      if (entity === 'budget') {
+        const validationError = validateBudgetItemRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
