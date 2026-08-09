@@ -16,8 +16,8 @@ test('catalog and budget both use shared canonical equipment form', () => {
   assert.match(budgetSource, /createCatalogEquipmentOnSave/);
 
   assert.match(equipmentFormSource, /Fuel Cost \/ Hour/);
-  assert.match(equipmentFormSource, /Annual Insurance Cost/);
-  assert.match(equipmentFormSource, /Annual Maintenance Cost/);
+  assert.match(equipmentFormSource, /Annual Insurance/);
+  assert.match(equipmentFormSource, /Annual Maintenance/);
   assert.match(equipmentFormSource, /value\.costType !== 'owned'/);
   assert.doesNotMatch(equipmentFormSource, /label="Status"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Date"/);

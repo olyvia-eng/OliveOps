@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PencilLine, PlusCircle, Trash2 } from 'lucide-react';
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
 import type { EquipmentAsset } from '../../types';
@@ -57,6 +57,7 @@ export default function EquipmentCatalogPage() {
   const [form, setForm] = useState<EquipmentAssetFormValue>(emptyEquipmentAssetFormValue());
   const [materialForm, setMaterialForm] = useState<MaterialFormState>(emptyMaterialForm());
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [equipmentModalOpen, setEquipmentModalOpen] = useState(false);
   const [materialQuery, setMaterialQuery] = useState('');
   const [materialSort, setMaterialSort] = useState<MaterialSort>('highest_value');
 
@@ -191,6 +192,11 @@ export default function EquipmentCatalogPage() {
     setEditingId(null);
   };
 
+  const openAddEquipment = () => {
+    resetForm();
+    setEquipmentModalOpen(true);
+  };
+
   const handleMaterialSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!materialForm.name.trim()) return;
@@ -222,6 +228,7 @@ export default function EquipmentCatalogPage() {
     }
 
     resetForm();
+    setEquipmentModalOpen(false);
   };
 
   const startEditing = (asset: EquipmentAsset) => {
@@ -237,6 +244,7 @@ export default function EquipmentCatalogPage() {
       yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
       notes: asset.notes,
     });
+    setEquipmentModalOpen(true);
   };
 
   const handleDelete = (asset: EquipmentAsset) => {
@@ -377,40 +385,14 @@ export default function EquipmentCatalogPage() {
         )}
       </Card>
 
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Edit Equipment' : 'Add Equipment'}</h2>
-              <p className="text-sm text-gray-500">Keep the catalog current so crews can choose the right asset quickly.</p>
-            </div>
-          </div>
-
-          <form id="equipment-catalog-form" onSubmit={handleSubmit} className="space-y-4">
-            <EquipmentAssetForm value={form} onChange={setForm} />
-
-            <div className="flex gap-2">
-              <Button type="submit" className="flex-1 justify-center">
-                {editingId ? 'Save Changes' : 'Add to Catalog'}
-              </Button>
-              {editingId && (
-                <Button type="button" variant="secondary" onClick={resetForm}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </form>
-        </Card>
-
-        <Card className="p-5">
+      <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Equipment Catalog</h2>
               <p className="text-sm text-gray-500">{sortedEquipment.length} equipment items tracked</p>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-medium text-brand-700">
-              <PlusCircle size={16} />
-              Shared list
+            <div className="flex items-center gap-2">
+              <Button onClick={openAddEquipment}><PlusCircle size={16} /> Add Equipment</Button>
             </div>
           </div>
 
@@ -418,7 +400,7 @@ export default function EquipmentCatalogPage() {
             <EmptyState
               title="No equipment yet"
               description="Add company equipment to keep your operational records organized."
-              action={<a href="#equipment-catalog-form"><Button type="button">Add Equipment</Button></a>}
+              action={<Button type="button" onClick={openAddEquipment}>Add Equipment</Button>}
             />
           ) : (
             <div className="space-y-3">
@@ -452,8 +434,28 @@ export default function EquipmentCatalogPage() {
               ))}
             </div>
           )}
-        </Card>
-      </div>
+      </Card>
+
+      <Modal
+        open={equipmentModalOpen}
+        onClose={() => {
+          setEquipmentModalOpen(false);
+          resetForm();
+        }}
+        title={editingId ? 'Edit Equipment' : 'Add Equipment'}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => { setEquipmentModalOpen(false); resetForm(); }}>Cancel</Button>
+            <Button type="submit" form="equipment-modal-form">
+              {editingId ? 'Save Changes' : 'Add to Catalog'}
+            </Button>
+          </>
+        )}
+      >
+        <form id="equipment-modal-form" onSubmit={handleSubmit} className="space-y-4">
+          <EquipmentAssetForm value={form} onChange={setForm} />
+        </form>
+      </Modal>
     </div>
   );
 }

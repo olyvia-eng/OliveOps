@@ -30,7 +30,6 @@ type BudgetTab = 'analysis' | 'revenue' | 'labour' | 'materials' | 'equipment' |
 type LabourTableView = 'all' | 'hourly' | 'salaried';
 type EquipmentTableView = 'all' | EquipmentCostType;
 type ExportColumnMode = 'budgeted' | 'actual';
-const EQUIPMENT_COST_TYPES: EquipmentCostType[] = ['financed', 'leased', 'owned'];
 const RATE_CATEGORIES = ['labour', 'equipment', 'material', 'subcontractor'] as const;
 const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = {
   revenue: 'revenue',
@@ -252,8 +251,6 @@ export default function BudgetPage() {
   const [equipmentTableView, setEquipmentTableView] = useState<EquipmentTableView>('all');
   const [showLabourCalcDetails, setShowLabourCalcDetails] = useState(false);
   const [showEquipmentCalcDetails, setShowEquipmentCalcDetails] = useState(false);
-  const [averageFuelPriceInput, setAverageFuelPriceInput] = useState('0');
-  const [averageFuelBurnPerHourInput, setAverageFuelBurnPerHourInput] = useState('0');
   const [billablePctDrafts, setBillablePctDrafts] = useState<Record<string, string>>({});
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
@@ -438,8 +435,6 @@ export default function BudgetPage() {
       equipmentCostType: undefined,
       period: defaultPeriod,
     });
-    setAverageFuelPriceInput('0');
-    setAverageFuelBurnPerHourInput('0');
     setShowEquipmentCalcDetails(false);
     setCreateCatalogEquipmentOnSave(false);
     setModalOpen(true);
@@ -518,8 +513,6 @@ export default function BudgetPage() {
       actual: b.actual,
       period: b.period,
     });
-    setAverageFuelPriceInput(formatNumericDisplayValue(averageFuelPrice));
-    setAverageFuelBurnPerHourInput(formatNumericDisplayValue(averageFuelBurnPerHour));
     setShowEquipmentCalcDetails(false);
     setCreateCatalogEquipmentOnSave(false);
     setModalOpen(true);
@@ -675,12 +668,8 @@ export default function BudgetPage() {
       period: defaultPeriod,
     });
     if (defaultEquipmentInfo) {
-      setAverageFuelPriceInput(formatNumericDisplayValue(defaultEquipmentInfo.averageFuelPrice));
-      setAverageFuelBurnPerHourInput(formatNumericDisplayValue(defaultEquipmentInfo.averageFuelBurnPerHour));
       setShowEquipmentCalcDetails(false);
     } else {
-      setAverageFuelPriceInput('0');
-      setAverageFuelBurnPerHourInput('0');
       setShowEquipmentCalcDetails(false);
     }
     setCreateCatalogEquipmentOnSave(Boolean(options?.createCatalogAssetOnSave && category === 'equipment'));
@@ -1059,17 +1048,54 @@ export default function BudgetPage() {
     updateBudget(activeBudgetId, { overheadRecoveryAllocation: next });
   };
 
-  const normalizedAverageFuelPrice = Math.max(0, Number.isFinite(form.averageFuelPrice ?? 0) ? (form.averageFuelPrice ?? 0) : 0);
-  const normalizedAverageFuelBurnPerHour = Math.max(0, Number.isFinite(form.averageFuelBurnPerHour ?? 0) ? (form.averageFuelBurnPerHour ?? 0) : 0);
+  const selectedEquipmentForCosts = useMemo(() => {
+    if (form.category !== 'equipment') return null;
+    if (form.equipmentId && equipmentAssetsById[form.equipmentId]) {
+      return equipmentAssetsById[form.equipmentId];
+    }
+    if (createCatalogEquipmentOnSave && !editing) {
+      return toEquipmentAssetPayload(canonicalEquipmentForm);
+    }
+    return null;
+  }, [canonicalEquipmentForm, createCatalogEquipmentOnSave, editing, equipmentAssetsById, form.category, form.equipmentId]);
+
+  const normalizedAverageFuelPrice = Math.max(
+    0,
+    Number.isFinite(selectedEquipmentForCosts?.averageFuelPrice ?? form.averageFuelPrice ?? 0)
+      ? (selectedEquipmentForCosts?.averageFuelPrice ?? form.averageFuelPrice ?? 0)
+      : 0
+  );
+  const normalizedAverageFuelBurnPerHour = Math.max(
+    0,
+    Number.isFinite(selectedEquipmentForCosts?.averageFuelBurnPerHour ?? form.averageFuelBurnPerHour ?? 0)
+      ? (selectedEquipmentForCosts?.averageFuelBurnPerHour ?? form.averageFuelBurnPerHour ?? 0)
+      : 0
+  );
   const calculatedFuelCostPerHour = normalizedAverageFuelPrice * normalizedAverageFuelBurnPerHour;
-  const normalizedEquipmentPayment = Math.max(0, Number.isFinite(form.equipmentPayment ?? 0) ? (form.equipmentPayment ?? 0) : 0);
+  const normalizedEquipmentPayment = Math.max(
+    0,
+    Number.isFinite(selectedEquipmentForCosts?.equipmentPayment ?? form.equipmentPayment ?? 0)
+      ? (selectedEquipmentForCosts?.equipmentPayment ?? form.equipmentPayment ?? 0)
+      : 0
+  );
   const normalizedEquipmentPaymentFrequencyPerYear = Math.max(
     0,
-    Number.isFinite(form.equipmentPaymentFrequencyPerYear ?? 0) ? (form.equipmentPaymentFrequencyPerYear ?? 0) : 0
+    Number.isFinite(selectedEquipmentForCosts?.equipmentPaymentFrequencyPerYear ?? form.equipmentPaymentFrequencyPerYear ?? 0)
+      ? (selectedEquipmentForCosts?.equipmentPaymentFrequencyPerYear ?? form.equipmentPaymentFrequencyPerYear ?? 0)
+      : 0
   );
-  const normalizedYearlyInsuranceCost = Math.max(0, Number.isFinite(form.yearlyInsuranceCost ?? 0) ? (form.yearlyInsuranceCost ?? 0) : 0);
-  const normalizedYearlyMaintenanceCost = Math.max(0, Number.isFinite(form.yearlyMaintenanceCost ?? 0) ? (form.yearlyMaintenanceCost ?? 0) : 0);
-  const normalizedEquipmentHoursPerDay = Math.max(0, Number.isFinite(form.equipmentHoursPerDay ?? 0) ? (form.equipmentHoursPerDay ?? 0) : 0);
+  const normalizedYearlyInsuranceCost = Math.max(
+    0,
+    Number.isFinite(selectedEquipmentForCosts?.yearlyInsuranceCost ?? form.yearlyInsuranceCost ?? 0)
+      ? (selectedEquipmentForCosts?.yearlyInsuranceCost ?? form.yearlyInsuranceCost ?? 0)
+      : 0
+  );
+  const normalizedYearlyMaintenanceCost = Math.max(
+    0,
+    Number.isFinite(selectedEquipmentForCosts?.yearlyMaintenanceCost ?? form.yearlyMaintenanceCost ?? 0)
+      ? (selectedEquipmentForCosts?.yearlyMaintenanceCost ?? form.yearlyMaintenanceCost ?? 0)
+      : 0
+  );
   const normalizedBillableHoursPerYear = Math.max(0, Number.isFinite(form.sellableHoursPerYear ?? 0) ? (form.sellableHoursPerYear ?? 0) : 0);
   const normalizedMonthsUsedPerYear = Math.max(1, Math.min(12, Math.round(Number.isFinite(form.monthsUsedPerYear ?? 0) ? (form.monthsUsedPerYear ?? 0) : 1)));
   const normalizedEquipmentCostAllocationPercent = Math.max(0, Number.isFinite(form.equipmentCostAllocationPercent ?? 0) ? (form.equipmentCostAllocationPercent ?? 0) : 0);
@@ -1087,9 +1113,6 @@ export default function BudgetPage() {
     + calculatedAnnualFuelCost;
   const calculatedTotalEquipmentCostPerHour = normalizedBillableHoursPerYear > 0
     ? calculatedTotalEquipmentCostPerYear / normalizedBillableHoursPerYear
-    : 0;
-  const calculatedTotalEquipmentCostPerDay = normalizedEquipmentHoursPerDay > 0
-    ? calculatedTotalEquipmentCostPerHour * normalizedEquipmentHoursPerDay
     : 0;
   const equipmentAllocationPreview = useMemo(() => {
     if (form.category !== 'equipment') return null;
@@ -2244,7 +2267,7 @@ export default function BudgetPage() {
                           <th className="px-4 py-3 font-medium">Cost Type</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Year</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Day</th>
-                          <th className="px-4 py-3 font-medium text-right">Cost / Hour</th>
+                          <th className="px-4 py-3 font-medium text-right">Budget Sell Rate / Hr</th>
                           <th className="px-4 py-3 font-medium text-right">Actions</th>
                         </tr>
                       </thead>
@@ -2663,145 +2686,28 @@ export default function BudgetPage() {
           )}
           {form.category === 'equipment' && (
             <div className="space-y-4">
-              <Select
-                label="Equipment Cost Type"
-                value={form.equipmentCostType ?? 'financed'}
-                onChange={(e) => set('equipmentCostType', e.target.value as EquipmentCostType)}
-              >
-                {EQUIPMENT_COST_TYPES.map((costType) => (
-                  <option key={costType} value={costType}>{costType.charAt(0).toUpperCase() + costType.slice(1)}</option>
-                ))}
-              </Select>
               <fieldset className="border border-gray-200 rounded-lg p-3">
-                <legend className="text-sm font-medium text-gray-700 px-1">Equipment Info</legend>
+                <legend className="text-sm font-medium text-gray-700 px-1">Budget Equipment Planning</legend>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-gray-700">Payment</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={form.equipmentPayment ?? 0}
-                        className="pl-7"
-                        onChange={(e) => set('equipmentPayment', Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                  <Input
-                    label="Payment Frequency (# per year)"
-                    type="number"
-                    min={0}
-                    value={form.equipmentPaymentFrequencyPerYear ?? 0}
-                    onChange={(e) => set('equipmentPaymentFrequencyPerYear', Number(e.target.value))}
-                  />
-                  <div className="space-y-2 sm:col-span-2">
-                    <p className="text-sm font-medium text-gray-700">Fuel Price Unit</p>
-                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-white">
-                      {(['L', 'gal'] as const).map((unit) => (
-                        <button
-                          key={unit}
-                          type="button"
-                          onClick={() => set('fuelPriceUnit', unit)}
-                          className={`px-3 py-1 text-xs rounded ${
-                            (form.fuelPriceUnit ?? 'L') === unit
-                              ? 'bg-brand-600 text-white'
-                              : 'text-gray-600 hover:bg-gray-100'
-                          }`}
-                        >
-                          {unit}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-gray-700">Fuel Price (/{form.fuelPriceUnit ?? 'L'})</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={averageFuelPriceInput}
-                        className="pl-7"
-                        onChange={(e) => {
-                          setAverageFuelPriceInput(e.target.value);
-                          set('averageFuelPrice', parseNumericInputValue(e.target.value));
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <Input
-                    label={`Fuel Burned per Hour (${form.fuelPriceUnit ?? 'L'}/hr)`}
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={averageFuelBurnPerHourInput}
-                    onChange={(e) => {
-                      setAverageFuelBurnPerHourInput(e.target.value);
-                      set('averageFuelBurnPerHour', parseNumericInputValue(e.target.value));
-                    }}
-                  />
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-gray-700">Fuel Cost per Hour</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={calculatedFuelCostPerHour}
-                        className="pl-7"
-                        disabled
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-gray-700">Yearly Insurance Cost</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={form.yearlyInsuranceCost ?? 0}
-                        className="pl-7"
-                        onChange={(e) => set('yearlyInsuranceCost', Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-medium text-gray-700">Yearly Maintenance Cost</label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={form.yearlyMaintenanceCost ?? 0}
-                        className="pl-7"
-                        onChange={(e) => set('yearlyMaintenanceCost', Number(e.target.value))}
-                      />
-                    </div>
+                  <div className="sm:col-span-2 rounded-lg bg-gray-50 border border-gray-200 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Equipment Cost Inputs From Catalog Record</p>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Payment: {formatCurrency(normalizedEquipmentPayment)} · Frequency: {formatNumericDisplayValue(normalizedEquipmentPaymentFrequencyPerYear)} / year
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      Fuel Cost / Hour: {formatCurrency(calculatedFuelCostPerHour)} · Annual Insurance: {formatCurrency(calculatedAnnualInsuranceCost)} · Annual Maintenance: {formatCurrency(calculatedAnnualMaintenanceCost)}
+                    </p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
                     <Input
-                      label="Billable Hours per Year"
+                      label="Planned/Sellable Hours"
                       type="number"
                       min={0}
                       value={form.sellableHoursPerYear ?? 0}
                       onChange={(e) => set('sellableHoursPerYear', Number(e.target.value))}
                     />
                     <Input
-                      label="Hours per Day"
-                      type="number"
-                      min={0}
-                      step={0.25}
-                      value={form.equipmentHoursPerDay ?? 0}
-                      onChange={(e) => set('equipmentHoursPerDay', Number(e.target.value))}
-                    />
-                    <Input
-                      label="Months Used per Year (Planning)"
+                      label="Months Used Per Year"
                       type="number"
                       min={1}
                       max={12}
@@ -2810,7 +2716,7 @@ export default function BudgetPage() {
                       onChange={(e) => set('monthsUsedPerYear', Number(e.target.value))}
                     />
                     <Input
-                      label="Cost Allocation % (Fixed Ownership)"
+                      label="Cost Allocation %"
                       type="number"
                       min={0}
                       step={0.1}
@@ -2818,9 +2724,6 @@ export default function BudgetPage() {
                       onChange={(e) => set('equipmentCostAllocationPercent', Number(e.target.value))}
                     />
                   </div>
-                  <p className="text-xs text-gray-500 sm:col-span-2">
-                    Months Used per Year is operational planning context only. Fixed ownership allocation is calculated from Cost Allocation %.
-                  </p>
                   {equipmentAllocationPreview && (
                     <div className={`sm:col-span-2 rounded-xl border p-3 ${equipmentAllocationPreview.isBalanced ? 'border-brand-100 bg-brand-50/50' : equipmentAllocationPreview.totalAllocatedPercent > 100 ? 'border-accent-200 bg-accent-50/60' : 'border-gray-200 bg-gray-50'}`}>
                       <p className="text-sm font-semibold text-gray-900">Allocated: {equipmentAllocationPreview.totalAllocatedPercent.toFixed(1)}%</p>
@@ -2841,7 +2744,7 @@ export default function BudgetPage() {
           <div className="grid grid-cols-1 gap-3">
             {form.category === 'equipment' ? (
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Total Equipment Cost per Year</label>
+                <label className="text-sm font-medium text-gray-700">Allocated Annual Cost</label>
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
                   <Input
@@ -2854,17 +2757,17 @@ export default function BudgetPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Total Cost per Hour</label>
+                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Cost / Hour</label>
                     <div className="relative">
                       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
                       <Input type="number" min={0} step={0.01} value={calculatedTotalEquipmentCostPerHour} className="pl-7" disabled />
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Total Cost per Day</label>
+                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Budget Sell Rate / Charge-Out Rate</label>
                     <div className="relative">
                       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                      <Input type="number" min={0} step={0.01} value={calculatedTotalEquipmentCostPerDay} className="pl-7" disabled />
+                      <Input type="number" min={0} step={0.01} value={calculatedTotalEquipmentCostPerHour} className="pl-7" disabled />
                     </div>
                   </div>
                 </div>
@@ -2904,7 +2807,7 @@ export default function BudgetPage() {
                       Total Cost per Hour: {formatCurrency(calculatedTotalEquipmentCostPerHour)}
                     </p>
                     <p>
-                      Total Cost per Day: {formatCurrency(calculatedTotalEquipmentCostPerDay)} ({formatNumericDisplayValue(normalizedEquipmentHoursPerDay)} hrs/day)
+                      Budget Sell Rate / Charge-Out Rate: {formatCurrency(calculatedTotalEquipmentCostPerHour)} / hr
                     </p>
                     <p>
                       Planning Months (not used in allocation formula): {formatNumericDisplayValue(normalizedMonthsUsedPerYear)}

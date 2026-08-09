@@ -59,6 +59,9 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
 
   return (
     <div className="space-y-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Equipment</p>
+      </div>
       <Input
         label="Equipment Name"
         required
@@ -72,29 +75,22 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
         onChange={(event) => set('type', event.target.value)}
         placeholder="Skid Steer"
       />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Select
-          label="Cost Type"
-          value={value.costType}
-          onChange={(event) => set('costType', event.target.value as EquipmentCostType)}
-        >
-          <option value="owned">Owned</option>
-          <option value="leased">Leased</option>
-          <option value="financed">Financed</option>
-        </Select>
-        <Input
-          label="Fuel Cost / Hour"
-          type="number"
-          min="0"
-          step="0.01"
-          value={value.fuelCostPerHour}
-          onChange={(event) => set('fuelCostPerHour', Number(event.target.value || 0))}
-        />
+      <Select
+        label="Cost Type"
+        value={value.costType}
+        onChange={(event) => set('costType', event.target.value as EquipmentCostType)}
+      >
+        <option value="owned">Owned</option>
+        <option value="financed">Financed</option>
+        <option value="leased">Leased</option>
+      </Select>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Costs</p>
       </div>
       {value.costType !== 'owned' && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
-            label={value.costType === 'leased' ? 'Lease Payment' : 'Payment Amount'}
+            label="Payment Amount"
             type="number"
             min="0"
             step="0.01"
@@ -113,21 +109,32 @@ export default function EquipmentAssetForm({ value, onChange }: EquipmentAssetFo
       )}
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label="Annual Insurance Cost"
+          label="Fuel Cost / Hour"
+          type="number"
+          min="0"
+          step="0.01"
+          value={value.fuelCostPerHour}
+          onChange={(event) => set('fuelCostPerHour', Number(event.target.value || 0))}
+        />
+        <Input
+          label="Annual Insurance"
           type="number"
           min="0"
           step="0.01"
           value={value.yearlyInsuranceCost}
           onChange={(event) => set('yearlyInsuranceCost', Number(event.target.value || 0))}
         />
-        <Input
-          label="Annual Maintenance Cost"
+      </div>
+      <Input
+          label="Annual Maintenance"
           type="number"
           min="0"
           step="0.01"
           value={value.yearlyMaintenanceCost}
           onChange={(event) => set('yearlyMaintenanceCost', Number(event.target.value || 0))}
-        />
+      />
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Optional</p>
       </div>
       <TextArea
         label="Notes"
