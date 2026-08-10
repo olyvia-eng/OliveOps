@@ -2,23 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('catalog and budget both use shared canonical equipment form', () => {
+test('catalog and budget both use shared restored equipment info form', () => {
   const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
   const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
-  const equipmentFormSource = readFileSync('src/components/equipment/EquipmentAssetForm.tsx', 'utf8');
+  const equipmentFormSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
 
-  assert.match(catalogSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentAssetForm'/);
-  assert.match(catalogSource, /<EquipmentAssetForm value=\{form\} onChange=\{setForm\} \/>/);
+  assert.match(catalogSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentInfoForm'/);
+  assert.match(catalogSource, /<EquipmentInfoForm/);
 
-  assert.match(budgetSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentAssetForm'/);
-  assert.match(budgetSource, /Equipment Record/);
-  assert.match(budgetSource, /<EquipmentAssetForm/);
-  assert.match(budgetSource, /createCatalogEquipmentOnSave/);
+  assert.match(budgetSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentInfoForm'/);
+  assert.match(budgetSource, /<EquipmentInfoForm/);
+  assert.doesNotMatch(budgetSource, /Equipment Record/);
+  assert.doesNotMatch(budgetSource, /Budget Equipment Planning/);
+  assert.doesNotMatch(budgetSource, /createCatalogEquipmentOnSave/);
 
-  assert.match(equipmentFormSource, /Fuel Cost \/ Hour/);
-  assert.match(equipmentFormSource, /Annual Insurance/);
-  assert.match(equipmentFormSource, /Annual Maintenance/);
-  assert.match(equipmentFormSource, /value\.costType !== 'owned'/);
+  assert.match(equipmentFormSource, /<legend className=\"text-sm font-medium text-gray-700 px-1\">Equipment Info<\/legend>/);
+  assert.match(equipmentFormSource, /Payment Frequency \(# per year\)/);
+  assert.match(equipmentFormSource, /Fuel Price Unit/);
+  assert.match(equipmentFormSource, /Fuel Burned per Hour/);
+  assert.match(equipmentFormSource, /Yearly Insurance Cost/);
+  assert.match(equipmentFormSource, /Yearly Maintenance Cost/);
+  assert.match(equipmentFormSource, /Billable Hours per Year/);
+  assert.match(equipmentFormSource, /Hours per Day/);
+  assert.match(equipmentFormSource, /Months Used Per Year/);
+  assert.match(equipmentFormSource, /Total Equipment Cost per Year/);
+  assert.match(equipmentFormSource, /Total Cost per Hour/);
+  assert.match(equipmentFormSource, /Total Cost per Day/);
+  assert.match(equipmentFormSource, /Budget Sell Rate \/ Charge-Out Rate/);
   assert.doesNotMatch(equipmentFormSource, /label="Status"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Date"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Price"/);
@@ -63,9 +73,11 @@ test('api and repository validate and persist canonical economics', () => {
 test('budget equipment add paths prefer canonical creation/linking', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /if \(defaultCategory === 'equipment'\) \{\s*\n\s*openNewCategoryItem\('equipment', \{ createCatalogAssetOnSave: true \}\);/);
+  assert.match(source, /if \(defaultCategory === 'equipment'\) \{\s*\n\s*openNewCategoryItem\('equipment'\);/);
+  assert.match(source, /if \(!editing && form\.category === 'equipment' && !normalizedEquipmentId\) \{/);
+  assert.match(source, /const created = await addEquipmentAsset\(\{/);
   assert.match(source, /const equipmentInfoDefaultsFromAsset = \(asset: EquipmentAsset\) => \{/);
   assert.match(source, /const equipmentDefaults = equipmentInfoDefaultsFromAsset\(selected\);/);
+  assert.match(source, /setModalOpen\(true\);/);
   assert.doesNotMatch(source, /normalizedCostCode = normalizedCostCode \|\| createdEquipmentAssetPayload\.serialNumber/);
-  assert.doesNotMatch(source, /costCode: current\.costCode\?\.trim\(\) \? current\.costCode : next\.serialNumber/);
 });

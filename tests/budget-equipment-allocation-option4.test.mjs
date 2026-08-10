@@ -2,18 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('budget equipment formula allocates fixed ownership using allocation percent', () => {
+test('budget equipment formula uses old ownership plus operating cost model', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /normalizedAllocatedFixedOwnershipCostPerYear\s*=\s*normalizedFixedOwnershipCostBasePerYear\s*\*\s*\(normalizedEquipmentCostAllocationPercent\s*\/\s*100\)/);
-  assert.match(source, /normalizedVariableOperatingCostPerYear\s*=\s*normalizedFuelCostPerHour\s*\*\s*normalizedBillableHoursPerYear/);
-  assert.match(source, /normalizedTotalEquipmentCostPerYear\s*=\s*\n\s*normalizedAllocatedFixedOwnershipCostPerYear\s*\n\s*\+\s*normalizedVariableOperatingCostPerYear/);
+  assert.match(source, /const annualPayments = normalizedPayment \* normalizedPaymentFrequency;/);
+  assert.match(source, /const annualFuelCost = normalizedFuelCostPerHour \* normalizedSellableHours;/);
+  assert.match(source, /const totalEquipmentCostPerYear = annualPayments \+ annualFuelCost \+ normalizedInsurance \+ normalizedMaintenance;/);
+  assert.match(source, /const totalCostPerDay = totalCostPerHour \* normalizedHoursPerDay;/);
 });
 
-test('months used per year is validated and not used as allocation divisor', () => {
+test('months used per year is present and validated with no allocation panel copy', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+  const sharedFormSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
 
-  assert.match(source, /Planning Months \(not used in allocation formula\)/);
+  assert.match(source, /<EquipmentInfoForm/);
+  assert.match(sharedFormSource, /Months Used Per Year/);
+  assert.doesNotMatch(source, /Planning Months \(not used in allocation formula\)/);
   assert.doesNotMatch(source, /monthsUsedPerYear\s*\/\s*12/);
   assert.doesNotMatch(source, /normalizedMonthsUsedPerYear\s*\/\s*12/);
 });
@@ -34,13 +38,13 @@ test('budget equipment editor removes linked catalog selector from add equipment
   assert.doesNotMatch(source, /handleLinkedEquipmentSelect/);
 });
 
-test('equipment list rows display allocation summary status badges', () => {
+test('equipment list rows no longer display allocation summary status badges', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /Allocated \$\{allocationStatus\.totalAllocatedPercent\.toFixed\(1\)\}%/);
-  assert.match(source, /Fully allocated/);
-  assert.match(source, /Over by \$\{allocationStatus\.overAllocatedPercent\.toFixed\(1\)\}%/);
-  assert.match(source, /unallocated/);
+  assert.doesNotMatch(source, /Allocated \$\{allocationStatus\.totalAllocatedPercent\.toFixed\(1\)\}%/);
+  assert.doesNotMatch(source, /Fully allocated/);
+  assert.doesNotMatch(source, /Over by \$\{allocationStatus\.overAllocatedPercent\.toFixed\(1\)\}%/);
+  assert.doesNotMatch(source, /unallocated/);
 });
 
 test('budget equipment tab renders split equipment planner and equipment catalog experience', () => {
@@ -52,7 +56,7 @@ test('budget equipment tab renders split equipment planner and equipment catalog
   assert.match(source, /Search equipment\.\.\./);
   assert.match(source, /Cost \/ Year/);
   assert.match(source, /Cost \/ Day/);
-  assert.match(source, /Cost \/ Hour/);
+  assert.match(source, /Budget Sell Rate \/ Hr/);
   assert.match(source, /lg:grid-cols-\[minmax\(0,7fr\)_minmax\(300px,3fr\)\]/);
 });
 
@@ -69,10 +73,10 @@ test('new equipment uses equipment budget row form and custom row CTA is removed
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
   assert.match(source, /New Equipment/);
-  assert.match(source, /openNewCategoryItem\('equipment', \{ createCatalogAssetOnSave: true \}\)/);
-  assert.match(source, /createCatalogEquipmentOnSave/);
-  assert.match(source, /toEquipmentAssetPayload\(canonicalEquipmentForm\)/);
-  assert.match(source, /addEquipmentAsset\(createdEquipmentAssetPayload\)/);
+  assert.match(source, /openNewCategoryItem\('equipment'\)/);
+  assert.match(source, /if \(!editing && form\.category === 'equipment' && !normalizedEquipmentId\) \{/);
+  assert.match(source, /const created = await addEquipmentAsset\(\{/);
+  assert.match(source, /setEquipmentInfoForm\(emptyEquipmentInfoFormValue\(\)\);/);
   assert.doesNotMatch(source, /Add Custom Equipment Row/);
   assert.doesNotMatch(source, /handleCreateEquipmentAndAddToBudget/);
   assert.doesNotMatch(source, /Create & Add/);
@@ -82,11 +86,12 @@ test('equipment add flow does not use first-item category lookup and preserves e
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
   assert.doesNotMatch(source, /items\.find\(\(item\) => item\.category === category\)/);
-  assert.match(source, /const openNewCategoryItem = \(category: BudgetCategory, options\?: \{ createCatalogAssetOnSave\?: boolean \}\) => \{/);
+  assert.match(source, /const openNewCategoryItem = \(category: BudgetCategory\) => \{/);
   assert.match(source, /setEditing\(null\);/);
   assert.match(source, /if \(editing\) updateBudgetItem\(editing\.id, yearlyForm\);/);
   assert.match(source, /else addBudgetItem\(yearlyForm\);/);
   assert.match(source, /const addEquipmentToCurrentBudget = \(equipmentId: string\) => \{/);
+  assert.match(source, /setModalOpen\(true\);/);
 });
 
 test('multi-row category summary cards no longer open ambiguous first-item editors', () => {

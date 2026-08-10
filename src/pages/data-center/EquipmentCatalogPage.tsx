@@ -4,11 +4,10 @@ import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Text
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
 import type { EquipmentAsset } from '../../types';
-import EquipmentAssetForm, {
-  emptyEquipmentAssetFormValue,
-  toEquipmentAssetPayload,
-  type EquipmentAssetFormValue,
-} from '../../components/equipment/EquipmentAssetForm';
+import EquipmentInfoForm, {
+  emptyEquipmentInfoFormValue,
+  type EquipmentInfoFormValue,
+} from '../../components/equipment/EquipmentInfoForm';
 
 type MaterialCatalogRow = {
   key: string;
@@ -54,10 +53,11 @@ export default function EquipmentCatalogPage() {
   const updateEquipmentAsset = useStore((state) => state.updateEquipmentAsset);
   const deleteEquipmentAsset = useStore((state) => state.deleteEquipmentAsset);
 
-  const [form, setForm] = useState<EquipmentAssetFormValue>(emptyEquipmentAssetFormValue());
+  const [form, setForm] = useState<EquipmentInfoFormValue>(emptyEquipmentInfoFormValue());
   const [materialForm, setMaterialForm] = useState<MaterialFormState>(emptyMaterialForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [equipmentModalOpen, setEquipmentModalOpen] = useState(false);
+  const [showEquipmentCalcDetails, setShowEquipmentCalcDetails] = useState(false);
   const [materialQuery, setMaterialQuery] = useState('');
   const [materialSort, setMaterialSort] = useState<MaterialSort>('highest_value');
 
@@ -188,8 +188,9 @@ export default function EquipmentCatalogPage() {
   }, [materialQuery, materialRows, materialSort]);
 
   const resetForm = () => {
-    setForm(emptyEquipmentAssetFormValue());
+    setForm(emptyEquipmentInfoFormValue());
     setEditingId(null);
+    setShowEquipmentCalcDetails(false);
   };
 
   const openAddEquipment = () => {
@@ -214,12 +215,34 @@ export default function EquipmentCatalogPage() {
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!form.name.trim() || !form.type.trim()) {
+    if (!form.description.trim()) {
       return;
     }
 
     const existingAsset = editingId ? equipmentAssets.find((asset) => asset.id === editingId) : undefined;
-    const payload = toEquipmentAssetPayload(form, existingAsset);
+    const normalizedFuelPrice = Math.max(0, Number(form.averageFuelPrice || 0));
+    const normalizedFuelBurnPerHour = Math.max(0, Number(form.averageFuelBurnPerHour || 0));
+    const normalizedFuelCostPerHour = normalizedFuelPrice * normalizedFuelBurnPerHour;
+    const normalizedPayment = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0));
+    const normalizedFrequency = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0));
+    const payload = {
+      name: form.description.trim(),
+      type: (form.costCode.trim() || existingAsset?.type || 'General Equipment'),
+      status: existingAsset?.status ?? 'available' as const,
+      costType: form.equipmentCostType,
+      serialNumber: existingAsset?.serialNumber ?? '',
+      purchaseDate: existingAsset?.purchaseDate,
+      hourlyCost: normalizedFuelCostPerHour,
+      purchasePrice: existingAsset?.purchasePrice,
+      equipmentPayment: normalizedPayment,
+      equipmentPaymentFrequencyPerYear: normalizedFrequency,
+      fuelPriceUnit: form.fuelPriceUnit,
+      averageFuelPrice: normalizedFuelPrice,
+      averageFuelBurnPerHour: normalizedFuelBurnPerHour,
+      yearlyInsuranceCost: Math.max(0, Number(form.yearlyInsuranceCost || 0)),
+      yearlyMaintenanceCost: Math.max(0, Number(form.yearlyMaintenanceCost || 0)),
+      notes: existingAsset?.notes ?? '',
+    };
 
     if (editingId) {
       updateEquipmentAsset(editingId, payload);
@@ -234,16 +257,22 @@ export default function EquipmentCatalogPage() {
   const startEditing = (asset: EquipmentAsset) => {
     setEditingId(asset.id);
     setForm({
-      name: asset.name,
-      type: asset.type,
-      costType: asset.costType,
-      fuelCostPerHour: asset.hourlyCost,
+      description: asset.name,
+      costCode: asset.type,
+      equipmentCostType: asset.costType,
       equipmentPayment: asset.equipmentPayment ?? 0,
       equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
+      fuelPriceUnit: asset.fuelPriceUnit ?? 'L',
+      averageFuelPrice: asset.averageFuelPrice ?? asset.hourlyCost,
+      averageFuelBurnPerHour: asset.averageFuelBurnPerHour ?? 1,
       yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
       yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
-      notes: asset.notes,
+      sellableHoursPerYear: 0,
+      equipmentHoursPerDay: 8,
+      monthsUsedPerYear: 12,
+      budgetSellRate: 0,
     });
+    setShowEquipmentCalcDetails(false);
     setEquipmentModalOpen(true);
   };
 
@@ -442,7 +471,7 @@ export default function EquipmentCatalogPage() {
           setEquipmentModalOpen(false);
           resetForm();
         }}
-        title={editingId ? 'Edit Equipment' : 'Add Equipment'}
+        title={editingId ? `Edit Equipment - ${form.description || 'Equipment'}` : 'Add Equipment'}
         footer={(
           <>
             <Button variant="secondary" onClick={() => { setEquipmentModalOpen(false); resetForm(); }}>Cancel</Button>
@@ -453,7 +482,43 @@ export default function EquipmentCatalogPage() {
         )}
       >
         <form id="equipment-modal-form" onSubmit={handleSubmit} className="space-y-4">
-          <EquipmentAssetForm value={form} onChange={setForm} />
+          <EquipmentInfoForm
+            value={form}
+            onChange={setForm}
+            fuelCostPerHour={Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))}
+            totalEquipmentCostPerYear={
+              ((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
+              * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
+              + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
+              + Math.max(0, Number(form.yearlyInsuranceCost || 0))
+              + Math.max(0, Number(form.yearlyMaintenanceCost || 0))
+            }
+            totalCostPerHour={Math.max(0, Number(form.sellableHoursPerYear || 0)) > 0
+              ? (
+                (((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
+                * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
+                + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
+                + Math.max(0, Number(form.yearlyInsuranceCost || 0))
+                + Math.max(0, Number(form.yearlyMaintenanceCost || 0)))
+                / Math.max(0, Number(form.sellableHoursPerYear || 0))
+              )
+              : 0}
+            totalCostPerDay={
+              (Math.max(0, Number(form.sellableHoursPerYear || 0)) > 0
+                ? (
+                  (((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
+                  * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
+                  + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
+                  + Math.max(0, Number(form.yearlyInsuranceCost || 0))
+                  + Math.max(0, Number(form.yearlyMaintenanceCost || 0)))
+                  / Math.max(0, Number(form.sellableHoursPerYear || 0))
+                )
+                : 0) * Math.max(0, Number(form.equipmentHoursPerDay || 0))
+            }
+            showCalculationDetails={showEquipmentCalcDetails}
+            onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)}
+            editableBudgetSellRate={false}
+          />
         </form>
       </Modal>
     </div>
