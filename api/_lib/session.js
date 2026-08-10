@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import { requireEnv } from './env.js';
 import { SESSION_COOKIE, parseCookies } from './cookies.js';
 import { canReadEntity, canWriteEntity } from './authorization.js';
-import { resolveMobileSessionByAccessToken } from './authRepo.js';
+import { getBusinessUserById, resolveMobileSessionByAccessToken } from './authRepo.js';
 
 const jwtSecret = requireEnv('JWT_SECRET');
 export const MOBILE_ACCESS_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -72,6 +72,26 @@ function getSessionFromCookie(req) {
   }
 }
 
+async function resolveAuthoritativeUserSession(sessionCandidate) {
+  if (!sessionCandidate || typeof sessionCandidate !== 'object') return null;
+  if (typeof sessionCandidate.businessId !== 'string' || typeof sessionCandidate.id !== 'string') return null;
+
+  const currentUser = await getBusinessUserById(sessionCandidate.businessId, sessionCandidate.id);
+  if (!currentUser || currentUser.active === false) {
+    return null;
+  }
+
+  return {
+    id: currentUser.id,
+    businessId: currentUser.businessId,
+    name: currentUser.name,
+    email: currentUser.email,
+    role: currentUser.role,
+    businessName: sessionCandidate.businessName,
+    employeeId: typeof sessionCandidate.employeeId === 'string' ? sessionCandidate.employeeId : undefined,
+  };
+}
+
 export async function getSessionFromRequest(req) {
   const bearerToken = getBearerTokenFromRequest(req);
   if (bearerToken) {
@@ -80,13 +100,18 @@ export async function getSessionFromRequest(req) {
       if (!bearerSession.ok) {
         return null;
       }
-      return bearerSession.session.user;
+      return resolveAuthoritativeUserSession(bearerSession.session.user);
     } catch {
       return null;
     }
   }
 
-  return getSessionFromCookie(req);
+  try {
+    const cookieSession = getSessionFromCookie(req);
+    return await resolveAuthoritativeUserSession(cookieSession);
+  } catch {
+    return null;
+  }
 }
 
 export async function requireSession(req, res, allowedRoles, entity) {

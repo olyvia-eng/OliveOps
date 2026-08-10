@@ -32,9 +32,16 @@ const demoUser = {
   employeeId: 'emp-1',
 };
 
+function createHandler(overrides = {}) {
+  return createAuthHandler({
+    checkRateLimit: async () => ({ allowed: true, retryAfterSeconds: 60 }),
+    ...overrides,
+  });
+}
+
 test('POST /api/auth?action=mobile-login returns bearer token payload', async () => {
   let persistedSession = null;
-  const handler = createAuthHandler({
+  const handler = createHandler({
     authenticateUser: async () => ({ ok: true, user: demoUser }),
     createMobileAccessToken: () => 'oliveops_mobile_test_token',
     createMobileSessionForUser: async (payload) => {
@@ -66,7 +73,7 @@ test('POST /api/auth?action=mobile-login returns bearer token payload', async ()
 });
 
 test('POST /api/auth?action=mobile-login rejects invalid password', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     authenticateUser: async () => ({ ok: false, error: 'Invalid email or password.' }),
   });
 
@@ -85,7 +92,7 @@ test('POST /api/auth?action=mobile-login rejects invalid password', async () => 
 });
 
 test('POST /api/auth?action=mobile-login rejects unknown user', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     authenticateUser: async () => ({ ok: false, error: 'Invalid email or password.' }),
   });
 
@@ -104,7 +111,7 @@ test('POST /api/auth?action=mobile-login rejects unknown user', async () => {
 });
 
 test('POST /api/auth?action=mobile-login rejects inactive users', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     authenticateUser: async () => ({ ok: false, error: 'Invalid email or password.' }),
   });
 
@@ -123,7 +130,7 @@ test('POST /api/auth?action=mobile-login rejects inactive users', async () => {
 });
 
 test('GET /api/auth?action=session accepts bearer-resolved session identity', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     getSessionFromRequest: async () => demoUser,
     getEmployeeForBusiness: async () => ({ id: 'emp-1', paidDriveTimeEnabled: false }),
   });
@@ -142,7 +149,7 @@ test('GET /api/auth?action=session accepts bearer-resolved session identity', as
 });
 
 test('GET /api/auth?action=session reports paidDriveTime capability true when enabled', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     getSessionFromRequest: async () => demoUser,
     getEmployeeForBusiness: async () => ({ id: 'emp-1', paidDriveTimeEnabled: true }),
   });
@@ -161,7 +168,7 @@ test('GET /api/auth?action=session reports paidDriveTime capability true when en
 });
 
 test('GET /api/auth?action=session reports paidDriveTime capability true when employee profile exists', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     getSessionFromRequest: async () => demoUser,
     getEmployeeForBusiness: async () => ({ id: 'emp-1', paidDriveTimeEnabled: false }),
   });
@@ -180,7 +187,7 @@ test('GET /api/auth?action=session reports paidDriveTime capability true when em
 });
 
 test('GET /api/auth?action=session rejects invalid bearer token', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     getSessionFromRequest: async () => null,
   });
 
@@ -199,7 +206,7 @@ test('GET /api/auth?action=session rejects invalid bearer token', async () => {
 
 test('POST /api/auth?action=logout revokes bearer token', async () => {
   let revokedToken = null;
-  const handler = createAuthHandler({
+  const handler = createHandler({
     getBearerTokenFromRequest: () => 'oliveops_mobile_test_token',
     revokeMobileSessionByAccessToken: async (token) => {
       revokedToken = token;
@@ -224,7 +231,7 @@ test('POST /api/auth?action=logout revokes bearer token', async () => {
 });
 
 test('POST /api/auth?action=login still creates web cookie session', async () => {
-  const handler = createAuthHandler({
+  const handler = createHandler({
     authenticateUser: async () => ({ ok: true, user: demoUser }),
     createSessionToken: () => 'web-jwt-token',
     buildSessionCookie: (token) => `oliveops_session=${token}; HttpOnly`,
@@ -243,4 +250,69 @@ test('POST /api/auth?action=login still creates web cookie session', async () =>
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
   assert.equal(res.headers['Set-Cookie'], 'oliveops_session=web-jwt-token; HttpOnly');
+});
+
+test('POST /api/auth?action=login returns generic invalid credentials message', async () => {
+  const handler = createHandler({
+    authenticateUser: async () => ({ ok: false, error: 'Internal lookup mismatch details should not leak.' }),
+    checkRateLimit: async () => ({ allowed: true, retryAfterSeconds: 60 }),
+  });
+
+  const req = {
+    method: 'POST',
+    query: { action: 'login' },
+    body: { email: 'casey@example.com', password: 'wrong-password' },
+    headers: {},
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 401);
+  assert.deepEqual(res.body, { ok: false, error: 'Invalid email or password.' });
+});
+
+test('POST /api/auth?action=signup returns generic conflict message', async () => {
+  const handler = createHandler({
+    checkRateLimit: async () => ({ allowed: true, retryAfterSeconds: 60 }),
+    createBusinessWithOwner: async () => ({ ok: false, error: 'An account with this email already exists.' }),
+  });
+
+  const req = {
+    method: 'POST',
+    query: { action: 'signup' },
+    body: {
+      businessName: 'OliveOps Demo',
+      ownerName: 'Owner Name',
+      email: 'owner@example.com',
+      password: 'password1234',
+    },
+    headers: {},
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 409);
+  assert.deepEqual(res.body, { ok: false, error: 'Unable to create account with those details.' });
+});
+
+test('POST /api/auth?action=login returns 429 when rate limited', async () => {
+  const handler = createHandler({
+    checkRateLimit: async () => ({ allowed: false, retryAfterSeconds: 45 }),
+  });
+
+  const req = {
+    method: 'POST',
+    query: { action: 'login' },
+    body: { email: 'casey@example.com', password: 'password1234' },
+    headers: {},
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.headers['Retry-After'], '45');
+  assert.deepEqual(res.body, { ok: false, error: 'Too many requests. Please try again later.' });
 });

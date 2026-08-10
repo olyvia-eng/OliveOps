@@ -263,3 +263,41 @@ test('GET /api/feedback returns business-scoped feedback record by id', async ()
   assert.equal(res.body.feedback.id, 'feedback-1');
   assert.equal(res.body.feedback.businessId, 'biz-1');
 });
+
+test('GET /api/feedback blocks crew_member from reading another user feedback record', async () => {
+  const handler = createFeedbackHandler(baseDeps({
+    requireSession: () => ({
+      id: 'user-crew-1',
+      role: 'crew_member',
+      businessId: 'biz-1',
+      businessName: 'OliveOps Demo',
+      email: 'crew1@example.com',
+      name: 'Crew One',
+    }),
+    getFeedbackForBusiness: async (businessId, feedbackId) => ({
+      id: feedbackId,
+      businessId,
+      submittedByUserId: 'user-crew-2',
+      type: 'bug',
+      message: 'A bug report',
+      status: 'new',
+      priority: 'normal',
+      createdAt: '2026-08-06T12:00:00.000Z',
+      updatedAt: '2026-08-06T12:00:00.000Z',
+    }),
+  }));
+
+  const req = {
+    method: 'GET',
+    query: {
+      id: 'feedback-2',
+    },
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.error, 'Forbidden');
+});

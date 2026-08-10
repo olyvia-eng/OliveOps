@@ -660,3 +660,117 @@ test('list files view supports entityType filter for restored documents page', a
   assert.equal(res.body.files[0].entityType, 'document');
   assert.equal(res.body.files[0].fileName, 'Master Contract.pdf');
 });
+
+test('crew_member list files only returns authorized attachments', async () => {
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({
+      id: 'user-crew-1',
+      role: 'crew_member',
+      businessId: 'biz-1',
+      employeeId: 'emp-1',
+    }),
+    listFilesForBusiness: async () => ([
+      {
+        id: 'file-job-own',
+        fileName: 'Own Job Photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 1200,
+        key: 'biz-1/file-job-own/photo.jpg',
+        uploadedAt: '2026-08-05T10:00:00.000Z',
+        entityType: 'job',
+        entityId: 'job-own',
+        category: 'photo',
+        uploadStatus: 'uploaded',
+      },
+      {
+        id: 'file-job-other',
+        fileName: 'Other Job Photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 1200,
+        key: 'biz-1/file-job-other/photo.jpg',
+        uploadedAt: '2026-08-05T10:00:00.000Z',
+        entityType: 'job',
+        entityId: 'job-other',
+        category: 'photo',
+        uploadStatus: 'uploaded',
+      },
+      {
+        id: 'file-doc-library',
+        fileName: 'Company Master Contract.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 2200,
+        key: 'biz-1/file-doc-library/master-contract.pdf',
+        uploadedAt: '2026-08-05T10:00:00.000Z',
+        entityType: 'document',
+        entityId: 'library',
+        category: 'contracts',
+        uploadStatus: 'uploaded',
+      },
+    ]),
+    getJobForBusiness: async (_businessId, id) => {
+      if (id === 'job-own') {
+        return { id: 'job-own', assignedEmployeeIds: ['emp-1'] };
+      }
+      if (id === 'job-other') {
+        return { id: 'job-other', assignedEmployeeIds: ['emp-2'] };
+      }
+      return null;
+    },
+  }));
+
+  const req = {
+    method: 'GET',
+    query: {
+      view: 'files',
+    },
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(Array.isArray(res.body.files), true);
+  assert.equal(res.body.files.length, 1);
+  assert.equal(res.body.files[0].id, 'file-job-own');
+});
+
+test('crew_member cannot prepare-download for unrelated job attachment', async () => {
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({
+      id: 'user-crew-1',
+      role: 'crew_member',
+      businessId: 'biz-1',
+      employeeId: 'emp-1',
+    }),
+    getFileForBusiness: async () => ({
+      id: 'file-job-other',
+      businessId: 'biz-1',
+      entityType: 'job',
+      entityId: 'job-other',
+      uploadStatus: 'uploaded',
+      key: 'biz-1/file-job-other/photo.jpg',
+    }),
+    getJobForBusiness: async (_businessId, id) => {
+      if (id === 'job-other') {
+        return { id: 'job-other', assignedEmployeeIds: ['emp-2'] };
+      }
+      return null;
+    },
+  }));
+
+  const req = {
+    method: 'POST',
+    body: {
+      action: 'prepare-download',
+      fileId: 'file-job-other',
+    },
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.error, 'Forbidden');
+});

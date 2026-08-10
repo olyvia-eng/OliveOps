@@ -117,6 +117,7 @@ import {
   updateTimeEntryForBusiness,
   updateTaskForBusiness,
 } from './_lib/authRepo.js';
+import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
 import { requireSession } from './_lib/session.js';
 
 const ENTITY_CONFIG = {
@@ -423,6 +424,46 @@ const ENTITY_CONFIG = {
 
 function getConfig(entity) {
   return entity ? ENTITY_CONFIG[entity] : undefined;
+}
+
+const PATCH_BLOCKED_FIELDS = new Set([
+  'PK',
+  'SK',
+  'businessId',
+  'entityType',
+  'createdAt',
+  'passwordHash',
+]);
+
+function sanitizePatchData(entity, id, rawData) {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
+    return { ok: false, error: 'Invalid payload' };
+  }
+
+  const data = { ...rawData };
+  const forbiddenIdKeys = ['id'];
+  const config = getConfig(entity);
+  if (config?.idParam) {
+    forbiddenIdKeys.push(config.idParam);
+  }
+
+  for (const key of forbiddenIdKeys) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      const nextIdValue = data[key];
+      if (nextIdValue !== undefined && nextIdValue !== id) {
+        return { ok: false, error: 'Immutable id fields cannot be changed.' };
+      }
+      delete data[key];
+    }
+  }
+
+  for (const key of Object.keys(data)) {
+    if (PATCH_BLOCKED_FIELDS.has(key)) {
+      delete data[key];
+    }
+  }
+
+  return { ok: true, data };
 }
 
 const INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue']);
@@ -1256,19 +1297,20 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    const session = await requireSession(req, res, config.readRoles ?? undefined);
+    const session = await requireSession(req, res, config.readRoles ?? undefined, entity);
     if (!session) return;
 
     try {
       const items = await config.list(session.businessId);
-      return res.status(200).json({ ok: true, items });
+      const filteredItems = filterRecordsForSession(session, entity, items);
+      return res.status(200).json({ ok: true, items: filteredItems });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not load ${entity}` });
     }
   }
 
   if (req.method === 'POST') {
-    const session = await requireSession(req, res, config.writeRoles ?? undefined);
+    const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
     if (!session) return;
 
     const record = req.body?.data;
@@ -1460,7 +1502,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PATCH') {
-    const session = await requireSession(req, res, config.writeRoles ?? undefined);
+    const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
     if (!session) return;
 
     const id = req.query.id;
@@ -1475,6 +1517,16 @@ export default async function handler(req, res) {
       if (!existing) {
         return res.status(404).json({ ok: false, error: `${entity} not found` });
       }
+
+      if (!authorizeRecordAccess(session, entity, existing)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden' });
+      }
+
+      const sanitizedDataResult = sanitizePatchData(entity, id, data);
+      if (!sanitizedDataResult.ok) {
+        return res.status(400).json({ ok: false, error: sanitizedDataResult.error });
+      }
+      const sanitizedData = sanitizedDataResult.data;
 
       let baseRecord = existing;
       let accountAccessResult = null;
@@ -1495,7 +1547,7 @@ export default async function handler(req, res) {
         baseRecord = accountAccessResult.employee;
       }
 
-      const next = { ...baseRecord, ...data };
+      const next = { ...baseRecord, ...sanitizedData };
 
       if (entity === 'invoices') {
         const validationError = validateInvoiceRecord(next);
@@ -1727,7 +1779,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
-    const session = await requireSession(req, res, config.writeRoles ?? undefined);
+    const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
     if (!session) return;
 
     const id = req.query.id;
@@ -1738,6 +1790,15 @@ export default async function handler(req, res) {
     try {
       if (entity === 'unbillable-time-categories') {
         return res.status(409).json({ ok: false, error: 'Unbillable categories are archive-only. Set active=false instead.' });
+      }
+
+      const existing = await config.get(session.businessId, id);
+      if (!existing) {
+        return res.status(404).json({ ok: false, error: `${entity} not found` });
+      }
+
+      if (!authorizeRecordAccess(session, entity, existing)) {
+        return res.status(403).json({ ok: false, error: 'Forbidden' });
       }
 
       await config.remove(session.businessId, id);

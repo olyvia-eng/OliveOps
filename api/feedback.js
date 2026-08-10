@@ -95,6 +95,11 @@ export function createFeedbackHandler(overrides = {}) {
           return res.status(404).json({ ok: false, error: 'Feedback not found.' });
         }
 
+        const role = session.role === 'employee' ? 'crew_member' : session.role;
+        if (role === 'crew_member' && feedback.submittedByUserId !== session.id) {
+          return res.status(403).json({ ok: false, error: 'Forbidden' });
+        }
+
         return res.status(200).json({ ok: true, feedback });
       } catch {
         return res.status(500).json({ ok: false, error: 'Could not load feedback.' });

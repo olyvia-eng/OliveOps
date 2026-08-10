@@ -102,6 +102,10 @@ export function authorizeRecordAccess(session, entity, record) {
     return record.assignedUserId === session.id || record.createdByUserId === session.id;
   }
 
+  if (entity === 'feedback') {
+    return record.submittedByUserId === session.id;
+  }
+
   return false;
 }
 

@@ -25,7 +25,7 @@ import {
   updateExpenseForBusiness,
   updateTimeEntryForBusiness,
 } from './_lib/authRepo.js';
-import { canReadEntity, canWriteEntity } from './_lib/authorization.js';
+import { authorizeRecordAccess, canReadEntity, canWriteEntity } from './_lib/authorization.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
@@ -131,6 +131,37 @@ function canManageDocuments(role) {
   return role === 'owner' || role === 'admin';
 }
 
+function mapAttachmentEntityToAuthorizationEntity(entityType) {
+  if (entityType === 'job') return 'jobs';
+  if (entityType === 'customer') return 'customers';
+  if (entityType === 'estimate') return 'estimates';
+  if (entityType === 'employee') return 'employees';
+  if (entityType === 'expense') return 'expenses';
+  if (entityType === 'time-entry') return 'time-entries';
+  if (entityType === 'feedback') return 'feedback';
+  return null;
+}
+
+function canAccessAttachmentRecord({ session, entityType, entity, accessMode }) {
+  if (entityType === DOCUMENT_ENTITY_TYPE) {
+    return canManageDocuments(session.role);
+  }
+
+  const authorizationEntity = mapAttachmentEntityToAuthorizationEntity(entityType);
+  if (!authorizationEntity) {
+    return false;
+  }
+
+  const hasEntityPermission = accessMode === 'write'
+    ? canWriteEntity(authorizationEntity, session.role)
+    : canReadEntity(authorizationEntity, session.role);
+  if (!hasEntityPermission) {
+    return false;
+  }
+
+  return authorizeRecordAccess(session, authorizationEntity, entity);
+}
+
 function ensureAllowedKeys(body, allowedKeys) {
   const unexpectedKeys = Object.keys(body).filter((key) => !allowedKeys.has(key));
   return unexpectedKeys.length === 0;
@@ -193,61 +224,47 @@ const defaultDeps = {
 export function createStorageHandler(overrides = {}) {
   const deps = { ...defaultDeps, ...overrides };
 
-  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId }) {
+  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode = 'read' }) {
     if (entityType === 'job') {
       const job = await deps.getJobForBusiness(session.businessId, entityId);
       if (!job) return null;
-      return { entity: job, allowed: canWriteEntity('jobs', session.role) || canReadEntity('jobs', session.role) };
+      return { entity: job, allowed: canAccessAttachmentRecord({ session, entityType, entity: job, accessMode }) };
     }
 
     if (entityType === 'customer') {
       const customer = await deps.getCustomerForBusiness(session.businessId, entityId);
       if (!customer) return null;
-      return { entity: customer, allowed: canWriteEntity('customers', session.role) || canReadEntity('customers', session.role) };
+      return { entity: customer, allowed: canAccessAttachmentRecord({ session, entityType, entity: customer, accessMode }) };
     }
 
     if (entityType === 'estimate') {
       const estimate = await deps.getEstimateForBusiness(session.businessId, entityId);
       if (!estimate) return null;
-      return { entity: estimate, allowed: canWriteEntity('estimates', session.role) || canReadEntity('estimates', session.role) };
+      return { entity: estimate, allowed: canAccessAttachmentRecord({ session, entityType, entity: estimate, accessMode }) };
     }
 
     if (entityType === 'employee') {
       const employee = await deps.getEmployeeForBusiness(session.businessId, entityId);
       if (!employee) return null;
-      const role = session.role;
-      if (role === 'crew_member') {
-        return {
-          entity: employee,
-          allowed: typeof session.employeeId === 'string' && employee.id === session.employeeId,
-        };
-      }
-      return { entity: employee, allowed: canWriteEntity('employees', role) || canReadEntity('employees', role) };
+      return { entity: employee, allowed: canAccessAttachmentRecord({ session, entityType, entity: employee, accessMode }) };
     }
 
     if (entityType === 'expense') {
       const expense = await deps.getExpenseForBusiness(session.businessId, entityId);
       if (!expense) return null;
-      return { entity: expense, allowed: canWriteEntity('expenses', session.role) || canReadEntity('expenses', session.role) };
+      return { entity: expense, allowed: canAccessAttachmentRecord({ session, entityType, entity: expense, accessMode }) };
     }
 
     if (entityType === 'time-entry') {
       const timeEntry = await deps.getTimeEntryForBusiness(session.businessId, entityId);
       if (!timeEntry) return null;
-      const role = session.role;
-      if (role === 'crew_member') {
-        return {
-          entity: timeEntry,
-          allowed: typeof session.employeeId === 'string' && timeEntry.employeeId === session.employeeId,
-        };
-      }
-      return { entity: timeEntry, allowed: canWriteEntity('time-entries', role) || canReadEntity('time-entries', role) };
+      return { entity: timeEntry, allowed: canAccessAttachmentRecord({ session, entityType, entity: timeEntry, accessMode }) };
     }
 
     if (entityType === 'feedback') {
       const feedback = await deps.getFeedbackForBusiness(session.businessId, entityId);
       if (!feedback) return null;
-      return { entity: feedback, allowed: canWriteEntity('feedback', session.role) || canReadEntity('feedback', session.role) };
+      return { entity: feedback, allowed: canAccessAttachmentRecord({ session, entityType, entity: feedback, accessMode }) };
     }
 
     if (entityType === DOCUMENT_ENTITY_TYPE) {
@@ -294,7 +311,12 @@ export function createStorageHandler(overrides = {}) {
             return res.status(400).json({ ok: false, error: validation.error });
           }
 
-          const resolvedEntity = await resolveAttachmentEntityWithDeps({ session, entityType, entityId });
+          const resolvedEntity = await resolveAttachmentEntityWithDeps({
+            session,
+            entityType,
+            entityId,
+            accessMode: 'write',
+          });
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }
@@ -369,7 +391,12 @@ export function createStorageHandler(overrides = {}) {
             return res.status(409).json({ ok: false, error: 'File is not ready for download.' });
           }
 
-          const entityResolution = await resolveAttachmentEntityWithDeps({ session, entityType: file.entityType, entityId: file.entityId });
+          const entityResolution = await resolveAttachmentEntityWithDeps({
+            session,
+            entityType: file.entityType,
+            entityId: file.entityId,
+            accessMode: 'read',
+          });
           if (!entityResolution?.allowed) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }
@@ -393,7 +420,12 @@ export function createStorageHandler(overrides = {}) {
             return res.status(404).json({ ok: false, error: 'File not found.' });
           }
 
-          const entityResolution = await resolveAttachmentEntityWithDeps({ session, entityType: file.entityType, entityId: file.entityId });
+          const entityResolution = await resolveAttachmentEntityWithDeps({
+            session,
+            entityType: file.entityType,
+            entityId: file.entityId,
+            accessMode: 'write',
+          });
           if (!entityResolution?.allowed) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }
@@ -430,7 +462,12 @@ export function createStorageHandler(overrides = {}) {
             return res.status(404).json({ ok: false, error: 'File not found.' });
           }
 
-          const resolvedEntity = await resolveAttachmentEntityWithDeps({ session, entityType: file.entityType, entityId: file.entityId });
+          const resolvedEntity = await resolveAttachmentEntityWithDeps({
+            session,
+            entityType: file.entityType,
+            entityId: file.entityId,
+            accessMode: 'write',
+          });
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }
@@ -546,7 +583,7 @@ export function createStorageHandler(overrides = {}) {
           const entityTypeFilter = typeof req.query?.entityType === 'string' ? req.query.entityType.trim().toLowerCase() : '';
           const categoryFilter = typeof req.query?.category === 'string' ? req.query.category.trim().toLowerCase() : '';
 
-          const scopedFiles = files.filter((file) => {
+          const matchingFiles = files.filter((file) => {
             if (entityTypeFilter && String(file.entityType || '').toLowerCase() !== entityTypeFilter) {
               return false;
             }
@@ -555,6 +592,18 @@ export function createStorageHandler(overrides = {}) {
             }
             return true;
           });
+
+          const authorizationChecks = await Promise.all(matchingFiles.map(async (file) => {
+            const resolution = await resolveAttachmentEntityWithDeps({
+              session,
+              entityType: file.entityType,
+              entityId: file.entityId,
+              accessMode: 'read',
+            });
+            return Boolean(resolution?.allowed);
+          }));
+
+          const scopedFiles = matchingFiles.filter((_, index) => authorizationChecks[index]);
 
           return res.status(200).json({
             ok: true,

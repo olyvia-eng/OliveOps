@@ -12,6 +12,7 @@ import {
   revokeMobileSessionByAccessToken,
 } from './_lib/authRepo.js';
 import { randomBytes } from 'node:crypto';
+import { checkRateLimit } from './_lib/rateLimit.js';
 
 function createMobileAccessToken() {
   return `oliveops_mobile_${randomBytes(32).toString('base64url')}`;
@@ -29,8 +30,37 @@ const defaultDeps = {
   buildSessionCookie,
   buildClearedSessionCookie,
   createMobileAccessToken,
+  checkRateLimit,
   mobileAccessTokenTtlSeconds: MOBILE_ACCESS_TOKEN_TTL_SECONDS,
 };
+
+const AUTH_INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
+
+function normalizeIdentifier(value) {
+  if (typeof value !== 'string') return 'unknown';
+  const normalized = value.trim().toLowerCase();
+  return normalized || 'unknown';
+}
+
+async function enforceRateLimit({ req, res, deps, action, subject, maxAttempts, windowSeconds }) {
+  const decision = await deps.checkRateLimit({
+    req,
+    action,
+    subject,
+    maxAttempts,
+    windowSeconds,
+  });
+
+  if (!decision.allowed) {
+    res.setHeader('Retry-After', String(decision.retryAfterSeconds));
+    return res.status(429).json({
+      ok: false,
+      error: 'Too many requests. Please try again later.',
+    });
+  }
+
+  return null;
+}
 
 async function resolveCapabilitiesForUser(user, getEmployeeForBusinessFn) {
   const employeeId = typeof user?.employeeId === 'string' ? user.employeeId : '';
@@ -100,10 +130,23 @@ export function createAuthHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Invalid payload' });
       }
 
+      const limited = await enforceRateLimit({
+        req,
+        res,
+        deps,
+        action: 'login',
+        subject: normalizeIdentifier(email),
+        maxAttempts: 8,
+        windowSeconds: 15 * 60,
+      });
+      if (limited) {
+        return limited;
+      }
+
       try {
         const result = await deps.authenticateUser(email, password);
         if (!result.ok) {
-          return res.status(401).json({ ok: false, error: result.error });
+          return res.status(401).json({ ok: false, error: AUTH_INVALID_CREDENTIALS_MESSAGE });
         }
 
         const token = deps.createSessionToken(result.user);
@@ -125,10 +168,23 @@ export function createAuthHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Invalid payload' });
       }
 
+      const limited = await enforceRateLimit({
+        req,
+        res,
+        deps,
+        action: 'mobile-login',
+        subject: normalizeIdentifier(email),
+        maxAttempts: 10,
+        windowSeconds: 15 * 60,
+      });
+      if (limited) {
+        return limited;
+      }
+
       try {
         const result = await deps.authenticateUser(email, password);
         if (!result.ok) {
-          return res.status(401).json({ ok: false, error: result.error });
+          return res.status(401).json({ ok: false, error: AUTH_INVALID_CREDENTIALS_MESSAGE });
         }
 
         const accessToken = deps.createMobileAccessToken();
@@ -173,10 +229,23 @@ export function createAuthHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Invalid signup fields' });
       }
 
+      const limited = await enforceRateLimit({
+        req,
+        res,
+        deps,
+        action: 'signup',
+        subject: normalizeIdentifier(email),
+        maxAttempts: 5,
+        windowSeconds: 60 * 60,
+      });
+      if (limited) {
+        return limited;
+      }
+
       try {
         const result = await deps.createBusinessWithOwner({ businessName, ownerName, email, password });
         if (!result.ok) {
-          return res.status(409).json({ ok: false, error: result.error });
+          return res.status(409).json({ ok: false, error: 'Unable to create account with those details.' });
         }
 
         const token = deps.createSessionToken(result.user);

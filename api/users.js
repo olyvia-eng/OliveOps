@@ -11,6 +11,55 @@ function normalizeEmail(email) {
   return email.trim().toLowerCase();
 }
 
+function normalizeRoleInput(role) {
+  if (role === 'employee') return 'crew_member';
+  return role;
+}
+
+function buildUserPatch(existing, data) {
+  const next = {
+    id: existing.id,
+    businessId: existing.businessId,
+    name: existing.name,
+    email: existing.email,
+    role: existing.role,
+    active: existing.active,
+    createdAt: existing.createdAt,
+    passwordHash: existing.passwordHash,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(data, 'name')) {
+    if (typeof data.name !== 'string' || !data.name.trim()) {
+      return { ok: false, error: 'Invalid name.' };
+    }
+    next.name = data.name.trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'email')) {
+    if (typeof data.email !== 'string' || !data.email.trim()) {
+      return { ok: false, error: 'Invalid email.' };
+    }
+    next.email = normalizeEmail(data.email);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'active')) {
+    if (typeof data.active !== 'boolean') {
+      return { ok: false, error: 'Invalid active flag.' };
+    }
+    next.active = data.active;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'role')) {
+    const normalizedRole = normalizeRoleInput(data.role);
+    if (normalizedRole !== 'owner' && normalizedRole !== 'admin' && normalizedRole !== 'foreman' && normalizedRole !== 'crew_member') {
+      return { ok: false, error: 'Invalid role.' };
+    }
+    next.role = normalizedRole;
+  }
+
+  return { ok: true, next };
+}
+
 function mapCreateUserError(error) {
   const name = error?.name;
   const rawMessage = typeof error?.message === 'string' ? error.message.trim() : '';
@@ -135,11 +184,21 @@ export default async function handler(req, res) {
         return res.status(404).json({ ok: false, error: 'User not found' });
       }
 
-      if (existing.role === 'owner' && data.role && data.role !== 'owner') {
+      const patch = buildUserPatch(existing, data);
+      if (!patch.ok) {
+        return res.status(400).json({ ok: false, error: patch.error });
+      }
+
+      const next = patch.next;
+
+      if (existing.role === 'owner' && next.role !== 'owner') {
         return res.status(409).json({ ok: false, error: 'Owner role cannot be changed.' });
       }
 
-      const next = { ...existing, ...data };
+      if (existing.role !== 'owner' && next.role === 'owner') {
+        return res.status(409).json({ ok: false, error: 'Owner role cannot be assigned via this endpoint.' });
+      }
+
       const result = await updateBusinessUser({ businessId: session.businessId, user: next });
       if (!result.ok) {
         return res.status(409).json({ ok: false, error: result.error });

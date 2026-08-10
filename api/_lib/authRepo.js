@@ -797,15 +797,25 @@ export async function resolveMobileSessionByAccessToken(accessToken) {
     return { ok: false, reason: 'expired' };
   }
 
-  const user = buildMobileSessionFromItem(item);
-  if (!user) {
+  const tokenSessionUser = buildMobileSessionFromItem(item);
+  if (!tokenSessionUser) {
     return { ok: false, reason: 'invalid_token' };
   }
 
-  const currentUser = await getBusinessUserById(user.businessId, user.id);
+  const currentUser = await getBusinessUserById(tokenSessionUser.businessId, tokenSessionUser.id);
   if (!currentUser || currentUser.active === false) {
     return { ok: false, reason: 'inactive_user' };
   }
+
+  const user = {
+    id: currentUser.id,
+    businessId: currentUser.businessId,
+    name: currentUser.name,
+    email: currentUser.email,
+    role: currentUser.role,
+    businessName: tokenSessionUser.businessName,
+    employeeId: tokenSessionUser.employeeId,
+  };
 
   return {
     ok: true,
