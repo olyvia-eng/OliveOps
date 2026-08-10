@@ -8,6 +8,7 @@ import EquipmentInfoForm, {
   emptyEquipmentInfoFormValue,
   type EquipmentInfoFormValue,
 } from '../../components/equipment/EquipmentInfoForm';
+import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
 
 type MaterialCatalogRow = {
   key: string;
@@ -187,6 +188,21 @@ export default function EquipmentCatalogPage() {
     return filtered;
   }, [materialQuery, materialRows, materialSort]);
 
+  const equipmentCostBreakdown = useMemo(() => {
+    return calculateEquipmentCostBreakdown({
+      equipmentCostType: form.equipmentCostType,
+      equipmentPayment: form.equipmentPayment,
+      equipmentPaymentFrequencyPerYear: form.equipmentPaymentFrequencyPerYear,
+      averageFuelPrice: form.averageFuelPrice,
+      averageFuelBurnPerHour: form.averageFuelBurnPerHour,
+      yearlyInsuranceCost: form.yearlyInsuranceCost,
+      yearlyMaintenanceCost: form.yearlyMaintenanceCost,
+      sellableHoursPerYear: form.sellableHoursPerYear,
+      equipmentHoursPerDay: form.equipmentHoursPerDay,
+      monthsUsedPerYear: form.monthsUsedPerYear,
+    });
+  }, [form]);
+
   const resetForm = () => {
     setForm(emptyEquipmentInfoFormValue());
     setEditingId(null);
@@ -270,7 +286,6 @@ export default function EquipmentCatalogPage() {
       sellableHoursPerYear: 0,
       equipmentHoursPerDay: 8,
       monthsUsedPerYear: 12,
-      budgetSellRate: 0,
     });
     setShowEquipmentCalcDetails(false);
     setEquipmentModalOpen(true);
@@ -485,38 +500,13 @@ export default function EquipmentCatalogPage() {
           <EquipmentInfoForm
             value={form}
             onChange={setForm}
-            fuelCostPerHour={Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))}
-            totalEquipmentCostPerYear={
-              ((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
-              * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
-              + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
-              + Math.max(0, Number(form.yearlyInsuranceCost || 0))
-              + Math.max(0, Number(form.yearlyMaintenanceCost || 0))
-            }
-            totalCostPerHour={Math.max(0, Number(form.sellableHoursPerYear || 0)) > 0
-              ? (
-                (((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
-                * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
-                + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
-                + Math.max(0, Number(form.yearlyInsuranceCost || 0))
-                + Math.max(0, Number(form.yearlyMaintenanceCost || 0)))
-                / Math.max(0, Number(form.sellableHoursPerYear || 0))
-              )
-              : 0}
-            totalCostPerDay={
-              (Math.max(0, Number(form.sellableHoursPerYear || 0)) > 0
-                ? (
-                  (((form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0)))
-                  * (form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0))))
-                  + ((Math.max(0, Number(form.averageFuelPrice || 0)) * Math.max(0, Number(form.averageFuelBurnPerHour || 0))) * Math.max(0, Number(form.sellableHoursPerYear || 0)))
-                  + Math.max(0, Number(form.yearlyInsuranceCost || 0))
-                  + Math.max(0, Number(form.yearlyMaintenanceCost || 0)))
-                  / Math.max(0, Number(form.sellableHoursPerYear || 0))
-                )
-                : 0) * Math.max(0, Number(form.equipmentHoursPerDay || 0))
-            }
+            fuelCostPerHour={equipmentCostBreakdown.fuelCostPerHour}
+            totalEquipmentCostPerYear={equipmentCostBreakdown.totalEquipmentCostPerYear}
+            totalCostPerHour={equipmentCostBreakdown.totalCostPerHour}
+            totalCostPerDay={equipmentCostBreakdown.totalCostPerDay}
             showCalculationDetails={showEquipmentCalcDetails}
             onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)}
+            showBudgetSellRate={false}
             editableBudgetSellRate={false}
           />
         </form>

@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('budget equipment formula uses old ownership plus operating cost model', () => {
+test('budget equipment calculations use shared helper and live sell-rate preview pipeline', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
-  assert.match(source, /const annualPayments = normalizedPayment \* normalizedPaymentFrequency;/);
-  assert.match(source, /const annualFuelCost = normalizedFuelCostPerHour \* normalizedSellableHours;/);
-  assert.match(source, /const totalEquipmentCostPerYear = annualPayments \+ annualFuelCost \+ normalizedInsurance \+ normalizedMaintenance;/);
-  assert.match(source, /const totalCostPerDay = totalCostPerHour \* normalizedHoursPerDay;/);
+  assert.match(source, /calculateEquipmentCostBreakdown/);
+  assert.match(source, /calculateSuggestedEquipmentSellRate/);
+  assert.match(source, /resolveEquipmentSellRatePreview\(equipmentSellRateOverride, suggestedEquipmentSellRate\)/);
+  assert.match(source, /budgetSellRate=\{previewEquipmentSellRate\}/);
+  assert.match(source, /defaultSellPrice: normalizedBudgetSellRate,/);
 });
 
 test('months used per year is present and validated with no allocation panel copy', () => {

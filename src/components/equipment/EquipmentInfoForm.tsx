@@ -15,7 +15,6 @@ export interface EquipmentInfoFormValue {
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
   monthsUsedPerYear: number;
-  budgetSellRate: number;
 }
 
 interface EquipmentInfoFormProps {
@@ -25,8 +24,11 @@ interface EquipmentInfoFormProps {
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
   totalCostPerDay: number;
+  budgetSellRate?: number;
+  onBudgetSellRateChange?: (nextValue: number) => void;
   showCalculationDetails: boolean;
   onToggleCalculationDetails: () => void;
+  showBudgetSellRate?: boolean;
   editableBudgetSellRate?: boolean;
 }
 
@@ -44,7 +46,6 @@ export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
   sellableHoursPerYear: 0,
   equipmentHoursPerDay: 8,
   monthsUsedPerYear: 12,
-  budgetSellRate: 0,
 });
 
 export default function EquipmentInfoForm({
@@ -54,8 +55,11 @@ export default function EquipmentInfoForm({
   totalEquipmentCostPerYear,
   totalCostPerHour,
   totalCostPerDay,
+  budgetSellRate = 0,
+  onBudgetSellRateChange,
   showCalculationDetails,
   onToggleCalculationDetails,
+  showBudgetSellRate = true,
   editableBudgetSellRate = true,
 }: EquipmentInfoFormProps) {
   const set = <K extends keyof EquipmentInfoFormValue>(key: K, nextValue: EquipmentInfoFormValue[K]) => {
@@ -281,21 +285,23 @@ export default function EquipmentInfoForm({
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <label className="text-sm font-medium text-gray-700">Budget Sell Rate / Charge-Out Rate</label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={value.budgetSellRate}
-              className="pl-7"
-              onChange={(event) => set('budgetSellRate', Number(event.target.value || 0))}
-              disabled={!editableBudgetSellRate}
-            />
+        {showBudgetSellRate && (
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label className="text-sm font-medium text-gray-700">Budget Sell Rate / Charge-Out Rate</label>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
+              <Input
+                type="number"
+                min={0}
+                step={0.01}
+                value={budgetSellRate}
+                className="pl-7"
+                onChange={(event) => onBudgetSellRateChange?.(Number(event.target.value || 0))}
+                disabled={!editableBudgetSellRate}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="mt-1">
