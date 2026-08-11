@@ -146,6 +146,19 @@ test('convert-to-job returns job and estimate patch on success', async () => {
   assert.equal(conversionPayload.job.jobNumber, 'JOB-2026-0007');
 });
 
+test('convert-to-job replaces generic draft estimate labels with an operational job name', async () => {
+  const handler = createEstimatesHandler({
+    requireSession: async () => baseSession(),
+    getEstimateForBusiness: async () => ({ ...baseEstimate(), title: 'Draft Estimate EST-2026-0012', propertyLabel: 'Miller Residence' }),
+    reserveNextJobNumberForBusiness: async () => 'JOB-2026-0012',
+    convertEstimateToJobForBusiness: async () => ({ ok: true }),
+  });
+  const res = createMockRes();
+  await handler({ method: 'POST', query: { action: 'convert-to-job' }, body: { estimateId: 'est-1', title: 'Draft Estimate EST-2026-0012' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.job.title, 'Miller Residence');
+});
+
 test('convert-to-job surfaces already-converted conflicts', async () => {
   const handler = createEstimatesHandler({
     requireSession: async () => baseSession(),

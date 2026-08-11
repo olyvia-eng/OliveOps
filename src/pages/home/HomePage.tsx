@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDistanceToNow } from 'date-fns';
+import { addDays, format, formatDistanceToNow, startOfWeek } from 'date-fns';
 import { Briefcase, CalendarDays, CheckCircle2, Circle, ClipboardList, FileText, Plus, Users } from 'lucide-react';
 import DashboardOnboardingCard from '../../components/dashboard/DashboardOnboardingCard';
 import { buildDashboardOnboardingItems, calculateDashboardOnboardingProgress } from '../../components/dashboard/onboardingProgress';
@@ -10,6 +10,7 @@ import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCustomerPropertyLabel, formatScheduleTimeLabel, getJobScheduleWindow } from '../../utils/jobSchedule';
 import type { GoogleCalendarEvent } from '../../types';
+import { getEffectiveDivision, groupScheduleEntriesByDay, resolveScheduleColour } from '../../utils/scheduleModel.js';
 
 interface HomePageProps {
   currentUserId: string;
@@ -61,6 +62,8 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
     estimates,
     jobs,
     employees,
+    crews,
+    divisions,
     timeEntries,
     expenses,
     budgets,
@@ -80,7 +83,6 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
 
   const today = new Date();
-  const todayKey = dateKey(today);
   const greetingName = currentUserName.split(' ')[0] || currentUserName;
 
   const onboardingItems = useMemo(() => buildDashboardOnboardingItems({
@@ -111,28 +113,32 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
       });
   }, [currentUserId, tasks]);
 
-  const todaysSchedule = useMemo(() => {
-    return jobs
-      .filter((job) => {
-        if (job.status !== 'scheduled' && job.status !== 'in_progress') return false;
-        const window = getJobScheduleWindow(job);
-        return Boolean(window && todayKey >= window.startKey && todayKey <= window.endKey);
-      })
-      .slice()
-      .sort((left, right) => {
-        const leftWindow = getJobScheduleWindow(left);
-        const rightWindow = getJobScheduleWindow(right);
-        if (!leftWindow || !rightWindow) return 0;
-        return leftWindow.start.getTime() - rightWindow.start.getTime();
-      });
-  }, [jobs, todayKey]);
+  const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const weeklySchedule = useMemo(() => {
+    const entries = jobs.flatMap((job) => {
+      if (job.status !== 'scheduled' && job.status !== 'in_progress') return [];
+      const window = getJobScheduleWindow(job);
+      if (!window) return [];
+      return [{
+        source: 'oliveops' as const,
+        jobId: job.id,
+        status: job.status,
+        startKey: window.startKey,
+        endKey: window.endKey,
+        crew: crews.find((crew) => crew.id === job.crewId) ?? null,
+        division: getEffectiveDivision(job, divisions, budgets),
+        employeeIds: job.assignedEmployeeIds ?? [],
+        equipmentIds: job.assignedEquipmentIds ?? [],
+      }];
+    });
+    return groupScheduleEntriesByDay(entries, weekDays.map(dateKey));
+  }, [budgets, crews, divisions, jobs, weekStart.getTime()]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const start = weekStart;
+    const end = addDays(start, 7);
     const params = new URLSearchParams({ from: start.toISOString(), to: end.toISOString() });
     const load = async () => {
       try {
@@ -148,7 +154,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
     };
     void load();
     return () => controller.abort();
-  }, [todayKey]);
+  }, [weekStart.getTime()]);
 
   const sentEstimates = estimates.filter((estimate) => estimate.status === 'sent');
   const acceptedPendingConversion = estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
@@ -304,38 +310,34 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
       <div className="mt-6">
         <Card>
           <div className="p-4 border-b border-gray-100 dark:border-brand-600 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900 dark:text-brand-50">Today&apos;s Schedule</h2>
+            <div><h2 className="font-semibold text-gray-900 dark:text-brand-50">This Week</h2><p className="mt-0.5 text-xs text-brand-500 dark:text-brand-200">{format(weekStart, 'MMM d')} - {format(addDays(weekStart, 6), 'MMM d')}</p></div>
             <Link to="/calendar" className="text-xs font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Calendar</Link>
           </div>
 
-          {todaysSchedule.length === 0 && googleEvents.length === 0 ? (
+          {weeklySchedule.every((day) => day.entries.length === 0) && googleEvents.length === 0 ? (
             <EmptyState
               icon={<CalendarDays aria-hidden="true" />}
-              title="No jobs scheduled today"
+              title="No jobs scheduled this week"
               description="Use Calendar to assign work and keep the crew aligned."
               action={<Link to="/calendar"><Button variant="secondary">Plan in Calendar</Button></Link>}
             />
           ) : (
-            <ul className="divide-y divide-gray-100 dark:divide-brand-600">
-              {todaysSchedule.slice(0, 8).map((job) => {
-                const customer = customers.find((item) => item.id === job.customerId);
-                return (
-                  <li key={job.id} className="p-4 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">{job.title}</p>
-                      <p className="text-xs text-gray-500 dark:text-brand-300 mt-1">{formatCustomerPropertyLabel(job, customer)}</p>
-                      <p className="text-xs text-gray-500 dark:text-brand-300 mt-1">{formatScheduleTimeLabel(job)}</p>
-                    </div>
-                    <div className="text-right">
-                      <Badge label={job.status.replace('_', ' ')} className={job.status === 'in_progress' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-700'} />
-                      <div className="mt-2">
-                        <Link to={`/jobs/${job.id}`} className="text-xs font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Job</Link>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-              {googleEvents.slice(0, Math.max(0, 8 - todaysSchedule.length)).map((event) => (
+            <div className="divide-y divide-brand-100 dark:divide-brand-600">
+              {weeklySchedule.map((day, index) => (
+                <section key={day.dayKey} className="grid min-h-20 gap-3 p-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
+                  <div><p className="text-sm font-semibold text-brand-900 dark:text-brand-50">{format(weekDays[index], 'EEE')}</p><p className="text-xs text-brand-500 dark:text-brand-200">{format(weekDays[index], 'MMM d')}</p></div>
+                  <div className="space-y-2">
+                    {day.entries.length === 0 ? <p className="py-2 text-sm text-brand-400 dark:text-brand-300">No company work scheduled.</p> : day.entries.map((entry) => {
+                      const job = jobs.find((item) => item.id === entry.jobId);
+                      if (!job) return null;
+                      const customer = customers.find((item) => item.id === job.customerId);
+                      const colour = resolveScheduleColour({ colourBy: 'crew', job, crew: entry.crew, division: entry.division });
+                      return <Link key={job.id} to={`/jobs/${job.id}`} className="flex items-start justify-between gap-3 rounded-lg border-l-[3px] px-3 py-2 hover:brightness-95" style={{ borderColor: colour.value, backgroundColor: colour.tint }}><div className="min-w-0"><p className="truncate text-sm font-semibold" style={{ color: colour.value }}>{job.title}</p><p className="mt-0.5 truncate text-xs text-brand-600">{entry.crew?.name ?? 'Unassigned crew'} · {formatCustomerPropertyLabel(job, customer)}</p></div><span className="shrink-0 text-xs font-medium text-brand-600">{formatScheduleTimeLabel(job)}</span></Link>;
+                    })}
+                  </div>
+                </section>
+              ))}
+              {googleEvents.slice(0, 5).map((event) => (
                 <li key={`${event.googleCalendarId}:${event.googleEventId}`} className="flex items-start justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-gray-900 dark:text-brand-50">{event.title}</p>
@@ -350,7 +352,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
                   </div>
                 </li>
               ))}
-            </ul>
+            </div>
           )}
         </Card>
       </div>

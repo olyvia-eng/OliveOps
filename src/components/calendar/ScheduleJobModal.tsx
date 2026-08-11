@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { AlertTriangle } from 'lucide-react';
-import { Badge, Button, Input, Modal, TextArea } from '../ui';
-import type { Customer, Employee, EquipmentAsset, Job, ID } from '../../types';
+import { Badge, Button, Input, Modal, Select, TextArea } from '../ui';
+import type { Crew, Customer, Division, Employee, EquipmentAsset, Job, ID } from '../../types';
 import {
   formatCustomerPropertyLabel,
   getAssignedEquipmentForJob,
@@ -17,6 +17,8 @@ type ScheduleFormState = {
   startTime: string;
   endTime: string;
   allDay: boolean;
+  crewId: ID;
+  divisionId: ID;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
   notes: string;
@@ -31,6 +33,8 @@ type SchedulePayload = {
   scheduleAllDay: boolean;
   scheduleConfirmed: boolean;
   scheduleNotes: string;
+  crewId?: ID;
+  divisionId?: ID;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
 };
@@ -42,6 +46,8 @@ interface Props {
   customers: Customer[];
   employees: Employee[];
   equipmentAssets: EquipmentAsset[];
+  crews: Crew[];
+  divisions: Division[];
   initialJobId?: string;
   onClose: () => void;
   onSave: (payload: SchedulePayload) => Promise<boolean>;
@@ -65,6 +71,8 @@ const defaultForm = (): ScheduleFormState => ({
   startTime: '',
   endTime: '',
   allDay: true,
+  crewId: '',
+  divisionId: '',
   assignedEmployeeIds: [],
   assignedEquipmentIds: [],
   notes: '',
@@ -77,6 +85,8 @@ const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[]): ScheduleFormS
   startTime: timeValueFromIso(job.scheduledStartAt),
   endTime: timeValueFromIso(job.scheduledEndAt),
   allDay: job.scheduleAllDay !== false,
+  crewId: job.crewId ?? '',
+  divisionId: job.divisionId ?? '',
   assignedEmployeeIds: [...(job.assignedEmployeeIds ?? [])],
   assignedEquipmentIds: getAssignedEquipmentForJob(job, equipmentAssets).map((asset) => asset.id),
   notes: job.scheduleNotes ?? '',
@@ -89,6 +99,8 @@ export default function ScheduleJobModal({
   customers,
   employees,
   equipmentAssets,
+  crews,
+  divisions,
   initialJobId,
   onClose,
   onSave,
@@ -115,6 +127,7 @@ export default function ScheduleJobModal({
   );
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const equipmentById = useMemo(() => new Map(equipmentAssets.map((asset) => [asset.id, asset])), [equipmentAssets]);
+  const crewById = useMemo(() => new Map(crews.map((crew) => [crew.id, crew])), [crews]);
   const availableEquipment = useMemo(
     () => equipmentAssets.filter((asset) => !asset.currentJobId || asset.currentJobId === selectedJob?.id),
     [equipmentAssets, selectedJob?.id]
@@ -166,11 +179,13 @@ export default function ScheduleJobModal({
       jobId: selectedJob.id,
       jobs,
       scheduleWindow: draftScheduleWindow,
+      crewId: form.crewId || undefined,
       assignedEmployeeIds: form.assignedEmployeeIds,
       assignedEquipmentIds: form.assignedEquipmentIds,
     });
-  }, [draftScheduleWindow, form.assignedEmployeeIds, form.assignedEquipmentIds, jobs, selectedJob]);
+  }, [draftScheduleWindow, form.assignedEmployeeIds, form.assignedEquipmentIds, form.crewId, jobs, selectedJob]);
 
+  const crewConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingCrewId);
   const employeeConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEmployeeIds.length > 0);
   const equipmentConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEquipmentIds.length > 0);
 
@@ -198,6 +213,8 @@ export default function ScheduleJobModal({
       scheduleAllDay: form.allDay,
       scheduleConfirmed: true,
       scheduleNotes: form.notes.trim(),
+      crewId: form.crewId || undefined,
+      divisionId: form.divisionId || undefined,
       assignedEmployeeIds: form.assignedEmployeeIds,
       assignedEquipmentIds: form.assignedEquipmentIds,
     });
@@ -238,6 +255,14 @@ export default function ScheduleJobModal({
                 ))}
               </select>
             </div>
+            <Select label="Primary Crew" value={form.crewId} onChange={(event) => setForm((current) => ({ ...current, crewId: event.target.value }))}>
+              <option value="">No primary crew</option>
+              {crews.filter((crew) => crew.active).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
+            </Select>
+            <Select label="Division" value={form.divisionId} onChange={(event) => setForm((current) => ({ ...current, divisionId: event.target.value }))}>
+              <option value="">No division</option>
+              {divisions.filter((division) => division.active).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+            </Select>
             <Input label="Start Date *" type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
             <Input label="End Date *" type="date" value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} />
             <label className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100 sm:col-span-2">
@@ -282,6 +307,26 @@ export default function ScheduleJobModal({
             <h3 className="mt-3 text-lg font-semibold text-brand-900 dark:text-brand-50">{selectedJob?.title ?? 'Select a job'}</h3>
             <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">{selectedJob ? formatCustomerPropertyLabel(selectedJob, selectedCustomer) : 'Choose a job to derive the property and customer details.'}</p>
           </div>
+
+          {crewConflicts.length > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 text-amber-600" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold">Crew overlap warning</h3>
+                  <div className="mt-2 space-y-3 text-sm">
+                    {crewConflicts.map((conflict) => (
+                      <div key={`crew-conflict-${conflict.job.id}`} className="rounded-xl border border-amber-200 bg-white/70 p-3">
+                        <p className="font-medium">{conflict.job.title}</p>
+                        <p className="mt-1 text-xs text-amber-700">{formatConflictWindow(conflict.schedule.start, conflict.schedule.end, conflict.schedule.allDay)}</p>
+                        <p className="mt-1 text-xs text-amber-800">Crew: {crewById.get(conflict.conflictingCrewId ?? '')?.name ?? conflict.conflictingCrewId}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {employeeConflicts.length > 0 ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">

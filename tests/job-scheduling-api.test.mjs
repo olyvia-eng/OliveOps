@@ -223,3 +223,32 @@ test('job scheduling rejects assigned employees from another tenant', async (t) 
   assert.equal(res.body.ok, false);
   assert.equal(res.body.error, 'Assigned employees must belong to this business.');
 });
+
+test('job scheduling rejects crew and division references from another tenant', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-admin-config', role: 'admin', email: 'admin-config@example.com' });
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Local Employee' });
+  store.set(mapKey('BUSINESS#biz-b', 'CREW#crew-foreign'), {
+    PK: 'BUSINESS#biz-b', SK: 'CREW#crew-foreign', businessId: 'biz-b', crewId: 'crew-foreign', name: 'Foreign Crew', colour: '#0f766e', active: true, memberIds: [],
+  });
+  store.set(mapKey('BUSINESS#biz-b', 'DIVISION#division-foreign'), {
+    PK: 'BUSINESS#biz-b', SK: 'DIVISION#division-foreign', businessId: 'biz-b', divisionId: 'division-foreign', name: 'Foreign Division', normalizedName: 'foreign_division', colour: '#15803d', active: true,
+  });
+  await seedSession({ businessId: 'biz-a', userId: 'user-admin-config', role: 'admin', email: 'admin-config@example.com', token: 'schedule-config-token' });
+
+  const crewRes = createMockRes();
+  await dataHandler({
+    method: 'POST', query: { entity: 'jobs' }, headers: { authorization: 'Bearer schedule-config-token' },
+    body: { data: buildJobRecord({ id: 'job-foreign-crew', crewId: 'crew-foreign' }) },
+  }, crewRes);
+  assert.equal(crewRes.statusCode, 400);
+  assert.equal(crewRes.body.error, 'Assigned crew must belong to this business.');
+
+  const divisionRes = createMockRes();
+  await dataHandler({
+    method: 'POST', query: { entity: 'jobs' }, headers: { authorization: 'Bearer schedule-config-token' },
+    body: { data: buildJobRecord({ id: 'job-foreign-division', divisionId: 'division-foreign' }) },
+  }, divisionRes);
+  assert.equal(divisionRes.statusCode, 400);
+  assert.equal(divisionRes.body.error, 'Assigned division must belong to this business.');
+});

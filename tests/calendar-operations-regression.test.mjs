@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 const appSource = readFileSync('src/App.tsx', 'utf8');
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 const calendarSource = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8');
+const calendarControlsSource = readFileSync('src/components/calendar/CalendarControls.tsx', 'utf8');
+const scheduleModelSource = readFileSync('src/utils/scheduleModel.js', 'utf8');
 const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const scheduleUtilsSource = readFileSync('src/utils/jobSchedule.ts', 'utf8');
 const scheduleModalSource = readFileSync('src/components/calendar/ScheduleJobModal.tsx', 'utf8');
@@ -38,19 +40,20 @@ test('calendar route passes current user role into the operations calendar', () 
   assert.match(appSource, /<CalendarPage currentUserRole=\{sessionUser\.role\} \/>/);
 });
 
-test('calendar uses operations scheduling language and month-first controls', () => {
+test('calendar uses operations scheduling language and week-first controls', () => {
   assert.match(calendarSource, /Schedule jobs, crews, equipment, and company events\./);
-  assert.match(calendarSource, /Today/);
-  assert.match(calendarSource, /Month/);
-  assert.match(calendarSource, /Week/);
-  assert.match(calendarSource, /Day/);
+  assert.match(calendarControlsSource, /Today/);
+  assert.match(calendarControlsSource, /\['month', 'week', 'day'\]/);
+  assert.match(scheduleModelSource, /view: 'week'/);
   assert.match(calendarSource, /@fullcalendar\/react/);
   assert.match(calendarSource, /timeGridWeek/);
   assert.match(calendarSource, /timeGridDay/);
   assert.match(calendarSource, /eventDrop/);
-  assert.match(calendarSource, /All Divisions/);
-  assert.match(calendarSource, /All Jobs/);
-  assert.match(calendarSource, /All Employees/);
+  assert.match(calendarControlsSource, /All divisions/);
+  assert.match(calendarControlsSource, /All jobs/);
+  assert.match(calendarControlsSource, /All crews & employees/);
+  assert.match(calendarControlsSource, /All equipment/);
+  assert.match(calendarControlsSource, /Colour by/);
   assert.match(calendarSource, /Schedule Job/);
   assert.match(calendarSource, /No work scheduled this month\./);
   assert.doesNotMatch(calendarSource, /View scheduled job start dates in a monthly calendar\./);
@@ -61,7 +64,9 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /if \(!schedule\) return null;/);
   assert.match(calendarSource, /assignedEmployeeIds: selectedEvent\.job\.assignedEmployeeIds \?\? \[\],/);
   assert.match(calendarSource, /assignedEquipmentIds: selectedEvent\.job\.assignedEquipmentIds \?\? \[\],/);
-  assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employeeFilter\)/);
+  assert.match(calendarSource, /filterScheduleEntries/);
+  assert.match(calendarSource, /resourceId: resourceFilter/);
+  assert.match(calendarSource, /crewId: selectedEvent\.job\.crewId/);
   assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employee\.id\)/);
   assert.match(scheduleModalSource, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\],/);
   assert.match(scheduleUtilsSource, /scheduleConfirmed/);

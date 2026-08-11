@@ -29,7 +29,7 @@ export default function JobDetailPage({ currentUserRole }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, addCostEntry, deleteTimeEntry } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, addCostEntry, deleteTimeEntry } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -589,6 +589,8 @@ export default function JobDetailPage({ currentUserRole }: Props) {
         customers={customers}
         employees={employees}
         equipmentAssets={equipmentAssets}
+        crews={crews}
+        divisions={divisions}
         initialJobId={job.id}
         onClose={() => setScheduleModalOpen(false)}
         onSave={(payload) => updateJob(payload.jobId, payload)}

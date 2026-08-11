@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetGroup, BudgetItem, BudgetRate, Customer, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -39,6 +39,7 @@ const FormsPage = lazy(() => import('./pages/operations/FormsPage'));
 const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
+const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
@@ -88,6 +89,8 @@ export default function App() {
         budgets?: Budget[];
         budgetGroups?: BudgetGroup[];
         equipmentBudgetAllocations?: EquipmentBudgetAllocation[];
+        crews?: Crew[];
+        divisions?: Division[];
         customers?: Customer[];
         jobs?: Job[];
         estimates?: Estimate[];
@@ -122,6 +125,8 @@ export default function App() {
         budgets: payload.budgets ?? [],
         budgetGroups: payload.budgetGroups ?? [],
         equipmentBudgetAllocations: payload.equipmentBudgetAllocations ?? [],
+        crews: payload.crews ?? [],
+        divisions: payload.divisions ?? [],
         customers: payload.customers ?? [],
         jobs: payload.jobs ?? [],
         estimates: payload.estimates ?? [],
@@ -235,6 +240,8 @@ export default function App() {
       budgets: [],
       budgetGroups: [],
       equipmentBudgetAllocations: [],
+      crews: [],
+      divisions: [],
       budgetRates: [],
       customers: [],
       estimates: [],
@@ -663,6 +670,10 @@ export default function App() {
               <Route
                 path="settings/integrations"
                 element={canManageUsers ? <IntegrationsPage /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="settings/scheduling"
+                element={canManageUsers ? <SchedulingSetupPage /> : <Navigate to="/" replace />}
               />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -19,6 +19,16 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function convertedJobTitle(estimate, requestedTitle, jobNumber) {
+  const candidates = [requestedTitle, estimate.title]
+    .filter(isNonEmptyString)
+    .map((value) => value.trim())
+    .filter((value) => !/^draft estimate\b/i.test(value));
+  if (candidates[0]) return candidates[0];
+  if (isNonEmptyString(estimate.propertyLabel)) return estimate.propertyLabel.trim();
+  return `Job ${jobNumber}`;
+}
+
 function normalizeEstimateWorkAreas(estimate) {
   if (Array.isArray(estimate.workAreas) && estimate.workAreas.length > 0) {
     const hasObjectAreas = estimate.workAreas.some((area) => area && typeof area === 'object' && !Array.isArray(area));
@@ -166,7 +176,7 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     pricingBudgetId: estimate.pricingBudgetId,
     propertyLabel: estimate.propertyLabel,
     propertyAddressSnapshot: estimate.propertyAddressSnapshot,
-    title: isNonEmptyString(title) ? title.trim() : estimate.title,
+    title: convertedJobTitle(estimate, title, jobNumber),
     description: typeof estimate.description === 'string' ? estimate.description : '',
     workAreas: operationalWorkAreas.map((workArea) => workArea.name),
     operationalWorkAreas,

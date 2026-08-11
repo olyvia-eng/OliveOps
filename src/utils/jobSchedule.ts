@@ -20,6 +20,7 @@ type ScheduleWindowInput = {
 export type JobAssignmentConflict = {
   job: Job;
   schedule: JobScheduleWindow;
+  conflictingCrewId?: ID;
   conflictingEmployeeIds: ID[];
   conflictingEquipmentIds: ID[];
 };
@@ -100,12 +101,14 @@ export const getJobAssignmentConflicts = ({
   jobId,
   jobs,
   scheduleWindow,
+  crewId,
   assignedEmployeeIds,
   assignedEquipmentIds,
 }: {
   jobId: string;
   jobs: Job[];
   scheduleWindow: JobScheduleWindow | null;
+  crewId?: ID;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
 }): JobAssignmentConflict[] => {
@@ -123,12 +126,14 @@ export const getJobAssignmentConflicts = ({
 
       const conflictingEmployeeIds = (job.assignedEmployeeIds ?? []).filter((id) => employeeIds.has(id));
       const conflictingEquipmentIds = (job.assignedEquipmentIds ?? []).filter((id) => equipmentIds.has(id));
+      const conflictingCrewId = crewId && job.crewId === crewId ? crewId : undefined;
 
-      if (conflictingEmployeeIds.length === 0 && conflictingEquipmentIds.length === 0) return null;
+      if (!conflictingCrewId && conflictingEmployeeIds.length === 0 && conflictingEquipmentIds.length === 0) return null;
 
       return {
         job,
         schedule: otherSchedule!,
+        ...(conflictingCrewId ? { conflictingCrewId } : {}),
         conflictingEmployeeIds,
         conflictingEquipmentIds,
       };

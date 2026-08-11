@@ -318,6 +318,8 @@ export interface Job {
   convertedByUserName?: string;
   customerId: ID;
   pricingBudgetId?: ID;
+  crewId?: ID;
+  divisionId?: ID;
   propertyLabel?: string;
   propertyAddressSnapshot?: string;
   title: string;
@@ -343,6 +345,38 @@ export interface Job {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Crew {
+  id: ID;
+  name: string;
+  colour: string;
+  leadEmployeeId?: ID;
+  active: boolean;
+  defaultDivisionId?: ID;
+  memberIds: ID[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Division {
+  id: ID;
+  name: string;
+  normalizedName: string;
+  colour: string;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CalendarView = 'month' | 'week' | 'day';
+export type CalendarColourBy = 'crew' | 'division' | 'status';
+
+export interface CalendarPreferences {
+  view: CalendarView;
+  colourBy: CalendarColourBy;
+  showGoogleEvents: boolean;
 }
 
 export interface GoogleCalendarPreferences {

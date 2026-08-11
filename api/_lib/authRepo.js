@@ -3221,6 +3221,8 @@ function mapJobRecordFromItem(item) {
     convertedByUserName: item.convertedByUserName,
     customerId: item.customerId,
     pricingBudgetId: item.pricingBudgetId,
+    crewId: item.crewId,
+    divisionId: item.divisionId,
     propertyLabel: item.propertyLabel,
     propertyAddressSnapshot: item.propertyAddressSnapshot,
     title: item.title,

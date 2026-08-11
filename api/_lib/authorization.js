@@ -1,5 +1,7 @@
 const ENTITY_READ_ROLES = {
   budgets: ['owner', 'admin', 'foreman', 'crew_member'],
+  crews: ['owner', 'admin', 'foreman', 'crew_member'],
+  divisions: ['owner', 'admin', 'foreman', 'crew_member'],
   'budget-groups': ['owner', 'admin', 'foreman', 'crew_member'],
   'equipment-budget-allocations': ['owner', 'admin', 'foreman'],
   customers: ['owner', 'admin', 'foreman', 'crew_member'],
@@ -30,6 +32,8 @@ const ENTITY_READ_ROLES = {
 
 const ENTITY_WRITE_ROLES = {
   budgets: ['owner', 'admin', 'foreman'],
+  crews: ['owner', 'admin'],
+  divisions: ['owner', 'admin'],
   'budget-groups': ['owner', 'admin', 'foreman'],
   'equipment-budget-allocations': ['owner', 'admin', 'foreman'],
   customers: ['owner', 'admin', 'foreman'],

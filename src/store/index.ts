@@ -27,6 +27,8 @@ import type {
   TimeCorrectionRequest,
   Task,
   CostEntry,
+  Crew,
+  Division,
   ID,
 } from '../types';
 import {
@@ -81,6 +83,8 @@ interface AppState {
   budgets: Budget[];
   budgetGroups: BudgetGroup[];
   equipmentBudgetAllocations: EquipmentBudgetAllocation[];
+  crews: Crew[];
+  divisions: Division[];
   customers: Customer[];
   estimates: Estimate[];
   templates: EstimateTemplate[];
@@ -155,6 +159,10 @@ interface AppState {
   updateEmployee: (id: ID, data: Partial<Employee>) => void;
   deleteEmployee: (id: ID) => void;
 
+  // Scheduling setup
+  saveCrew: (crew: Omit<Crew, 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; error?: string }>;
+  saveDivision: (division: Omit<Division, 'normalizedName' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; error?: string }>;
+
   // Time Entries
   clockIn: (employeeId: ID, options: { workType: TimeEntryWorkType; jobIds?: ID[]; unbillableCategoryId?: ID }) => Promise<{ ok: boolean; error?: string; timeEntry?: TimeEntry }>;
   clockOut: (entryId: ID, breakMinutes?: number, notes?: string, photoAttachmentFileId?: string) => Promise<{ ok: boolean; error?: string }>;
@@ -220,6 +228,8 @@ export const useStore = create<AppState>()((set, get) => ({
   budgets: [],
       budgetGroups: [],
       equipmentBudgetAllocations: [],
+      crews: [],
+      divisions: [],
       customers: [],
       estimates: [],
       templates: [],
@@ -911,6 +921,42 @@ export const useStore = create<AppState>()((set, get) => ({
           set({ employees: previous });
           emitAppToast({ tone: 'error', message: 'Employee could not be deleted.' });
         });
+      },
+
+      // ── Scheduling Setup ──────────────────────────────────────────────────
+      saveCrew: async (crewInput) => {
+        const exists = get().crews.some((crew) => crew.id === crewInput.id);
+        try {
+          const response = await fetch(exists ? `/api/crews?id=${encodeURIComponent(crewInput.id)}` : '/api/crews', {
+            method: exists ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(crewInput),
+          });
+          const payload = await response.json() as { ok?: boolean; crew?: Crew; error?: string };
+          if (!response.ok || !payload.ok || !payload.crew) return { ok: false, error: payload.error ?? 'Crew could not be saved.' };
+          set((state) => ({ crews: exists ? state.crews.map((crew) => crew.id === payload.crew!.id ? payload.crew! : crew) : [...state.crews, payload.crew!] }));
+          return { ok: true };
+        } catch (error: unknown) {
+          return { ok: false, error: errorMessage(error, 'Crew could not be saved.') };
+        }
+      },
+      saveDivision: async (divisionInput) => {
+        const exists = get().divisions.some((division) => division.id === divisionInput.id);
+        try {
+          const response = await fetch(exists ? `/api/divisions?id=${encodeURIComponent(divisionInput.id)}` : '/api/divisions', {
+            method: exists ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(divisionInput),
+          });
+          const payload = await response.json() as { ok?: boolean; division?: Division; error?: string };
+          if (!response.ok || !payload.ok || !payload.division) return { ok: false, error: payload.error ?? 'Division could not be saved.' };
+          set((state) => ({ divisions: exists ? state.divisions.map((division) => division.id === payload.division!.id ? payload.division! : division) : [...state.divisions, payload.division!] }));
+          return { ok: true };
+        } catch (error: unknown) {
+          return { ok: false, error: errorMessage(error, 'Division could not be saved.') };
+        }
       },
 
       // ── Time Entries ──────────────────────────────────────────────────────

@@ -120,6 +120,7 @@ import {
 import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToGoogleCalendars } from './_lib/googleCalendarSync.js';
+import { getCrewForBusiness, getDivisionForBusiness } from './_lib/schedulingConfig.js';
 import {
   deleteEquipmentBudgetAllocationForItem,
   repairBudgetGroupMembershipForDeletion,
@@ -941,6 +942,12 @@ function validateJobRecord(record) {
   if (record.scheduleNotes !== undefined && record.scheduleNotes !== null && typeof record.scheduleNotes !== 'string') {
     return 'Job schedule notes must be a string.';
   }
+  if (record.crewId !== undefined && record.crewId !== null && !isNonEmptyString(record.crewId)) {
+    return 'Job crew is invalid.';
+  }
+  if (record.divisionId !== undefined && record.divisionId !== null && !isNonEmptyString(record.divisionId)) {
+    return 'Job division is invalid.';
+  }
   if (!Array.isArray(record.assignedEmployeeIds) || record.assignedEmployeeIds.some((value) => typeof value !== 'string' || !value.trim())) {
     return 'Assigned employees are invalid.';
   }
@@ -953,6 +960,13 @@ function validateJobRecord(record) {
 async function validateJobRelationships({ businessId, record }) {
   const assignedEmployeeIds = uniqueStringList(record.assignedEmployeeIds);
   const assignedEquipmentIds = uniqueStringList(record.assignedEquipmentIds);
+
+  if (isNonEmptyString(record.crewId) && !await getCrewForBusiness(businessId, record.crewId)) {
+    return 'Assigned crew must belong to this business.';
+  }
+  if (isNonEmptyString(record.divisionId) && !await getDivisionForBusiness(businessId, record.divisionId)) {
+    return 'Assigned division must belong to this business.';
+  }
 
   for (const employeeId of assignedEmployeeIds) {
     const employee = await getEmployeeForBusiness(businessId, employeeId);

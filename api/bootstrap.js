@@ -32,6 +32,7 @@ import {
   listBudgetGroupsForBusiness,
   listEquipmentBudgetAllocationsForBusiness,
 } from './_lib/budgetGroups.js';
+import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -59,7 +60,7 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetGroups, equipmentBudgetAllocations, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -67,6 +68,8 @@ export default async function handler(req, res) {
       listBudgetsForBusiness(session.businessId),
       listBudgetGroupsForBusiness(session.businessId),
       listEquipmentBudgetAllocationsForBusiness(session.businessId),
+      listCrewsForBusiness(session.businessId),
+      listDivisionsForBusiness(session.businessId),
       listCustomersForBusiness(session.businessId),
       listJobsForBusiness(session.businessId),
       listEstimatesForBusiness(session.businessId),
@@ -99,6 +102,8 @@ export default async function handler(req, res) {
       budgets: filterRecordsForSession(session, 'budgets', budgets),
       budgetGroups: filterRecordsForSession(session, 'budget-groups', budgetGroups),
       equipmentBudgetAllocations: filterRecordsForSession(session, 'equipment-budget-allocations', equipmentBudgetAllocations),
+      crews: filterRecordsForSession(session, 'crews', crews),
+      divisions: filterRecordsForSession(session, 'divisions', divisions),
       customers: filterRecordsForSession(session, 'customers', customers),
       jobs: filterRecordsForSession(session, 'jobs', jobs),
       estimates: filterRecordsForSession(session, 'estimates', estimates),
