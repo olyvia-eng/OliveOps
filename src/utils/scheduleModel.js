@@ -13,6 +13,24 @@ export const DEFAULT_CALENDAR_PREFERENCES = {
 
 const hash = (value) => [...String(value)].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 0);
 const byId = (values, id) => values.find((value) => value.id === id) ?? null;
+const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+
+const localDateKey = (value) => {
+  if (dateOnlyPattern.test(String(value))) return String(value);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const shiftDateKey = (value, amount) => {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + amount);
+  return localDateKey(date);
+};
 
 export function normalizeCalendarPreferences(value) {
   return {
@@ -83,4 +101,66 @@ export function groupScheduleEntriesByDay(entries, dayKeys) {
     dayKey,
     entries: entries.filter((entry) => entry.startKey <= dayKey && entry.endKey >= dayKey),
   }));
+}
+
+export function normalizeGoogleScheduleEntry(event) {
+  const startKey = localDateKey(event.start);
+  const rawEndKey = localDateKey(event.end) || startKey;
+  const endKey = event.allDay && rawEndKey > startKey ? shiftDateKey(rawEndKey, -1) : rawEndKey;
+  const timeLabel = event.allDay ? '' : [event.start, event.end]
+    .map((value) => new Date(value).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' }))
+    .join(' - ');
+  return {
+    source: 'google',
+    googleEventId: event.googleEventId,
+    googleCalendarId: event.googleCalendarId,
+    title: event.title,
+    status: event.status,
+    start: event.start,
+    end: event.end,
+    startKey,
+    endKey: endKey < startKey ? startKey : endKey,
+    allDay: event.allDay,
+    timeLabel,
+    location: event.location,
+    crew: null,
+    division: null,
+    employeeIds: [],
+    equipmentIds: [],
+    googleEvent: event,
+  };
+}
+
+export function buildWeeklyScheduleSpans(entries, dayKeys) {
+  if (dayKeys.length === 0) return [];
+  const firstDay = dayKeys[0];
+  const lastDay = dayKeys[dayKeys.length - 1];
+  return entries
+    .filter((entry) => entry.startKey <= lastDay && entry.endKey >= firstDay)
+    .map((entry) => {
+      const clippedStartKey = entry.startKey < firstDay ? firstDay : entry.startKey;
+      const clippedEndKey = entry.endKey > lastDay ? lastDay : entry.endKey;
+      const startIndex = dayKeys.indexOf(clippedStartKey);
+      const endIndex = dayKeys.indexOf(clippedEndKey);
+      return {
+        entry,
+        startColumn: startIndex + 1,
+        endColumn: endIndex + 1,
+        columnSpan: endIndex - startIndex + 1,
+        continuesBefore: entry.startKey < firstDay,
+        continuesAfter: entry.endKey > lastDay,
+      };
+    })
+    .filter((span) => span.startColumn > 0 && span.endColumn > 0)
+    .sort((left, right) => left.startColumn - right.startColumn || right.endColumn - left.endColumn);
+}
+
+export function packWeeklyScheduleSpans(spans) {
+  const rowEnds = [];
+  return spans.map((span) => {
+    let row = rowEnds.findIndex((endColumn) => endColumn < span.startColumn);
+    if (row === -1) row = rowEnds.length;
+    rowEnds[row] = span.endColumn;
+    return { ...span, row };
+  });
 }

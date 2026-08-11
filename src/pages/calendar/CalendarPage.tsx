@@ -6,9 +6,8 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import {
   format,
-  startOfMonth,
-  endOfMonth,
   addDays,
+  startOfWeek,
   subDays,
 } from 'date-fns';
 import { Plus } from 'lucide-react';
@@ -17,8 +16,9 @@ import { Badge, Button, Card, PageHeader } from '../../components/ui';
 import type { CalendarColourBy, CalendarPreferences, CalendarView, GoogleCalendarEvent } from '../../types';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { CalendarFilters, CalendarLegend, CalendarToolbar, ColourBySelector, ScheduleEventCard } from '../../components/calendar/CalendarControls';
+import CrewLaneWeekView from '../../components/calendar/CrewLaneWeekView';
 import { formatDate, statusColor } from '../../utils';
-import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, resolveScheduleColour } from '../../utils/scheduleModel.js';
+import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, normalizeGoogleScheduleEntry, resolveScheduleColour } from '../../utils/scheduleModel.js';
 import {
   formatCustomerPropertyLabel,
   formatScheduleTimeLabel,
@@ -52,6 +52,11 @@ const CALENDAR_VIEW_MAP: Record<CalendarView, 'dayGridMonth' | 'timeGridWeek' | 
 };
 
 const canManageScheduleRole = (role: string) => role === 'owner' || role === 'admin' || role === 'foreman';
+const getWeekRange = (value: Date) => {
+  const start = startOfWeek(value, { weekStartsOn: 1 });
+  const end = addDays(start, 7);
+  return { start, end, title: `${format(start, 'MMM d')} - ${format(addDays(end, -1), 'MMM d, yyyy')}` };
+};
 
 export default function CalendarPage({ currentUserRole }: Props) {
   const navigate = useNavigate();
@@ -67,11 +72,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
-  const [visibleRange, setVisibleRange] = useState(() => ({
-    start: startOfMonth(new Date()),
-    end: endOfMonth(new Date()),
-    title: format(new Date(), 'MMMM yyyy'),
-  }));
+  const [visibleRange, setVisibleRange] = useState(() => getWeekRange(new Date()));
   const canManageSchedule = canManageScheduleRole(currentUserRole);
 
   const allScheduledJobs = useMemo(() => {
@@ -102,17 +103,28 @@ export default function CalendarPage({ currentUserRole }: Props) {
       .sort((left, right) => left.schedule.start.getTime() - right.schedule.start.getTime() || left.job.title.localeCompare(right.job.title));
   }, [budgets, crews, customers, divisions, employees, equipmentAssets, jobs]);
 
-  const normalizedEntries = useMemo(() => allScheduledJobs.map((entry) => ({
+  const oliveOpsEntries = useMemo(() => allScheduledJobs.map((entry) => ({
     source: 'oliveops' as const,
     jobId: entry.job.id,
+    title: entry.job.title,
+    summary: entry.summary,
+    timeLabel: entry.schedule.allDay ? '' : entry.timeLabel,
     status: entry.job.status,
+    start: entry.schedule.start.toISOString(),
+    end: entry.schedule.end.toISOString(),
     startKey: entry.schedule.startKey,
     endKey: entry.schedule.endKey,
+    allDay: entry.schedule.allDay,
     crew: entry.crew,
     division: entry.division,
     employeeIds: entry.job.assignedEmployeeIds ?? [],
     equipmentIds: entry.job.assignedEquipmentIds ?? [],
   })), [allScheduledJobs]);
+
+  const normalizedEntries = useMemo(() => [
+    ...oliveOpsEntries,
+    ...googleEvents.map(normalizeGoogleScheduleEntry),
+  ], [googleEvents, oliveOpsEntries]);
 
   const filteredEntries = useMemo(() => filterScheduleEntries(normalizedEntries, {
     divisionId: divisionFilter,
@@ -126,6 +138,10 @@ export default function CalendarPage({ currentUserRole }: Props) {
     const visibleJobIds = new Set(filteredEntries.map((entry) => entry.jobId));
     return allScheduledJobs.filter((entry) => visibleJobIds.has(entry.job.id));
   }, [allScheduledJobs, filteredEntries]);
+
+  const filteredGoogleEvents = useMemo(() => filteredEntries
+    .filter((entry) => entry.source === 'google' && entry.googleEvent)
+    .map((entry) => entry.googleEvent!), [filteredEntries]);
 
   const legendItems = useMemo(() => getScheduleLegend(filteredEntries, preferences.colourBy), [filteredEntries, preferences.colourBy]);
 
@@ -142,7 +158,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       extendedProps: {
         source: 'oliveops' as const,
         summary: entry.summary,
-        timeLabel: entry.timeLabel,
+        timeLabel: entry.schedule.allDay ? '' : entry.timeLabel,
         status: entry.job.status,
         employeeCount: entry.assignedEmployees.length,
         equipmentCount: entry.assignedEquipment.length,
@@ -150,7 +166,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, crew: entry.crew, division: entry.division }),
       } satisfies CalendarEventExtendedProps,
     }));
-    const externalEvents = (preferences.showGoogleEvents ? googleEvents : []).map((event) => ({
+    const externalEvents = filteredGoogleEvents.map((event) => ({
       id: `google:${event.googleCalendarId}:${event.googleEventId}`,
       title: event.title,
       start: event.start,
@@ -168,7 +184,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       } satisfies CalendarEventExtendedProps,
     }));
     return [...oliveOpsEvents, ...externalEvents];
-  }, [googleEvents, preferences.colourBy, preferences.showGoogleEvents, scheduledJobs]);
+  }, [filteredGoogleEvents, preferences.colourBy, scheduledJobs]);
 
   const currentRangeHasEvents = useMemo(() => {
     const hasJobs = scheduledJobs.some((entry) => entry.schedule.start < visibleRange.end && entry.schedule.end >= visibleRange.start);
@@ -193,6 +209,25 @@ export default function CalendarPage({ currentUserRole }: Props) {
     });
   }, [jobs, selectedEvent]);
 
+  const conflictJobIds = useMemo(() => new Set(allScheduledJobs
+    .filter((entry) => getJobAssignmentConflicts({
+      jobId: entry.job.id,
+      jobs,
+      scheduleWindow: entry.schedule,
+      crewId: entry.job.crewId,
+      assignedEmployeeIds: entry.job.assignedEmployeeIds ?? [],
+      assignedEquipmentIds: entry.job.assignedEquipmentIds ?? [],
+    }).length > 0)
+    .map((entry) => entry.job.id)), [allScheduledJobs, jobs]);
+
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(visibleRange.start, index)), [visibleRange.start]);
+  const hasNarrowingFilter = divisionFilter !== 'all' || resourceFilter !== 'all' || jobFilter !== 'all' || equipmentFilter !== 'all';
+  const visibleLaneCrews = useMemo(() => {
+    if (!hasNarrowingFilter) return crews.filter((crew) => crew.active);
+    const visibleCrewIds = new Set(filteredEntries.filter((entry) => entry.source === 'oliveops').map((entry) => entry.crew?.id).filter(Boolean));
+    return crews.filter((crew) => visibleCrewIds.has(crew.id));
+  }, [crews, filteredEntries, hasNarrowingFilter]);
+
   const divisionOptions = useMemo(() => {
     const options = new Map(divisions.filter((division) => division.active).map((division) => [division.id, { id: division.id, name: division.name }]));
     allScheduledJobs.forEach((entry) => {
@@ -210,7 +245,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         if (!response.ok || !payload.ok) return;
         const next = normalizeCalendarPreferences(payload.preferences);
         setPreferences(next);
-        calendarRef.current?.getApi().changeView(CALENDAR_VIEW_MAP[next.view]);
+        if (next.view === 'week') setVisibleRange(getWeekRange(new Date()));
       } catch (error) {
         if ((error as Error).name !== 'AbortError') setPreferences(DEFAULT_CALENDAR_PREFERENCES);
       }
@@ -251,7 +286,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
     if (allDay) {
       const startLabel = format(start, 'MMM d');
       const endLabel = format(end, 'MMM d');
-      return startLabel === endLabel ? `${startLabel} · All day` : `${startLabel} - ${endLabel} · All day`;
+      return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
     }
     return `${format(start, 'MMM d, h:mm a')} - ${format(end, 'MMM d, h:mm a')}`;
   };
@@ -265,6 +300,11 @@ export default function CalendarPage({ currentUserRole }: Props) {
   };
 
   const handleCalendarNavigation = (action: 'today' | 'prev' | 'next') => {
+    if (preferences.view === 'week') {
+      const target = action === 'today' ? new Date() : addDays(visibleRange.start, action === 'prev' ? -7 : 7);
+      setVisibleRange(getWeekRange(target));
+      return;
+    }
     const api = calendarRef.current?.getApi();
     if (!api) return;
 
@@ -288,8 +328,27 @@ export default function CalendarPage({ currentUserRole }: Props) {
   };
 
   const handleViewChange = (view: CalendarView) => {
+    const currentView = preferences.view;
     updatePreferences({ view });
-    calendarRef.current?.getApi().changeView(CALENDAR_VIEW_MAP[view]);
+    if (view === 'week') setVisibleRange(getWeekRange(visibleRange.start));
+    if (currentView !== 'week' && view !== 'week') calendarRef.current?.getApi().changeView(CALENDAR_VIEW_MAP[view]);
+  };
+
+  const handleWeekShift = async (jobId: string, dayDelta: number) => {
+    if (!dayDelta) return;
+    const entry = allScheduledJobs.find((item) => item.job.id === jobId);
+    if (!entry) return;
+    const shiftedStart = addDays(entry.schedule.start, dayDelta);
+    const shiftedEnd = addDays(entry.schedule.end, dayDelta);
+    await updateJob(jobId, entry.schedule.allDay ? {
+      startDate: format(shiftedStart, 'yyyy-MM-dd'),
+      endDate: format(shiftedEnd, 'yyyy-MM-dd'),
+    } : {
+      startDate: format(shiftedStart, 'yyyy-MM-dd'),
+      endDate: format(shiftedEnd, 'yyyy-MM-dd'),
+      scheduledStartAt: shiftedStart.toISOString(),
+      scheduledEndAt: shiftedEnd.toISOString(),
+    });
   };
 
   const handleEventDrop = async (eventDrop: any) => {
@@ -339,7 +398,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
     const selected = content.event.id === selectedJobId;
     const compact = content.view.type === 'dayGridMonth';
 
-    return <ScheduleEventCard title={content.event.title} summary={`${props.crewName} · ${props.summary}`} detail={`${props.timeLabel}${props.employeeCount > 0 ? ` · ${props.employeeCount} people` : ''}${props.equipmentCount > 0 ? ` · ${props.equipmentCount} equip` : ''}`} colour={props.colour} compact={compact} selected={selected} />;
+    const detail = [props.timeLabel, props.employeeCount > 0 ? `${props.employeeCount} people` : '', props.equipmentCount > 0 ? `${props.equipmentCount} equip` : ''].filter(Boolean).join(' · ');
+    return <ScheduleEventCard title={content.event.title} summary={`${props.crewName} · ${props.summary}`} detail={detail} colour={props.colour} compact={compact} selected={selected} />;
   };
 
   const handleScheduleSave = async (payload: {
@@ -388,11 +448,32 @@ export default function CalendarPage({ currentUserRole }: Props) {
             </div>
           ) : null}
 
-          <FullCalendar
+          {preferences.view === 'week' ? (
+            <CrewLaneWeekView
+              days={weekDays}
+              entries={filteredEntries}
+              activeCrews={visibleLaneCrews}
+              colourBy={preferences.colourBy}
+              selectedJobId={selectedJobId}
+              conflictJobIds={conflictJobIds}
+              canManage={canManageSchedule}
+              onSelect={(entry) => {
+                if (entry.source === 'google' && entry.googleEvent) {
+                  setSelectedJobId(null);
+                  setSelectedGoogleEvent(entry.googleEvent);
+                  return;
+                }
+                setSelectedGoogleEvent(null);
+                setSelectedJobId(entry.jobId ?? null);
+              }}
+              onShiftJob={(jobId, dayDelta) => void handleWeekShift(jobId, dayDelta)}
+            />
+          ) : (
+            <FullCalendar
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin] as any}
             initialView={CALENDAR_VIEW_MAP[preferences.view]}
-            initialDate={new Date()}
+            initialDate={visibleRange.start}
             events={calendarEvents}
             headerToolbar={false}
             editable={canManageSchedule}
@@ -420,7 +501,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
               setSelectedJobId(eventClick.event.id);
             }}
             eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}
-          />
+            />
+          )}
         </div>
       </Card>
 
@@ -455,7 +537,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
               <div className="rounded-2xl border border-brand-100 p-4 dark:border-brand-600">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Schedule</p>
                 <p className="mt-2 font-medium text-brand-900 dark:text-brand-50">{formatDate(selectedEvent.schedule.start.toISOString())}{selectedEvent.schedule.startKey !== selectedEvent.schedule.endKey ? ` -> ${formatDate(selectedEvent.schedule.end.toISOString())}` : ''}</p>
-                <p className="mt-1 text-brand-500 dark:text-brand-200">{selectedEvent.timeLabel}</p>
+                {!selectedEvent.schedule.allDay ? <p className="mt-1 text-brand-500 dark:text-brand-200">{selectedEvent.timeLabel}</p> : null}
                 <p className="mt-2 text-brand-500 dark:text-brand-200">{selectedEvent.job.scheduleNotes?.trim() || selectedEvent.job.notes?.trim() || 'No schedule notes.'}</p>
               </div>
 

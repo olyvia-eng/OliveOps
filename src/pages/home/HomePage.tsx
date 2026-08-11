@@ -4,13 +4,14 @@ import { Link } from 'react-router-dom';
 import { addDays, format, formatDistanceToNow, startOfWeek } from 'date-fns';
 import { Briefcase, CalendarDays, CheckCircle2, Circle, ClipboardList, FileText, Plus, Users } from 'lucide-react';
 import DashboardOnboardingCard from '../../components/dashboard/DashboardOnboardingCard';
+import WeeklyScheduleSummary from '../../components/calendar/WeeklyScheduleSummary';
 import { buildDashboardOnboardingItems, calculateDashboardOnboardingProgress } from '../../components/dashboard/onboardingProgress';
 import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCustomerPropertyLabel, formatScheduleTimeLabel, getJobScheduleWindow } from '../../utils/jobSchedule';
 import type { GoogleCalendarEvent } from '../../types';
-import { getEffectiveDivision, groupScheduleEntriesByDay, resolveScheduleColour } from '../../utils/scheduleModel.js';
+import { getEffectiveDivision, normalizeGoogleScheduleEntry } from '../../utils/scheduleModel.js';
 
 interface HomePageProps {
   currentUserId: string;
@@ -81,6 +82,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
   const [addingTask, setAddingTask] = useState(false);
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
   const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const today = new Date();
   const greetingName = currentUserName.split(' ')[0] || currentUserName;
@@ -113,27 +115,36 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
       });
   }, [currentUserId, tasks]);
 
-  const weekStart = startOfWeek(today, { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-  const weeklySchedule = useMemo(() => {
-    const entries = jobs.flatMap((job) => {
+  const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
+  const weeklyEntries = useMemo(() => {
+    const oliveOpsEntries = jobs.flatMap((job) => {
       if (job.status !== 'scheduled' && job.status !== 'in_progress') return [];
       const window = getJobScheduleWindow(job);
       if (!window) return [];
       return [{
         source: 'oliveops' as const,
         jobId: job.id,
+        title: job.title,
+        summary: formatCustomerPropertyLabel(job, customers.find((customer) => customer.id === job.customerId)),
+        timeLabel: window.allDay ? '' : formatScheduleTimeLabel(job),
         status: job.status,
+        start: window.start.toISOString(),
+        end: window.end.toISOString(),
         startKey: window.startKey,
         endKey: window.endKey,
+        allDay: window.allDay,
         crew: crews.find((crew) => crew.id === job.crewId) ?? null,
         division: getEffectiveDivision(job, divisions, budgets),
         employeeIds: job.assignedEmployeeIds ?? [],
         equipmentIds: job.assignedEquipmentIds ?? [],
       }];
     });
-    return groupScheduleEntriesByDay(entries, weekDays.map(dateKey));
-  }, [budgets, crews, divisions, jobs, weekStart.getTime()]);
+    return [...oliveOpsEntries, ...googleEvents.map(normalizeGoogleScheduleEntry)];
+  }, [budgets, crews, customers, divisions, googleEvents, jobs]);
+
+  const hasWeeklyEntries = weeklyEntries.some((entry) => entry.startKey <= dateKey(weekDays[6]) && entry.endKey >= dateKey(weekDays[0]));
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -154,7 +165,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
     };
     void load();
     return () => controller.abort();
-  }, [weekStart.getTime()]);
+  }, [weekStart]);
 
   const sentEstimates = estimates.filter((estimate) => estimate.status === 'sent');
   const acceptedPendingConversion = estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
@@ -314,7 +325,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
             <Link to="/calendar" className="text-xs font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Calendar</Link>
           </div>
 
-          {weeklySchedule.every((day) => day.entries.length === 0) && googleEvents.length === 0 ? (
+          {!hasWeeklyEntries ? (
             <EmptyState
               icon={<CalendarDays aria-hidden="true" />}
               title="No jobs scheduled this week"
@@ -322,40 +333,35 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
               action={<Link to="/calendar"><Button variant="secondary">Plan in Calendar</Button></Link>}
             />
           ) : (
-            <div className="divide-y divide-brand-100 dark:divide-brand-600">
-              {weeklySchedule.map((day, index) => (
-                <section key={day.dayKey} className="grid min-h-20 gap-3 p-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
-                  <div><p className="text-sm font-semibold text-brand-900 dark:text-brand-50">{format(weekDays[index], 'EEE')}</p><p className="text-xs text-brand-500 dark:text-brand-200">{format(weekDays[index], 'MMM d')}</p></div>
-                  <div className="space-y-2">
-                    {day.entries.length === 0 ? <p className="py-2 text-sm text-brand-400 dark:text-brand-300">No company work scheduled.</p> : day.entries.map((entry) => {
-                      const job = jobs.find((item) => item.id === entry.jobId);
-                      if (!job) return null;
-                      const customer = customers.find((item) => item.id === job.customerId);
-                      const colour = resolveScheduleColour({ colourBy: 'crew', job, crew: entry.crew, division: entry.division });
-                      return <Link key={job.id} to={`/jobs/${job.id}`} className="flex items-start justify-between gap-3 rounded-lg border-l-[3px] px-3 py-2 hover:brightness-95" style={{ borderColor: colour.value, backgroundColor: colour.tint }}><div className="min-w-0"><p className="truncate text-sm font-semibold" style={{ color: colour.value }}>{job.title}</p><p className="mt-0.5 truncate text-xs text-brand-600">{entry.crew?.name ?? 'Unassigned crew'} · {formatCustomerPropertyLabel(job, customer)}</p></div><span className="shrink-0 text-xs font-medium text-brand-600">{formatScheduleTimeLabel(job)}</span></Link>;
-                    })}
-                  </div>
-                </section>
-              ))}
-              {googleEvents.slice(0, 5).map((event) => (
-                <li key={`${event.googleCalendarId}:${event.googleEventId}`} className="flex items-start justify-between gap-3 p-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-brand-50">{event.title}</p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">
-                      {event.allDay ? 'All day' : `${new Date(event.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - ${new Date(event.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
-                    </p>
-                    {event.location ? <p className="mt-1 truncate text-xs text-gray-500 dark:text-brand-300">{event.location}</p> : null}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
-                    <button type="button" onClick={() => setSelectedGoogleEvent(event)} className="mt-2 block text-xs font-semibold text-brand-700 hover:underline dark:text-brand-300">View details</button>
-                  </div>
-                </li>
-              ))}
-            </div>
+            <WeeklyScheduleSummary days={weekDays} entries={weeklyEntries} onSelect={(entry) => {
+              if (entry.source === 'google' && entry.googleEvent) {
+                setSelectedJobId(null);
+                setSelectedGoogleEvent(entry.googleEvent);
+                return;
+              }
+              setSelectedGoogleEvent(null);
+              setSelectedJobId(entry.jobId ?? null);
+            }} />
           )}
         </Card>
       </div>
+
+      {selectedJob ? (
+        <div className="fixed inset-0 z-40">
+          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedJobId(null)} aria-label="Close job schedule details" />
+          <div className="absolute right-0 top-0 h-full w-full max-w-md border-l border-brand-100 bg-white p-5 shadow-2xl dark:border-brand-600 dark:bg-brand-700">
+            <div className="flex items-start justify-between gap-3">
+              <div><Badge label={selectedJob.status} className={selectedJob.status === 'in_progress' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-700'} /><h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedJob.title}</h2><p className="mt-1 text-sm text-brand-500 dark:text-brand-200">{formatCustomerPropertyLabel(selectedJob, customers.find((customer) => customer.id === selectedJob.customerId))}</p></div>
+              <button type="button" onClick={() => setSelectedJobId(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
+            </div>
+            <div className="mt-5 space-y-4 text-sm text-brand-700 dark:text-brand-100">
+              <div className="rounded-lg border border-brand-100 p-4 dark:border-brand-600"><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Schedule</p><p className="mt-2 font-medium">{selectedJob.startDate}{selectedJob.endDate && selectedJob.endDate !== selectedJob.startDate ? ` - ${selectedJob.endDate}` : ''}</p>{selectedJob.scheduleAllDay === false ? <p className="mt-1">{formatScheduleTimeLabel(selectedJob)}</p> : null}</div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Crew & Division</p><p className="mt-2">{crews.find((crew) => crew.id === selectedJob.crewId)?.name ?? 'Unassigned crew'} · {getEffectiveDivision(selectedJob, divisions, budgets)?.name ?? 'No division'}</p></div>
+              <Link to={`/jobs/${selectedJob.id}`}><Button>Open Job</Button></Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {selectedGoogleEvent ? (
         <div className="fixed inset-0 z-40">

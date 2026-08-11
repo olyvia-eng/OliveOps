@@ -193,7 +193,7 @@ export default function ScheduleJobModal({
     if (allDay) {
       const startLabel = format(start, 'MMM d');
       const endLabel = format(end, 'MMM d');
-      return startLabel === endLabel ? `${startLabel} · All day` : `${startLabel} - ${endLabel} · All day`;
+      return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
     }
 
     const startLabel = format(start, 'MMM d, h:mm a');

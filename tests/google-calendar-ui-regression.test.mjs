@@ -27,8 +27,10 @@ test('existing operations calendar merges source-aware read-only Google events',
   assert.match(calendarSource, /Edit Schedule/);
 });
 
-test('Home Today’s Schedule includes Google events without replacing job links', () => {
+test('Home This Week normalizes Google events and preserves job quick view navigation', () => {
   assert.match(homeSource, /api\/integrations\/google\/events/);
+  assert.match(homeSource, /normalizeGoogleScheduleEntry/);
   assert.match(homeSource, /Google Calendar/);
-  assert.match(homeSource, /to=\{`\/jobs\/\$\{job\.id\}`\}/);
+  assert.match(homeSource, /setSelectedJobId\(entry\.jobId \?\? null\)/);
+  assert.match(homeSource, /to=\{`\/jobs\/\$\{selectedJob\.id\}`\}/);
 });
