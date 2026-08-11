@@ -1,7 +1,7 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CalendarColourBy, CalendarView, Crew, Division, Employee, EquipmentAsset, Job } from '../../types';
 import type { ScheduleColour } from '../../config/scheduleColours.js';
-import { GOOGLE_SCHEDULE_COLOUR } from '../../config/scheduleColours.js';
+import { GOOGLE_SCHEDULE_COLOUR, OUTLOOK_SCHEDULE_COLOUR } from '../../config/scheduleColours.js';
 import { Button, Select } from '../ui';
 
 export function CalendarToolbar({ title, view, onNavigate, onViewChange }: {
@@ -32,7 +32,7 @@ export function CalendarToolbar({ title, view, onNavigate, onViewChange }: {
   );
 }
 
-export function CalendarFilters({ divisions, crews, employees, jobs, equipment, divisionId, resourceId, jobId, equipmentId, showGoogleEvents, onDivisionChange, onResourceChange, onJobChange, onEquipmentChange, onGoogleChange }: {
+export function CalendarFilters({ divisions, crews, employees, jobs, equipment, divisionId, resourceId, jobId, equipmentId, showGoogleEvents, showOutlookEvents, onDivisionChange, onResourceChange, onJobChange, onEquipmentChange, onGoogleChange, onOutlookChange }: {
   divisions: Array<Pick<Division, 'id' | 'name'>>;
   crews: Crew[];
   employees: Employee[];
@@ -43,14 +43,16 @@ export function CalendarFilters({ divisions, crews, employees, jobs, equipment, 
   jobId: string;
   equipmentId: string;
   showGoogleEvents: boolean;
+  showOutlookEvents: boolean;
   onDivisionChange: (value: string) => void;
   onResourceChange: (value: string) => void;
   onJobChange: (value: string) => void;
   onEquipmentChange: (value: string) => void;
   onGoogleChange: (value: boolean) => void;
+  onOutlookChange: (value: boolean) => void;
 }) {
   return (
-    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
       <Select value={divisionId} onChange={(event) => onDivisionChange(event.target.value)} aria-label="Filter by division">
         <option value="all">All divisions</option>
         {divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
@@ -72,6 +74,10 @@ export function CalendarFilters({ divisions, crews, employees, jobs, equipment, 
         <input type="checkbox" checked={showGoogleEvents} onChange={(event) => onGoogleChange(event.target.checked)} className="h-4 w-4 accent-accent-500" />
         Google
       </label>
+      <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border border-brand-100 bg-white px-3 text-sm font-medium text-brand-700 shadow-sm dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100">
+        <input type="checkbox" checked={showOutlookEvents} onChange={(event) => onOutlookChange(event.target.checked)} className="h-4 w-4 accent-accent-500" />
+        Outlook
+      </label>
     </div>
   );
 }
@@ -89,11 +95,12 @@ export function ColourBySelector({ value, onChange }: { value: CalendarColourBy;
   );
 }
 
-export function CalendarLegend({ items, showGoogleEvents }: { items: Array<{ id: string; label: string; colour: ScheduleColour }>; showGoogleEvents: boolean }) {
+export function CalendarLegend({ items, showGoogleEvents, showOutlookEvents }: { items: Array<{ id: string; label: string; colour: ScheduleColour }>; showGoogleEvents: boolean; showOutlookEvents: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2" aria-label="Calendar colour legend">
       {items.map((item) => <span key={item.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-100"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.colour.value }} />{item.label}</span>)}
       {showGoogleEvents ? <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-100"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: GOOGLE_SCHEDULE_COLOUR.value }} />Google</span> : null}
+      {showOutlookEvents ? <span className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-100"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: OUTLOOK_SCHEDULE_COLOUR.value }} />Outlook</span> : null}
     </div>
   );
 }
@@ -105,13 +112,13 @@ export function ScheduleEventCard({ title, summary, detail, colour, compact, sel
   colour: ScheduleColour;
   compact: boolean;
   selected?: boolean;
-  source?: 'oliveops' | 'google';
+  source?: 'oliveops' | 'google' | 'microsoft';
 }) {
   return (
     <div className={`min-w-0 overflow-hidden rounded-md border-l-[3px] px-2 py-1 text-left ${selected ? 'ring-2 ring-brand-400' : ''}`} style={{ backgroundColor: colour.tint, borderColor: colour.value, color: colour.value }}>
       <p className="truncate text-xs font-semibold">{title}</p>
       {!compact ? <p className="truncate text-[11px] opacity-90">{summary}</p> : null}
-      <p className="truncate text-[10px] opacity-80">{source === 'google' ? 'Google Calendar' : detail}</p>
+      <p className="truncate text-[10px] opacity-80">{source === 'google' ? 'Google Calendar' : source === 'microsoft' ? 'Outlook Calendar' : detail}</p>
     </div>
   );
 }

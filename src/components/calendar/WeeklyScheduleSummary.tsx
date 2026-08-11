@@ -35,13 +35,13 @@ export default function WeeklyScheduleSummary({ days, entries, colourBy = 'crew'
         <div className="divide-y divide-brand-100 dark:divide-brand-600">
           {spans.map((span) => {
             const { entry } = span;
-            const colour = resolveScheduleColour({ source: entry.source, colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
+            const colour = resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
             const time = entry.allDay ? '' : entry.timeLabel;
             return (
-              <div key={`${entry.source}:${entry.jobId ?? entry.googleEventId}`} className="grid min-h-14" style={{ gridTemplateColumns: gridTemplate }}>
+              <div key={`${entry.source}:${entry.jobId ?? entry.externalEventId}`} className="grid min-h-14" style={{ gridTemplateColumns: gridTemplate }}>
                 <button type="button" onClick={() => onSelect(entry)} className="min-w-0 px-3 py-2 text-left hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 dark:hover:bg-brand-600">
-                  <span className="flex items-center gap-1 truncate text-xs font-semibold text-brand-900 dark:text-brand-50">{entry.source === 'google' ? <CalendarDays size={12} className="shrink-0" /> : null}{entry.title}</span>
-                  <span className="mt-0.5 block truncate text-[10px] text-brand-500 dark:text-brand-200">{entry.source === 'google' ? 'Google Calendar' : entry.crew?.name ?? 'Unassigned crew'}</span>
+                  <span className="flex items-center gap-1 truncate text-xs font-semibold text-brand-900 dark:text-brand-50">{entry.source === 'external' ? <CalendarDays size={12} className="shrink-0" /> : null}{entry.title}</span>
+                  <span className="mt-0.5 block truncate text-[10px] text-brand-500 dark:text-brand-200">{entry.source === 'external' ? entry.externalEvent?.sourceLabel : entry.crew?.name ?? 'Unassigned crew'}</span>
                 </button>
                 <div className="col-span-full col-start-2 row-start-1 grid gap-1 p-1.5" style={{ gridTemplateColumns: `repeat(${dayColumns}, minmax(5.5rem, 1fr))` }}>
                   {visibleDays.map((day, index) => <div key={dateKey(day)} className={`border-l border-brand-100 first:border-l-0 dark:border-brand-600 ${index > 4 ? 'bg-brand-50/60 dark:bg-brand-800/40' : ''} ${dateKey(day) === todayKey ? 'bg-accent-50/60 dark:bg-accent-900/10' : ''}`} style={{ gridColumn: index + 1, gridRow: 1 }} />)}

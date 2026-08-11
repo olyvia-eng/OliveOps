@@ -87,6 +87,11 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 - `GOOGLE_CLIENT_SECRET` (Google OAuth web client secret)
 - `GOOGLE_REDIRECT_URI` (exact registered OAuth callback URL)
 - `GOOGLE_TOKEN_ENCRYPTION_KEY` (stable base64-encoded 32-byte key)
+- `MICROSOFT_CLIENT_ID` (Microsoft Entra Application client ID)
+- `MICROSOFT_CLIENT_SECRET` (Microsoft Entra Web client secret)
+- `MICROSOFT_REDIRECT_URI` (exact registered callback URL ending in `/api/integrations/microsoft/callback`)
+- `MICROSOFT_TOKEN_ENCRYPTION_KEY` (separate stable base64-encoded 32-byte key)
+- `APP_ORIGIN` (canonical OliveOps origin used in synchronized event links)
 - `QUICKBOOKS_CLIENT_ID` (Intuit sandbox app client ID)
 - `QUICKBOOKS_CLIENT_SECRET` (Intuit sandbox app client secret)
 - `QUICKBOOKS_REDIRECT_URI` (exact registered sandbox callback URL ending in `/api/integrations/quickbooks/callback`)
@@ -95,6 +100,8 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 Add them for Production (and Preview/Development if needed), then redeploy.
 
 See [Google Calendar Integration](docs/google-calendar-integration.md) for OAuth setup, scopes, encryption, and synchronization behavior.
+
+See [Microsoft 365 Calendar Integration](docs/microsoft-calendar-integration.md) for Entra registration, Graph permissions, redirect URIs, encryption, and synchronization behavior.
 
 See [QuickBooks Sandbox Integration](docs/quickbooks-sandbox-integration.md) for sandbox setup, explicit accounting mappings, customer synchronization, invoice creation, and Phase 1 boundaries.
 

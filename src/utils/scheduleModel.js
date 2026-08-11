@@ -3,12 +3,14 @@ import {
   JOB_STATUS_COLOURS,
   NEUTRAL_SCHEDULE_COLOUR,
   SCHEDULE_COLOUR_PALETTE,
+  OUTLOOK_SCHEDULE_COLOUR,
 } from '../config/scheduleColours.js';
 
 export const DEFAULT_CALENDAR_PREFERENCES = {
   view: 'week',
   colourBy: 'crew',
   showGoogleEvents: true,
+  showOutlookEvents: true,
 };
 
 const hash = (value) => [...String(value)].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 0);
@@ -37,6 +39,7 @@ export function normalizeCalendarPreferences(value) {
     view: ['month', 'week', 'day'].includes(value?.view) ? value.view : DEFAULT_CALENDAR_PREFERENCES.view,
     colourBy: ['crew', 'division', 'status'].includes(value?.colourBy) ? value.colourBy : DEFAULT_CALENDAR_PREFERENCES.colourBy,
     showGoogleEvents: typeof value?.showGoogleEvents === 'boolean' ? value.showGoogleEvents : DEFAULT_CALENDAR_PREFERENCES.showGoogleEvents,
+    showOutlookEvents: typeof value?.showOutlookEvents === 'boolean' ? value.showOutlookEvents : DEFAULT_CALENDAR_PREFERENCES.showOutlookEvents,
   };
 }
 
@@ -58,6 +61,7 @@ export function getEffectiveDivision(job, divisions, budgets) {
 
 export function resolveScheduleColour({ source = 'oliveops', colourBy, job, crew, division }) {
   if (source === 'google') return GOOGLE_SCHEDULE_COLOUR;
+  if (source === 'microsoft') return OUTLOOK_SCHEDULE_COLOUR;
   if (colourBy === 'status') return JOB_STATUS_COLOURS[job?.status] ?? NEUTRAL_SCHEDULE_COLOUR;
   const entity = colourBy === 'division' ? division : crew;
   if (!entity) return NEUTRAL_SCHEDULE_COLOUR;
@@ -68,6 +72,11 @@ export function resolveScheduleColour({ source = 'oliveops', colourBy, job, crew
 export function filterScheduleEntries(entries, filters) {
   return entries.filter((entry) => {
     if (entry.source === 'google') return filters.showGoogleEvents !== false;
+    if (entry.source === 'external') {
+      if (entry.provider === 'google') return filters.showGoogleEvents !== false;
+      if (entry.provider === 'microsoft') return filters.showOutlookEvents !== false;
+      return false;
+    }
     if (filters.divisionId && filters.divisionId !== 'all' && entry.division?.id !== filters.divisionId) return false;
     if (filters.resourceId && filters.resourceId !== 'all') {
       const [kind, id] = filters.resourceId.split(':');
@@ -103,7 +112,7 @@ export function groupScheduleEntriesByDay(entries, dayKeys) {
   }));
 }
 
-export function normalizeGoogleScheduleEntry(event) {
+export function normalizeExternalScheduleEntry(event) {
   const startKey = localDateKey(event.start);
   const rawEndKey = localDateKey(event.end) || startKey;
   const endKey = event.allDay && rawEndKey > startKey ? shiftDateKey(rawEndKey, -1) : rawEndKey;
@@ -111,9 +120,10 @@ export function normalizeGoogleScheduleEntry(event) {
     .map((value) => new Date(value).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' }))
     .join(' - ');
   return {
-    source: 'google',
-    googleEventId: event.googleEventId,
-    googleCalendarId: event.googleCalendarId,
+    source: 'external',
+    provider: event.provider,
+    externalEventId: event.externalEventId,
+    externalCalendarId: event.externalCalendarId,
     title: event.title,
     status: event.status,
     start: event.start,
@@ -127,8 +137,24 @@ export function normalizeGoogleScheduleEntry(event) {
     division: null,
     employeeIds: [],
     equipmentIds: [],
-    googleEvent: event,
+    externalEvent: event,
   };
+}
+
+export function normalizeGoogleScheduleEntry(event) {
+  return normalizeExternalScheduleEntry({
+    externalEventId: event.googleEventId,
+    externalCalendarId: event.googleCalendarId,
+    title: event.title,
+    start: event.start,
+    end: event.end,
+    allDay: event.allDay,
+    location: event.location,
+    status: event.status,
+    htmlLink: event.htmlLink,
+    provider: 'google',
+    sourceLabel: 'Google Calendar',
+  });
 }
 
 export function buildWeeklyScheduleSpans(entries, dayKeys) {

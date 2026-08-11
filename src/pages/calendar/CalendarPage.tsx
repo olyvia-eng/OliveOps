@@ -13,12 +13,12 @@ import {
 import { Plus } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, PageHeader } from '../../components/ui';
-import type { CalendarColourBy, CalendarPreferences, CalendarView, GoogleCalendarEvent } from '../../types';
+import type { CalendarColourBy, CalendarPreferences, CalendarView, ExternalCalendarEvent } from '../../types';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { CalendarFilters, CalendarLegend, CalendarToolbar, ColourBySelector, ScheduleEventCard } from '../../components/calendar/CalendarControls';
 import CrewLaneWeekView from '../../components/calendar/CrewLaneWeekView';
 import { formatDate, statusColor } from '../../utils';
-import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, normalizeGoogleScheduleEntry, resolveScheduleColour } from '../../utils/scheduleModel.js';
+import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, normalizeExternalScheduleEntry, resolveScheduleColour } from '../../utils/scheduleModel.js';
 import {
   formatCustomerPropertyLabel,
   formatScheduleTimeLabel,
@@ -41,8 +41,8 @@ type CalendarEventExtendedProps = {
   crewName: string;
   colour: { value: string; tint: string };
 } | {
-  source: 'google';
-  googleEvent: GoogleCalendarEvent;
+  source: 'external';
+  externalEvent: ExternalCalendarEvent;
 };
 
 const CALENDAR_VIEW_MAP: Record<CalendarView, 'dayGridMonth' | 'timeGridWeek' | 'timeGridDay'> = {
@@ -70,8 +70,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleJobId, setScheduleJobId] = useState<string | undefined>(undefined);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
-  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
+  const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
+  const [selectedExternalEvent, setSelectedExternalEvent] = useState<ExternalCalendarEvent | null>(null);
   const [visibleRange, setVisibleRange] = useState(() => getWeekRange(new Date()));
   const canManageSchedule = canManageScheduleRole(currentUserRole);
 
@@ -123,8 +123,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const normalizedEntries = useMemo(() => [
     ...oliveOpsEntries,
-    ...googleEvents.map(normalizeGoogleScheduleEntry),
-  ], [googleEvents, oliveOpsEntries]);
+    ...externalEvents.map(normalizeExternalScheduleEntry),
+  ], [externalEvents, oliveOpsEntries]);
 
   const filteredEntries = useMemo(() => filterScheduleEntries(normalizedEntries, {
     divisionId: divisionFilter,
@@ -132,16 +132,17 @@ export default function CalendarPage({ currentUserRole }: Props) {
     jobId: jobFilter,
     equipmentId: equipmentFilter,
     showGoogleEvents: preferences.showGoogleEvents,
-  }), [divisionFilter, equipmentFilter, jobFilter, normalizedEntries, preferences.showGoogleEvents, resourceFilter]);
+    showOutlookEvents: preferences.showOutlookEvents,
+  }), [divisionFilter, equipmentFilter, jobFilter, normalizedEntries, preferences.showGoogleEvents, preferences.showOutlookEvents, resourceFilter]);
 
   const scheduledJobs = useMemo(() => {
     const visibleJobIds = new Set(filteredEntries.map((entry) => entry.jobId));
     return allScheduledJobs.filter((entry) => visibleJobIds.has(entry.job.id));
   }, [allScheduledJobs, filteredEntries]);
 
-  const filteredGoogleEvents = useMemo(() => filteredEntries
-    .filter((entry) => entry.source === 'google' && entry.googleEvent)
-    .map((entry) => entry.googleEvent!), [filteredEntries]);
+  const filteredExternalEvents = useMemo(() => filteredEntries
+    .filter((entry) => entry.source === 'external' && entry.externalEvent)
+    .map((entry) => entry.externalEvent!), [filteredEntries]);
 
   const legendItems = useMemo(() => getScheduleLegend(filteredEntries, preferences.colourBy), [filteredEntries, preferences.colourBy]);
 
@@ -166,8 +167,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
         colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, crew: entry.crew, division: entry.division }),
       } satisfies CalendarEventExtendedProps,
     }));
-    const externalEvents = filteredGoogleEvents.map((event) => ({
-      id: `google:${event.googleCalendarId}:${event.googleEventId}`,
+    const providerEvents = filteredExternalEvents.map((event) => ({
+      id: `${event.provider}:${event.externalCalendarId}:${event.externalEventId}`,
       title: event.title,
       start: event.start,
       end: event.end,
@@ -179,18 +180,18 @@ export default function CalendarPage({ currentUserRole }: Props) {
       borderColor: 'transparent',
       textColor: 'inherit',
       extendedProps: {
-        source: 'google' as const,
-        googleEvent: event,
+        source: 'external' as const,
+        externalEvent: event,
       } satisfies CalendarEventExtendedProps,
     }));
-    return [...oliveOpsEvents, ...externalEvents];
-  }, [filteredGoogleEvents, preferences.colourBy, scheduledJobs]);
+    return [...oliveOpsEvents, ...providerEvents];
+  }, [filteredExternalEvents, preferences.colourBy, scheduledJobs]);
 
   const currentRangeHasEvents = useMemo(() => {
     const hasJobs = scheduledJobs.some((entry) => entry.schedule.start < visibleRange.end && entry.schedule.end >= visibleRange.start);
-    const hasGoogleEvents = preferences.showGoogleEvents && googleEvents.some((event) => new Date(event.start) < visibleRange.end && new Date(event.end) >= visibleRange.start);
-    return hasJobs || hasGoogleEvents;
-  }, [googleEvents, preferences.showGoogleEvents, scheduledJobs, visibleRange.end, visibleRange.start]);
+    const hasExternalEvents = externalEvents.some((event) => (event.provider === 'google' ? preferences.showGoogleEvents : preferences.showOutlookEvents) && new Date(event.start) < visibleRange.end && new Date(event.end) >= visibleRange.start);
+    return hasJobs || hasExternalEvents;
+  }, [externalEvents, preferences.showGoogleEvents, preferences.showOutlookEvents, scheduledJobs, visibleRange.end, visibleRange.start]);
 
   const selectedEvent = useMemo(() => {
     return scheduledJobs.find((entry) => entry.job.id === selectedJobId) ?? null;
@@ -266,19 +267,19 @@ export default function CalendarPage({ currentUserRole }: Props) {
       from: visibleRange.start.toISOString(),
       to: visibleRange.end.toISOString(),
     });
-    const loadGoogleEvents = async () => {
+    const loadExternalEvents = async () => {
       try {
-        const response = await fetch(`/api/integrations/google/events?${params}`, {
+        const response = await fetch(`/api/integrations/calendars/events?${params}`, {
           credentials: 'include',
           signal: controller.signal,
         });
-        const payload = await response.json() as { ok?: boolean; events?: GoogleCalendarEvent[] };
-        if (response.ok && payload.ok && Array.isArray(payload.events)) setGoogleEvents(payload.events);
+        const payload = await response.json() as { ok?: boolean; events?: ExternalCalendarEvent[] };
+        if (response.ok && payload.ok && Array.isArray(payload.events)) setExternalEvents(payload.events);
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') setGoogleEvents([]);
+        if ((error as Error).name !== 'AbortError') setExternalEvents([]);
       }
     };
-    void loadGoogleEvents();
+    void loadExternalEvents();
     return () => controller.abort();
   }, [visibleRange.end, visibleRange.start]);
 
@@ -352,7 +353,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
   };
 
   const handleEventDrop = async (eventDrop: any) => {
-    if (eventDrop.event.extendedProps?.source === 'google') {
+    if (eventDrop.event.extendedProps?.source === 'external') {
       eventDrop.revert();
       return;
     }
@@ -390,9 +391,9 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const renderEventContent = (content: any) => {
     const props = content.event.extendedProps as CalendarEventExtendedProps;
-    if (props.source === 'google') {
+    if (props.source === 'external') {
       return (
-        <ScheduleEventCard title={content.event.title} summary="External event" detail="Google Calendar" colour={resolveScheduleColour({ source: 'google', colourBy: preferences.colourBy })} compact={content.view.type === 'dayGridMonth'} source="google" />
+        <ScheduleEventCard title={content.event.title} summary="External event" detail={props.externalEvent.sourceLabel} colour={resolveScheduleColour({ source: props.externalEvent.provider, colourBy: preferences.colourBy })} compact={content.view.type === 'dayGridMonth'} source={props.externalEvent.provider} />
       );
     }
     const selected = content.event.id === selectedJobId;
@@ -430,10 +431,10 @@ export default function CalendarPage({ currentUserRole }: Props) {
       <Card className="overflow-hidden">
         <div className="border-b border-brand-100 px-4 py-4 dark:border-brand-600">
           <CalendarToolbar title={visibleRange.title} view={preferences.view} onNavigate={handleCalendarNavigation} onViewChange={handleViewChange} />
-          <CalendarFilters divisions={divisionOptions} crews={crews.filter((crew) => crew.active)} employees={employees} jobs={jobs} equipment={equipmentAssets} divisionId={divisionFilter} resourceId={resourceFilter} jobId={jobFilter} equipmentId={equipmentFilter} showGoogleEvents={preferences.showGoogleEvents} onDivisionChange={setDivisionFilter} onResourceChange={setResourceFilter} onJobChange={setJobFilter} onEquipmentChange={setEquipmentFilter} onGoogleChange={(showGoogleEvents) => updatePreferences({ showGoogleEvents })} />
+          <CalendarFilters divisions={divisionOptions} crews={crews.filter((crew) => crew.active)} employees={employees} jobs={jobs} equipment={equipmentAssets} divisionId={divisionFilter} resourceId={resourceFilter} jobId={jobFilter} equipmentId={equipmentFilter} showGoogleEvents={preferences.showGoogleEvents} showOutlookEvents={preferences.showOutlookEvents} onDivisionChange={setDivisionFilter} onResourceChange={setResourceFilter} onJobChange={setJobFilter} onEquipmentChange={setEquipmentFilter} onGoogleChange={(showGoogleEvents) => updatePreferences({ showGoogleEvents })} onOutlookChange={(showOutlookEvents) => updatePreferences({ showOutlookEvents })} />
           <div className="mt-4 flex flex-col gap-3 border-t border-brand-100 pt-3 dark:border-brand-600 lg:flex-row lg:items-center lg:justify-between">
             <ColourBySelector value={preferences.colourBy} onChange={(colourBy: CalendarColourBy) => updatePreferences({ colourBy })} />
-            <CalendarLegend items={legendItems} showGoogleEvents={preferences.showGoogleEvents} />
+            <CalendarLegend items={legendItems} showGoogleEvents={preferences.showGoogleEvents} showOutlookEvents={preferences.showOutlookEvents} />
           </div>
         </div>
 
@@ -458,12 +459,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
               conflictJobIds={conflictJobIds}
               canManage={canManageSchedule}
               onSelect={(entry) => {
-                if (entry.source === 'google' && entry.googleEvent) {
+                if (entry.source === 'external' && entry.externalEvent) {
                   setSelectedJobId(null);
-                  setSelectedGoogleEvent(entry.googleEvent);
+                  setSelectedExternalEvent(entry.externalEvent);
                   return;
                 }
-                setSelectedGoogleEvent(null);
+                setSelectedExternalEvent(null);
                 setSelectedJobId(entry.jobId ?? null);
               }}
               onShiftJob={(jobId, dayDelta) => void handleWeekShift(jobId, dayDelta)}
@@ -492,12 +493,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
             eventContent={renderEventContent}
             eventClick={(eventClick) => {
               const props = eventClick.event.extendedProps as CalendarEventExtendedProps;
-              if (props.source === 'google') {
+              if (props.source === 'external') {
                 setSelectedJobId(null);
-                setSelectedGoogleEvent(props.googleEvent);
+                setSelectedExternalEvent(props.externalEvent);
                 return;
               }
-              setSelectedGoogleEvent(null);
+              setSelectedExternalEvent(null);
               setSelectedJobId(eventClick.event.id);
             }}
             eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}
@@ -602,33 +603,33 @@ export default function CalendarPage({ currentUserRole }: Props) {
         </div>
       ) : null}
 
-      {selectedGoogleEvent ? (
+      {selectedExternalEvent ? (
         <div className="fixed inset-0 z-40">
-          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedGoogleEvent(null)} aria-label="Close Google event details" />
+          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedExternalEvent(null)} aria-label="Close external event details" />
           <div className="absolute right-0 top-0 h-full w-full max-w-md border-l border-brand-100 bg-white p-5 shadow-2xl dark:border-brand-600 dark:bg-brand-700">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
-                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedGoogleEvent.title}</h2>
+                <Badge label={selectedExternalEvent.sourceLabel} className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
+                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedExternalEvent.title}</h2>
               </div>
-              <button type="button" onClick={() => setSelectedGoogleEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
+              <button type="button" onClick={() => setSelectedExternalEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
             </div>
             <div className="mt-5 space-y-4 text-sm">
               <div className="rounded-lg border border-brand-100 p-4 dark:border-brand-600">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Date and time</p>
                 <p className="mt-2 font-medium text-brand-900 dark:text-brand-50">
-                  {selectedGoogleEvent.allDay
-                    ? `${formatDate(selectedGoogleEvent.start)} · All day`
-                    : `${format(new Date(selectedGoogleEvent.start), 'MMM d, yyyy, h:mm a')} - ${format(new Date(selectedGoogleEvent.end), 'h:mm a')}`}
+                  {selectedExternalEvent.allDay
+                    ? `${formatDate(selectedExternalEvent.start)} · All day`
+                    : `${format(new Date(selectedExternalEvent.start), 'MMM d, yyyy, h:mm a')} - ${format(new Date(selectedExternalEvent.end), 'h:mm a')}`}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Location</p>
-                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedGoogleEvent.location || 'No location provided.'}</p>
+                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedExternalEvent.location || 'No location provided.'}</p>
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Source</p>
-                <p className="mt-2 text-brand-700 dark:text-brand-100">Google Calendar · Read-only in OliveOps</p>
+                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedExternalEvent.sourceLabel} · Read-only in OliveOps</p>
               </div>
             </div>
           </div>

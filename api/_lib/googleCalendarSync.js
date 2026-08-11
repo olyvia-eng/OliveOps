@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { requireEnv } from './env.js';
+import { getApplicationOrigin, isExternalCalendarSyncEligibleJob } from './externalCalendarModel.js';
 import {
   getGoogleConnection,
   listGoogleConnectionsForBusiness,
@@ -22,23 +22,13 @@ import {
 } from './authRepo.js';
 
 export function isGoogleSyncEligibleJob(job) {
-  return Boolean(
-    job
-    && job.scheduleConfirmed === true
-    && job.status !== 'cancelled'
-    && typeof job.startDate === 'string'
-    && job.startDate
-  );
+  return isExternalCalendarSyncEligibleJob(job);
 }
 
 function safeErrorCode(error) {
   if (typeof error?.code === 'string') return error.code.slice(0, 80);
   if (Number.isInteger(error?.status)) return `HTTP_${error.status}`;
   return 'SYNC_FAILED';
-}
-
-function applicationOrigin() {
-  return new URL(requireEnv('GOOGLE_REDIRECT_URI')).origin;
 }
 
 const defaultDependencies = {
@@ -54,7 +44,7 @@ const defaultDependencies = {
   getCustomerForBusiness,
   getEmployeeForBusiness,
   listJobsForBusiness,
-  applicationOrigin,
+  applicationOrigin: getApplicationOrigin,
   randomUUID,
 };
 

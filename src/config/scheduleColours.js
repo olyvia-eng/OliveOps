@@ -11,6 +11,7 @@ export const SCHEDULE_COLOUR_PALETTE = [
 
 export const NEUTRAL_SCHEDULE_COLOUR = { value: '#4b5563', tint: '#f3f4f6' };
 export const GOOGLE_SCHEDULE_COLOUR = { value: '#475569', tint: '#f1f5f9' };
+export const OUTLOOK_SCHEDULE_COLOUR = { value: '#0369a1', tint: '#e0f2fe' };
 
 export const JOB_STATUS_COLOURS = {
   scheduled: SCHEDULE_COLOUR_PALETTE[1],

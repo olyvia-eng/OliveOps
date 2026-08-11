@@ -124,12 +124,12 @@ test('crew lists and calendar preferences remain isolated by tenant and user', a
   const savePrefs = response();
   await preferencesHandler({
     method: 'PATCH', query: {}, headers: { authorization: 'Bearer admin-a-token' },
-    body: { view: 'day', colourBy: 'division', showGoogleEvents: false, userId: 'admin-b', businessId: 'biz-b' },
+    body: { view: 'day', colourBy: 'division', showGoogleEvents: false, showOutlookEvents: true, userId: 'admin-b', businessId: 'biz-b' },
   }, savePrefs);
   assert.equal(savePrefs.statusCode, 200);
 
   const otherPrefs = response();
   await preferencesHandler({ method: 'GET', query: {}, headers: { authorization: 'Bearer admin-b-token' } }, otherPrefs);
-  assert.deepEqual(otherPrefs.body.preferences, { view: 'week', colourBy: 'crew', showGoogleEvents: true });
+  assert.deepEqual(otherPrefs.body.preferences, { view: 'week', colourBy: 'crew', showGoogleEvents: true, showOutlookEvents: true });
   assert.equal(store.has(recordKey('BUSINESS#biz-b', 'CALENDAR_PREFERENCES#admin-b')), false);
 });

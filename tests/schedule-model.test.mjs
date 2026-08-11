@@ -9,6 +9,7 @@ import {
   getScheduleLegend,
   groupScheduleEntriesByDay,
   normalizeGoogleScheduleEntry,
+  normalizeExternalScheduleEntry,
   normalizeCalendarPreferences,
   packWeeklyScheduleSpans,
   resolveScheduleColour,
@@ -21,14 +22,14 @@ const jobEntry = {
   crew, division, employeeIds: ['employee-a'], equipmentIds: ['equipment-a'],
 };
 const googleEntry = {
-  source: 'google', status: 'confirmed', startKey: '2026-08-11', endKey: '2026-08-11',
+  source: 'external', provider: 'google', status: 'confirmed', startKey: '2026-08-11', endKey: '2026-08-11',
   crew: null, division: null, employeeIds: [], equipmentIds: [],
 };
 
-test('calendar preferences default to week, crew colours, and Google events', () => {
+test('calendar preferences default to week, crew colours, and both providers', () => {
   assert.deepEqual(normalizeCalendarPreferences(null), DEFAULT_CALENDAR_PREFERENCES);
   assert.deepEqual(normalizeCalendarPreferences({ view: 'day', colourBy: 'division', showGoogleEvents: false }), {
-    view: 'day', colourBy: 'division', showGoogleEvents: false,
+    view: 'day', colourBy: 'division', showGoogleEvents: false, showOutlookEvents: true,
   });
 });
 
@@ -44,13 +45,16 @@ test('colour resolution has one meaning and Google remains neutral', () => {
   assert.notEqual(resolveScheduleColour({ source: 'google', colourBy: 'crew', crew }).value, crew.colour);
 });
 
-test('OliveOps filters combine while Google only follows its visibility toggle', () => {
+test('OliveOps filters combine while external events only follow provider visibility', () => {
   assert.deepEqual(filterScheduleEntries([jobEntry, googleEntry], {
     divisionId: 'division-a', resourceId: 'crew:crew-a', jobId: 'job-a', equipmentId: 'equipment-a', showGoogleEvents: true,
   }), [jobEntry, googleEntry]);
   assert.deepEqual(filterScheduleEntries([jobEntry, googleEntry], {
     divisionId: 'other', resourceId: 'crew:crew-a', showGoogleEvents: false,
   }), []);
+  const outlookEntry = { ...googleEntry, provider: 'microsoft' };
+  assert.deepEqual(filterScheduleEntries([outlookEntry], { divisionId: 'other', showOutlookEvents: true }), [outlookEntry]);
+  assert.deepEqual(filterScheduleEntries([outlookEntry], { showOutlookEvents: false }), []);
 });
 
 test('legend includes relevant values and neutral unassigned crew', () => {
@@ -91,6 +95,15 @@ test('Google all-day exclusive end dates normalize to the last occupied day', ()
   assert.equal(entry.startKey, '2026-08-12');
   assert.equal(entry.endKey, '2026-08-13');
   assert.equal(entry.crew, null);
+  assert.equal(entry.source, 'external');
+  assert.equal(entry.provider, 'google');
+});
+
+test('common external normalization preserves Outlook provider identity', () => {
+  const entry = normalizeExternalScheduleEntry({ externalEventId: 'event-a', externalCalendarId: 'calendar-a', title: 'Meeting', start: '2026-08-12T14:00:00Z', end: '2026-08-12T15:00:00Z', allDay: false, location: '', status: 'confirmed', provider: 'microsoft', sourceLabel: 'Outlook Calendar' });
+  assert.equal(entry.source, 'external');
+  assert.equal(entry.provider, 'microsoft');
+  assert.equal(entry.externalEvent.sourceLabel, 'Outlook Calendar');
 });
 
 test('weekly spans pack overlaps into stable subrows', () => {

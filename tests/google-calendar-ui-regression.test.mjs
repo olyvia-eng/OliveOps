@@ -18,19 +18,19 @@ test('Google Calendar settings remain owner-admin guarded and expose no token fi
   assert.doesNotMatch(settingsSource, /refreshToken|accessToken|clientSecret/);
 });
 
-test('existing operations calendar merges source-aware read-only Google events', () => {
-  assert.match(calendarSource, /source: 'google'/);
-  assert.match(calendarSource, /Google Calendar · Read-only in OliveOps/);
+test('existing operations calendar merges provider-aware read-only external events', () => {
+  assert.match(calendarSource, /source: 'external'/);
+  assert.match(calendarSource, /selectedExternalEvent\.sourceLabel/);
   assert.match(calendarSource, /editable: false/);
-  assert.match(calendarSource, /eventDrop\.event\.extendedProps\?\.source === 'google'/);
+  assert.match(calendarSource, /eventDrop\.event\.extendedProps\?\.source === 'external'/);
   assert.match(calendarSource, /Open Job/);
   assert.match(calendarSource, /Edit Schedule/);
 });
 
-test('Home This Week normalizes Google events and preserves job quick view navigation', () => {
-  assert.match(homeSource, /api\/integrations\/google\/events/);
-  assert.match(homeSource, /normalizeGoogleScheduleEntry/);
-  assert.match(homeSource, /Google Calendar/);
+test('Home This Week normalizes aggregated external events and preserves job quick view navigation', () => {
+  assert.match(homeSource, /api\/integrations\/calendars\/events/);
+  assert.match(homeSource, /normalizeExternalScheduleEntry/);
+  assert.match(homeSource, /selectedExternalEvent\.sourceLabel/);
   assert.match(homeSource, /setSelectedJobId\(entry\.jobId \?\? null\)/);
   assert.match(homeSource, /to=\{`\/jobs\/\$\{selectedJob\.id\}`\}/);
 });

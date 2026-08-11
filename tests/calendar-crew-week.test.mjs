@@ -29,5 +29,5 @@ test('Crew Week renders continuous spans, today, quieter weekends, conflicts, an
 
 test('Colour By affects event colour without changing Crew lane identity', () => {
   assert.match(week, /id: `crew:\$\{crew\.id\}`/);
-  assert.match(week, /resolveScheduleColour\(\{ source: entry\.source, colourBy/);
+  assert.match(week, /source: entry\.source === 'external' \? entry\.provider : 'oliveops'/);
 });

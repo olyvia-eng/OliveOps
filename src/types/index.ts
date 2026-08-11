@@ -443,6 +443,23 @@ export interface CalendarPreferences {
   view: CalendarView;
   colourBy: CalendarColourBy;
   showGoogleEvents: boolean;
+  showOutlookEvents: boolean;
+}
+
+export type ExternalCalendarProvider = 'google' | 'microsoft';
+
+export interface ExternalCalendarEvent {
+  externalEventId: string;
+  externalCalendarId: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string;
+  status: string;
+  htmlLink?: string;
+  provider: ExternalCalendarProvider;
+  sourceLabel: string;
 }
 
 export interface GoogleCalendarPreferences {
@@ -483,6 +500,34 @@ export interface GoogleCalendarEvent {
   status: string;
   htmlLink?: string;
   source: 'google';
+}
+
+export interface MicrosoftCalendarPreferences {
+  showOutlookEvents: boolean;
+  syncOliveOpsJobs: boolean;
+  scope: 'all_company_jobs';
+  employeeIds: ID[];
+  divisionIds: ID[];
+}
+
+export interface MicrosoftCalendarIntegration {
+  connected: boolean;
+  microsoftAccountEmail?: string;
+  microsoftAccountName?: string;
+  selectedCalendarId?: string;
+  selectedCalendarSummary?: string;
+  connectedAt?: string | null;
+  updatedAt?: string | null;
+  lastSyncAt?: string | null;
+  preferences: MicrosoftCalendarPreferences;
+}
+
+export interface MicrosoftCalendarListItem {
+  id: string;
+  summary: string;
+  primary: boolean;
+  canEdit: boolean;
+  color?: string | null;
 }
 
 // ─── Employees & Time Tracking ───────────────────────────────────────────────

@@ -8,6 +8,8 @@ import type {
   GoogleCalendarIntegration,
   GoogleCalendarListItem,
   LineItemCategory,
+  MicrosoftCalendarIntegration,
+  MicrosoftCalendarListItem,
   QuickBooksCustomerCandidate,
   QuickBooksIntegration,
   QuickBooksItemReference,
@@ -26,6 +28,16 @@ const emptyIntegration: GoogleCalendarIntegration = {
 };
 
 const emptyQuickBooksIntegration: QuickBooksIntegration = { connected: false, environment: 'sandbox' };
+const emptyMicrosoftIntegration: MicrosoftCalendarIntegration = {
+  connected: false,
+  preferences: {
+    showOutlookEvents: true,
+    syncOliveOpsJobs: false,
+    scope: 'all_company_jobs',
+    employeeIds: [],
+    divisionIds: [],
+  },
+};
 const quickBooksCategories: { value: LineItemCategory; label: string }[] = [
   { value: 'labour', label: 'Labour' },
   { value: 'material', label: 'Material' },
@@ -48,6 +60,9 @@ export default function IntegrationsPage() {
   const [calendars, setCalendars] = useState<GoogleCalendarListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [microsoft, setMicrosoft] = useState<MicrosoftCalendarIntegration>(emptyMicrosoftIntegration);
+  const [microsoftCalendars, setMicrosoftCalendars] = useState<MicrosoftCalendarListItem[]>([]);
+  const [microsoftSaving, setMicrosoftSaving] = useState(false);
   const [quickBooks, setQuickBooks] = useState<QuickBooksIntegration>(emptyQuickBooksIntegration);
   const [quickBooksItems, setQuickBooksItems] = useState<QuickBooksItemReference[]>([]);
   const [quickBooksTaxCodes, setQuickBooksTaxCodes] = useState<QuickBooksTaxCodeReference[]>([]);
@@ -95,6 +110,18 @@ export default function IntegrationsPage() {
     setTaxableTaxCodeId(configured?.taxableTaxCode?.id ?? '');
   };
 
+  const loadMicrosoft = async () => {
+    const response = await fetch('/api/integrations/microsoft/settings', { credentials: 'include' });
+    const payload = await readJson<{ ok: boolean; integration?: MicrosoftCalendarIntegration }>(response);
+    if (response.ok && payload?.ok && payload.integration) setMicrosoft(payload.integration);
+  };
+
+  const loadMicrosoftCalendars = async () => {
+    const response = await fetch('/api/integrations/microsoft/calendars', { credentials: 'include' });
+    const payload = await readJson<{ ok: boolean; calendars?: MicrosoftCalendarListItem[] }>(response);
+    if (response.ok && payload?.ok && Array.isArray(payload.calendars)) setMicrosoftCalendars(payload.calendars);
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -105,11 +132,16 @@ export default function IntegrationsPage() {
     };
     void load();
     void loadQuickBooks();
+    void loadMicrosoft();
   }, []);
 
   useEffect(() => {
     if (integration.connected) void loadCalendars();
   }, [integration.connected]);
+
+  useEffect(() => {
+    if (microsoft.connected) void loadMicrosoftCalendars();
+  }, [microsoft.connected]);
 
   useEffect(() => {
     const result = searchParams.get('google');
@@ -146,6 +178,25 @@ export default function IntegrationsPage() {
     searchParams.delete('quickbooks');
     setSearchParams(searchParams, { replace: true });
     if (result === 'connected') void loadQuickBooks();
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const result = searchParams.get('microsoft');
+    if (!result) return;
+    const messages: Record<string, { tone: 'success' | 'error'; message: string }> = {
+      connected: { tone: 'success', message: 'Outlook Calendar connected.' },
+      denied: { tone: 'error', message: 'Outlook Calendar access was not granted.' },
+      invalid_state: { tone: 'error', message: 'The Microsoft connection request expired. Please try again.' },
+      missing_code: { tone: 'error', message: 'Microsoft did not return an authorization code.' },
+      no_calendars: { tone: 'error', message: 'No editable Outlook calendars were available for this account.' },
+      connection_failed: { tone: 'error', message: 'Outlook Calendar could not be connected.' },
+      reauthorization_required: { tone: 'error', message: 'Reconnect Outlook Calendar to continue.' },
+    };
+    const notification = messages[result];
+    if (notification) emitAppToast(notification);
+    searchParams.delete('microsoft');
+    setSearchParams(searchParams, { replace: true });
+    if (result === 'connected') void loadMicrosoft();
   }, [searchParams, setSearchParams]);
 
   const savePreferences = async (next: GoogleCalendarIntegration['preferences']) => {
@@ -209,6 +260,60 @@ export default function IntegrationsPage() {
       emitAppToast({ tone: 'success', message: 'Google Calendar disconnected.' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveMicrosoftPreferences = async (next: MicrosoftCalendarIntegration['preferences']) => {
+    setMicrosoftSaving(true);
+    try {
+      const response = await fetch('/api/integrations/microsoft/settings', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showOutlookEvents: next.showOutlookEvents, syncOliveOpsJobs: next.syncOliveOpsJobs }),
+      });
+      const payload = await readJson<{ ok: boolean; integration?: MicrosoftCalendarIntegration; error?: string }>(response);
+      if (!response.ok || !payload?.ok || !payload.integration) {
+        emitAppToast({ tone: 'error', message: payload?.error ?? 'Could not save Outlook settings.' });
+        return;
+      }
+      setMicrosoft(payload.integration);
+    } finally {
+      setMicrosoftSaving(false);
+    }
+  };
+
+  const selectMicrosoftCalendar = async (calendarId: string) => {
+    setMicrosoftSaving(true);
+    try {
+      const response = await fetch('/api/integrations/microsoft/calendars', {
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calendarId }),
+      });
+      const payload = await readJson<{ ok: boolean; calendar?: MicrosoftCalendarListItem; error?: string }>(response);
+      if (!response.ok || !payload?.ok || !payload.calendar) {
+        emitAppToast({ tone: 'error', message: payload?.error ?? 'Could not select that Outlook calendar.' });
+        return;
+      }
+      setMicrosoft((current) => ({ ...current, selectedCalendarId: payload.calendar?.id, selectedCalendarSummary: payload.calendar?.summary }));
+      emitAppToast({ tone: 'success', message: 'Outlook Calendar selection updated.' });
+    } finally {
+      setMicrosoftSaving(false);
+    }
+  };
+
+  const disconnectMicrosoft = async () => {
+    setMicrosoftSaving(true);
+    try {
+      const response = await fetch('/api/integrations/microsoft/disconnect', { method: 'POST', credentials: 'include' });
+      if (!response.ok) {
+        emitAppToast({ tone: 'error', message: 'Could not disconnect Outlook Calendar.' });
+        return;
+      }
+      setMicrosoft(emptyMicrosoftIntegration);
+      setMicrosoftCalendars([]);
+      emitAppToast({ tone: 'success', message: 'Outlook Calendar disconnected. Existing Outlook events were retained.' });
+    } finally {
+      setMicrosoftSaving(false);
     }
   };
 
@@ -363,6 +468,64 @@ export default function IntegrationsPage() {
         {integration.connected ? (
           <div className="flex items-center gap-2 border-t border-brand-100 px-5 py-3 text-xs text-brand-500 dark:border-brand-600 dark:text-brand-200">
             <CheckCircle2 size={14} /> Connected securely. Google credentials remain server-side.
+          </div>
+        ) : null}
+      </Card>
+
+      <Card className="mt-6 overflow-hidden">
+        <div className="flex flex-col gap-4 border-b border-brand-100 p-5 dark:border-brand-600 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-sky-100 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+              <CalendarDays size={20} />
+            </div>
+            <div>
+              <h2 className="font-semibold text-brand-900 dark:text-brand-50">Outlook Calendar</h2>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge label={microsoft.connected ? 'Connected' : 'Not Connected'} className={microsoft.connected ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-600'} />
+                {microsoft.microsoftAccountEmail ? <span className="text-sm text-brand-500 dark:text-brand-200">{microsoft.microsoftAccountEmail}</span> : null}
+              </div>
+            </div>
+          </div>
+          {microsoft.connected ? (
+            <Button variant="secondary" disabled={microsoftSaving} onClick={() => void disconnectMicrosoft()}><Link2Off size={16} /> Disconnect</Button>
+          ) : (
+            <Button disabled={microsoftSaving} onClick={() => { window.location.assign('/api/integrations/microsoft/connect'); }}><CalendarDays size={16} /> Connect Outlook Calendar</Button>
+          )}
+        </div>
+
+        <div className="grid gap-6 p-5 lg:grid-cols-2">
+          <section>
+            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Calendar</h3>
+            <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">Choose where OliveOps-owned schedule events are synchronized.</p>
+            <div className="mt-3 max-w-md">
+              <Select value={microsoft.selectedCalendarId ?? ''} disabled={!microsoft.connected || microsoftSaving} onChange={(event) => void selectMicrosoftCalendar(event.target.value)}>
+                {!microsoft.connected ? <option value="">Connect Outlook Calendar first</option> : null}
+                {microsoftCalendars.filter((calendar) => calendar.canEdit).map((calendar) => (
+                  <option key={calendar.id} value={calendar.id}>{calendar.summary}{calendar.primary ? ' (Default)' : ''}</option>
+                ))}
+              </Select>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Sync preferences</h3>
+            <div className="mt-3 space-y-3">
+              {[
+                { key: 'showOutlookEvents' as const, label: 'Show Outlook Calendar events in OliveOps' },
+                { key: 'syncOliveOpsJobs' as const, label: 'Add OliveOps scheduled jobs to Outlook Calendar' },
+              ].map((option) => (
+                <label key={option.key} className="flex cursor-pointer items-start gap-3 rounded-lg border border-brand-100 p-3 dark:border-brand-600">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 accent-sky-700" checked={microsoft.preferences[option.key]} disabled={!microsoft.connected || microsoftSaving} onChange={(event) => void saveMicrosoftPreferences({ ...microsoft.preferences, [option.key]: event.target.checked })} />
+                  <span className="text-sm font-medium text-brand-800 dark:text-brand-100">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {microsoft.connected ? (
+          <div className="flex items-center gap-2 border-t border-brand-100 px-5 py-3 text-xs text-brand-500 dark:border-brand-600 dark:text-brand-200">
+            <CheckCircle2 size={14} /> Connected securely. Microsoft credentials remain server-side.
           </div>
         ) : null}
       </Card>

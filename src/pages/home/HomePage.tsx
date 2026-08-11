@@ -10,8 +10,8 @@ import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../.
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCustomerPropertyLabel, formatScheduleTimeLabel, getJobScheduleWindow } from '../../utils/jobSchedule';
-import type { GoogleCalendarEvent } from '../../types';
-import { getEffectiveDivision, normalizeGoogleScheduleEntry } from '../../utils/scheduleModel.js';
+import type { ExternalCalendarEvent } from '../../types';
+import { getEffectiveDivision, normalizeExternalScheduleEntry } from '../../utils/scheduleModel.js';
 
 interface HomePageProps {
   currentUserId: string;
@@ -80,8 +80,8 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskPriority, setTaskPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [addingTask, setAddingTask] = useState(false);
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
-  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
+  const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
+  const [selectedExternalEvent, setSelectedExternalEvent] = useState<ExternalCalendarEvent | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const today = new Date();
@@ -140,8 +140,8 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
         equipmentIds: job.assignedEquipmentIds ?? [],
       }];
     });
-    return [...oliveOpsEntries, ...googleEvents.map(normalizeGoogleScheduleEntry)];
-  }, [budgets, crews, customers, divisions, googleEvents, jobs]);
+    return [...oliveOpsEntries, ...externalEvents.map(normalizeExternalScheduleEntry)];
+  }, [budgets, crews, customers, divisions, externalEvents, jobs]);
 
   const hasWeeklyEntries = weeklyEntries.some((entry) => entry.startKey <= dateKey(weekDays[6]) && entry.endKey >= dateKey(weekDays[0]));
   const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
@@ -153,14 +153,14 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
     const params = new URLSearchParams({ from: start.toISOString(), to: end.toISOString() });
     const load = async () => {
       try {
-        const response = await fetch(`/api/integrations/google/events?${params}`, {
+        const response = await fetch(`/api/integrations/calendars/events?${params}`, {
           credentials: 'include',
           signal: controller.signal,
         });
-        const payload = await response.json() as { ok?: boolean; events?: GoogleCalendarEvent[] };
-        if (response.ok && payload.ok && Array.isArray(payload.events)) setGoogleEvents(payload.events);
+        const payload = await response.json() as { ok?: boolean; events?: ExternalCalendarEvent[] };
+        if (response.ok && payload.ok && Array.isArray(payload.events)) setExternalEvents(payload.events);
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') setGoogleEvents([]);
+        if ((error as Error).name !== 'AbortError') setExternalEvents([]);
       }
     };
     void load();
@@ -334,12 +334,12 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
             />
           ) : (
             <WeeklyScheduleSummary days={weekDays} entries={weeklyEntries} onSelect={(entry) => {
-              if (entry.source === 'google' && entry.googleEvent) {
+              if (entry.source === 'external' && entry.externalEvent) {
                 setSelectedJobId(null);
-                setSelectedGoogleEvent(entry.googleEvent);
+                setSelectedExternalEvent(entry.externalEvent);
                 return;
               }
-              setSelectedGoogleEvent(null);
+              setSelectedExternalEvent(null);
               setSelectedJobId(entry.jobId ?? null);
             }} />
           )}
@@ -363,21 +363,21 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
         </div>
       ) : null}
 
-      {selectedGoogleEvent ? (
+      {selectedExternalEvent ? (
         <div className="fixed inset-0 z-40">
-          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedGoogleEvent(null)} aria-label="Close Google event details" />
+          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedExternalEvent(null)} aria-label="Close external event details" />
           <div className="absolute right-0 top-0 h-full w-full max-w-md border-l border-brand-100 bg-white p-5 shadow-2xl dark:border-brand-600 dark:bg-brand-700">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
-                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedGoogleEvent.title}</h2>
+                <Badge label={selectedExternalEvent.sourceLabel} className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
+                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedExternalEvent.title}</h2>
               </div>
-              <button type="button" onClick={() => setSelectedGoogleEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
+              <button type="button" onClick={() => setSelectedExternalEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
             </div>
             <div className="mt-5 space-y-4 text-sm text-brand-700 dark:text-brand-100">
-              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Date and time</p><p className="mt-2">{selectedGoogleEvent.allDay ? `${selectedGoogleEvent.start} · All day` : `${new Date(selectedGoogleEvent.start).toLocaleString()} - ${new Date(selectedGoogleEvent.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}</p></div>
-              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Location</p><p className="mt-2">{selectedGoogleEvent.location || 'No location provided.'}</p></div>
-              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Source</p><p className="mt-2">Google Calendar · Read-only in OliveOps</p></div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Date and time</p><p className="mt-2">{selectedExternalEvent.allDay ? `${selectedExternalEvent.start} · All day` : `${new Date(selectedExternalEvent.start).toLocaleString()} - ${new Date(selectedExternalEvent.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}</p></div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Location</p><p className="mt-2">{selectedExternalEvent.location || 'No location provided.'}</p></div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Source</p><p className="mt-2">{selectedExternalEvent.sourceLabel} · Read-only in OliveOps</p></div>
             </div>
           </div>
         </div>
