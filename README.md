@@ -87,10 +87,16 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 - `GOOGLE_CLIENT_SECRET` (Google OAuth web client secret)
 - `GOOGLE_REDIRECT_URI` (exact registered OAuth callback URL)
 - `GOOGLE_TOKEN_ENCRYPTION_KEY` (stable base64-encoded 32-byte key)
+- `QUICKBOOKS_CLIENT_ID` (Intuit sandbox app client ID)
+- `QUICKBOOKS_CLIENT_SECRET` (Intuit sandbox app client secret)
+- `QUICKBOOKS_REDIRECT_URI` (exact registered sandbox callback URL ending in `/api/integrations/quickbooks/callback`)
+- `QUICKBOOKS_TOKEN_ENCRYPTION_KEY` (separate stable base64-encoded 32-byte key)
 
 Add them for Production (and Preview/Development if needed), then redeploy.
 
 See [Google Calendar Integration](docs/google-calendar-integration.md) for OAuth setup, scopes, encryption, and synchronization behavior.
+
+See [QuickBooks Sandbox Integration](docs/quickbooks-sandbox-integration.md) for sandbox setup, explicit accounting mappings, customer synchronization, invoice creation, and Phase 1 boundaries.
 
 ### 4. Local development notes
 

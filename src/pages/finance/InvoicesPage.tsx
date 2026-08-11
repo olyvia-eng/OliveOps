@@ -1,10 +1,16 @@
-import { useMemo, useState } from 'react';
-import { FilePlus2, Mail, Pencil, ReceiptText, Wallet } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { BookOpenCheck, FilePlus2, Mail, Pencil, Plus, ReceiptText, RefreshCw, Trash2, Wallet } from 'lucide-react';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, Select, StatCard } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
-import { formatCurrency } from '../../utils';
-import type { ID, Invoice, InvoiceStatus } from '../../types';
+import { formatCurrency, generateId } from '../../utils';
+import {
+  calculateInvoiceLineAmount,
+  calculateInvoiceSummary,
+  normalizeInvoiceFinancials,
+  validateInvoiceLineItems,
+} from '../../utils/invoiceModel.js';
+import type { ID, Invoice, InvoiceLineItem, InvoiceStatus, LineItemCategory, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
 
 type StatusFilter = 'all' | InvoiceStatus;
 
@@ -23,6 +29,17 @@ const defaultDueDate = () => {
   return date.toISOString().slice(0, 10);
 };
 
+const createEmptyLineItem = (): InvoiceLineItem => ({
+  id: generateId(),
+  category: 'labour',
+  description: '',
+  quantity: 1,
+  unit: 'job',
+  unitPrice: 0,
+  amount: 0,
+  taxable: true,
+});
+
 const emptyInvoiceForm = () => ({
   jobId: '',
   number: '',
@@ -30,6 +47,9 @@ const emptyInvoiceForm = () => ({
   dueDate: defaultDueDate(),
   status: 'draft' as InvoiceStatus,
   amount: 0,
+  lineMode: true,
+  lineItems: [createEmptyLineItem()],
+  taxRate: 0,
   notes: '',
 });
 
@@ -49,9 +69,29 @@ export default function InvoicesPage() {
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [form, setForm] = useState(emptyInvoiceForm());
+  const [quickBooks, setQuickBooks] = useState<QuickBooksIntegration>({ connected: false, environment: 'sandbox' });
+  const [quickBooksInvoices, setQuickBooksInvoices] = useState<Record<ID, QuickBooksInvoiceStatus | null>>({});
+  const [quickBooksInFlight, setQuickBooksInFlight] = useState<ID[]>([]);
 
   const jobLookup = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
   const customerLookup = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
+  const invoiceSummary = useMemo(
+    () => calculateInvoiceSummary(form.lineItems, form.taxRate),
+    [form.lineItems, form.taxRate]
+  );
+
+  useEffect(() => {
+    const loadQuickBooksStatus = async () => {
+      try {
+        const response = await fetch('/api/integrations/quickbooks/status', { credentials: 'include' });
+        const payload = await response.json() as { ok: boolean; integration?: QuickBooksIntegration };
+        if (response.ok && payload.ok && payload.integration) setQuickBooks(payload.integration);
+      } catch {
+        setQuickBooks({ connected: false, environment: 'sandbox' });
+      }
+    };
+    void loadQuickBooksStatus();
+  }, []);
 
   const invoicesWithComputedStatus = useMemo(() => {
     return invoices.map((invoice) => ({
@@ -109,6 +149,9 @@ export default function InvoicesPage() {
       dueDate: invoice.dueDate,
       status: invoice.status,
       amount: invoice.amount,
+      lineMode: Array.isArray(invoice.lineItems) && invoice.lineItems.length > 0,
+      lineItems: invoice.lineItems?.map((lineItem) => ({ ...lineItem })) ?? [],
+      taxRate: invoice.taxRate ?? 0,
       notes: invoice.notes,
     });
     setModalOpen(true);
@@ -118,8 +161,37 @@ export default function InvoicesPage() {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
+  const setLineItem = <K extends keyof InvoiceLineItem>(lineItemId: ID, key: K, value: InvoiceLineItem[K]) => {
+    setForm((current) => ({
+      ...current,
+      lineItems: current.lineItems.map((lineItem) => {
+        if (lineItem.id !== lineItemId) return lineItem;
+        const next = { ...lineItem, [key]: value };
+        return { ...next, amount: calculateInvoiceLineAmount(next) };
+      }),
+    }));
+  };
+
+  const selectJob = (jobId: ID) => {
+    const selectedJob = jobLookup.get(jobId);
+    setForm((current) => ({
+      ...current,
+      jobId,
+      taxRate: current.taxRate > 0 ? current.taxRate : (selectedJob?.originalEstimateSnapshot?.taxRate ?? 0),
+    }));
+  };
+
   const saveInvoice = () => {
-    if (!form.jobId || !form.number.trim() || form.amount <= 0) return;
+    if (!form.jobId || !form.number.trim()) return;
+    if (form.lineMode) {
+      const lineError = validateInvoiceLineItems(form.lineItems, form.taxRate);
+      if (lineError) {
+        emitAppToast({ tone: 'error', message: lineError });
+        return;
+      }
+    } else if (form.amount <= 0) {
+      return;
+    }
     const normalizedNumber = form.number.trim().toLowerCase();
     const duplicate = invoices.some((invoice) => {
       if (editing && invoice.id === editing.id) return false;
@@ -133,6 +205,10 @@ export default function InvoicesPage() {
     const selectedJob = jobLookup.get(form.jobId);
     if (!selectedJob) return;
 
+    const financials = form.lineMode
+      ? normalizeInvoiceFinancials({ lineItems: form.lineItems, taxRate: form.taxRate })
+      : { amount: Number(form.amount) };
+
     if (editing) {
       updateInvoice(editing.id, {
         jobId: form.jobId,
@@ -141,7 +217,7 @@ export default function InvoicesPage() {
         issueDate: form.issueDate,
         dueDate: form.dueDate,
         status: form.status,
-        amount: Number(form.amount),
+        ...financials,
         notes: form.notes.trim(),
       });
     } else {
@@ -152,12 +228,44 @@ export default function InvoicesPage() {
         issueDate: form.issueDate,
         dueDate: form.dueDate,
         status: form.status,
-        amount: Number(form.amount),
+        ...financials,
         notes: form.notes.trim(),
       });
     }
 
     setModalOpen(false);
+  };
+
+  const syncQuickBooksInvoice = async (invoice: Invoice, create: boolean) => {
+    setQuickBooksInFlight((current) => [...current, invoice.id]);
+    try {
+      const response = await fetch(create
+        ? '/api/integrations/quickbooks/invoices'
+        : `/api/integrations/quickbooks/invoices?invoiceId=${encodeURIComponent(invoice.id)}`, {
+        method: create ? 'POST' : 'GET',
+        credentials: 'include',
+        ...(create ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoiceId: invoice.id }),
+        } : {}),
+      });
+      const payload = await response.json() as { ok: boolean; invoice?: QuickBooksInvoiceStatus | null; error?: string };
+      if (!response.ok || !payload.ok) {
+        emitAppToast({ tone: 'error', message: payload.error ?? 'QuickBooks invoice synchronization failed.' });
+        return;
+      }
+      setQuickBooksInvoices((current) => ({ ...current, [invoice.id]: payload.invoice ?? null }));
+      emitAppToast({
+        tone: 'success',
+        message: payload.invoice
+          ? (create ? 'Invoice created in QuickBooks.' : 'QuickBooks invoice status refreshed.')
+          : 'This invoice has not been created in QuickBooks.',
+      });
+    } catch {
+      emitAppToast({ tone: 'error', message: 'QuickBooks invoice synchronization failed.' });
+    } finally {
+      setQuickBooksInFlight((current) => current.filter((invoiceId) => invoiceId !== invoice.id));
+    }
   };
 
   return (
@@ -200,7 +308,7 @@ export default function InvoicesPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[980px]">
+            <table className="w-full text-sm min-w-[1160px]">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
                   <th className="px-4 py-3 font-medium">Invoice #</th>
@@ -210,6 +318,7 @@ export default function InvoicesPage() {
                   <th className="px-4 py-3 font-medium">Due</th>
                   <th className="px-4 py-3 font-medium text-right">Amount</th>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">QuickBooks</th>
                   <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -217,6 +326,9 @@ export default function InvoicesPage() {
                 {filteredInvoices.map((invoice) => {
                   const job = jobLookup.get(invoice.jobId);
                   const customer = customerLookup.get(invoice.customerId);
+                  const quickBooksInvoice = quickBooksInvoices[invoice.id];
+                  const quickBooksBusy = quickBooksInFlight.includes(invoice.id);
+                  const hasLineDetails = Array.isArray(invoice.lineItems) && invoice.lineItems.length > 0;
                   return (
                     <tr key={invoice.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium text-gray-900">{invoice.number}</td>
@@ -231,7 +343,28 @@ export default function InvoicesPage() {
                         </span>
                       </td>
                       <td className="px-4 py-2">
-                        <div className="flex gap-1">
+                        {quickBooksInvoice ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-brand-900 dark:text-brand-50">{quickBooksInvoice.documentNumber || 'QuickBooks Invoice'}</span>
+                              <span className="text-xs capitalize text-brand-500 dark:text-brand-200">{quickBooksInvoice.status}</span>
+                            </div>
+                            <div className="text-xs text-brand-500 dark:text-brand-200">Balance {formatCurrency(quickBooksInvoice.balance)}</div>
+                            {quickBooksInvoice.localChangesNotSynced ? <div className="text-xs font-medium text-amber-700">Local changes not synced</div> : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-brand-500 dark:text-brand-200">
+                            {!hasLineDetails ? 'Line details required' : quickBooks.connected ? 'Not checked' : 'Sandbox not connected'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {quickBooksInvoice ? (
+                            <Button variant="ghost" size="sm" disabled={quickBooksBusy} title="Refresh QuickBooks status" onClick={() => void syncQuickBooksInvoice(invoice, false)}><RefreshCw size={13} /></Button>
+                          ) : (
+                            <Button variant="secondary" size="sm" disabled={!quickBooks.connected || !hasLineDetails || quickBooksBusy} onClick={() => void syncQuickBooksInvoice(invoice, true)}><BookOpenCheck size={13} /> Create in QBO</Button>
+                          )}
                           <Button variant="ghost" size="sm" onClick={() => openEdit(invoice)}><Pencil size={13} /></Button>
                           <Button variant="ghost" size="sm" onClick={() => deleteInvoice(invoice.id as ID)}>Delete</Button>
                         </div>
@@ -261,7 +394,7 @@ export default function InvoicesPage() {
             label="Job"
             required
             value={form.jobId}
-            onChange={(event) => setField('jobId', event.target.value)}
+            onChange={(event) => selectJob(event.target.value)}
           >
             <option value="">Select a job</option>
             {jobs.map((job) => (
@@ -273,7 +406,101 @@ export default function InvoicesPage() {
             <Input label="Issue Date" type="date" required value={form.issueDate} onChange={(event) => setField('issueDate', event.target.value)} />
             <Input label="Due Date" type="date" required value={form.dueDate} onChange={(event) => setField('dueDate', event.target.value)} />
           </div>
-          <Input label="Amount" type="number" min={0} required value={form.amount} onChange={(event) => setField('amount', Number(event.target.value))} />
+          {form.lineMode ? (
+            <section className="space-y-3 border-y border-brand-100 py-4 dark:border-brand-600">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Invoice lines</h3>
+                  <p className="mt-1 text-xs text-brand-500 dark:text-brand-200">Enter tax-inclusive prices. Tax is extracted from taxable lines.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setForm((current) => ({ ...current, lineItems: [...current.lineItems, createEmptyLineItem()] }))}
+                >
+                  <Plus size={14} /> Add Line
+                </Button>
+              </div>
+
+              {form.lineItems.map((lineItem, index) => (
+                <div key={lineItem.id} className="space-y-3 rounded-lg border border-brand-100 p-3 dark:border-brand-600">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold uppercase text-brand-500 dark:text-brand-200">Line {index + 1}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Remove line ${index + 1}`}
+                      disabled={form.lineItems.length === 1}
+                      onClick={() => setForm((current) => ({ ...current, lineItems: current.lineItems.filter((item) => item.id !== lineItem.id) }))}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                  <Input
+                    label="Description"
+                    required
+                    value={lineItem.description}
+                    onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)}
+                    placeholder="Work completed"
+                  />
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <Select
+                      label="Category"
+                      value={lineItem.category}
+                      onChange={(event) => setLineItem(lineItem.id, 'category', event.target.value as LineItemCategory)}
+                    >
+                      <option value="labour">Labour</option>
+                      <option value="material">Material</option>
+                      <option value="equipment">Equipment</option>
+                      <option value="subcontractor">Subcontractor</option>
+                    </Select>
+                    <Input label="Quantity" type="number" min={0.01} step="any" required value={lineItem.quantity} onChange={(event) => setLineItem(lineItem.id, 'quantity', Number(event.target.value))} />
+                    <Input label="Unit" required value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} />
+                    <Input label="Price incl. tax" type="number" min={0} step="0.01" required value={lineItem.unitPrice} onChange={(event) => setLineItem(lineItem.id, 'unitPrice', Number(event.target.value))} />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <label className="flex items-center gap-2 text-sm font-medium text-brand-800 dark:text-brand-100">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-brand-700"
+                        checked={lineItem.taxable}
+                        onChange={(event) => setLineItem(lineItem.id, 'taxable', event.target.checked)}
+                      />
+                      Taxable
+                    </label>
+                    <span className="text-sm font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(calculateInvoiceLineAmount(lineItem))}</span>
+                  </div>
+                </div>
+              ))}
+
+              {form.lineItems.some((lineItem) => lineItem.taxable) ? (
+                <Input label="Tax Rate (%)" type="number" min={0.01} max={100} step="0.01" required value={form.taxRate} onChange={(event) => setField('taxRate', Number(event.target.value))} />
+              ) : null}
+
+              <dl className="grid grid-cols-3 gap-3 rounded-lg bg-brand-50 p-3 text-sm dark:bg-brand-800">
+                <div><dt className="text-brand-500 dark:text-brand-200">Net subtotal</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.subtotal)}</dd></div>
+                <div><dt className="text-brand-500 dark:text-brand-200">Included tax</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.taxAmount)}</dd></div>
+                <div><dt className="text-brand-500 dark:text-brand-200">Invoice total</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.amount)}</dd></div>
+              </dl>
+            </section>
+          ) : (
+            <section className="space-y-3 border-y border-brand-100 py-4 dark:border-brand-600">
+              <Input label="Legacy Invoice Amount" type="number" min={0} required value={form.amount} onChange={(event) => setField('amount', Number(event.target.value))} />
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-xs text-brand-500 dark:text-brand-200">This historical invoice has no line or tax details and cannot be sent to QuickBooks.</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setForm((current) => ({ ...current, lineMode: true, lineItems: [createEmptyLineItem()] }))}
+                >
+                  <Plus size={14} /> Add Line Details
+                </Button>
+              </div>
+            </section>
+          )}
           <Select label="Status" required value={form.status} onChange={(event) => setField('status', event.target.value as InvoiceStatus)}>
             <option value="draft">Draft</option>
             <option value="sent">Sent</option>

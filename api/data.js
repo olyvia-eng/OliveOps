@@ -118,6 +118,7 @@ import {
   updateTaskForBusiness,
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
+import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToGoogleCalendars } from './_lib/googleCalendarSync.js';
 import { getCrewForBusiness, getDivisionForBusiness } from './_lib/schedulingConfig.js';
@@ -685,6 +686,9 @@ function validateInvoiceRecord(record) {
   if (!INVOICE_STATUSES.has(record.status)) return 'Invoice status is invalid.';
   if (typeof record.amount !== 'number' || Number.isNaN(record.amount) || record.amount <= 0) {
     return 'Invoice amount must be greater than 0.';
+  }
+  if (record.lineItems !== undefined) {
+    return validateInvoiceLineItems(record.lineItems, record.taxRate);
   }
   return null;
 }
@@ -1363,6 +1367,7 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'invoices') {
+      if (record.lineItems !== undefined) record = normalizeInvoiceFinancials(record);
       const validationError = validateInvoiceRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
@@ -1612,6 +1617,7 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'invoices') {
+        if (next.lineItems !== undefined) next = normalizeInvoiceFinancials(next);
         const validationError = validateInvoiceRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });

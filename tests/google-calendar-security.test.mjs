@@ -94,3 +94,21 @@ test('OAuth callback state is one-time and bound to the authenticated tenant and
     businessId: 'business-1', userId: 'user-1', state: '', consumeState,
   }), false);
 });
+
+test('provider encryption isolates QuickBooks realms without changing Google compatibility', () => {
+  const googleContext = { businessId: 'business-1', userId: 'user-1' };
+  const googleEnvelope = encryptSecret('google-secret', googleContext, encryptionKey);
+  assert.equal(decryptSecret(googleEnvelope, { ...googleContext, provider: 'google-calendar' }, encryptionKey), 'google-secret');
+
+  const quickBooksContext = { provider: 'quickbooks-online', businessId: 'business-1', realmId: 'realm-1' };
+  const quickBooksEnvelope = encryptSecret('qbo-secret', quickBooksContext, encryptionKey);
+  assert.equal(decryptSecret(quickBooksEnvelope, quickBooksContext, encryptionKey), 'qbo-secret');
+  assert.throws(
+    () => decryptSecret(quickBooksEnvelope, { ...quickBooksContext, realmId: 'realm-2' }, encryptionKey),
+    /authenticate data|Unsupported|unable/i
+  );
+  assert.throws(
+    () => decryptSecret(quickBooksEnvelope, googleContext, encryptionKey),
+    /authenticate data|Unsupported|unable/i
+  );
+});

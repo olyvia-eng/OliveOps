@@ -7,7 +7,7 @@ const summarySource = readFileSync('src/components/calendar/WeeklyScheduleSummar
 
 test('Home answers what company work is scheduled this week using the shared schedule model', () => {
   assert.match(source, /This Week/);
-  assert.match(source, /startOfWeek\(today, \{ weekStartsOn: 1 \}\)/);
+  assert.match(source, /useMemo\(\(\) => startOfWeek\(new Date\(\), \{ weekStartsOn: 1 \}\), \[\]\)/);
   assert.match(source, /getEffectiveDivision/);
   assert.match(source, /normalizeGoogleScheduleEntry/);
   assert.match(source, /<WeeklyScheduleSummary/);

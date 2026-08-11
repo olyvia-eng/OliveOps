@@ -115,6 +115,17 @@ export interface EstimateTemplate {
 
 export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
 
+export interface InvoiceLineItem {
+  id: ID;
+  category: LineItemCategory;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  amount: number;
+  taxable: boolean;
+}
+
 export interface Invoice {
   id: ID;
   jobId: ID;
@@ -124,9 +135,64 @@ export interface Invoice {
   dueDate: string;
   status: InvoiceStatus;
   amount: number;
+  lineItems?: InvoiceLineItem[];
+  taxRate?: number;
+  subtotal?: number;
+  taxAmount?: number;
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QuickBooksResourceReference {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface QuickBooksItemReference extends QuickBooksResourceReference {
+  type: string;
+}
+
+export interface QuickBooksTaxCodeReference extends QuickBooksResourceReference {
+  taxable: boolean;
+}
+
+export interface QuickBooksConfiguration {
+  categoryMappings: Partial<Record<LineItemCategory, QuickBooksItemReference>>;
+  taxableTaxCode?: QuickBooksTaxCodeReference;
+  nonTaxableTaxCode?: QuickBooksTaxCodeReference;
+}
+
+export interface QuickBooksIntegration {
+  connected: boolean;
+  environment: 'sandbox';
+  realmId?: string;
+  companyName?: string;
+  country?: string;
+  currency?: string;
+  connectedAt?: string | null;
+  connectedByUserId?: ID | null;
+  updatedAt?: string | null;
+  configuration?: QuickBooksConfiguration;
+}
+
+export interface QuickBooksCustomerCandidate {
+  id: string;
+  displayName: string;
+  companyName: string;
+  email: string;
+  active: boolean;
+}
+
+export interface QuickBooksInvoiceStatus {
+  quickBooksInvoiceId: string;
+  documentNumber: string;
+  status: 'open' | 'overdue' | 'paid';
+  balance: number;
+  total: number;
+  syncedAt: string;
+  localChangesNotSynced: boolean;
 }
 
 // ─── Expenses ───────────────────────────────────────────────────────────────
