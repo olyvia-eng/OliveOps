@@ -14,6 +14,7 @@ import {
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, PageHeader, Select } from '../../components/ui';
+import type { GoogleCalendarEvent } from '../../types';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { formatDate, statusColor } from '../../utils';
 import {
@@ -31,11 +32,15 @@ interface Props {
 type CalendarView = 'month' | 'week' | 'day';
 
 type CalendarEventExtendedProps = {
+  source: 'oliveops';
   summary: string;
   timeLabel: string;
   status: string;
   employeeCount: number;
   equipmentCount: number;
+} | {
+  source: 'google';
+  googleEvent: GoogleCalendarEvent;
 };
 
 const CALENDAR_VIEW_MAP: Record<CalendarView, 'dayGridMonth' | 'timeGridWeek' | 'timeGridDay'> = {
@@ -57,6 +62,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleJobId, setScheduleJobId] = useState<string | undefined>(undefined);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
   const [visibleRange, setVisibleRange] = useState(() => ({
     start: startOfMonth(new Date()),
     end: endOfMonth(new Date()),
@@ -107,7 +114,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
   }, [customers, employees, equipmentAssets, filteredJobs]);
 
   const calendarEvents = useMemo(() => {
-    return scheduledJobs.map((entry) => ({
+    const oliveOpsEvents = scheduledJobs.map((entry) => ({
       id: entry.job.id,
       title: entry.job.title,
       start: entry.schedule.start,
@@ -117,6 +124,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       borderColor: 'transparent',
       textColor: 'inherit',
       extendedProps: {
+        source: 'oliveops' as const,
         summary: entry.summary,
         timeLabel: entry.timeLabel,
         status: entry.job.status,
@@ -124,11 +132,31 @@ export default function CalendarPage({ currentUserRole }: Props) {
         equipmentCount: entry.assignedEquipment.length,
       } satisfies CalendarEventExtendedProps,
     }));
-  }, [scheduledJobs]);
+    const externalEvents = googleEvents.map((event) => ({
+      id: `google:${event.googleCalendarId}:${event.googleEventId}`,
+      title: event.title,
+      start: event.start,
+      end: event.end,
+      allDay: event.allDay,
+      editable: false,
+      startEditable: false,
+      durationEditable: false,
+      backgroundColor: 'transparent',
+      borderColor: 'transparent',
+      textColor: 'inherit',
+      extendedProps: {
+        source: 'google' as const,
+        googleEvent: event,
+      } satisfies CalendarEventExtendedProps,
+    }));
+    return [...oliveOpsEvents, ...externalEvents];
+  }, [googleEvents, scheduledJobs]);
 
-  const currentRangeHasJobs = useMemo(() => {
-    return scheduledJobs.some((entry) => entry.schedule.start < visibleRange.end && entry.schedule.end >= visibleRange.start);
-  }, [scheduledJobs, visibleRange.end, visibleRange.start]);
+  const currentRangeHasEvents = useMemo(() => {
+    const hasJobs = scheduledJobs.some((entry) => entry.schedule.start < visibleRange.end && entry.schedule.end >= visibleRange.start);
+    const hasGoogleEvents = googleEvents.some((event) => new Date(event.start) < visibleRange.end && new Date(event.end) >= visibleRange.start);
+    return hasJobs || hasGoogleEvents;
+  }, [googleEvents, scheduledJobs, visibleRange.end, visibleRange.start]);
 
   const selectedEvent = useMemo(() => {
     return scheduledJobs.find((entry) => entry.job.id === selectedJobId) ?? null;
@@ -155,6 +183,28 @@ export default function CalendarPage({ currentUserRole }: Props) {
       setSelectedJobId(null);
     }
   }, [scheduledJobs, selectedJobId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      from: visibleRange.start.toISOString(),
+      to: visibleRange.end.toISOString(),
+    });
+    const loadGoogleEvents = async () => {
+      try {
+        const response = await fetch(`/api/integrations/google/events?${params}`, {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        const payload = await response.json() as { ok?: boolean; events?: GoogleCalendarEvent[] };
+        if (response.ok && payload.ok && Array.isArray(payload.events)) setGoogleEvents(payload.events);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') setGoogleEvents([]);
+      }
+    };
+    void loadGoogleEvents();
+    return () => controller.abort();
+  }, [visibleRange.end, visibleRange.start]);
 
   const formatConflictWindow = (start: Date, end: Date, allDay: boolean) => {
     if (allDay) {
@@ -188,6 +238,10 @@ export default function CalendarPage({ currentUserRole }: Props) {
   };
 
   const handleEventDrop = async (eventDrop: any) => {
+    if (eventDrop.event.extendedProps?.source === 'google') {
+      eventDrop.revert();
+      return;
+    }
     const start = eventDrop.event.start;
     const end = eventDrop.event.end ?? eventDrop.event.start;
 
@@ -222,6 +276,14 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const renderEventContent = (content: any) => {
     const props = content.event.extendedProps as CalendarEventExtendedProps;
+    if (props.source === 'google') {
+      return (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-left text-blue-950 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100">
+          <p className="flex items-center gap-1 truncate text-xs font-semibold"><CalendarDays size={11} /> {content.event.title}</p>
+          <p className="truncate text-[10px] text-blue-700 dark:text-blue-200">Google Calendar</p>
+        </div>
+      );
+    }
     const selected = content.event.id === selectedJobId;
     const compact = content.view.type === 'dayGridMonth';
 
@@ -301,7 +363,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         </div>
 
         <div className="p-4">
-          {!currentRangeHasJobs ? (
+          {!currentRangeHasEvents ? (
             <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-dashed border-brand-200 bg-brand-50/60 px-4 py-3 text-sm text-brand-700 dark:border-brand-500/40 dark:bg-brand-800/50 dark:text-brand-100 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-semibold">{activeView === 'month' ? 'No work scheduled this month.' : activeView === 'week' ? 'No work scheduled this week.' : 'No work scheduled this day.'}</p>
@@ -332,7 +394,16 @@ export default function CalendarPage({ currentUserRole }: Props) {
             slotMaxTime="22:00:00"
             datesSet={handleDatesSet}
             eventContent={renderEventContent}
-            eventClick={(eventClick) => setSelectedJobId(eventClick.event.id)}
+            eventClick={(eventClick) => {
+              const props = eventClick.event.extendedProps as CalendarEventExtendedProps;
+              if (props.source === 'google') {
+                setSelectedJobId(null);
+                setSelectedGoogleEvent(props.googleEvent);
+                return;
+              }
+              setSelectedGoogleEvent(null);
+              setSelectedJobId(eventClick.event.id);
+            }}
             eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}
           />
         </div>
@@ -418,6 +489,39 @@ export default function CalendarPage({ currentUserRole }: Props) {
             <div className="mt-6 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => navigate(`/jobs/${selectedEvent.job.id}`)}>Open Job</Button>
               {canManageSchedule ? <Button onClick={() => { setScheduleJobId(selectedEvent.job.id); setScheduleOpen(true); }}>Edit Schedule</Button> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedGoogleEvent ? (
+        <div className="fixed inset-0 z-40">
+          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedGoogleEvent(null)} aria-label="Close Google event details" />
+          <div className="absolute right-0 top-0 h-full w-full max-w-md border-l border-brand-100 bg-white p-5 shadow-2xl dark:border-brand-600 dark:bg-brand-700">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
+                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedGoogleEvent.title}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedGoogleEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
+            </div>
+            <div className="mt-5 space-y-4 text-sm">
+              <div className="rounded-lg border border-brand-100 p-4 dark:border-brand-600">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Date and time</p>
+                <p className="mt-2 font-medium text-brand-900 dark:text-brand-50">
+                  {selectedGoogleEvent.allDay
+                    ? `${formatDate(selectedGoogleEvent.start)} · All day`
+                    : `${format(new Date(selectedGoogleEvent.start), 'MMM d, yyyy, h:mm a')} - ${format(new Date(selectedGoogleEvent.end), 'h:mm a')}`}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Location</p>
+                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedGoogleEvent.location || 'No location provided.'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Source</p>
+                <p className="mt-2 text-brand-700 dark:text-brand-100">Google Calendar · Read-only in OliveOps</p>
+              </div>
             </div>
           </div>
         </div>

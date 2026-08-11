@@ -186,6 +186,7 @@ export default function Sidebar({
       { label: 'Catalog', path: '/materials/catalog', visible: true },
       { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
       { label: 'Users & Access', path: '/user-access', visible: canManageCompanySetup },
+      { label: 'Integrations', path: '/settings/integrations', visible: canManageCompanySetup },
       { label: 'Unbillable Categories', path: '/settings/unbillable-time-categories', visible: canManageCompanySetup },
     ].filter((item) => item.visible);
   }, [canManageCompanySetup]);

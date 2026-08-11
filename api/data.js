@@ -119,6 +119,7 @@ import {
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
 import { requireSession } from './_lib/session.js';
+import { syncJobToGoogleCalendars } from './_lib/googleCalendarSync.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -1495,6 +1496,9 @@ export default async function handler(req, res) {
 
     try {
       await config.create({ businessId: session.businessId, [config.createArgKey]: record });
+      if (entity === 'jobs') {
+        await syncJobToGoogleCalendars({ businessId: session.businessId, job: record });
+      }
       return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not create ${entity}` });
@@ -1772,6 +1776,10 @@ export default async function handler(req, res) {
         });
       }
 
+      if (entity === 'jobs') {
+        await syncJobToGoogleCalendars({ businessId: session.businessId, job: next });
+      }
+
       return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not update ${entity}` });
@@ -1802,6 +1810,9 @@ export default async function handler(req, res) {
       }
 
       await config.remove(session.businessId, id);
+      if (entity === 'jobs') {
+        await syncJobToGoogleCalendars({ businessId: session.businessId, job: existing, action: 'delete' });
+      }
       return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not delete ${entity}` });

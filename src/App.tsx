@@ -38,6 +38,7 @@ const EquipmentPage = lazy(() => import('./pages/data-center/EquipmentCatalogPag
 const FormsPage = lazy(() => import('./pages/operations/FormsPage'));
 const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
+const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
@@ -651,6 +652,10 @@ export default function App() {
                     <Navigate to="/" replace />
                   )
                 }
+              />
+              <Route
+                path="settings/integrations"
+                element={canManageUsers ? <IntegrationsPage /> : <Navigate to="/" replace />}
               />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

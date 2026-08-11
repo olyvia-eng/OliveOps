@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
@@ -9,6 +9,7 @@ import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../.
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCustomerPropertyLabel, formatScheduleTimeLabel, getJobScheduleWindow } from '../../utils/jobSchedule';
+import type { GoogleCalendarEvent } from '../../types';
 
 interface HomePageProps {
   currentUserId: string;
@@ -75,6 +76,8 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskPriority, setTaskPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [addingTask, setAddingTask] = useState(false);
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<GoogleCalendarEvent | null>(null);
 
   const today = new Date();
   const todayKey = dateKey(today);
@@ -123,6 +126,29 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
         return leftWindow.start.getTime() - rightWindow.start.getTime();
       });
   }, [jobs, todayKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    const params = new URLSearchParams({ from: start.toISOString(), to: end.toISOString() });
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/integrations/google/events?${params}`, {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        const payload = await response.json() as { ok?: boolean; events?: GoogleCalendarEvent[] };
+        if (response.ok && payload.ok && Array.isArray(payload.events)) setGoogleEvents(payload.events);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') setGoogleEvents([]);
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [todayKey]);
 
   const sentEstimates = estimates.filter((estimate) => estimate.status === 'sent');
   const acceptedPendingConversion = estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
@@ -282,7 +308,7 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
             <Link to="/calendar" className="text-xs font-semibold text-brand-700 dark:text-brand-300 hover:underline">Open Calendar</Link>
           </div>
 
-          {todaysSchedule.length === 0 ? (
+          {todaysSchedule.length === 0 && googleEvents.length === 0 ? (
             <EmptyState
               icon={<CalendarDays aria-hidden="true" />}
               title="No jobs scheduled today"
@@ -309,10 +335,45 @@ export default function HomePage({ currentUserId, currentUserName }: HomePagePro
                   </li>
                 );
               })}
+              {googleEvents.slice(0, Math.max(0, 8 - todaysSchedule.length)).map((event) => (
+                <li key={`${event.googleCalendarId}:${event.googleEventId}`} className="flex items-start justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-brand-50">{event.title}</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">
+                      {event.allDay ? 'All day' : `${new Date(event.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} - ${new Date(event.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                    </p>
+                    {event.location ? <p className="mt-1 truncate text-xs text-gray-500 dark:text-brand-300">{event.location}</p> : null}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
+                    <button type="button" onClick={() => setSelectedGoogleEvent(event)} className="mt-2 block text-xs font-semibold text-brand-700 hover:underline dark:text-brand-300">View details</button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </Card>
       </div>
+
+      {selectedGoogleEvent ? (
+        <div className="fixed inset-0 z-40">
+          <button type="button" className="absolute inset-0 bg-black/30" onClick={() => setSelectedGoogleEvent(null)} aria-label="Close Google event details" />
+          <div className="absolute right-0 top-0 h-full w-full max-w-md border-l border-brand-100 bg-white p-5 shadow-2xl dark:border-brand-600 dark:bg-brand-700">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Badge label="Google Calendar" className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-100" />
+                <h2 className="mt-3 text-xl font-semibold text-brand-900 dark:text-brand-50">{selectedGoogleEvent.title}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedGoogleEvent(null)} className="h-9 w-9 rounded-xl text-brand-400 hover:bg-brand-50 hover:text-brand-700 dark:text-brand-200 dark:hover:bg-brand-600 dark:hover:text-brand-50">&times;</button>
+            </div>
+            <div className="mt-5 space-y-4 text-sm text-brand-700 dark:text-brand-100">
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Date and time</p><p className="mt-2">{selectedGoogleEvent.allDay ? `${selectedGoogleEvent.start} · All day` : `${new Date(selectedGoogleEvent.start).toLocaleString()} - ${new Date(selectedGoogleEvent.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}</p></div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Location</p><p className="mt-2">{selectedGoogleEvent.location || 'No location provided.'}</p></div>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Source</p><p className="mt-2">Google Calendar · Read-only in OliveOps</p></div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

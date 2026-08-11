@@ -83,8 +83,14 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 - `AWS_SECRET_ACCESS_KEY`
 - `DDB_TABLE_NAME` (example: `OliveOpsAuth`)
 - `JWT_SECRET` (long random string)
+- `GOOGLE_CLIENT_ID` (Google OAuth web client ID)
+- `GOOGLE_CLIENT_SECRET` (Google OAuth web client secret)
+- `GOOGLE_REDIRECT_URI` (exact registered OAuth callback URL)
+- `GOOGLE_TOKEN_ENCRYPTION_KEY` (stable base64-encoded 32-byte key)
 
 Add them for Production (and Preview/Development if needed), then redeploy.
+
+See [Google Calendar Integration](docs/google-calendar-integration.md) for OAuth setup, scopes, encryption, and synchronization behavior.
 
 ### 4. Local development notes
 

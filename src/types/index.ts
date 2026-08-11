@@ -345,6 +345,46 @@ export interface Job {
   updatedAt: string;
 }
 
+export interface GoogleCalendarPreferences {
+  showGoogleEvents: boolean;
+  syncOliveOpsJobs: boolean;
+  scope: 'all_company_jobs';
+  employeeIds: ID[];
+  divisionIds: ID[];
+}
+
+export interface GoogleCalendarIntegration {
+  connected: boolean;
+  googleAccountEmail?: string;
+  selectedCalendarId?: string;
+  selectedCalendarSummary?: string;
+  connectedAt?: string | null;
+  updatedAt?: string | null;
+  lastSyncAt?: string | null;
+  preferences: GoogleCalendarPreferences;
+}
+
+export interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  primary: boolean;
+  accessRole: string;
+  backgroundColor?: string | null;
+}
+
+export interface GoogleCalendarEvent {
+  googleEventId: string;
+  googleCalendarId: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string;
+  status: string;
+  htmlLink?: string;
+  source: 'google';
+}
+
 // ─── Employees & Time Tracking ───────────────────────────────────────────────
 
 export type EmployeeRole = 'admin' | 'foreman' | 'crew_member';
