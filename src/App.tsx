@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetItem, BudgetRate, Customer, Employee, EquipmentAsset, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetGroup, BudgetItem, BudgetRate, Customer, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -86,6 +86,8 @@ export default function App() {
         formSubmissions?: FormSubmission[];
         formResponses?: FormResponse[];
         budgets?: Budget[];
+        budgetGroups?: BudgetGroup[];
+        equipmentBudgetAllocations?: EquipmentBudgetAllocation[];
         customers?: Customer[];
         jobs?: Job[];
         estimates?: Estimate[];
@@ -118,6 +120,8 @@ export default function App() {
         formSubmissions: payload.formSubmissions ?? [],
         formResponses: payload.formResponses ?? [],
         budgets: payload.budgets ?? [],
+        budgetGroups: payload.budgetGroups ?? [],
+        equipmentBudgetAllocations: payload.equipmentBudgetAllocations ?? [],
         customers: payload.customers ?? [],
         jobs: payload.jobs ?? [],
         estimates: payload.estimates ?? [],
@@ -229,6 +233,8 @@ export default function App() {
       formSubmissions: [],
       formResponses: [],
       budgets: [],
+      budgetGroups: [],
+      equipmentBudgetAllocations: [],
       budgetRates: [],
       customers: [],
       estimates: [],
@@ -593,6 +599,7 @@ export default function App() {
               <Route path="calendar" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
+              <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
               <Route path="budgets/:budgetId" element={<BudgetPage />} />
               <Route path="budget" element={<BudgetPage />} />
               <Route path="employees" element={<EmployeesPage />} />

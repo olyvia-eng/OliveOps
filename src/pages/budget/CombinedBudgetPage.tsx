@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Layers3 } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, PageHeader } from '../../components/ui';
 import { useStore } from '../../store';
@@ -25,23 +25,28 @@ const categoryTabs: Array<{ key: CombinedBudgetTab; label: string }> = [
 
 export default function CombinedBudgetPage() {
   const navigate = useNavigate();
+  const { groupId } = useParams<{ groupId: string }>();
   const [searchParams] = useSearchParams();
   const {
     budgets,
+    budgetGroups,
     budgetItems,
     labourBudgetPlans,
     revenueSalesGoals,
     employees,
   } = useStore();
   const [activeTab, setActiveTab] = useState<CombinedBudgetTab>('analysis');
+  const budgetGroup = groupId ? budgetGroups.find((group) => group.id === groupId) : null;
+  const isGroupView = Boolean(groupId);
 
   const selectedIds = useMemo(() => {
+    if (budgetGroup) return budgetGroup.budgetIds;
     const raw = searchParams.get('ids') ?? '';
     return raw
       .split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-  }, [searchParams]);
+  }, [budgetGroup, searchParams]);
 
   const combined = useMemo(() => {
     return buildCombinedBudgetViewModel({
@@ -58,13 +63,13 @@ export default function CombinedBudgetPage() {
     return (
       <div>
         <PageHeader
-          title="Combined Budget"
-          subtitle="Review a read-only rollup of multiple compatible budgets."
+          title={isGroupView ? 'Budget Group' : 'Combined Budget'}
+          subtitle={isGroupView ? 'This Budget Group is unavailable.' : 'Review a read-only rollup of multiple compatible budgets.'}
           action={<Button variant="secondary" onClick={() => navigate('/budgets')}><ArrowLeft size={16} /> Back to Budgets</Button>}
         />
         <EmptyState
           icon={<Layers3 aria-hidden="true" />}
-          title="Combined Budget unavailable"
+          title={isGroupView ? 'Budget Group unavailable' : 'Combined Budget unavailable'}
           description={combined.error}
           action={<Button onClick={() => navigate('/budgets')}>Go to Budgets</Button>}
         />
@@ -87,14 +92,16 @@ export default function CombinedBudgetPage() {
   return (
     <div>
       <PageHeader
-        title="Combined Budget"
-        subtitle="Read-only reporting view across multiple existing budgets. Individual budgets remain the source of truth."
+        title={budgetGroup?.name ?? 'Combined Budget'}
+        subtitle={isGroupView
+          ? 'Persistent roll-up across this group. Member budgets remain the source of truth.'
+          : 'Read-only reporting view across multiple existing budgets. Individual budgets remain the source of truth.'}
         action={<Button variant="secondary" onClick={() => navigate('/budgets')}><ArrowLeft size={16} /> Back to Budgets</Button>}
       />
 
       <div className="space-y-4 mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge label="Read Only" className="bg-gray-100 text-gray-700" />
+          <Badge label={isGroupView ? 'Budget Group' : 'Read Only'} className="bg-gray-100 text-gray-700" />
           <span className="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{combined.fiscalYear}</span>
           <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{combined.selectedBudgets.length} budgets included</span>
         </div>

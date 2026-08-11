@@ -12,7 +12,7 @@ test('budget equipment calculations use shared helper and live sell-rate preview
   assert.match(source, /defaultSellPrice: normalizedBudgetSellRate,/);
 });
 
-test('months used per year is present and validated with no allocation panel copy', () => {
+test('months used per year remains separate from grouped equipment allocation', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
   const sharedFormSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
 
@@ -21,6 +21,8 @@ test('months used per year is present and validated with no allocation panel cop
   assert.doesNotMatch(source, /Planning Months \(not used in allocation formula\)/);
   assert.doesNotMatch(source, /monthsUsedPerYear\s*\/\s*12/);
   assert.doesNotMatch(source, /normalizedMonthsUsedPerYear\s*\/\s*12/);
+  assert.match(source, /Months allocated/);
+  assert.match(source, /calculateAllocatedEquipmentCost/);
 });
 
 test('budget item API validates months used and allocation percent on budget entity', () => {
@@ -89,8 +91,8 @@ test('equipment add flow does not use first-item category lookup and preserves e
   assert.doesNotMatch(source, /items\.find\(\(item\) => item\.category === category\)/);
   assert.match(source, /const openNewCategoryItem = \(category: BudgetCategory\) => \{/);
   assert.match(source, /setEditing\(null\);/);
-  assert.match(source, /if \(editing\) updateBudgetItem\(editing\.id, yearlyForm\);/);
-  assert.match(source, /else addBudgetItem\(yearlyForm\);/);
+  assert.match(source, /if \(editing\) updateBudgetItem\(editing\.id, yearlyForm, allocationMonths\);/);
+  assert.match(source, /else addBudgetItem\(yearlyForm, allocationMonths\);/);
   assert.match(source, /const addEquipmentToCurrentBudget = \(equipmentId: string\) => \{/);
   assert.match(source, /setModalOpen\(true\);/);
 });

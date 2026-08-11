@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
-import { Layers3, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
+import { FolderTree, Layers3, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { useStore } from '../../store';
-import type { BudgetStatus } from '../../types';
+import type { BudgetGroup, BudgetStatus } from '../../types';
 
 const statuses: Array<{ value: BudgetStatus; label: string }> = [
   { value: 'draft', label: 'Draft' },
@@ -31,7 +31,7 @@ const emptyBudgetForm = () => ({
 
 export default function BudgetsPage() {
   const navigate = useNavigate();
-  const { budgets, budgetItems, addBudget, updateBudget, deleteBudget } = useStore();
+  const { budgets, budgetGroups, budgetItems, addBudget, updateBudget, deleteBudget, saveBudgetGroup, dissolveBudgetGroup } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyBudgetForm());
   const [formError, setFormError] = useState('');
@@ -40,6 +40,15 @@ export default function BudgetsPage() {
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
   const [editingBudgetName, setEditingBudgetName] = useState('');
   const [budgetNameError, setBudgetNameError] = useState('');
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState('');
+  const [groupYear, setGroupYear] = useState(String(new Date().getFullYear()));
+  const [groupBudgetIds, setGroupBudgetIds] = useState<string[]>([]);
+  const [groupError, setGroupError] = useState('');
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [groupMoveConfirmation, setGroupMoveConfirmation] = useState<BudgetGroup | null>(null);
+  const [groupToDissolve, setGroupToDissolve] = useState<BudgetGroup | null>(null);
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   const budgetRows = useMemo(() => {
@@ -114,6 +123,49 @@ export default function BudgetsPage() {
     navigate(`/budgets/combined?ids=${selectedBudgets.map((budget) => budget.id).join(',')}`);
   };
 
+  const openGroupEditor = (group?: BudgetGroup) => {
+    const selectedYear = selectedBudgets[0]?.fiscalYear ?? String(new Date().getFullYear());
+    setEditingGroupId(group?.id ?? null);
+    setGroupName(group?.name ?? '');
+    setGroupYear(group?.year ?? selectedYear);
+    setGroupBudgetIds(group?.budgetIds ?? selectedBudgetIds);
+    setGroupError('');
+    setGroupModalOpen(true);
+  };
+
+  const submitBudgetGroup = async (confirmAllocationMove = false) => {
+    const name = groupName.trim();
+    if (!name) return setGroupError('Group name is required.');
+    if (groupBudgetIds.length === 0) return setGroupError('Select at least one budget.');
+    setSavingGroup(true);
+    const group = {
+      id: editingGroupId ?? `group-${crypto.randomUUID()}`,
+      name,
+      year: groupYear,
+      budgetIds: groupBudgetIds,
+    };
+    const result = await saveBudgetGroup(group, confirmAllocationMove);
+    setSavingGroup(false);
+    if (result.requiresConfirmation) {
+      setGroupMoveConfirmation({ ...group, createdAt: '', updatedAt: '' });
+      return;
+    }
+    if (!result.ok) return setGroupError(result.error ?? 'Budget Group could not be saved.');
+    setGroupModalOpen(false);
+    setGroupMoveConfirmation(null);
+    setSelectedBudgetIds([]);
+  };
+
+  const toggleGroupBudget = (budgetId: string) => {
+    setGroupBudgetIds((current) => current.includes(budgetId)
+      ? current.filter((id) => id !== budgetId)
+      : [...current, budgetId]);
+  };
+
+  const eligibleGroupBudgets = budgets
+    .filter((budget) => budget.fiscalYear === groupYear)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const openNew = () => {
     setForm(emptyBudgetForm());
     setFormError('');
@@ -187,7 +239,12 @@ export default function BudgetsPage() {
       <PageHeader
         title="Budgets"
         subtitle="Choose an individual budget to edit or select multiple budgets for a read-only combined view."
-        action={<Button onClick={openNew}><Plus size={16} /> New Budget</Button>}
+        action={(
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => openGroupEditor()}><FolderTree size={16} /> New Group</Button>
+            <Button onClick={openNew}><Plus size={16} /> New Budget</Button>
+          </div>
+        )}
       />
 
       {selectedBudgetIds.length > 0 ? (
@@ -205,10 +262,39 @@ export default function BudgetsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={() => setSelectedBudgetIds([])}>Clear Selection</Button>
+              <Button variant="secondary" onClick={() => openGroupEditor()} disabled={hasMixedFiscalYears}><FolderTree size={16} /> Group Selected</Button>
               <Button onClick={openCombinedBudget} disabled={!canViewCombined}><Layers3 size={16} /> View Combined Budget</Button>
             </div>
           </div>
         </Card>
+      ) : null}
+
+      {budgetGroups.length > 0 ? (
+        <section className="mb-6" aria-labelledby="budget-groups-heading">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 id="budget-groups-heading" className="text-sm font-semibold text-gray-900">Budget Groups</h2>
+            <span className="text-xs text-gray-500">Persistent roll-ups</span>
+          </div>
+          <div className="divide-y divide-gray-200 border-y border-gray-200 bg-white">
+            {budgetGroups.slice().sort((a, b) => b.year.localeCompare(a.year) || a.name.localeCompare(b.name)).map((group) => {
+              const members = group.budgetIds.map((id) => budgets.find((budget) => budget.id === id)).filter(Boolean);
+              return (
+                <div key={group.id} className="px-4 py-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
+                  <button type="button" className="min-w-0 text-left" onClick={() => navigate(`/budgets/groups/${group.id}`)}>
+                    <span className="flex items-center gap-2 font-semibold text-gray-900"><FolderTree size={16} /> {group.name}</span>
+                    <span className="mt-1 block text-xs text-gray-500">{group.year} · {members.length} budget{members.length === 1 ? '' : 's'}</span>
+                    <span className="mt-2 block text-sm text-gray-700">{members.map((budget) => budget?.name).join(' · ')}</span>
+                  </button>
+                  <div className="mt-3 flex shrink-0 items-center gap-2 sm:mt-0">
+                    <Button size="sm" onClick={() => navigate(`/budgets/groups/${group.id}`)}>View Roll-up</Button>
+                    <Button variant="ghost" size="sm" onClick={() => openGroupEditor(group)} aria-label={`Edit ${group.name}`}><Pencil size={14} /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => setGroupToDissolve(group)} aria-label={`Dissolve ${group.name}`}><Trash2 size={14} className="text-accent-700" /></Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       ) : null}
 
       {budgetRows.length === 0 ? (
@@ -366,6 +452,76 @@ export default function BudgetsPage() {
           </div>
         </Card>
       )}
+
+      <Modal
+        open={groupModalOpen}
+        onClose={() => setGroupModalOpen(false)}
+        title={editingGroupId ? 'Edit Budget Group' : 'New Budget Group'}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setGroupModalOpen(false)}>Cancel</Button>
+            <Button onClick={() => void submitBudgetGroup()} disabled={savingGroup}>{savingGroup ? 'Saving...' : 'Save Group'}</Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <Input label="Group Name" required value={groupName} onChange={(event) => setGroupName(event.target.value)} placeholder="e.g. 2027 Operating Plan" />
+          <Select
+            label="Fiscal Year"
+            value={groupYear}
+            onChange={(event) => {
+              setGroupYear(event.target.value);
+              setGroupBudgetIds([]);
+            }}
+          >
+            {[...new Set(budgets.map((budget) => budget.fiscalYear))].sort().reverse().map((year) => <option key={year} value={year}>{year}</option>)}
+          </Select>
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-gray-700">Member Budgets</legend>
+            <div className="max-h-64 divide-y divide-gray-100 overflow-y-auto border-y border-gray-200">
+              {eligibleGroupBudgets.map((budget) => (
+                <label key={budget.id} className="flex cursor-pointer items-center gap-3 py-3 text-sm text-gray-800">
+                  <input type="checkbox" checked={groupBudgetIds.includes(budget.id)} onChange={() => toggleGroupBudget(budget.id)} className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                  <span className="font-medium">{budget.name}</span>
+                  <span className="ml-auto text-xs text-gray-500">{toFriendlyLabel(budget.division)}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {groupError ? <p className="text-sm text-accent-700">{groupError}</p> : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!groupMoveConfirmation}
+        onClose={() => setGroupMoveConfirmation(null)}
+        title="Move Equipment Allocations"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setGroupMoveConfirmation(null)}>Cancel</Button>
+            <Button onClick={() => void submitBudgetGroup(true)} disabled={savingGroup}>Move and Save</Button>
+          </>
+        )}
+      >
+        <p className="text-gray-600">Some selected budgets have equipment allocations in another group. Moving them will move those allocations to this group.</p>
+      </Modal>
+
+      <Modal
+        open={!!groupToDissolve}
+        onClose={() => setGroupToDissolve(null)}
+        title="Dissolve Budget Group"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setGroupToDissolve(null)}>Cancel</Button>
+            <Button variant="danger" onClick={() => void (async () => {
+              if (groupToDissolve) await dissolveBudgetGroup(groupToDissolve.id);
+              setGroupToDissolve(null);
+            })()}>Dissolve</Button>
+          </>
+        )}
+      >
+        <p className="text-gray-600">The budgets will remain available, but this roll-up and its equipment allocations will be removed.</p>
+      </Modal>
 
       <Modal
         open={modalOpen}

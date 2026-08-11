@@ -120,6 +120,11 @@ import {
 import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToGoogleCalendars } from './_lib/googleCalendarSync.js';
+import {
+  deleteEquipmentBudgetAllocationForItem,
+  repairBudgetGroupMembershipForDeletion,
+  saveEquipmentBudgetAllocationForItem,
+} from './_lib/budgetGroups.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -880,6 +885,20 @@ function validateBudgetItemRecord(record) {
   return null;
 }
 
+function applyEquipmentAllocationCost(record, allocationMonths) {
+  if (allocationMonths === undefined || allocationMonths === null) return { ok: true, record };
+  if (record.category !== 'equipment' || !isNonEmptyString(record.budgetId) || !isNonEmptyString(record.equipmentId)) {
+    return { ok: false, error: 'Equipment allocation requires a grouped budget and catalog equipment.' };
+  }
+  if (!Number.isFinite(allocationMonths) || allocationMonths <= 0 || allocationMonths > 12) {
+    return { ok: false, error: 'Allocated months must be greater than 0 and no more than 12.' };
+  }
+  return {
+    ok: true,
+    record: { ...record, budgeted: record.budgeted * (allocationMonths / 12) },
+  };
+}
+
 function isValidIsoDateTime(value) {
   if (!isNonEmptyString(value)) return false;
   const timestamp = Date.parse(value);
@@ -1314,13 +1333,19 @@ export default async function handler(req, res) {
     const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
     if (!session) return;
 
-    const record = req.body?.data;
+    let record = req.body?.data;
     if (!record || typeof record !== 'object') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
     }
 
     if (entity !== 'employees' && typeof record.id !== 'string') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
+    }
+
+    if (entity === 'budget') {
+      const allocated = applyEquipmentAllocationCost(record, req.body?.allocationMonths);
+      if (!allocated.ok) return res.status(400).json({ ok: false, error: allocated.error });
+      record = allocated.record;
     }
 
     if (entity === 'invoices') {
@@ -1496,6 +1521,20 @@ export default async function handler(req, res) {
 
     try {
       await config.create({ businessId: session.businessId, [config.createArgKey]: record });
+      if (entity === 'budget' && req.body?.allocationMonths !== undefined) {
+        const allocationResult = await saveEquipmentBudgetAllocationForItem({
+          businessId: session.businessId,
+          budgetId: record.budgetId,
+          equipmentId: record.equipmentId,
+          budgetItemId: record.id,
+          monthsAllocated: req.body.allocationMonths,
+        });
+        if (!allocationResult.ok) {
+          await config.remove(session.businessId, record.id);
+          return res.status(409).json(allocationResult);
+        }
+        return res.status(200).json({ ok: true, allocation: allocationResult.allocation, budgetItem: record });
+      }
       if (entity === 'jobs') {
         await syncJobToGoogleCalendars({ businessId: session.businessId, job: record });
       }
@@ -1551,7 +1590,12 @@ export default async function handler(req, res) {
         baseRecord = accountAccessResult.employee;
       }
 
-      const next = { ...baseRecord, ...sanitizedData };
+      let next = { ...baseRecord, ...sanitizedData };
+      if (entity === 'budget') {
+        const allocated = applyEquipmentAllocationCost(next, req.body?.allocationMonths);
+        if (!allocated.ok) return res.status(400).json({ ok: false, error: allocated.error });
+        next = allocated.record;
+      }
 
       if (entity === 'invoices') {
         const validationError = validateInvoiceRecord(next);
@@ -1767,6 +1811,21 @@ export default async function handler(req, res) {
         return res.status(409).json({ ok: false, error: updateResult.error ?? `Could not update ${entity}` });
       }
 
+      if (entity === 'budget' && req.body?.allocationMonths !== undefined) {
+        const allocationResult = await saveEquipmentBudgetAllocationForItem({
+          businessId: session.businessId,
+          budgetId: next.budgetId,
+          equipmentId: next.equipmentId,
+          budgetItemId: next.id,
+          monthsAllocated: req.body.allocationMonths,
+        });
+        if (!allocationResult.ok) {
+          await config.update({ businessId: session.businessId, [config.updateArgKey]: existing });
+          return res.status(409).json(allocationResult);
+        }
+        return res.status(200).json({ ok: true, allocation: allocationResult.allocation, budgetItem: next });
+      }
+
       if (entity === 'employees') {
         const employee = await getEmployeeForBusiness(session.businessId, id);
         return res.status(200).json({
@@ -1809,7 +1868,13 @@ export default async function handler(req, res) {
         return res.status(403).json({ ok: false, error: 'Forbidden' });
       }
 
+      if (entity === 'budgets') {
+        await repairBudgetGroupMembershipForDeletion({ businessId: session.businessId, budgetId: id });
+      }
       await config.remove(session.businessId, id);
+      if (entity === 'budget') {
+        await deleteEquipmentBudgetAllocationForItem({ businessId: session.businessId, budgetItemId: id });
+      }
       if (entity === 'jobs') {
         await syncJobToGoogleCalendars({ businessId: session.businessId, job: existing, action: 'delete' });
       }

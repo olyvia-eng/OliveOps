@@ -28,6 +28,10 @@ import {
   calculateSuggestedEquipmentSellRate,
   resolveEquipmentSellRatePreview,
 } from '../../utils/equipmentPricing';
+import {
+  calculateAllocatedEquipmentCost,
+  calculateEquipmentAllocationSummary,
+} from '../../utils/equipmentAllocation.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -220,6 +224,8 @@ export default function BudgetPage() {
   const { budgetId: routeBudgetId } = useParams<{ budgetId: string }>();
   const {
     budgets,
+    budgetGroups,
+    equipmentBudgetAllocations,
     budgetItems,
     budgetRates,
     labourBudgetPlans,
@@ -264,6 +270,7 @@ export default function BudgetPage() {
   const [equipmentCatalogCollapsed, setEquipmentCatalogCollapsed] = useState(false);
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
   const [equipmentCatalogError, setEquipmentCatalogError] = useState('');
+  const [monthsAllocated, setMonthsAllocated] = useState(12);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
   const [removePlanId, setRemovePlanId] = useState<string | null>(null);
@@ -297,6 +304,9 @@ export default function BudgetPage() {
 
   const activeBudgetId = routeBudgetId ?? sortedBudgets[0]?.id ?? null;
   const activeBudget = activeBudgetId ? (budgets.find((budget) => budget.id === activeBudgetId) ?? null) : null;
+  const activeBudgetGroup = activeBudget?.budgetGroupId
+    ? budgetGroups.find((group) => group.id === activeBudget.budgetGroupId) ?? null
+    : null;
   const hasLegacyBudgetData = budgetItems.length > 0 || labourBudgetPlans.length > 0 || revenueSalesGoals.length > 0;
 
   useEffect(() => {
@@ -400,6 +410,19 @@ export default function BudgetPage() {
     }
     return byId;
   }, [equipmentBudgetItemsForYear]);
+  const editingAllocation = editing
+    ? equipmentBudgetAllocations.find((allocation) => allocation.budgetItemId === editing.id)
+    : undefined;
+  const allocationSummary = useMemo(() => {
+    if (!activeBudgetGroup || form.category !== 'equipment' || !form.equipmentId) return null;
+    return calculateEquipmentAllocationSummary({
+      allocations: equipmentBudgetAllocations,
+      budgetGroupId: activeBudgetGroup.id,
+      equipmentId: form.equipmentId,
+      annualCost: 0,
+      excludeAllocationId: editingAllocation?.id,
+    });
+  }, [activeBudgetGroup, editingAllocation?.id, equipmentBudgetAllocations, form.category, form.equipmentId]);
   const availableCatalogEquipment = useMemo(() => {
     return sortedEquipmentAssets
       .filter((asset) => asset.id && asset.id.trim().length > 0 && asset.id in equipmentAssetsById);
@@ -437,6 +460,7 @@ export default function BudgetPage() {
       period: defaultPeriod,
     });
     setShowEquipmentCalcDetails(false);
+    setMonthsAllocated(12);
     setModalOpen(true);
   };
 
@@ -552,6 +576,8 @@ export default function BudgetPage() {
       monthsUsedPerYear: b.monthsUsedPerYear ?? 12,
     });
     setEquipmentSellRateOverride(matchedRate && matchedRate.defaultSellPrice > 0 ? matchedRate.defaultSellPrice : null);
+    const allocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === b.id);
+    setMonthsAllocated(allocation?.monthsAllocated ?? 12);
     setShowEquipmentCalcDetails(false);
     setModalOpen(true);
   };
@@ -562,6 +588,11 @@ export default function BudgetPage() {
     let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
     const normalizedMonthsUsedPerYear = equipmentCostBreakdown.monthsUsedPerYear;
+    const allocationMonths = form.category === 'equipment' && activeBudgetGroup ? monthsAllocated : undefined;
+    if (allocationMonths !== undefined && (!Number.isFinite(allocationMonths) || allocationMonths <= 0 || allocationMonths > (allocationSummary?.remainingMonths ?? 12))) {
+      setEquipmentCatalogError(`Allocate more than 0 and no more than ${allocationSummary?.remainingMonths ?? 12} months.`);
+      return;
+    }
 
     if (!editing && form.category === 'equipment' && !normalizedEquipmentId) {
       const created = await addEquipmentAsset({
@@ -679,8 +710,8 @@ export default function BudgetPage() {
       else addBudgetRate(ratePayload);
     }
 
-    if (editing) updateBudgetItem(editing.id, yearlyForm);
-    else addBudgetItem(yearlyForm);
+    if (editing) updateBudgetItem(editing.id, yearlyForm, allocationMonths);
+    else addBudgetItem(yearlyForm, allocationMonths);
     setEquipmentCatalogError('');
     setEquipmentSellRateOverride(null);
     setModalOpen(false);
@@ -738,6 +769,17 @@ export default function BudgetPage() {
     });
     setEquipmentSellRateOverride(matchedRate && matchedRate.defaultSellPrice > 0 ? matchedRate.defaultSellPrice : null);
     setShowEquipmentCalcDetails(false);
+    if (activeBudgetGroup) {
+      const summary = calculateEquipmentAllocationSummary({
+        allocations: equipmentBudgetAllocations,
+        budgetGroupId: activeBudgetGroup.id,
+        equipmentId,
+        annualCost: 0,
+      });
+      setMonthsAllocated(summary.suggestedMonths || 12);
+    } else {
+      setMonthsAllocated(12);
+    }
     setModalOpen(true);
     setEquipmentCatalogError('');
   };
@@ -754,6 +796,7 @@ export default function BudgetPage() {
       period: defaultPeriod,
     });
     if (defaultEquipmentInfo) {
+      setMonthsAllocated(12);
       setShowEquipmentCalcDetails(false);
     } else {
       setShowEquipmentCalcDetails(false);
@@ -2570,6 +2613,7 @@ export default function BudgetPage() {
             </>
           )}
           {form.category === 'equipment' && (
+            <>
             <EquipmentInfoForm
               value={equipmentInfoForm}
               onChange={setEquipmentInfoForm}
@@ -2584,6 +2628,31 @@ export default function BudgetPage() {
               showBudgetSellRate
               editableBudgetSellRate
             />
+            {activeBudgetGroup ? (
+              <div className="border-y border-gray-200 py-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-gray-900">Allocate within {activeBudgetGroup.name}</p>
+                  <p className="mt-1 text-xs text-gray-500">{allocationSummary?.remainingMonths ?? 12} months available for this equipment across the group.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Input
+                    label="Months allocated"
+                    type="number"
+                    min={0.25}
+                    max={allocationSummary?.remainingMonths ?? 12}
+                    step={0.25}
+                    value={monthsAllocated}
+                    onChange={(event) => setMonthsAllocated(Number(event.target.value))}
+                  />
+                  <div className="flex flex-col justify-end rounded-lg bg-gray-50 px-3 py-2">
+                    <span className="text-xs text-gray-500">Cost charged to this budget</span>
+                    <span className="text-lg font-semibold text-gray-900">{formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, monthsAllocated))}</span>
+                  </div>
+                </div>
+                {equipmentCatalogError ? <p className="mt-2 text-xs text-accent-700">{equipmentCatalogError}</p> : null}
+              </div>
+            ) : null}
+            </>
           )}
           <div className="grid grid-cols-1 gap-3">
             {form.category === 'equipment' ? null : form.category === 'overhead' ? (

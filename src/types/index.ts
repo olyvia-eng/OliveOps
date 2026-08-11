@@ -610,6 +610,7 @@ export type BudgetStatus = 'draft' | 'active' | 'archived';
 
 export interface Budget {
   id: ID;
+  budgetGroupId?: ID;
   name: string;
   budgetType: BudgetType;
   division: BudgetDivision;
@@ -621,6 +622,26 @@ export interface Budget {
     materialsPercent: number;
     subcontractorsPercent: number;
   };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetGroup {
+  id: ID;
+  name: string;
+  year: string;
+  budgetIds: ID[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EquipmentBudgetAllocation {
+  id: ID;
+  equipmentId: ID;
+  budgetGroupId: ID;
+  budgetId: ID;
+  budgetItemId: ID;
+  monthsAllocated: number;
   createdAt: string;
   updatedAt: string;
 }

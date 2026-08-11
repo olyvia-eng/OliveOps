@@ -2944,6 +2944,7 @@ export async function listBudgetsForBusiness(businessId) {
 
   return (result.Items ?? []).map((item) => ({
     id: item.budgetId,
+    budgetGroupId: item.budgetGroupId,
     name: item.name,
     budgetType: item.budgetType,
     division: item.division,
@@ -2987,6 +2988,7 @@ export async function getBudgetForBusiness(businessId, budgetId) {
   return result.Item
     ? {
         id: result.Item.budgetId,
+        budgetGroupId: result.Item.budgetGroupId,
         name: result.Item.name,
         budgetType: result.Item.budgetType,
         division: result.Item.division,

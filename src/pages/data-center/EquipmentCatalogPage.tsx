@@ -45,6 +45,10 @@ const toMaterialKey = (value: string) => value.trim().toLowerCase().replace(/\s+
 
 export default function EquipmentCatalogPage() {
   const equipmentAssets = useStore((state) => state.equipmentAssets);
+  const budgets = useStore((state) => state.budgets);
+  const budgetGroups = useStore((state) => state.budgetGroups);
+  const budgetItems = useStore((state) => state.budgetItems);
+  const equipmentBudgetAllocations = useStore((state) => state.equipmentBudgetAllocations);
   const materialCatalogItems = useStore((state) => state.materialCatalogItems);
   const estimates = useStore((state) => state.estimates);
   const expenses = useStore((state) => state.expenses);
@@ -472,6 +476,33 @@ export default function EquipmentCatalogPage() {
                     <span>Fuel Cost / Hour: ${asset.hourlyCost.toFixed(2)}</span>
                     <span>Updated: {new Date(asset.updatedAt).toLocaleDateString()}</span>
                   </div>
+
+                  {budgetGroups.map((group) => {
+                    const allocations = equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === asset.id && allocation.budgetGroupId === group.id);
+                    if (allocations.length === 0) return null;
+                    const totalMonths = allocations.reduce((sum, allocation) => sum + allocation.monthsAllocated, 0);
+                    const totalCost = allocations.reduce((sum, allocation) => sum + (budgetItems.find((item) => item.id === allocation.budgetItemId)?.budgeted ?? 0), 0);
+                    return (
+                      <div key={group.id} className="mt-4 border-t border-gray-200 pt-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-gray-900">{group.name}</p>
+                          <p className="text-xs text-gray-500">{totalMonths.toFixed(2).replace(/\.00$/, '')} of 12 months · {formatCurrency(totalCost)}</p>
+                        </div>
+                        <div className="mt-2 divide-y divide-gray-100">
+                          {allocations.map((allocation) => {
+                            const budget = budgets.find((value) => value.id === allocation.budgetId);
+                            const budgetItem = budgetItems.find((item) => item.id === allocation.budgetItemId);
+                            return (
+                              <div key={allocation.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                                <span className="text-gray-700">{budget?.name ?? 'Unavailable budget'}</span>
+                                <span className="shrink-0 text-gray-500">{allocation.monthsAllocated} mo · {formatCurrency(budgetItem?.budgeted ?? 0)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
 
                   {asset.notes && <p className="mt-3 text-sm text-gray-600">{asset.notes}</p>}
                 </div>
