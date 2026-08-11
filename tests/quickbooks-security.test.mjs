@@ -17,6 +17,7 @@ import {
   getValidQuickBooksAccessToken,
   validateQuickBooksOAuthCallbackState,
 } from '../api/_lib/quickBooksService.js';
+import { completeQuickBooksConnection } from '../api/integrations/quickbooks/callback.js';
 
 process.env.QUICKBOOKS_CLIENT_ID = 'sandbox-client-id';
 process.env.QUICKBOOKS_CLIENT_SECRET = 'sandbox-client-secret';
@@ -88,11 +89,86 @@ test('CompanyInfo requests are pinned to the QuickBooks sandbox host', async () 
     realmId: '12345',
     fetchImpl: async (url) => {
       requestedUrl = String(url);
-      return jsonResponse({ CompanyInfo: { Id: '12345', CompanyName: 'Sandbox Co', Country: 'CA', Currency: 'CAD' } });
+      return jsonResponse({ CompanyInfo: { Id: '1', CompanyName: 'Sandbox Co', LegalName: 'Sandbox Company Ltd.', Country: 'CA', Currency: 'CAD' } });
     },
   });
   assert.match(requestedUrl, /^https:\/\/sandbox-quickbooks\.api\.intuit\.com\/v3\/company\/12345\/companyinfo\/12345/);
-  assert.deepEqual(company, { realmId: '12345', companyName: 'Sandbox Co', country: 'CA', currency: 'CAD' });
+  assert.deepEqual(company, {
+    companyName: 'Sandbox Co',
+    legalName: 'Sandbox Company Ltd.',
+    country: 'CA',
+    currency: 'CAD',
+    companyInfoEntityId: '1',
+  });
+});
+
+test('successful CompanyInfo response does not require an entity id matching the OAuth realm', async () => {
+  const company = await fetchQuickBooksCompanyInfo({
+    accessToken: 'access-token',
+    realmId: '9341457230000000',
+    fetchImpl: async () => jsonResponse({ CompanyInfo: { CompanyName: 'Sandbox Co' } }),
+  });
+  assert.equal(company.companyName, 'Sandbox Co');
+  assert.equal(company.companyInfoEntityId, '');
+  assert.equal('realmId' in company, false);
+});
+
+test('OAuth realmId remains authoritative when CompanyInfo.Id is a different entity id', async () => {
+  const realmId = '9341457230000000';
+  const persisted = [];
+  const result = await completeQuickBooksConnection({
+    session: { businessId: 'business-1', id: 'user-1', name: 'Owner', email: 'owner@example.com' },
+    code: 'authorization-code',
+    realmId,
+  }, {
+    getConnection: async () => null,
+    exchangeAuthorizationCode: async () => ({ access_token: 'access-token', refresh_token: 'refresh-token' }),
+    fetchCompanyInfo: async ({ accessToken, realmId: requestedRealmId }) => {
+      assert.equal(accessToken, 'access-token');
+      assert.equal(requestedRealmId, realmId);
+      return {
+        companyName: 'Sandbox Co', legalName: 'Sandbox Company Ltd.', country: 'CA', currency: 'CAD', companyInfoEntityId: '1',
+      };
+    },
+    buildCredentials: () => ({ encryptedAccessToken: {}, encryptedRefreshToken: {} }),
+    putConnection: async (value) => persisted.push(value),
+    createAuditEvent: async () => {},
+  });
+
+  assert.deepEqual(result, { ok: true });
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].connection.realmId, realmId);
+  assert.equal(persisted[0].connection.companyInfoEntityId, '1');
+});
+
+test('CompanyInfo API failure prevents token persistence and fails safely', async () => {
+  let persisted = false;
+  await assert.rejects(
+    completeQuickBooksConnection({
+      session: { businessId: 'business-1', id: 'user-1', name: 'Owner', email: 'owner@example.com' },
+      code: 'authorization-code',
+      realmId: '9341457230000000',
+    }, {
+      getConnection: async () => null,
+      exchangeAuthorizationCode: async () => ({ access_token: 'access-token', refresh_token: 'refresh-token' }),
+      fetchCompanyInfo: async () => { throw new Error('QuickBooks request failed'); },
+      buildCredentials: () => assert.fail('credentials must not be built before CompanyInfo succeeds'),
+      putConnection: async () => { persisted = true; },
+      createAuditEvent: async () => assert.fail('failed connections must not be audited as connected'),
+    }),
+    /QuickBooks request failed/
+  );
+  assert.equal(persisted, false);
+});
+
+test('QuickBooks callback keeps missing realm and invalid state failure paths', async () => {
+  assert.equal(await validateQuickBooksOAuthCallbackState({
+    businessId: 'business-1', userId: 'user-1', state: '', consumeState: async () => assert.fail('empty state must not be consumed'),
+  }), false);
+  const callbackSource = await readFile(new URL('../api/integrations/quickbooks/callback.js', import.meta.url), 'utf8');
+  assert.match(callbackSource, /if \(!realmId\) return redirectToQuickBooksIntegrations\(res, 'missing_realm'\)/);
+  assert.match(callbackSource, /catch \{[\s\S]*redirectToQuickBooksIntegrations\(res, 'connection_failed'\)/);
+  assert.doesNotMatch(callbackSource, /realm_mismatch|company\.realmId/);
 });
 
 test('expired QuickBooks access tokens refresh once and persist rotated credentials under the lease', async () => {

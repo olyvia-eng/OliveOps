@@ -139,7 +139,6 @@ export default function IntegrationsPage() {
       missing_code: { tone: 'error', message: 'QuickBooks did not return an authorization code.' },
       missing_realm: { tone: 'error', message: 'QuickBooks did not identify a company.' },
       already_connected: { tone: 'error', message: 'Disconnect the current QuickBooks company before connecting another.' },
-      realm_mismatch: { tone: 'error', message: 'QuickBooks returned inconsistent company information.' },
       connection_failed: { tone: 'error', message: 'QuickBooks could not be connected.' },
     };
     const notification = messages[result];

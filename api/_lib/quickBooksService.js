@@ -177,12 +177,13 @@ async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET'
 export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchImpl = fetch }) {
   const payload = await quickBooksApiRequest({ accessToken, realmId, path: `/companyinfo/${encodeURIComponent(realmId)}`, fetchImpl });
   const company = payload.CompanyInfo;
-  if (!company?.Id) throw new Error('QuickBooks company information was unavailable');
+  if (!company || typeof company !== 'object') throw new Error('QuickBooks company information was unavailable');
   return {
-    realmId: String(company.Id),
     companyName: company.CompanyName ?? company.LegalName ?? '',
+    legalName: company.LegalName ?? '',
     country: company.Country ?? company.CompanyAddr?.Country ?? '',
     currency: company.Currency ?? '',
+    companyInfoEntityId: company.Id === undefined || company.Id === null ? '' : String(company.Id),
   };
 }
 
