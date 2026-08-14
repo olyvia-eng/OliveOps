@@ -1,3 +1,4 @@
+import { getDisplayName } from './auth/displayName';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
@@ -25,6 +26,8 @@ const EmployeePortalPage = lazy(() => import('./pages/employees/EmployeePortalPa
 const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'));
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const SignupPage = lazy(() => import('./pages/auth/SignupPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 const UserAccessPage = lazy(() => import('./pages/users/UserAccessPage'));
 const RevenueDashboardPage = lazy(() => import('./pages/department-dashboards/RevenueDashboardPage'));
 const FinanceDashboardPage = lazy(() => import('./pages/department-dashboards/FinanceDashboardPage'));
@@ -63,6 +66,7 @@ export default function App() {
   const canManageUsers =
     sessionUser?.role === 'owner' || sessionUser?.role === 'admin';
   const canViewReports = sessionUser?.role === 'owner' || sessionUser?.role === 'admin';
+  const sessionDisplayName = getDisplayName(sessionUser);
 
   const loadBusinessData = async (user: SessionUser | null = sessionUser) => {
     if (!user) {
@@ -287,7 +291,8 @@ export default function App() {
 
   const signup = async (payload: {
     businessName: string;
-    ownerName: string;
+    firstName: string;
+    lastName: string;
     email: string;
     password: string;
   }) => {
@@ -312,7 +317,8 @@ export default function App() {
   };
 
   const createUser = async (payload: {
-    name: string;
+    firstName: string;
+    lastName: string;
     email: string;
     password: string;
     role: 'admin' | 'foreman' | 'crew_member';
@@ -483,7 +489,9 @@ export default function App() {
               path="/"
               element={
                 <AppLayout
-                  userName={sessionUser.name}
+                  userName={sessionDisplayName}
+                  userFirstName={sessionUser.firstName}
+                  userLastName={sessionUser.lastName}
                   userEmail={sessionUser.email}
                   businessName={sessionUser.businessName}
                   userRole={sessionUser.role}
@@ -492,7 +500,7 @@ export default function App() {
               }
             >
               <Route index element={<Navigate to="/home" replace />} />
-              <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionUser.name} />} />
+              <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionDisplayName} />} />
               <Route path="company-dashboard" element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
               <Route path="crm" element={<CRMPage />} />
               <Route path="revenue/dashboard" element={<RevenueDashboardPage />} />
@@ -618,7 +626,7 @@ export default function App() {
                     <TimeReportsPage
                       currentUserRole={sessionUser.role}
                       currentUserId={sessionUser.id}
-                      currentUserName={sessionUser.name}
+                      currentUserName={sessionDisplayName}
                       currentUserEmail={sessionUser.email}
                     />
                   ) : (
@@ -633,7 +641,7 @@ export default function App() {
                     <TimeReportsPage
                       currentUserRole={sessionUser.role}
                       currentUserId={sessionUser.id}
-                      currentUserName={sessionUser.name}
+                      currentUserName={sessionDisplayName}
                       currentUserEmail={sessionUser.email}
                     />
                   ) : (
@@ -683,6 +691,8 @@ export default function App() {
           <>
             <Route path="login" element={<LoginPage onLogin={login} />} />
             <Route path="signup" element={<SignupPage onSignup={signup} />} />
+            <Route path="forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </>
         )}

@@ -26,6 +26,21 @@ function normalizeEmail(email) {
   return email.trim().toLowerCase();
 }
 
+function normalizeNamePart(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSessionVersion(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+export function getDisplayName(user) {
+  const structuredName = [normalizeNamePart(user?.firstName), normalizeNamePart(user?.lastName)]
+    .filter(Boolean)
+    .join(' ');
+  return structuredName || normalizeNamePart(user?.name) || normalizeNamePart(user?.email);
+}
+
 function businessPk(businessId) {
   return `BUSINESS#${businessId}`;
 }
@@ -167,11 +182,14 @@ function buildMobileSessionFromItem(item) {
   return {
     id: item.userId,
     businessId: item.businessId,
-    name: item.name,
+    name: getDisplayName(item),
+    firstName: normalizeNamePart(item.firstName) || undefined,
+    lastName: normalizeNamePart(item.lastName) || undefined,
     email: item.email,
     role: normalizeBusinessRole(item.role),
     businessName: item.businessName,
     employeeId: typeof item.employeeId === 'string' ? item.employeeId : undefined,
+    sessionVersion: normalizeSessionVersion(item.sessionVersion),
   };
 }
 
@@ -195,11 +213,14 @@ function mapSessionUser(userItem, businessItem, employeeId) {
   return {
     id: userItem.userId,
     businessId: userItem.businessId,
-    name: userItem.name,
+    name: getDisplayName(userItem),
+    firstName: normalizeNamePart(userItem.firstName) || undefined,
+    lastName: normalizeNamePart(userItem.lastName) || undefined,
     email: userItem.email,
     role: normalizeBusinessRole(userItem.role),
     businessName: businessItem.name,
     employeeId,
+    sessionVersion: normalizeSessionVersion(userItem.sessionVersion),
   };
 }
 
@@ -245,8 +266,11 @@ function normalizeAccountAccessMode(mode) {
   return 'none';
 }
 
-export function buildCreateUserEmployeePayload({ businessId, name, email, password, role }) {
+export function buildCreateUserEmployeePayload({ businessId, name, firstName, lastName, email, password, role }) {
   const normalizedEmail = normalizeEmail(email);
+  const normalizedFirstName = normalizeNamePart(firstName);
+  const normalizedLastName = normalizeNamePart(lastName);
+  const compatibilityName = [normalizedFirstName, normalizedLastName].filter(Boolean).join(' ') || normalizeNamePart(name);
   const seed = `${businessId}:${normalizedEmail}:${role}`;
   const userId = createHash('sha256').update(seed).digest('hex').slice(0, 24);
   const createdAt = nowIso();
@@ -259,11 +283,14 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
     entityType: 'USER',
     userId,
     businessId,
-    name: name.trim(),
+    name: compatibilityName,
+    ...(normalizedFirstName ? { firstName: normalizedFirstName } : {}),
+    ...(normalizedLastName ? { lastName: normalizedLastName } : {}),
     email: normalizedEmail,
     role,
     active: true,
     passwordHash,
+    sessionVersion: 0,
     createdAt,
   };
 
@@ -283,7 +310,7 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
     businessId,
     employeeId,
     id: employeeId,
-    name: name.trim(),
+    name: compatibilityName,
     email: normalizedEmail,
     phone: '',
     role,
@@ -301,7 +328,7 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
     employeeItem,
     employee: {
       id: employeeId,
-      name: name.trim(),
+      name: compatibilityName,
       email: normalizedEmail,
       phone: '',
       role,
@@ -318,6 +345,8 @@ export function buildCreateUserEmployeePayload({ businessId, name, email, passwo
 export async function createUserEmployeePair({
   businessId,
   name,
+  firstName,
+  lastName,
   email,
   password,
   role,
@@ -329,7 +358,7 @@ export async function createUserEmployeePair({
   const shouldCreateEmployee = typeof createEmployee === 'boolean'
     ? createEmployee
     : (role === 'foreman' || role === 'crew_member');
-  const payload = buildCreateUserEmployeePayload({ businessId, name, email, password, role });
+  const payload = buildCreateUserEmployeePayload({ businessId, name, firstName, lastName, email, password, role });
   const { userItem, emailLookupItem, employeeItem } = payload;
 
   try {
@@ -394,7 +423,9 @@ export async function createUserEmployeePair({
         ok: true,
         user: {
           id: userItem.userId,
-          name: userItem.name,
+          name: getDisplayName(userItem),
+          firstName: normalizeNamePart(userItem.firstName) || undefined,
+          lastName: normalizeNamePart(userItem.lastName) || undefined,
           email: userItem.email,
           role: normalizeBusinessRole(userItem.role),
           active: userItem.active,
@@ -410,7 +441,9 @@ export async function createUserEmployeePair({
     ok: true,
     user: {
       id: userItem.userId,
-      name: userItem.name,
+      name: getDisplayName(userItem),
+      firstName: normalizeNamePart(userItem.firstName) || undefined,
+      lastName: normalizeNamePart(userItem.lastName) || undefined,
       email: userItem.email,
       role: normalizeBusinessRole(userItem.role),
       active: userItem.active,
@@ -420,11 +453,14 @@ export async function createUserEmployeePair({
   };
 }
 
-export async function createBusinessWithOwner({ businessName, ownerName, email, password }) {
+export async function createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password }) {
   const businessId = generateId();
   const userId = generateId();
   const createdAt = nowIso();
   const normalizedEmail = normalizeEmail(email);
+  const normalizedFirstName = normalizeNamePart(firstName);
+  const normalizedLastName = normalizeNamePart(lastName);
+  const compatibilityName = [normalizedFirstName, normalizedLastName].filter(Boolean).join(' ') || normalizeNamePart(ownerName);
   const passwordHash = await bcrypt.hash(password, 10);
 
   const businessItem = {
@@ -442,11 +478,14 @@ export async function createBusinessWithOwner({ businessName, ownerName, email, 
     entityType: 'USER',
     userId,
     businessId,
-    name: ownerName.trim(),
+    name: compatibilityName,
+    ...(normalizedFirstName ? { firstName: normalizedFirstName } : {}),
+    ...(normalizedLastName ? { lastName: normalizedLastName } : {}),
     email: normalizedEmail,
     role: 'owner',
     active: true,
     passwordHash,
+    sessionVersion: 0,
     createdAt,
   };
 
@@ -553,6 +592,35 @@ async function getBusinessUserByEmail(businessId, email) {
 
   const user = await getBusinessUserById(businessId, lookup.Item.userId);
   return user ?? null;
+}
+
+export async function getActiveBusinessUserByEmail(email) {
+  if (typeof email !== 'string' || !email.trim()) return null;
+  const normalizedEmail = normalizeEmail(email);
+  const lookup = await ddb.send(
+    new GetCommand({
+      TableName: tableName,
+      Key: { PK: emailPk(normalizedEmail), SK: 'USER' },
+    })
+  );
+
+  let businessId = lookup.Item?.businessId;
+  let userId = lookup.Item?.userId;
+  if (!businessId || !userId) {
+    const legacyLookup = await ddb.send(
+      new ScanCommand({
+        TableName: tableName,
+        FilterExpression: 'entityType = :entityType AND email = :email',
+        ExpressionAttributeValues: { ':entityType': 'USER', ':email': normalizedEmail },
+      })
+    );
+    businessId = legacyLookup.Items?.[0]?.businessId;
+    userId = legacyLookup.Items?.[0]?.userId;
+  }
+
+  if (!businessId || !userId) return null;
+  const user = await getBusinessUserById(businessId, userId);
+  return user?.active === false ? null : user;
 }
 
 export async function authenticateUser(email, password) {
@@ -671,7 +739,9 @@ export async function listUsersForBusiness(businessId) {
 
   return (result.Items ?? []).map((item) => ({
     id: item.userId,
-    name: item.name,
+    name: getDisplayName(item),
+    firstName: normalizeNamePart(item.firstName) || undefined,
+    lastName: normalizeNamePart(item.lastName) || undefined,
     email: item.email,
     role: normalizeBusinessRole(item.role),
     active: item.active,
@@ -683,10 +753,12 @@ export async function createUserForBusiness({ businessId, name, email, password,
   return createUserEmployeePair({ businessId, name, email, password, role });
 }
 
-export async function createAuthUserForBusiness({ businessId, name, email, password, role }) {
+export async function createAuthUserForBusiness({ businessId, name, firstName, lastName, email, password, role }) {
   return createUserEmployeePair({
     businessId,
     name,
+    firstName,
+    lastName,
     email,
     password,
     role,
@@ -711,12 +783,15 @@ export async function getBusinessUserById(businessId, userId) {
   return {
     id: result.Item.userId,
     businessId: result.Item.businessId,
-    name: result.Item.name,
+    name: getDisplayName(result.Item),
+    firstName: normalizeNamePart(result.Item.firstName) || undefined,
+    lastName: normalizeNamePart(result.Item.lastName) || undefined,
     email: result.Item.email,
     role: normalizeBusinessRole(result.Item.role),
     active: result.Item.active,
     createdAt: result.Item.createdAt,
     passwordHash: result.Item.passwordHash,
+    sessionVersion: normalizeSessionVersion(result.Item.sessionVersion),
   };
 }
 
@@ -737,10 +812,13 @@ export async function createMobileSessionForUser({ user, accessToken, expiresInS
         businessId: user.businessId,
         userId: user.id,
         name: user.name,
+        firstName: normalizeNamePart(user.firstName) || null,
+        lastName: normalizeNamePart(user.lastName) || null,
         email: user.email,
         role: user.role,
         businessName: user.businessName,
         employeeId: typeof user.employeeId === 'string' ? user.employeeId : null,
+        sessionVersion: normalizeSessionVersion(user.sessionVersion),
         createdAt,
         updatedAt: createdAt,
         expiresAt,
@@ -758,10 +836,13 @@ export async function createMobileSessionForUser({ user, accessToken, expiresInS
         businessId: user.businessId,
         userId: user.id,
         name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         role: user.role,
         businessName: user.businessName,
         employeeId: typeof user.employeeId === 'string' ? user.employeeId : undefined,
+        sessionVersion: normalizeSessionVersion(user.sessionVersion),
       }),
       expiresAt,
     },
@@ -807,14 +888,21 @@ export async function resolveMobileSessionByAccessToken(accessToken) {
     return { ok: false, reason: 'inactive_user' };
   }
 
+  if (normalizeSessionVersion(item.sessionVersion) !== normalizeSessionVersion(currentUser.sessionVersion)) {
+    return { ok: false, reason: 'revoked' };
+  }
+
   const user = {
     id: currentUser.id,
     businessId: currentUser.businessId,
-    name: currentUser.name,
+    name: getDisplayName(currentUser),
+    firstName: currentUser.firstName,
+    lastName: currentUser.lastName,
     email: currentUser.email,
     role: currentUser.role,
     businessName: tokenSessionUser.businessName,
     employeeId: tokenSessionUser.employeeId,
+    sessionVersion: currentUser.sessionVersion,
   };
 
   return {
@@ -866,6 +954,7 @@ export async function updateBusinessUser({ businessId, user }) {
 
   const normalizedEmail = normalizeEmail(user.email);
   const previousEmail = normalizeEmail(existing.email);
+  const expectedSessionVersion = normalizeSessionVersion(user.expectedSessionVersion ?? existing.sessionVersion);
 
   const userItem = {
     PK: businessPk(businessId),
@@ -873,11 +962,14 @@ export async function updateBusinessUser({ businessId, user }) {
     entityType: 'USER',
     userId: user.id,
     businessId,
-    name: user.name,
+    name: getDisplayName(user),
+    ...(normalizeNamePart(user.firstName) ? { firstName: normalizeNamePart(user.firstName) } : {}),
+    ...(normalizeNamePart(user.lastName) ? { lastName: normalizeNamePart(user.lastName) } : {}),
     email: normalizedEmail,
     role: user.role,
     active: user.active,
     passwordHash: user.passwordHash,
+    sessionVersion: normalizeSessionVersion(user.sessionVersion),
     createdAt: user.createdAt,
   };
 
@@ -890,7 +982,8 @@ export async function updateBusinessUser({ businessId, user }) {
               Put: {
                 TableName: tableName,
                 Item: userItem,
-                ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+                ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND (attribute_not_exists(sessionVersion) OR sessionVersion = :expectedSessionVersion)',
+                ExpressionAttributeValues: { ':expectedSessionVersion': expectedSessionVersion },
               },
             },
             {
@@ -933,7 +1026,8 @@ export async function updateBusinessUser({ businessId, user }) {
     new PutCommand({
       TableName: tableName,
       Item: userItem,
-      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND (attribute_not_exists(sessionVersion) OR sessionVersion = :expectedSessionVersion)',
+      ExpressionAttributeValues: { ':expectedSessionVersion': expectedSessionVersion },
     })
   );
 

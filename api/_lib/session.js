@@ -13,10 +13,13 @@ export function createSessionToken(user) {
       sub: user.id,
       businessId: user.businessId,
       name: user.name,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
       role: user.role,
       businessName: user.businessName,
       employeeId: user.employeeId,
+      sessionVersion: Number.isSafeInteger(user.sessionVersion) ? user.sessionVersion : 0,
     },
     jwtSecret,
     { expiresIn: '7d' }
@@ -62,10 +65,13 @@ function getSessionFromCookie(req) {
       id: payload.sub,
       businessId: payload.businessId,
       name: payload.name,
+      firstName: typeof payload.firstName === 'string' ? payload.firstName : undefined,
+      lastName: typeof payload.lastName === 'string' ? payload.lastName : undefined,
       email: payload.email,
       role: payload.role,
       businessName: payload.businessName,
       employeeId: typeof payload.employeeId === 'string' ? payload.employeeId : undefined,
+      sessionVersion: Number.isSafeInteger(payload.sessionVersion) ? payload.sessionVersion : 0,
     };
   } catch {
     return null;
@@ -81,14 +87,22 @@ async function resolveAuthoritativeUserSession(sessionCandidate) {
     return null;
   }
 
+
+  const issuedVersion = Number.isSafeInteger(sessionCandidate.sessionVersion) ? sessionCandidate.sessionVersion : 0;
+  const currentVersion = Number.isSafeInteger(currentUser.sessionVersion) ? currentUser.sessionVersion : 0;
+  if (issuedVersion !== currentVersion) return null;
+
   return {
     id: currentUser.id,
     businessId: currentUser.businessId,
     name: currentUser.name,
+    firstName: currentUser.firstName,
+    lastName: currentUser.lastName,
     email: currentUser.email,
     role: currentUser.role,
     businessName: sessionCandidate.businessName,
     employeeId: typeof sessionCandidate.employeeId === 'string' ? sessionCandidate.employeeId : undefined,
+    sessionVersion: currentVersion,
   };
 }
 

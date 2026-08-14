@@ -11,6 +11,8 @@ const DESKTOP_SIDEBAR_COLLAPSED_KEY = 'oliveops.sidebar.desktop-collapsed.v1';
 
 interface AppLayoutProps {
   userName: string;
+  userFirstName?: string;
+  userLastName?: string;
   userEmail: string;
   businessName: string;
   userRole: BusinessUserRole;
@@ -35,7 +37,7 @@ function PinPageButton() {
   );
 }
 
-export default function AppLayout({ userName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
+export default function AppLayout({ userName, userFirstName, userLastName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY) === 'true';
@@ -55,6 +57,8 @@ export default function AppLayout({ userName, userEmail, businessName, userRole,
       <div className="min-h-screen bg-cream dark:bg-brand-900">
         <Sidebar
           userName={userName}
+          userFirstName={userFirstName}
+          userLastName={userLastName}
           userEmail={userEmail}
           businessName={businessName}
           userRole={userRole}

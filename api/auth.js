@@ -1,4 +1,4 @@
-import { authenticateUser, createBusinessWithOwner } from './_lib/authRepo.js';
+import { authenticateUser, createBusinessWithOwner, getActiveBusinessUserByEmail } from './_lib/authRepo.js';
 import { buildClearedSessionCookie, buildSessionCookie } from './_lib/cookies.js';
 import {
   createSessionToken,
@@ -11,8 +11,10 @@ import {
   getEmployeeForBusiness,
   revokeMobileSessionByAccessToken,
 } from './_lib/authRepo.js';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { checkRateLimit } from './_lib/rateLimit.js';
+import { createPasswordReset, resetPasswordWithToken } from './_lib/passwordResetRepo.js';
+import { authMailer } from './_lib/authEmails.js';
 
 function createMobileAccessToken() {
   return `oliveops_mobile_${randomBytes(32).toString('base64url')}`;
@@ -31,15 +33,25 @@ const defaultDeps = {
   buildClearedSessionCookie,
   createMobileAccessToken,
   checkRateLimit,
+  getActiveBusinessUserByEmail,
+  createPasswordReset,
+  resetPasswordWithToken,
+  sendPasswordResetEmail: authMailer.sendPasswordReset,
+  sendPasswordChangedEmail: authMailer.sendPasswordChanged,
   mobileAccessTokenTtlSeconds: MOBILE_ACCESS_TOKEN_TTL_SECONDS,
 };
 
 const AUTH_INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password.';
+const FORGOT_PASSWORD_MESSAGE = 'If an account exists for that email address, we’ve sent password reset instructions.';
 
 function normalizeIdentifier(value) {
   if (typeof value !== 'string') return 'unknown';
   const normalized = value.trim().toLowerCase();
   return normalized || 'unknown';
+}
+
+function hashIdentifier(value) {
+  return createHash('sha256').update(typeof value === 'string' ? value : '').digest('hex');
 }
 
 async function enforceRateLimit({ req, res, deps, action, subject, maxAttempts, windowSeconds }) {
@@ -209,23 +221,117 @@ export function createAuthHandler(overrides = {}) {
       }
     }
 
+    if (action === 'forgot-password') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return res.status(405).json({ ok: false, error: 'Method not allowed' });
+      }
+
+      const { email } = req.body ?? {};
+      if (typeof email !== 'string' || !email.trim()) {
+        return res.status(400).json({ ok: false, error: 'Invalid payload' });
+      }
+
+      const normalizedEmail = normalizeIdentifier(email);
+      const accountLimit = await enforceRateLimit({
+        req, res, deps, action: 'forgot-password', subject: normalizedEmail,
+        maxAttempts: 3, windowSeconds: 60 * 60,
+      });
+      if (accountLimit) return accountLimit;
+
+      const ipLimit = await enforceRateLimit({
+        req, res, deps, action: 'forgot-password-ip', subject: 'all-accounts',
+        maxAttempts: 20, windowSeconds: 60 * 60,
+      });
+      if (ipLimit) return ipLimit;
+
+      try {
+        const user = await deps.getActiveBusinessUserByEmail(normalizedEmail);
+        if (user) {
+          const reset = await deps.createPasswordReset({ user, email: normalizedEmail });
+          await deps.sendPasswordResetEmail({ email: normalizedEmail, token: reset.token });
+        }
+      } catch {
+        // The public response must not reveal account, storage, or delivery state.
+      }
+
+      return res.status(200).json({ ok: true, message: FORGOT_PASSWORD_MESSAGE });
+    }
+
+    if (action === 'reset-password') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        return res.status(405).json({ ok: false, error: 'Method not allowed' });
+      }
+
+      const { token, password } = req.body ?? {};
+      if (typeof token !== 'string' || !token.trim() || typeof password !== 'string') {
+        return res.status(400).json({ ok: false, error: 'Invalid payload' });
+      }
+      if (password.length < 8) {
+        return res.status(400).json({ ok: false, error: 'Password must be at least 8 characters.' });
+      }
+
+      const limited = await enforceRateLimit({
+        req, res, deps, action: 'reset-password', subject: hashIdentifier(token.trim()),
+        maxAttempts: 10, windowSeconds: 15 * 60,
+      });
+      if (limited) return limited;
+
+      const ipLimited = await enforceRateLimit({
+        req, res, deps, action: 'reset-password-ip', subject: 'all-tokens',
+        maxAttempts: 30, windowSeconds: 15 * 60,
+      });
+      if (ipLimited) return ipLimited;
+
+      try {
+        const result = await deps.resetPasswordWithToken({ token: token.trim(), password });
+        if (!result.ok) {
+          const errors = {
+            expired: 'This password reset link has expired.',
+            used: 'This password reset link has already been used.',
+            invalid: 'This password reset link is invalid.',
+          };
+          return res.status(400).json({ ok: false, error: errors[result.reason] ?? errors.invalid });
+        }
+
+        try {
+          await deps.sendPasswordChangedEmail({ email: result.user.email });
+        } catch {
+          // The password change is already committed; confirmation delivery is best effort.
+        }
+        res.setHeader('Set-Cookie', deps.buildClearedSessionCookie());
+        return res.status(200).json({ ok: true });
+      } catch {
+        return res.status(500).json({ ok: false, error: 'Could not reset password. Please try again later.' });
+      }
+    }
+
     if (action === 'signup') {
       if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
         return res.status(405).json({ ok: false, error: 'Method not allowed' });
       }
 
-      const { businessName, ownerName, email, password } = req.body ?? {};
+      const { businessName, ownerName, firstName, lastName, email, password } = req.body ?? {};
+      const hasStructuredName = firstName !== undefined || lastName !== undefined;
       if (
         typeof businessName !== 'string' ||
-        typeof ownerName !== 'string' ||
+        (hasStructuredName
+          ? (typeof firstName !== 'string' || typeof lastName !== 'string')
+          : typeof ownerName !== 'string') ||
         typeof email !== 'string' ||
         typeof password !== 'string'
       ) {
         return res.status(400).json({ ok: false, error: 'Invalid payload' });
       }
 
-      if (!businessName.trim() || !ownerName.trim() || !email.trim() || password.length < 8) {
+      if (
+        !businessName.trim() ||
+        (hasStructuredName ? (!firstName.trim() || !lastName.trim()) : !ownerName.trim()) ||
+        !email.trim() ||
+        password.length < 8
+      ) {
         return res.status(400).json({ ok: false, error: 'Invalid signup fields' });
       }
 
@@ -243,7 +349,7 @@ export function createAuthHandler(overrides = {}) {
       }
 
       try {
-        const result = await deps.createBusinessWithOwner({ businessName, ownerName, email, password });
+        const result = await deps.createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password });
         if (!result.ok) {
           return res.status(409).json({ ok: false, error: 'Unable to create account with those details.' });
         }

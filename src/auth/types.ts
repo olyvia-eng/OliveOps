@@ -9,7 +9,9 @@ export interface AuthBusiness {
 export interface AuthUser {
   id: string;
   businessId: string;
-  name: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   password: string;
   role: BusinessUserRole;
@@ -20,7 +22,9 @@ export interface AuthUser {
 export interface SessionUser {
   id: string;
   businessId: string;
-  name: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   role: BusinessUserRole;
   businessName: string;
@@ -28,7 +32,9 @@ export interface SessionUser {
 
 export interface BusinessUserSummary {
   id: string;
-  name: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   role: BusinessUserRole;
   active: boolean;

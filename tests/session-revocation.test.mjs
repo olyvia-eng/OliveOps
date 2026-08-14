@@ -118,3 +118,16 @@ test('cookie session rejects inactive user promptly', async (t) => {
 
   assert.equal(session, null);
 });
+
+test('cookie session is rejected after the authoritative session version changes', async (t) => {
+  const store = installDdbMock(t);
+  seedUser(store, { businessId: 'biz-1', userId: 'user-3' });
+  const token = createSessionToken({
+    id: 'user-3', businessId: 'biz-1', name: 'Session User', email: 'admin@example.com',
+    role: 'admin', businessName: 'OliveOps Demo', sessionVersion: 0,
+  });
+  const userKey = mapKey('BUSINESS#biz-1', 'USER#user-3');
+  store.set(userKey, { ...store.get(userKey), sessionVersion: 1 });
+  const session = await getSessionFromRequest({ headers: { cookie: `oliveops_session=${token}` } });
+  assert.equal(session, null);
+});

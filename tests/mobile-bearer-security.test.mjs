@@ -192,6 +192,20 @@ test('mobile access token resolves current user role after role change', async (
   assert.equal(resolved.session.user.role, 'crew_member');
 });
 
+test('mobile access token is rejected after the user session version changes', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
+  await createMobileSessionForUser({
+    user: { id: 'user-a', businessId: 'biz-a', name: 'Admin User', email: 'admin@example.com', role: 'admin', businessName: 'Business A', sessionVersion: 0 },
+    accessToken: 'versioned-token', expiresInSeconds: 604800,
+  });
+  const userKey = mapKey('BUSINESS#biz-a', 'USER#user-a');
+  store.set(userKey, { ...store.get(userKey), sessionVersion: 1 });
+  const resolved = await resolveMobileSessionByAccessToken('versioned-token');
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.reason, 'revoked');
+});
+
 test('revoked mobile access token is rejected', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });

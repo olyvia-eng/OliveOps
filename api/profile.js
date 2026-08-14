@@ -16,9 +16,14 @@ export default async function handler(req, res) {
   const session = await requireSession(req, res);
   if (!session) return;
 
-  const { name, email, password } = req.body ?? {};
+  const { name, firstName, lastName, email, password } = req.body ?? {};
+  const hasStructuredName = firstName !== undefined || lastName !== undefined;
 
   if (name !== undefined && typeof name !== 'string') {
+    return res.status(400).json({ ok: false, error: 'Invalid name.' });
+  }
+
+  if (hasStructuredName && (typeof firstName !== 'string' || typeof lastName !== 'string')) {
     return res.status(400).json({ ok: false, error: 'Invalid name.' });
   }
 
@@ -40,11 +45,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ ok: false, error: 'User not found.' });
     }
 
-    const nextName = (name ?? existing.name).trim();
+    const nextFirstName = hasStructuredName ? firstName.trim() : existing.firstName;
+    const nextLastName = hasStructuredName ? lastName.trim() : existing.lastName;
+    const nextName = hasStructuredName
+      ? [nextFirstName, nextLastName].filter(Boolean).join(' ')
+      : (name ?? existing.name ?? existing.email).trim();
     const nextEmail = normalizeEmail(email ?? existing.email);
 
-    if (!nextName) {
-      return res.status(400).json({ ok: false, error: 'Name is required.' });
+    if (!nextName || (hasStructuredName && (!nextFirstName || !nextLastName))) {
+      return res.status(400).json({ ok: false, error: 'First name and last name are required.' });
     }
 
     if (!nextEmail) {
@@ -60,11 +69,15 @@ export default async function handler(req, res) {
       user: {
         id: existing.id,
         name: nextName,
+        firstName: nextFirstName,
+        lastName: nextLastName,
         email: nextEmail,
         role: existing.role,
         active: existing.active,
         createdAt: existing.createdAt,
         passwordHash: nextPasswordHash,
+        sessionVersion: existing.sessionVersion + (password ? 1 : 0),
+        expectedSessionVersion: existing.sessionVersion,
       },
     });
 
@@ -76,9 +89,12 @@ export default async function handler(req, res) {
       id: existing.id,
       businessId: session.businessId,
       name: nextName,
+      firstName: nextFirstName,
+      lastName: nextLastName,
       email: nextEmail,
       role: existing.role,
       businessName: session.businessName,
+      sessionVersion: existing.sessionVersion + (password ? 1 : 0),
     };
 
     const token = createSessionToken(updatedSessionUser);

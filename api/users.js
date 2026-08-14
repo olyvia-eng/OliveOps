@@ -21,11 +21,14 @@ function buildUserPatch(existing, data) {
     id: existing.id,
     businessId: existing.businessId,
     name: existing.name,
+    firstName: existing.firstName,
+    lastName: existing.lastName,
     email: existing.email,
     role: existing.role,
     active: existing.active,
     createdAt: existing.createdAt,
     passwordHash: existing.passwordHash,
+    sessionVersion: existing.sessionVersion,
   };
 
   if (Object.prototype.hasOwnProperty.call(data, 'name')) {
@@ -33,6 +36,17 @@ function buildUserPatch(existing, data) {
       return { ok: false, error: 'Invalid name.' };
     }
     next.name = data.name.trim();
+  }
+
+  const hasStructuredName = Object.prototype.hasOwnProperty.call(data, 'firstName')
+    || Object.prototype.hasOwnProperty.call(data, 'lastName');
+  if (hasStructuredName) {
+    if (typeof data.firstName !== 'string' || !data.firstName.trim() || typeof data.lastName !== 'string' || !data.lastName.trim()) {
+      return { ok: false, error: 'First name and last name are required.' };
+    }
+    next.firstName = data.firstName.trim();
+    next.lastName = data.lastName.trim();
+    next.name = `${next.firstName} ${next.lastName}`;
   }
 
   if (Object.prototype.hasOwnProperty.call(data, 'email')) {
@@ -129,9 +143,12 @@ export default async function handler(req, res) {
     const session = await requireSession(req, res, ['owner', 'admin']);
     if (!session) return;
 
-    const { name, email, password, role } = req.body ?? {};
+    const { name, firstName, lastName, email, password, role } = req.body ?? {};
+    const hasStructuredName = firstName !== undefined || lastName !== undefined;
     if (
-      typeof name !== 'string' ||
+      (hasStructuredName
+        ? (typeof firstName !== 'string' || typeof lastName !== 'string')
+        : typeof name !== 'string') ||
       typeof email !== 'string' ||
       typeof password !== 'string' ||
       (role !== 'admin' && role !== 'foreman' && role !== 'crew_member')
@@ -139,7 +156,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
     }
 
-    if (!name.trim() || !email.trim() || password.length < 8) {
+    if ((hasStructuredName ? (!firstName.trim() || !lastName.trim()) : !name.trim()) || !email.trim() || password.length < 8) {
       return res.status(400).json({ ok: false, error: 'Invalid user fields' });
     }
 
@@ -147,6 +164,8 @@ export default async function handler(req, res) {
       const result = await createAuthUserForBusiness({
         businessId: session.businessId,
         name,
+        firstName,
+        lastName,
         email,
         password,
         role,

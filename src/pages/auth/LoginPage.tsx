@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Lock, Leaf } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button, Card, Input } from '../../components/ui';
 
 interface LoginPageProps {
@@ -8,6 +8,7 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,6 +41,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <form onSubmit={submit} className="space-y-4">
+          {searchParams.get('passwordReset') === 'success' && (
+            <p className="text-sm text-brand-700 rounded-lg bg-brand-50 border border-brand-200 p-3">
+              Your password has been reset. You can now sign in with your new password.
+            </p>
+          )}
           <Input
             label="Email"
             type="email"
@@ -56,6 +62,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
           />
+          <div className="text-right">
+            <Link to="/forgot-password" className="text-sm text-brand-600 hover:underline">Forgot password?</Link>
+          </div>
 
           {error && <p className="text-sm text-accent-700">{error}</p>}
 

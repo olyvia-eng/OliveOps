@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react';
 import { PageHeader, Card, Input, Select, Button, Badge } from '../../components/ui';
 import type { BusinessUserRole, BusinessUserSummary } from '../../auth/types';
 import { Trash2 } from 'lucide-react';
+import { getDisplayName } from '../../auth/displayName';
 
 interface UserAccessPageProps {
   users: BusinessUserSummary[];
   currentUserRole: BusinessUserRole;
   onCreateUser: (payload: {
-    name: string;
+    firstName: string;
+    lastName: string;
     email: string;
     password: string;
     role: 'admin' | 'foreman' | 'crew_member';
@@ -31,7 +33,8 @@ const roleColor: Record<BusinessUserRole, string> = {
 };
 
 export default function UserAccessPage({ users, currentUserRole, onCreateUser, onUpdateUser, onDeleteUser }: UserAccessPageProps) {
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<BusinessUserRole>('crew_member');
@@ -51,7 +54,7 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
     setError('');
     setSuccess('');
 
-    if (!name.trim() || !email.trim() || !password) {
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password) {
       setError('Please complete all fields.');
       return;
     }
@@ -75,8 +78,9 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
     let result: { ok: boolean; error?: string };
     try {
       result = await onCreateUser({
-        name,
-        email,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
         password,
         role,
       });
@@ -92,7 +96,8 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
       return;
     }
 
-    setName('');
+    setFirstName('');
+    setLastName('');
     setEmail('');
     setPassword('');
     setRole('crew_member');
@@ -113,7 +118,7 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
     setError('');
     setSuccess('');
 
-    const confirmed = window.confirm(`Delete ${user.name}'s login?`);
+    const confirmed = window.confirm(`Delete ${getDisplayName(user)}'s login?`);
     if (!confirmed) return;
 
     const result = await onDeleteUser(user.id);
@@ -133,7 +138,10 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
         <Card className="p-4 xl:col-span-1">
           <h2 className="font-semibold text-gray-800 mb-3">Add User</h2>
           <form onSubmit={submit} className="space-y-3">
-            <Input label="Full Name" required value={name} onChange={(event) => setName(event.target.value)} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input label="First Name" required value={firstName} onChange={(event) => setFirstName(event.target.value)} autoComplete="given-name" />
+              <Input label="Last Name" required value={lastName} onChange={(event) => setLastName(event.target.value)} autoComplete="family-name" />
+            </div>
             <Input label="Email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
             <Input
               label="Temporary Password"
@@ -184,7 +192,7 @@ export default function UserAccessPage({ users, currentUserRole, onCreateUser, o
                 <tbody className="divide-y divide-gray-50">
                   {users.map((user) => (
                     <tr key={user.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-medium text-gray-800">{user.name}</td>
+                      <td className="px-4 py-2 font-medium text-gray-800">{getDisplayName(user)}</td>
                       <td className="py-2 text-gray-600">{user.email}</td>
                       <td className="py-2">
                         {canManageRow(user) ? (

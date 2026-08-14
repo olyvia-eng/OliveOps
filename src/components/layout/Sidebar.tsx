@@ -41,6 +41,8 @@ const ACTION_ROUTE_MAP: Record<string, string> = {
 
 interface SidebarProps {
   userName: string;
+  userFirstName?: string;
+  userLastName?: string;
   userEmail: string;
   businessName: string;
   userRole: BusinessUserRole;
@@ -51,6 +53,8 @@ interface SidebarProps {
 
 export default function Sidebar({
   userName,
+  userFirstName,
+  userLastName,
   userEmail,
   businessName,
   userRole,
@@ -65,7 +69,9 @@ export default function Sidebar({
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [companySetupExpanded, setCompanySetupExpanded] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [profileName, setProfileName] = useState(userName);
+  const legacyNameParts = userName.trim().split(/\s+/);
+  const [profileFirstName, setProfileFirstName] = useState(userFirstName ?? legacyNameParts[0] ?? '');
+  const [profileLastName, setProfileLastName] = useState(userLastName ?? legacyNameParts.slice(1).join(' '));
   const [profileEmail, setProfileEmail] = useState(userEmail);
   const [profilePassword, setProfilePassword] = useState('');
   const [profilePasswordConfirm, setProfilePasswordConfirm] = useState('');
@@ -197,7 +203,6 @@ export default function Sidebar({
   };
 
   const openProfileModal = () => {
-    setProfileName(displayName);
     setProfileEmail(displayEmail);
     setProfilePassword('');
     setProfilePasswordConfirm('');
@@ -208,8 +213,8 @@ export default function Sidebar({
   const saveProfile = async () => {
     setProfileError('');
 
-    if (!profileName.trim() || !profileEmail.trim()) {
-      setProfileError('Name and email are required.');
+    if (!profileFirstName.trim() || !profileLastName.trim() || !profileEmail.trim()) {
+      setProfileError('First name, last name, and email are required.');
       return;
     }
 
@@ -225,8 +230,9 @@ export default function Sidebar({
 
     setProfileSaving(true);
     try {
-      const payload: { name: string; email: string; password?: string } = {
-        name: profileName.trim(),
+      const payload: { firstName: string; lastName: string; email: string; password?: string } = {
+        firstName: profileFirstName.trim(),
+        lastName: profileLastName.trim(),
         email: profileEmail.trim(),
       };
 
@@ -250,7 +256,7 @@ export default function Sidebar({
         return;
       }
 
-      setDisplayName(body.user?.name ?? payload.name);
+      setDisplayName(body.user?.name ?? `${payload.firstName} ${payload.lastName}`);
       setDisplayEmail(body.user?.email ?? payload.email);
       setProfileModalOpen(false);
     } catch {
@@ -588,7 +594,10 @@ export default function Sidebar({
       >
         <div className="space-y-3">
           <Input label="Business" value={businessName} disabled />
-          <Input label="Full Name" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="First Name" value={profileFirstName} onChange={(event) => setProfileFirstName(event.target.value)} autoComplete="given-name" />
+            <Input label="Last Name" value={profileLastName} onChange={(event) => setProfileLastName(event.target.value)} autoComplete="family-name" />
+          </div>
           <Input label="Email" type="email" value={profileEmail} onChange={(event) => setProfileEmail(event.target.value)} />
           <Input label="New Password (optional)" type="password" value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} />
           <Input label="Confirm New Password" type="password" value={profilePasswordConfirm} onChange={(event) => setProfilePasswordConfirm(event.target.value)} />

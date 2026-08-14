@@ -297,6 +297,35 @@ test('POST /api/auth?action=signup returns generic conflict message', async () =
   assert.deepEqual(res.body, { ok: false, error: 'Unable to create account with those details.' });
 });
 
+test('POST /api/auth?action=signup requires both structured name fields', async () => {
+  const handler = createHandler();
+  const req = {
+    method: 'POST', query: { action: 'signup' }, headers: {},
+    body: { businessName: 'OliveOps Demo', firstName: 'Ada', lastName: ' ', email: 'ada@example.com', password: 'password1234' },
+  };
+  const res = createMockRes();
+  await handler(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { ok: false, error: 'Invalid signup fields' });
+});
+
+test('POST /api/auth?action=signup trims and forwards structured names', async () => {
+  let received = null;
+  const handler = createHandler({
+    createBusinessWithOwner: async (payload) => { received = payload; return { ok: true, user: demoUser }; },
+    createSessionToken: () => 'token', buildSessionCookie: () => 'cookie',
+  });
+  const req = {
+    method: 'POST', query: { action: 'signup' }, headers: {},
+    body: { businessName: 'OliveOps Demo', firstName: ' Ada ', lastName: ' Lovelace ', email: 'ada@example.com', password: 'password1234' },
+  };
+  const res = createMockRes();
+  await handler(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(received.firstName, ' Ada ');
+  assert.equal(received.lastName, ' Lovelace ');
+});
+
 test('POST /api/auth?action=login returns 429 when rate limited', async () => {
   const handler = createHandler({
     checkRateLimit: async () => ({ allowed: false, retryAfterSeconds: 45 }),

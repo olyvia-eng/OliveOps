@@ -6,7 +6,8 @@ import { Button, Card, Input } from '../../components/ui';
 interface SignupPageProps {
   onSignup: (payload: {
     businessName: string;
-    ownerName: string;
+    firstName: string;
+    lastName: string;
     email: string;
     password: string;
   }) => Promise<{ ok: boolean; error?: string }>;
@@ -14,7 +15,8 @@ interface SignupPageProps {
 
 export default function SignupPage({ onSignup }: SignupPageProps) {
   const [businessName, setBusinessName] = useState('');
-  const [ownerName, setOwnerName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -25,7 +27,7 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
     event.preventDefault();
     setError('');
 
-    if (!businessName.trim() || !ownerName.trim() || !email.trim() || !password) {
+    if (!businessName.trim() || !firstName.trim() || !lastName.trim() || !email.trim() || !password) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -41,7 +43,13 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
     }
 
     setSubmitting(true);
-    const result = await onSignup({ businessName, ownerName, email, password });
+    const result = await onSignup({
+      businessName: businessName.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      password,
+    });
     setSubmitting(false);
 
     if (!result.ok) {
@@ -67,12 +75,10 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
             value={businessName}
             onChange={(event) => setBusinessName(event.target.value)}
           />
-          <Input
-            label="Owner Full Name *"
-            required
-            value={ownerName}
-            onChange={(event) => setOwnerName(event.target.value)}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="First Name *" required value={firstName} onChange={(event) => setFirstName(event.target.value)} autoComplete="given-name" />
+            <Input label="Last Name *" required value={lastName} onChange={(event) => setLastName(event.target.value)} autoComplete="family-name" />
+          </div>
           <Input
             label="Owner Email *"
             type="email"
