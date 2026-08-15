@@ -272,7 +272,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
     setSavingEstimate(true);
     const nextWorkArea = createNewEstimateWorkArea(form.workAreas);
-    const workAreaId = nextWorkArea.id;
     const nextForm: EstimateFormState = {
       ...form,
       workAreas: [
@@ -283,7 +282,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
     setForm(nextForm);
     const saved = await persistEstimateForm(nextForm);
-        navigate(`/estimates/${estimate.id}/work-areas/${workAreaId}`);
+  setSavingEstimate(false);
 
     if (saved) {
       navigate(`/estimates/${estimate.id}/work-areas/${nextWorkArea.id}`);

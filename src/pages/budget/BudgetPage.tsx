@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { PageHeader, Button, Card, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
+import { PageHeader, Button, Card, Modal, Input, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, FileDown, Info, Users, ChevronLeft, ChevronRight } from 'lucide-react';
 import { BUDGET_CATEGORIES } from '../../config/budgetCategories.js';
 import { formatCurrency } from '../../utils';
@@ -39,7 +39,6 @@ type BudgetTab = 'analysis' | 'revenue' | 'labour' | 'materials' | 'equipment' |
 type LabourTableView = 'all' | 'hourly' | 'salaried';
 type EquipmentTableView = 'all' | EquipmentCostType;
 type ExportColumnMode = 'budgeted' | 'actual';
-const RATE_CATEGORIES = ['labour', 'equipment', 'material', 'subcontractor'] as const;
 const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = {
   revenue: 'revenue',
   labour: 'labour',
@@ -66,19 +65,6 @@ const createBudgetCategoryGroups = (): Record<BudgetCategory, BudgetItem[]> => (
   marketing: [],
   insurance: [],
   other: [],
-});
-
-const emptyBudgetRate = (budgetId?: string): Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'> => ({
-  budgetId: budgetId ?? '',
-  category: 'labour',
-  itemName: '',
-  description: '',
-  unit: 'hr',
-  unitCost: 0,
-  defaultMarkupPercent: 0,
-  defaultSellPrice: 0,
-  active: true,
-  sortOrder: 0,
 });
 
 const currentPeriod = () => new Date().toISOString().slice(0, 7);
@@ -242,7 +228,6 @@ export default function BudgetPage() {
     deleteBudgetItem,
     addBudgetRate,
     updateBudgetRate,
-    deleteBudgetRate,
     upsertLabourBudgetPlan,
     deleteLabourBudgetPlan,
     upsertRevenueSalesGoal,
@@ -275,10 +260,6 @@ export default function BudgetPage() {
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
   const [removePlanId, setRemovePlanId] = useState<string | null>(null);
   const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
-  const [ratesModalOpen, setRatesModalOpen] = useState(false);
-  const [editingRate, setEditingRate] = useState<BudgetRate | null>(null);
-  const [rateForm, setRateForm] = useState<Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>>(emptyBudgetRate());
-  const [confirmDeleteRate, setConfirmDeleteRate] = useState<string | null>(null);
   const legacyBudgetBootstrapStarted = useRef(false);
   const defaultOverheadRecoveryAllocation = {
     labourPercent: 50,
@@ -464,51 +445,6 @@ export default function BudgetPage() {
     setModalOpen(true);
   };
 
-  const openNewRate = () => {
-    if (!activeBudgetId) return;
-    setEditingRate(null);
-    setRateForm(emptyBudgetRate(activeBudgetId));
-    setRatesModalOpen(true);
-  };
-
-  const openEditRate = (rate: BudgetRate) => {
-    setEditingRate(rate);
-    setRateForm({
-      budgetId: rate.budgetId,
-      category: rate.category,
-      itemName: rate.itemName,
-      description: rate.description,
-      unit: rate.unit,
-      unitCost: rate.unitCost,
-      defaultMarkupPercent: rate.defaultMarkupPercent,
-      defaultSellPrice: rate.defaultSellPrice,
-      active: rate.active,
-      sortOrder: rate.sortOrder,
-    });
-    setRatesModalOpen(true);
-  };
-
-  const saveRate = () => {
-    if (!activeBudgetId) return;
-    if (!rateForm.itemName.trim() || !rateForm.unit.trim()) return;
-
-    const payload = {
-      ...rateForm,
-      budgetId: activeBudgetId,
-      itemName: rateForm.itemName.trim(),
-      unit: rateForm.unit.trim(),
-      description: rateForm.description.trim(),
-      unitCost: Math.max(0, Number(rateForm.unitCost) || 0),
-      defaultMarkupPercent: Math.max(0, Number(rateForm.defaultMarkupPercent) || 0),
-      defaultSellPrice: Math.max(0, Number(rateForm.defaultSellPrice) || 0),
-      sortOrder: Math.max(0, Number(rateForm.sortOrder) || 0),
-    };
-
-    if (editingRate) updateBudgetRate(editingRate.id, payload);
-    else addBudgetRate(payload);
-
-    setRatesModalOpen(false);
-  };
   const rateSellPrice = (rate: BudgetRate) => (
     rate.defaultSellPrice > 0
       ? rate.defaultSellPrice
@@ -1313,17 +1249,8 @@ export default function BudgetPage() {
     materials: totalOverheadBudget * (overheadRecoveryAllocation.materialsPercent / 100),
     subcontractors: totalOverheadBudget * (overheadRecoveryAllocation.subcontractorsPercent / 100),
   };
-  const labourOverheadRecoveryPerHour = labourPlannerTotalsAll.billableHoursYear > 0
-    ? allocationAmounts.labour / labourPlannerTotalsAll.billableHoursYear
-    : 0;
   const equipmentOverheadRecoveryPerHour = pricingInputs.equipmentUtilizationHours > 0
     ? allocationAmounts.equipment / pricingInputs.equipmentUtilizationHours
-    : 0;
-  const materialsOverheadRecoveryPercent = totalsByCategory.materials.budgeted > 0
-    ? allocationAmounts.materials / totalsByCategory.materials.budgeted
-    : 0;
-  const subcontractorOverheadRecoveryPercent = totalsByCategory.subcontractors.budgeted > 0
-    ? allocationAmounts.subcontractors / totalsByCategory.subcontractors.budgeted
     : 0;
 
   const suggestedEquipmentSellRate = useMemo(() => {
@@ -1337,47 +1264,6 @@ export default function BudgetPage() {
   const previewEquipmentSellRate = useMemo(() => {
     return resolveEquipmentSellRatePreview(equipmentSellRateOverride, suggestedEquipmentSellRate);
   }, [equipmentSellRateOverride, suggestedEquipmentSellRate]);
-
-  const getSuggestedSellPrice = (rate: BudgetRate) => {
-    if (rate.category === 'labour') {
-      const loadedCost = rate.unitCost * (1 + pricingInputs.payrollBurdenPct / 100);
-      return (loadedCost + labourOverheadRecoveryPerHour) / marginDivisor;
-    }
-
-    if (rate.category === 'equipment') {
-      return (rate.unitCost + equipmentOverheadRecoveryPerHour) / marginDivisor;
-    }
-
-    if (rate.category === 'material') {
-      return rate.unitCost * (1 + materialsOverheadRecoveryPercent) / marginDivisor;
-    }
-
-    return rate.unitCost * (1 + subcontractorOverheadRecoveryPercent) / marginDivisor;
-  };
-
-  const getOverheadRecoverySummary = (rate: BudgetRate) => {
-    if (rate.category === 'labour') {
-      return labourPlannerTotalsAll.billableHoursYear > 0
-        ? `${formatCurrency(labourOverheadRecoveryPerHour)}/${rate.unit}`
-        : 'Add planned billable labour hours';
-    }
-
-    if (rate.category === 'equipment') {
-      return pricingInputs.equipmentUtilizationHours > 0
-        ? `${formatCurrency(equipmentOverheadRecoveryPerHour)}/${rate.unit}`
-        : 'Add planned equipment utilization';
-    }
-
-    if (rate.category === 'material') {
-      return totalsByCategory.materials.budgeted > 0
-        ? `${(materialsOverheadRecoveryPercent * 100).toFixed(1)}% of cost`
-        : 'Add expected material spend';
-    }
-
-    return totalsByCategory.subcontractors.budgeted > 0
-      ? `${(subcontractorOverheadRecoveryPercent * 100).toFixed(1)}% of cost`
-      : 'Add expected subcontractor spend';
-  };
 
   const categoryAnalysisRows = useMemo(() => {
     const rows = [...categoryRows];
@@ -1848,62 +1734,6 @@ export default function BudgetPage() {
             </div>
           </Card>
 
-          <Card className="p-4 mb-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Pricing / Rates</h2>
-                <p className="text-sm text-gray-500 mt-1">Budget-scoped estimate rate catalog for labour, equipment, material, and subcontractor pricing.</p>
-              </div>
-              <Button onClick={openNewRate}><Plus size={14} /> Add Rate</Button>
-            </div>
-
-            {scopedBudgetRates.length === 0 ? (
-              <EmptyState
-                title="Your pricing catalog is empty"
-                description="Add labour, equipment, material, and subcontractor rates so estimates can use your standard pricing."
-                action={<Button onClick={openNewRate}><Plus size={14} /> Add Pricing Rate</Button>}
-                helpText="Pricing rates belong to this budget and are used by estimate line items." 
-              />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 text-gray-500 text-left">
-                      <th className="py-2 font-medium">Category</th>
-                      <th className="py-2 font-medium">Item</th>
-                      <th className="py-2 font-medium">Unit</th>
-                      <th className="py-2 font-medium text-right">Direct Cost</th>
-                      <th className="py-2 font-medium text-right">Overhead Recovery</th>
-                      <th className="py-2 font-medium text-right">Suggested Sell</th>
-                      <th className="py-2 font-medium text-right">Final Sell</th>
-                      <th className="py-2 font-medium">Status</th>
-                      <th className="py-2 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {scopedBudgetRates.map((rate) => (
-                      <tr key={rate.id} className="hover:bg-gray-50">
-                        <td className="py-2 capitalize">{rate.category.replace('_', ' ')}</td>
-                        <td className="py-2">{rate.itemName}</td>
-                        <td className="py-2">{rate.unit}</td>
-                        <td className="py-2 text-right">{formatCurrency(rate.unitCost)}</td>
-                        <td className="py-2 text-right">{getOverheadRecoverySummary(rate)}</td>
-                        <td className="py-2 text-right">{formatCurrency(getSuggestedSellPrice(rate))}</td>
-                        <td className="py-2 text-right">{formatCurrency(rate.defaultSellPrice > 0 ? rate.defaultSellPrice : getSuggestedSellPrice(rate))}</td>
-                        <td className="py-2">{rate.active ? 'Active' : 'Archived'}</td>
-                        <td className="py-2">
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openEditRate(rate)}><Pencil size={13} /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteRate(rate.id)}><Trash2 size={13} className="text-accent-700" /></Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
         </>
       )}
 
@@ -2836,51 +2666,6 @@ export default function BudgetPage() {
             ? 'This removes the equipment from this budget only. Company catalog data and other budget links are not deleted.'
             : 'Delete this budget item?'}
         </p>
-      </Modal>
-
-      <Modal
-        open={ratesModalOpen}
-        onClose={() => setRatesModalOpen(false)}
-        title={editingRate ? 'Edit Budget Rate' : 'New Budget Rate'}
-        footer={<>
-          <Button variant="secondary" onClick={() => setRatesModalOpen(false)}>Cancel</Button>
-          <Button onClick={saveRate}>Save Rate</Button>
-        </>}
-      >
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Category" value={rateForm.category} onChange={(e) => setRateForm((previous) => ({ ...previous, category: e.target.value as BudgetRate['category'] }))}>
-              {RATE_CATEGORIES.map((category) => <option key={category} value={category}>{toOptionLabel(category)}</option>)}
-            </Select>
-            <Input label="Item Name" required value={rateForm.itemName} onChange={(e) => setRateForm((previous) => ({ ...previous, itemName: e.target.value }))} />
-          </div>
-          <TextArea label="Description" value={rateForm.description} onChange={(e) => setRateForm((previous) => ({ ...previous, description: e.target.value }))} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Unit" required value={rateForm.unit} onChange={(e) => setRateForm((previous) => ({ ...previous, unit: e.target.value }))} />
-            <Input label="Sort Order" type="number" min={0} value={rateForm.sortOrder} onChange={(e) => setRateForm((previous) => ({ ...previous, sortOrder: Number(e.target.value) }))} />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Input label="Unit Cost" type="number" min={0} value={rateForm.unitCost} onChange={(e) => setRateForm((previous) => ({ ...previous, unitCost: Number(e.target.value) }))} />
-            <Input label="Default Markup %" type="number" min={0} value={rateForm.defaultMarkupPercent} onChange={(e) => setRateForm((previous) => ({ ...previous, defaultMarkupPercent: Number(e.target.value) }))} />
-            <Input label="Default Sell Price" type="number" min={0} value={rateForm.defaultSellPrice} onChange={(e) => setRateForm((previous) => ({ ...previous, defaultSellPrice: Number(e.target.value) }))} />
-          </div>
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={rateForm.active} onChange={(e) => setRateForm((previous) => ({ ...previous, active: e.target.checked }))} />
-            Active
-          </label>
-        </div>
-      </Modal>
-
-      <Modal
-        open={!!confirmDeleteRate}
-        onClose={() => setConfirmDeleteRate(null)}
-        title="Delete Budget Rate"
-        footer={<>
-          <Button variant="secondary" onClick={() => setConfirmDeleteRate(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => { deleteBudgetRate(confirmDeleteRate!); setConfirmDeleteRate(null); }}>Delete</Button>
-        </>}
-      >
-        <p className="text-gray-600">Delete this pricing rate?</p>
       </Modal>
 
       <Modal
