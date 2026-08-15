@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BriefcaseBusiness, CalendarCheck2, Clock3, ListTodo } from 'lucide-react';
+import { BriefcaseBusiness, CalendarCheck2, CircleDollarSign, Clock3, FileWarning, ListTodo, Receipt } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import PersonalCalendar from '../../components/calendar/PersonalCalendar';
 import usePersonalCalendarEvents, { type PersonalCalendarRange } from '../../components/calendar/usePersonalCalendarEvents';
@@ -8,6 +8,7 @@ import { Card, StatCard } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import type { Task, TaskPriority } from '../../types';
+import { formatCurrency } from '../../utils';
 import JobDetailPanel, { type JobDetailTab } from '../jobs/JobDetailPanel';
 import {
   buildRecentActivity,
@@ -22,7 +23,14 @@ import {
   type HomeTaskFilter,
 } from './homeDashboardModel.js';
 import OutstandingTasks from './OutstandingTasks';
-import PersonalDashboardSidebar from './PersonalDashboardSidebar';
+import CustomizableWidgetGrid, { type HomeWidgetDefinition } from './CustomizableWidgetGrid';
+import {
+  MiniCalendarWidget,
+  QuickActionsWidget,
+  RecentActivityWidget,
+  UpcomingScheduleWidget,
+} from './PersonalDashboardSidebar';
+import useHomeDashboardPreferences from './useHomeDashboardPreferences';
 
 interface PersonalHomeDashboardProps {
   currentUserId: string;
@@ -39,7 +47,7 @@ const jobTabs: JobDetailTab[] = ['overview', 'scope', 'team', 'invoices', 'notes
 export default function PersonalHomeDashboard({ currentUserId, currentUserName, currentUserEmail, currentUserRole, onOpenSchedule, onOpenTimeClock }: PersonalHomeDashboardProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { customers, crews, employees, invoices, jobs, tasks, timeEntries, timeCorrections, addTask, updateTask, completeTask, deleteTask } = useStore();
+  const { budgetItems, budgets, customers, crews, employees, invoices, jobs, tasks, timeEntries, timeCorrections, addTask, updateTask, completeTask, deleteTask } = useStore();
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [calendarRange, setCalendarRange] = useState<PersonalCalendarRange | null>(null);
   const [addRequest, setAddRequest] = useState(0);
@@ -76,6 +84,7 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const expandedJob = searchParams.get('homeJobMode') === 'expanded';
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const isFieldPortal = currentUserRole === 'crew_member' || currentUserRole === 'foreman';
+  const dashboardPreferences = useHomeDashboardPreferences(canViewFinancials);
 
   const updateQuery = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams);
@@ -109,30 +118,43 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
 
+  const openInvoices = canViewFinancials ? invoices.filter((invoice) => invoice.status !== 'paid') : [];
+  const overdueInvoices = canViewFinancials ? invoices.filter((invoice) => invoice.status === 'overdue' || (invoice.status !== 'paid' && invoice.dueDate < now.toISOString().slice(0, 10))) : [];
+  const currentYear = String(now.getFullYear());
+  const currentBudgetIds = new Set(budgets.filter((budget) => budget.fiscalYear === currentYear && budget.status !== 'archived').map((budget) => budget.id));
+  const currentBudgetItems = canViewFinancials ? budgetItems.filter((item) => item.period.startsWith(currentYear) && (!item.budgetId || currentBudgetIds.has(item.budgetId))) : [];
+  const budgetedRevenue = currentBudgetItems.filter((item) => item.category === 'revenue').reduce((total, item) => total + item.budgeted, 0);
+  const budgetedExpenses = currentBudgetItems.filter((item) => item.category !== 'revenue').reduce((total, item) => total + item.budgeted, 0);
+  const budgetedProfit = budgetedRevenue - budgetedExpenses;
+
+  const widgetDefinitions: HomeWidgetDefinition[] = [
+    { id: 'due-today', title: 'Due Today', description: 'Tasks due today and high-priority attention.', size: 'compact', category: 'Personal', content: <StatCard label="Due Today" value={summary.dueToday} sub={summary.highPriorityDueToday ? `${summary.highPriorityDueToday} high priority` : 'No high-priority tasks'} icon={<ListTodo />} color={summary.dueToday ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },
+    { id: 'overdue', title: 'Overdue Tasks', description: 'Personal tasks that have passed their due date.', size: 'compact', category: 'Personal', content: <StatCard label="Overdue" value={summary.overdue} sub={summary.overdue ? 'Needs attention' : 'You are caught up'} icon={<CalendarCheck2 />} color={summary.overdue ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },
+    { id: 'jobs-week', title: 'Jobs This Week', description: 'Jobs assigned directly or through your crew.', size: 'compact', category: 'Personal', content: <StatCard label="Jobs This Week" value={weekJobs.length} sub="Assigned to you or your crew" icon={<BriefcaseBusiness />} color="text-brand-700 dark:text-brand-100" /> },
+    { id: 'hours-today', title: 'Hours Today', description: 'Your recorded work hours today.', size: 'compact', category: 'Personal', content: <StatCard label="Hours Today" value={hoursToday.toFixed(1)} sub="Recorded work hours" icon={<Clock3 />} color="text-brand-700 dark:text-brand-100" /> },
+    { id: 'calendar', title: 'My Calendar', description: 'Assigned work, tasks, and private calendar events.', size: 'wide', category: 'Personal', content: <Card className="overflow-hidden rounded-lg"><PersonalCalendar jobs={personalJobs} tasks={personalTasks} customers={customers} externalEvents={externalEvents} selectedDate={selectedDate} onDateChange={setSelectedDate} onRangeChange={setCalendarRange} onOpenJob={openJob} onSelectTask={openTasks} /></Card> },
+    { id: 'mini-calendar', title: 'Mini Calendar', description: 'Jump the main calendar to another day.', size: 'compact', category: 'Personal', content: <MiniCalendarWidget selectedDate={selectedDate} onSelectDate={setSelectedDate} /> },
+    { id: 'tasks', title: 'Outstanding Tasks', description: 'Create, filter, and complete personal tasks.', size: 'wide', category: 'Personal', content: <OutstandingTasks tasks={filteredTasks} filter={taskFilter} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onViewAll={openTasks} onAdd={createTask} onToggle={toggleTask} onDelete={removeTask} /> },
+    { id: 'upcoming', title: 'Upcoming Schedule', description: 'Your next jobs, tasks, and private events.', size: 'compact', category: 'Personal', content: <UpcomingScheduleWidget upcoming={upcoming} onOpenJob={openJob} onOpenTask={openTasks} /> },
+    { id: 'activity', title: 'Recent Activity', description: 'Recent changes to your work and time.', size: 'compact', category: 'Personal', content: <RecentActivityWidget activity={activity} /> },
+    { id: 'quick-actions', title: 'Quick Actions', description: 'Shortcuts to common personal workflows.', size: 'compact', category: 'Personal', content: <QuickActionsWidget showTimeClock={Boolean(onOpenTimeClock)} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} /> },
+    ...(canViewFinancials ? [
+      { id: 'finance-outstanding-invoices', title: 'Outstanding Invoices', description: 'Open invoice count and value from Finance.', size: 'compact', category: 'Finance', content: <StatCard label="Outstanding Invoices" value={formatCurrency(openInvoices.reduce((total, invoice) => total + invoice.amount, 0))} sub={`${openInvoices.length} open invoice${openInvoices.length === 1 ? '' : 's'}`} icon={<Receipt />} color="text-brand-700 dark:text-brand-100" /> },
+      { id: 'finance-overdue-invoices', title: 'Overdue Invoices', description: 'Invoice value currently past due.', size: 'compact', category: 'Finance', content: <StatCard label="Overdue Invoices" value={formatCurrency(overdueInvoices.reduce((total, invoice) => total + invoice.amount, 0))} sub={`${overdueInvoices.length} past due`} icon={<FileWarning />} color={overdueInvoices.length ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },
+      { id: 'finance-budget-profit', title: 'Budgeted Profit', description: 'Current-year budgeted revenue less expenses.', size: 'compact', category: 'Finance', content: <StatCard label="Budgeted Profit" value={formatCurrency(budgetedProfit)} sub={`${currentYear} active budgets`} icon={<CircleDollarSign />} color={budgetedProfit < 0 ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },
+    ] satisfies HomeWidgetDefinition[] : []),
+  ];
+
   const dashboard = (
     <div className="space-y-5">
-      <header>
-        <p className="text-sm font-medium text-brand-500 dark:text-brand-200">{new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(now)}</p>
-        <h1 className="mt-1 text-2xl font-semibold text-brand-900 dark:text-brand-50">Good {greeting}, {greetingName}</h1>
-        <p className="mt-1 text-sm text-brand-400 dark:text-brand-300">Here is what needs your attention today.</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-brand-500 dark:text-brand-200">{new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(now)}</p>
+          <h1 className="mt-1 text-2xl font-semibold text-brand-900 dark:text-brand-50">Good {greeting}, {greetingName}</h1>
+          <p className="mt-1 text-sm text-brand-400 dark:text-brand-300">Here is what needs your attention today.</p>
+        </div>
       </header>
-
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard label="Due Today" value={summary.dueToday} sub={summary.highPriorityDueToday ? `${summary.highPriorityDueToday} high priority` : 'No high-priority tasks'} icon={<ListTodo />} color={summary.dueToday ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} />
-        <StatCard label="Overdue" value={summary.overdue} sub={summary.overdue ? 'Needs attention' : 'You are caught up'} icon={<CalendarCheck2 />} color={summary.overdue ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} />
-        <StatCard label="Jobs This Week" value={weekJobs.length} sub="Assigned to you or your crew" icon={<BriefcaseBusiness />} color="text-brand-700 dark:text-brand-100" />
-        <StatCard label="Hours Today" value={hoursToday.toFixed(1)} sub="Recorded work hours" icon={<Clock3 />} color="text-brand-700 dark:text-brand-100" />
-      </div>
-
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(17rem,1fr)]">
-        <main className="min-w-0 space-y-5">
-          <Card className="overflow-hidden rounded-lg">
-            <PersonalCalendar jobs={personalJobs} tasks={personalTasks} customers={customers} externalEvents={externalEvents} selectedDate={selectedDate} onDateChange={setSelectedDate} onRangeChange={setCalendarRange} onOpenJob={openJob} onSelectTask={openTasks} />
-          </Card>
-          <OutstandingTasks tasks={filteredTasks} filter={taskFilter} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onViewAll={openTasks} onAdd={createTask} onToggle={toggleTask} onDelete={removeTask} />
-        </main>
-        <PersonalDashboardSidebar selectedDate={selectedDate} upcoming={upcoming} activity={activity} showTimeClock={Boolean(onOpenTimeClock)} onSelectDate={setSelectedDate} onOpenJob={openJob} onOpenTask={openTasks} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} />
-      </div>
+      <CustomizableWidgetGrid widgetIds={dashboardPreferences.widgetIds} availableWidgetIds={dashboardPreferences.availableWidgetIds} definitions={widgetDefinitions} hydrated={dashboardPreferences.hydrated} onChange={dashboardPreferences.saveWidgetIds} onReset={dashboardPreferences.resetWidgetIds} />
     </div>
   );
 
