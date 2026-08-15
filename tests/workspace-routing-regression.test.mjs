@@ -126,3 +126,10 @@ test('company setup sidebar keeps existing routes and account terminology', () =
   assert.match(userAccessPageSource, /Manage who can sign in to OliveOps and control their account access\./);
   assert.doesNotMatch(sidebarConfigSource, /id: 'operations-unbillable-time-categories'/);
 });
+
+test('sidebar omits company dashboard and finance reports links', () => {
+  assert.doesNotMatch(sidebarConfigSource, /id: 'data-center-company-dashboard'/);
+  assert.doesNotMatch(sidebarConfigSource, /id: 'finance-reports'/);
+  assert.doesNotMatch(sidebarConfigSource, /label: 'Company Dashboard'/);
+  assert.doesNotMatch(sidebarConfigSource, /label: 'Reports'/);
+});
