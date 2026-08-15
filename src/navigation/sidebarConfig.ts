@@ -35,6 +35,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
       collapsible: true,
       defaultExpanded: false,
       items: [
+        { id: 'data-center-dashboards', type: 'link', to: '/data-center/dashboard', label: 'Dashboards', icon: icon(LayoutDashboard), roles: ownerAdminRoles },
         { id: 'data-center-documents', type: 'link', to: '/data-center/documents', label: 'Documents', icon: icon(FolderOpen) },
       ],
     },

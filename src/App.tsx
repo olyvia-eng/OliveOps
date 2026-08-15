@@ -583,7 +583,10 @@ export default function App() {
                   />
                 }
               />
-              <Route path="data-center/dashboard" element={<DataCenterDashboardPage />} />
+              <Route
+                path="data-center/dashboard"
+                element={canViewReports ? <DataCenterDashboardPage /> : <Navigate to="/home" replace />}
+              />
               <Route
                 path="data-center/documents"
                 element={<DocumentsPage />}
