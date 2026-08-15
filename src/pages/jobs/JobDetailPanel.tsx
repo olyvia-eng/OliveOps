@@ -22,6 +22,8 @@ interface JobDetailPanelProps {
   activeTab: JobDetailTab;
   expanded: boolean;
   canViewFinancials: boolean;
+  canEdit?: boolean;
+  canOpenFullRecord?: boolean;
   onTabChange: (tab: JobDetailTab) => void;
   onEdit: () => void;
   onExpand: () => void;
@@ -46,6 +48,8 @@ export default function JobDetailPanel({
   activeTab,
   expanded,
   canViewFinancials,
+  canEdit = true,
+  canOpenFullRecord = true,
   onTabChange,
   onEdit,
   onExpand,
@@ -62,7 +66,7 @@ export default function JobDetailPanel({
         title={job.title}
         subtitle={`${customer?.name ?? 'Unknown client'}${job.jobNumber ? ` · Job #${job.jobNumber}` : ''}`}
         status={<div className="flex flex-wrap gap-2"><Badge label={job.status} className={statusColor[job.status]} />{risk?.atRisk ? <Badge label="At Risk" className="bg-accent-100 text-accent-700" /> : null}</div>}
-        actions={<div className="flex items-center gap-2"><Button type="button" variant="secondary" size="sm" onClick={onEdit}><Pencil size={14} /><span className="hidden sm:inline">Edit</span></Button><Link to={`/jobs/${job.id}`}><Button type="button" size="sm">Full Record <ChevronRight size={14} /></Button></Link></div>}
+        actions={(canEdit || canOpenFullRecord) ? <div className="flex items-center gap-2">{canEdit ? <Button type="button" variant="secondary" size="sm" onClick={onEdit}><Pencil size={14} /><span className="hidden sm:inline">Edit</span></Button> : null}{canOpenFullRecord ? <Link to={`/jobs/${job.id}`}><Button type="button" size="sm">Full Record <ChevronRight size={14} /></Button></Link> : null}</div> : undefined}
         expanded={expanded}
         onExpand={onExpand}
         onCollapse={onCollapse}

@@ -7,7 +7,9 @@ const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const settingsSource = readFileSync('src/pages/settings/IntegrationsPage.tsx', 'utf8');
 const calendarSource = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8');
 const homeSource = readFileSync('src/pages/home/HomePage.tsx', 'utf8');
+const dashboardSource = readFileSync('src/pages/home/PersonalHomeDashboard.tsx', 'utf8');
 const personalCalendarSource = readFileSync('src/components/calendar/PersonalCalendar.tsx', 'utf8');
+const personalEventsSource = readFileSync('src/components/calendar/usePersonalCalendarEvents.ts', 'utf8');
 const personalSettingsSource = readFileSync('src/pages/settings/PersonalCalendarSettingsPage.tsx', 'utf8');
 
 test('Google Calendar settings remain owner-admin guarded and expose no token fields', () => {
@@ -28,9 +30,10 @@ test('company Schedule is provider-free and keeps operational job actions', () =
 });
 
 test('Home uses a range-loaded personal calendar and exposes self-service connections', () => {
-  assert.match(homeSource, /<PersonalCalendar/);
+  assert.match(homeSource, /PersonalHomeDashboard/);
+  assert.match(dashboardSource, /<PersonalCalendar/);
   assert.match(personalCalendarSource, /timeGridWeek/);
-  assert.match(personalCalendarSource, /api\/integrations\/calendars\/events/);
+  assert.match(personalEventsSource, /api\/integrations\/calendars\/events/);
   assert.match(personalCalendarSource, /kind: 'task'/);
   assert.match(appSource, /path="settings\/personal-calendar"/);
   assert.match(personalSettingsSource, /Events remain private to your OliveOps account/);

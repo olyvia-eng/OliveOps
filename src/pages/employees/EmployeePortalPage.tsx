@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Clock, LogOut, ShieldCheck } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button, Card, Input, Modal, Select } from '../../components/ui';
@@ -7,8 +7,8 @@ import { durationHours, formatDateTime } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { FormRecord, TimeCorrectionRequestType, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
-import PersonalCalendar from '../../components/calendar/PersonalCalendar';
 import CalendarPage from '../calendar/CalendarPage';
+import PersonalHomeDashboard from '../home/PersonalHomeDashboard';
 
 interface EmployeePortalPageProps {
   sessionEmployeeEmail?: string;
@@ -18,6 +18,7 @@ interface EmployeePortalPageProps {
 }
 
 export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId, currentUserRole, onLogout }: EmployeePortalPageProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     employees,
     jobs,
@@ -26,8 +27,6 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
     timeCorrections,
     forms,
     formSubmissions,
-    customers,
-    tasks,
     clockIn,
     clockOut,
     addFormSubmission,
@@ -58,7 +57,14 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
   const [requestedUnbillableCategoryId, setRequestedUnbillableCategoryId] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
-  const [portalView, setPortalView] = useState<'calendar' | 'schedule' | 'clock'>('calendar');
+  const portalViewValue = searchParams.get('view');
+  const portalView: 'calendar' | 'schedule' | 'clock' = portalViewValue === 'schedule' || portalViewValue === 'clock' ? portalViewValue : 'calendar';
+  const setPortalView = (view: 'calendar' | 'schedule' | 'clock') => {
+    const next = new URLSearchParams(searchParams);
+    if (view === 'calendar') next.delete('view');
+    else next.set('view', view);
+    setSearchParams(next);
+  };
 
   const sessionEmployee = useMemo(() => {
     if (!sessionEmployeeEmail) return null;
@@ -354,11 +360,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
           <Button variant="secondary" onClick={handleLogout}>Log Out</Button>
         </div>
 
-        {portalView === 'calendar' ? (
-          <Card className="overflow-hidden">
-            <PersonalCalendar jobs={jobs} tasks={tasks.filter((task) => task.assignedUserId === currentUserId)} customers={customers} />
-          </Card>
-        ) : null}
+        {portalView === 'calendar' ? <PersonalHomeDashboard currentUserId={currentUserId} currentUserName={employee?.name || sessionEmployeeEmail || 'Team member'} currentUserEmail={sessionEmployeeEmail} currentUserRole={currentUserRole} onOpenSchedule={() => setPortalView('schedule')} onOpenTimeClock={() => setPortalView('clock')} /> : null}
 
         {portalView === 'schedule' ? <CalendarPage currentUserRole={currentUserRole} /> : null}
 

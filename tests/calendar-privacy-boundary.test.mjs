@@ -8,6 +8,7 @@ const microsoftSettings = readFileSync('api/integrations/microsoft/settings.js',
 const externalEvents = readFileSync('api/_lib/externalCalendarEvents.js', 'utf8');
 const schedulePage = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8');
 const personalCalendar = readFileSync('src/components/calendar/PersonalCalendar.tsx', 'utf8');
+const personalEvents = readFileSync('src/components/calendar/usePersonalCalendarEvents.ts', 'utf8');
 
 for (const [provider, source] of [['Google', googleSettings], ['Microsoft', microsoftSettings]]) {
   test(`${provider} personal settings allow authenticated users but protect company job export`, () => {
@@ -28,6 +29,7 @@ test('external event aggregation is scoped only from the authenticated session',
 });
 
 test('personal providers are loaded only by My Calendar, never company Schedule', () => {
-  assert.match(personalCalendar, /api\/integrations\/calendars\/events/);
+  assert.match(personalEvents, /api\/integrations\/calendars\/events/);
+  assert.doesNotMatch(personalCalendar, /api\/integrations\/calendars\/events/);
   assert.doesNotMatch(schedulePage, /api\/integrations\/calendars\/events|ExternalCalendarEvent|source: 'external'/);
 });

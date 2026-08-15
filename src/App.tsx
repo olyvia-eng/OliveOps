@@ -509,7 +509,7 @@ export default function App() {
               }
             >
               <Route index element={<Navigate to="/home" replace />} />
-              <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionDisplayName} />} />
+              <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionDisplayName} currentUserEmail={sessionUser.email} currentUserRole={sessionUser.role} />} />
               <Route path="company-dashboard" element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
               <Route path="crm" element={<CRMPage currentUserRole={sessionUser.role} />} />
               <Route path="revenue/dashboard" element={<RevenueDashboardPage />} />

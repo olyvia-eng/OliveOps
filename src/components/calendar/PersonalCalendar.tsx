@@ -4,7 +4,6 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { addDays } from 'date-fns';
-import { Link } from 'react-router-dom';
 import type { Customer, ExternalCalendarEvent, Job, Task, CalendarView } from '../../types';
 import { getJobScheduleWindow } from '../../utils/jobSchedule';
 import { CalendarToolbar, ScheduleEventCard } from './CalendarControls';
@@ -21,33 +20,29 @@ type SelectedItem =
   | { kind: 'task'; task: Task }
   | { kind: 'external'; event: ExternalCalendarEvent };
 
-export default function PersonalCalendar({ jobs, tasks, customers, onOpenJob }: {
+export default function PersonalCalendar({ jobs, tasks, customers, externalEvents = [], selectedDate, onDateChange, onRangeChange, onOpenJob, onSelectTask }: {
   jobs: Job[];
   tasks: Task[];
   customers: Customer[];
+  externalEvents?: ExternalCalendarEvent[];
+  selectedDate?: Date;
+  onDateChange?: (date: Date) => void;
+  onRangeChange?: (range: { start: Date; end: Date }) => void;
   onOpenJob?: (jobId: string) => void;
+  onSelectTask?: (taskId: string) => void;
 }) {
   const calendarRef = useRef<FullCalendar | null>(null);
   const [view, setView] = useState<CalendarView>('week');
   const [title, setTitle] = useState('');
-  const [range, setRange] = useState<{ start: Date; end: Date } | null>(null);
-  const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
   const [selected, setSelected] = useState<SelectedItem | null>(null);
 
   useEffect(() => {
-    if (!range) return;
-    const controller = new AbortController();
-    const params = new URLSearchParams({ from: range.start.toISOString(), to: range.end.toISOString() });
-    void fetch(`/api/integrations/calendars/events?${params}`, { credentials: 'include', signal: controller.signal })
-      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; events?: ExternalCalendarEvent[] } }))
-      .then(({ response, payload }) => {
-        if (response.ok && payload.ok && Array.isArray(payload.events)) setExternalEvents(payload.events);
-      })
-      .catch((error: Error) => {
-        if (error.name !== 'AbortError') setExternalEvents([]);
-      });
-    return () => controller.abort();
-  }, [range]);
+    if (!selectedDate) return;
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    const current = api.getDate();
+    if (current.toDateString() !== selectedDate.toDateString()) api.gotoDate(selectedDate);
+  }, [selectedDate]);
 
   const calendarEvents = useMemo(() => {
     const jobEvents = jobs.flatMap((job) => {
@@ -102,25 +97,27 @@ export default function PersonalCalendar({ jobs, tasks, customers, onOpenJob }: 
     <>
       <div className="border-b border-brand-100 px-4 py-4 dark:border-brand-600">
         <CalendarToolbar title={title} view={view} onNavigate={navigate} onViewChange={changeView} />
-        <div className="mt-3 text-right"><Link to="/settings/personal-calendar" className="text-xs font-semibold text-brand-700 hover:underline dark:text-brand-200">Calendar connections</Link></div>
       </div>
-      <div className="p-4">
+      <div className="p-3 sm:p-4">
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin] as any}
           initialView="timeGridWeek"
           headerToolbar={false}
           events={calendarEvents}
-          height="auto"
+          height={520}
+          contentHeight={455}
           nowIndicator
           allDaySlot
           weekends
           dayMaxEvents={3}
-          slotMinTime="05:00:00"
-          slotMaxTime="22:00:00"
+          slotMinTime="06:00:00"
+          slotMaxTime="18:00:00"
+          scrollTime="07:00:00"
           datesSet={(arg) => {
             setTitle(arg.view.title);
-            setRange({ start: arg.start, end: arg.end });
+            onRangeChange?.({ start: arg.start, end: arg.end });
+            onDateChange?.(arg.view.calendar.getDate());
           }}
           eventContent={(content) => {
             const props = content.event.extendedProps as any;
@@ -136,10 +133,20 @@ export default function PersonalCalendar({ jobs, tasks, customers, onOpenJob }: 
           eventClick={(click) => {
             const props = click.event.extendedProps as any;
             if (props.kind === 'job') setSelected({ kind: 'job', job: props.job });
-            if (props.kind === 'task') setSelected({ kind: 'task', task: props.task });
+            if (props.kind === 'task') {
+              setSelected({ kind: 'task', task: props.task });
+              onSelectTask?.(props.task.id);
+            }
             if (props.kind === 'external') setSelected({ kind: 'external', event: props.event });
           }}
         />
+      </div>
+
+      <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-brand-100 px-4 py-3 text-xs text-brand-600 dark:border-brand-600 dark:text-brand-200" aria-label="My Calendar legend">
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-brand-600" />Assigned work</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-violet-600" />Tasks</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />Google</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-sky-600" />Outlook</span>
       </div>
 
       {selected ? (
