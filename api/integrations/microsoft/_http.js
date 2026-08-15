@@ -2,7 +2,7 @@ import { requireEnv } from '../../_lib/env.js';
 
 export function redirectToMicrosoftIntegrations(res, result) {
   const redirectUri = new URL(requireEnv('MICROSOFT_REDIRECT_URI'));
-  const destination = new URL('/settings/integrations', redirectUri.origin);
+  const destination = new URL('/settings/personal-calendar', redirectUri.origin);
   destination.searchParams.set('microsoft', result);
   res.setHeader('Location', destination.toString());
   return res.status(302).end();

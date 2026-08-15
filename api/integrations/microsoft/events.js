@@ -5,7 +5,7 @@ import { methodNotAllowed, parseDateRange } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const range = parseDateRange(req.query);
   if (!range) return res.status(400).json({ ok: false, error: 'A valid date range of at most 370 days is required' });

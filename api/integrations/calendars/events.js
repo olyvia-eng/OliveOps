@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const range = parseDateRange(req.query);
   if (!range) return res.status(400).json({ ok: false, error: 'A valid date range of at most 370 days is required' });

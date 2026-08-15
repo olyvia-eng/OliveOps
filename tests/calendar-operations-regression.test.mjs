@@ -36,12 +36,14 @@ test('fullcalendar dependencies stay in one compatible family', () => {
 });
 
 test('calendar route passes current user role into the operations calendar', () => {
+  assert.match(appSource, /path="schedule"/);
   assert.match(appSource, /path="calendar"/);
+  assert.match(appSource, /LegacyCalendarRedirect/);
   assert.match(appSource, /<CalendarPage currentUserRole=\{sessionUser\.role\} \/>/);
 });
 
 test('calendar uses operations scheduling language and week-first controls', () => {
-  assert.match(calendarSource, /Schedule jobs, crews, equipment, and company events\./);
+  assert.match(calendarSource, /Coordinate company jobs, crews, employees, and equipment\./);
   assert.match(calendarControlsSource, /Today/);
   assert.match(calendarControlsSource, /\['month', 'week', 'day'\]/);
   assert.match(scheduleModelSource, /view: 'week'/);
@@ -51,7 +53,9 @@ test('calendar uses operations scheduling language and week-first controls', () 
   assert.match(calendarSource, /eventDrop/);
   assert.match(calendarControlsSource, /All divisions/);
   assert.match(calendarControlsSource, /All jobs/);
-  assert.match(calendarControlsSource, /All crews & employees/);
+  assert.match(calendarControlsSource, /All crews/);
+  assert.match(calendarControlsSource, /All employees/);
+  assert.match(calendarControlsSource, /All statuses/);
   assert.match(calendarControlsSource, /All equipment/);
   assert.match(calendarControlsSource, /Colour by/);
   assert.match(calendarSource, /Schedule Job/);
@@ -65,7 +69,9 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /assignedEmployeeIds: selectedEvent\.job\.assignedEmployeeIds \?\? \[\],/);
   assert.match(calendarSource, /assignedEquipmentIds: selectedEvent\.job\.assignedEquipmentIds \?\? \[\],/);
   assert.match(calendarSource, /filterScheduleEntries/);
-  assert.match(calendarSource, /resourceId: resourceFilter/);
+  assert.match(calendarSource, /crewId: crewFilter/);
+  assert.match(calendarSource, /employeeId: employeeFilter/);
+  assert.match(calendarSource, /status: statusFilter/);
   assert.match(calendarSource, /crewId: selectedEvent\.job\.crewId/);
   assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employee\.id\)/);
   assert.match(scheduleModalSource, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\],/);

@@ -78,7 +78,16 @@ export function canWriteEntity(entity, role) {
   return !!ENTITY_WRITE_ROLES[entity]?.includes(normalizedRole);
 }
 
-export function authorizeRecordAccess(session, entity, record) {
+function getAuthorizedCrewIds(session, crews = []) {
+  if (!session?.employeeId || !Array.isArray(crews)) return new Set();
+  return new Set(crews
+    .filter((crew) => crew?.active === true
+      && (crew.leadEmployeeId === session.employeeId
+        || (Array.isArray(crew.memberIds) && crew.memberIds.includes(session.employeeId))))
+    .map((crew) => crew.id));
+}
+
+export function authorizeRecordAccess(session, entity, record, context = {}) {
   if (!session || !record) return false;
   const role = normalizeRole(session.role);
 
@@ -103,7 +112,8 @@ export function authorizeRecordAccess(session, entity, record) {
     const assignedEmployeeIds = Array.isArray(record.assignedEmployeeIds)
       ? record.assignedEmployeeIds
       : [];
-    return assignedEmployeeIds.includes(session.employeeId);
+    if (assignedEmployeeIds.includes(session.employeeId)) return true;
+    return Boolean(record.crewId && getAuthorizedCrewIds(session, context.crews).has(record.crewId));
   }
 
   if (entity === 'tasks') {
@@ -127,7 +137,7 @@ export function canClockForEmployee(session, employeeId) {
   return typeof session.employeeId === 'string' && session.employeeId === employeeId;
 }
 
-export function filterRecordsForSession(session, entity, records) {
+export function filterRecordsForSession(session, entity, records, context = {}) {
   if (!Array.isArray(records)) return [];
   const role = normalizeRole(session.role);
 
@@ -139,5 +149,5 @@ export function filterRecordsForSession(session, entity, records) {
 
   if (role === 'owner' || role === 'admin' || role === 'foreman') return records;
 
-  return records.filter((record) => authorizeRecordAccess(session, entity, record));
+  return records.filter((record) => authorizeRecordAccess(session, entity, record, context));
 }

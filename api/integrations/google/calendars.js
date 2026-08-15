@@ -12,7 +12,7 @@ import { reconcileGoogleJobsForUser } from '../../_lib/googleCalendarSync.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const connection = await getGoogleConnection({ businessId: session.businessId, userId: session.id });
   if (!connection) return res.status(409).json({ ok: false, error: 'Google Calendar is not connected' });

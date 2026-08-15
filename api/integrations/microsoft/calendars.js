@@ -6,7 +6,7 @@ import { methodNotAllowed } from './_http.js';
 
 export default async function handler(req, res) {
   if (!['GET', 'PATCH'].includes(req.method)) return methodNotAllowed(res, ['GET', 'PATCH']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const connection = await getMicrosoftConnection({ businessId: session.businessId, userId: session.id });
   if (!connection) return res.status(409).json({ ok: false, error: 'Outlook Calendar is not connected' });

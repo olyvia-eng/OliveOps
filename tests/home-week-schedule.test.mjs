@@ -3,25 +3,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync('src/pages/home/HomePage.tsx', 'utf8');
-const summarySource = readFileSync('src/components/calendar/WeeklyScheduleSummary.tsx', 'utf8');
+const personalCalendarSource = readFileSync('src/components/calendar/PersonalCalendar.tsx', 'utf8');
 
-test('Home answers what company work is scheduled this week using the shared schedule model', () => {
-  assert.match(source, /This Week/);
-  assert.match(source, /useMemo\(\(\) => startOfWeek\(new Date\(\), \{ weekStartsOn: 1 \}\), \[\]\)/);
-  assert.match(source, /getEffectiveDivision/);
-  assert.match(source, /normalizeExternalScheduleEntry/);
-  assert.match(source, /<WeeklyScheduleSummary/);
-  assert.doesNotMatch(source, /googleEvents\.slice\(0, 5\)\.map/);
-  assert.match(summarySource, /buildWeeklyScheduleSpans/);
-  assert.match(summarySource, /showWeekend/);
-  assert.match(summarySource, /todayKey/);
-  assert.match(source, /Unassigned crew/);
+test('Home answers what this user needs to do with a calendar-first view', () => {
+  assert.match(source, /title="My Calendar"/);
+  assert.match(source, /<PersonalCalendar jobs=\{jobs\} tasks=\{myTasks\}/);
+  assert.match(personalCalendarSource, /initialView="timeGridWeek"/);
+  assert.match(personalCalendarSource, /\['month', 'week', 'day'\]|VIEW_MAP/);
+  assert.match(source, /My Tasks/);
 });
 
-test('Home renders date-only work without redundant all-day text and keeps source-aware quick views', () => {
-  assert.match(source, /window\.allDay \? '' : formatScheduleTimeLabel\(job\)/);
-  assert.match(source, /entry\.source === 'external'/);
-  assert.match(source, /setSelectedExternalEvent\(entry\.externalEvent\)/);
-  assert.match(source, /setSelectedJobId\(entry\.jobId \?\? null\)/);
-  assert.match(summarySource, /entry\.allDay \? '' : entry\.timeLabel/);
+test('personal calendar renders assigned jobs, due tasks, and private provider events', () => {
+  assert.match(personalCalendarSource, /getJobScheduleWindow/);
+  assert.match(personalCalendarSource, /task\.dueDate && task\.status === 'open'/);
+  assert.match(personalCalendarSource, /externalEvents\.map/);
+  assert.match(personalCalendarSource, /Calendar connections/);
 });

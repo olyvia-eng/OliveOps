@@ -9,7 +9,7 @@ import { reconcileGoogleJobsForUser } from '../../_lib/googleCalendarSync.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
 
   const connection = await getGoogleConnection({ businessId: session.businessId, userId: session.id });
@@ -23,6 +23,9 @@ export default async function handler(req, res) {
   const syncOliveOpsJobs = req.body?.syncOliveOpsJobs;
   if (typeof showGoogleEvents !== 'boolean' || typeof syncOliveOpsJobs !== 'boolean') {
     return res.status(400).json({ ok: false, error: 'Invalid integration preferences' });
+  }
+  if (syncOliveOpsJobs && !['owner', 'admin'].includes(session.role)) {
+    return res.status(403).json({ ok: false, error: 'Only owners and admins can sync company jobs' });
   }
   const preferences = {
     ...connection.preferences,

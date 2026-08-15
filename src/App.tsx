@@ -1,6 +1,6 @@
 import { getDisplayName } from './auth/displayName';
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
@@ -43,8 +43,14 @@ const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
 const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
+const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
+
+function LegacyCalendarRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/schedule${location.search}`} replace />;
+}
 
 async function readApiJson<T>(response: Response): Promise<T | null> {
   try {
@@ -466,6 +472,8 @@ export default function App() {
             sessionUser?.role === 'crew_member' || sessionUser?.role === 'foreman' ? (
               <EmployeePortalPage
                 sessionEmployeeEmail={sessionUser.email}
+                currentUserId={sessionUser.id}
+                currentUserRole={sessionUser.role}
                 onLogout={logout}
               />
             ) : (
@@ -479,6 +487,7 @@ export default function App() {
             <>
               <Route path="login" element={<Navigate to="/employee-login" replace />} />
               <Route path="signup" element={<Navigate to="/employee-login" replace />} />
+              <Route path="settings/personal-calendar" element={<PersonalCalendarSettingsPage />} />
               <Route path="*" element={<Navigate to="/employee-login" replace />} />
             </>
           ) : (
@@ -611,7 +620,8 @@ export default function App() {
               <Route path="estimates/templates" element={<TemplatesPage />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
-              <Route path="calendar" element={<CalendarPage currentUserRole={sessionUser.role} />} />
+              <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
+              <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
@@ -679,6 +689,7 @@ export default function App() {
                 path="settings/integrations"
                 element={canManageUsers ? <IntegrationsPage /> : <Navigate to="/" replace />}
               />
+              <Route path="settings/personal-calendar" element={<PersonalCalendarSettingsPage />} />
               <Route
                 path="settings/scheduling"
                 element={canManageUsers ? <SchedulingSetupPage /> : <Navigate to="/" replace />}

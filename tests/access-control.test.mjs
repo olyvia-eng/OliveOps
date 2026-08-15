@@ -30,14 +30,28 @@ test('crew members can only see their own time entries and submissions', () => {
   assert.deepEqual(filterRecordsForSession(session, 'form-submissions', records), [{ id: 't1', employeeId: 'emp-1' }]);
 });
 
-test('crew members can only access jobs assigned to them', () => {
+test('crew members can access direct and active crew job assignments only', () => {
   const session = { role: 'crew_member', employeeId: 'emp-1', businessId: 'biz-1' };
   const records = [
     { id: 'job-1', assignedEmployeeIds: ['emp-1'] },
     { id: 'job-2', assignedEmployeeIds: ['emp-2'] },
+    { id: 'job-3', assignedEmployeeIds: [], crewId: 'crew-member' },
+    { id: 'job-4', assignedEmployeeIds: [], crewId: 'crew-lead' },
+    { id: 'job-5', assignedEmployeeIds: [], crewId: 'crew-inactive' },
+    { id: 'job-6', assignedEmployeeIds: [], crewId: 'crew-other' },
+  ];
+  const crews = [
+    { id: 'crew-member', active: true, leadEmployeeId: 'emp-2', memberIds: ['emp-1'] },
+    { id: 'crew-lead', active: true, leadEmployeeId: 'emp-1', memberIds: [] },
+    { id: 'crew-inactive', active: false, leadEmployeeId: 'emp-1', memberIds: ['emp-1'] },
+    { id: 'crew-other', active: true, leadEmployeeId: 'emp-2', memberIds: ['emp-2'] },
   ];
 
-  assert.deepEqual(filterRecordsForSession(session, 'jobs', records), [{ id: 'job-1', assignedEmployeeIds: ['emp-1'] }]);
+  assert.deepEqual(filterRecordsForSession(session, 'jobs', records, { crews }), [
+    { id: 'job-1', assignedEmployeeIds: ['emp-1'] },
+    { id: 'job-3', assignedEmployeeIds: [], crewId: 'crew-member' },
+    { id: 'job-4', assignedEmployeeIds: [], crewId: 'crew-lead' },
+  ]);
 });
 
 test('clocking authorization allows self-service and blocks other employees for crew members', () => {

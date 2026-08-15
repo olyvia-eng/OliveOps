@@ -13,7 +13,7 @@ import { methodNotAllowed } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   try {
     const state = createMicrosoftOAuthStateValue();

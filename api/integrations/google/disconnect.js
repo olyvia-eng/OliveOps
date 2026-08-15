@@ -9,7 +9,7 @@ import { methodNotAllowed } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const connection = await getGoogleConnection({ businessId: session.businessId, userId: session.id });
   if (connection?.encryptedRefreshToken) {

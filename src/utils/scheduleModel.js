@@ -83,6 +83,9 @@ export function filterScheduleEntries(entries, filters) {
       if (kind === 'crew' && entry.crew?.id !== id) return false;
       if (kind === 'employee' && !entry.employeeIds.includes(id)) return false;
     }
+    if (filters.crewId && filters.crewId !== 'all' && entry.crew?.id !== filters.crewId) return false;
+    if (filters.employeeId && filters.employeeId !== 'all' && !entry.employeeIds.includes(filters.employeeId)) return false;
+    if (filters.status && filters.status !== 'all' && entry.status !== filters.status) return false;
     if (filters.jobId && filters.jobId !== 'all' && entry.jobId !== filters.jobId) return false;
     if (filters.equipmentId && filters.equipmentId !== 'all' && !entry.equipmentIds.includes(filters.equipmentId)) return false;
     return true;

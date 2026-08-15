@@ -43,7 +43,7 @@ export interface WeeklyScheduleSpan {
 
 export interface PackedWeeklyScheduleSpan extends WeeklyScheduleSpan { row: number }
 
-export function filterScheduleEntries(entries: NormalizedScheduleEntry[], filters: { divisionId?: string; resourceId?: string; jobId?: string; equipmentId?: string; showGoogleEvents?: boolean; showOutlookEvents?: boolean }): NormalizedScheduleEntry[];
+export function filterScheduleEntries(entries: NormalizedScheduleEntry[], filters: { divisionId?: string; resourceId?: string; crewId?: string; employeeId?: string; status?: string; jobId?: string; equipmentId?: string; showGoogleEvents?: boolean; showOutlookEvents?: boolean }): NormalizedScheduleEntry[];
 export function getScheduleLegend(entries: NormalizedScheduleEntry[], colourBy: CalendarColourBy): Array<{ id: string; label: string; colour: ScheduleColour }>;
 export function groupScheduleEntriesByDay(entries: NormalizedScheduleEntry[], dayKeys: string[]): Array<{ dayKey: string; entries: NormalizedScheduleEntry[] }>;
 export function normalizeGoogleScheduleEntry(event: GoogleCalendarEvent): NormalizedScheduleEntry;

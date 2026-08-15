@@ -11,7 +11,7 @@ import { methodNotAllowed, redirectToIntegrations } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
 
   const state = typeof req.query.state === 'string' ? req.query.state : '';

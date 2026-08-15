@@ -24,7 +24,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
     { id: 'top-home', type: 'link', to: '/home', end: true, label: 'Home', icon: icon(LayoutDashboard) },
   ],
   pinnedPages: [
-    { id: 'pin-calendar', type: 'link', to: '/calendar', label: 'Calendar', icon: icon(CalendarDays) },
+    { id: 'pin-schedule', type: 'link', to: '/schedule', label: 'Schedule', icon: icon(CalendarDays) },
     { id: 'pin-clients', type: 'link', to: '/crm', label: 'Clients', icon: icon(Users) },
     { id: 'pin-jobs', type: 'link', to: '/jobs', label: "Today's Jobs", icon: icon(Briefcase) },
   ],
@@ -74,7 +74,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
       defaultExpanded: false,
       items: [
         { id: 'operations-jobs', type: 'link', to: '/jobs', label: 'Jobs', icon: icon(Briefcase) },
-        { id: 'operations-calendar', type: 'link', to: '/calendar', label: 'Calendar', icon: icon(CalendarDays) },
+        { id: 'operations-schedule', type: 'link', to: '/schedule', label: 'Schedule', icon: icon(CalendarDays) },
         { id: 'operations-forms', type: 'link', to: '/operations/forms', label: 'Forms', icon: icon(FileBox) },
       ],
     },

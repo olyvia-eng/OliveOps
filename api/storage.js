@@ -26,6 +26,7 @@ import {
   updateTimeEntryForBusiness,
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, canReadEntity, canWriteEntity } from './_lib/authorization.js';
+import { listCrewsForBusiness } from './_lib/schedulingConfig.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
@@ -142,7 +143,7 @@ function mapAttachmentEntityToAuthorizationEntity(entityType) {
   return null;
 }
 
-function canAccessAttachmentRecord({ session, entityType, entity, accessMode }) {
+function canAccessAttachmentRecord({ session, entityType, entity, accessMode, context = {} }) {
   if (entityType === DOCUMENT_ENTITY_TYPE) {
     return canManageDocuments(session.role);
   }
@@ -159,7 +160,7 @@ function canAccessAttachmentRecord({ session, entityType, entity, accessMode }) 
     return false;
   }
 
-  return authorizeRecordAccess(session, authorizationEntity, entity);
+  return authorizeRecordAccess(session, authorizationEntity, entity, context);
 }
 
 function ensureAllowedKeys(body, allowedKeys) {
@@ -219,6 +220,7 @@ const defaultDeps = {
   updateFileForBusiness,
   updateExpenseForBusiness,
   updateTimeEntryForBusiness,
+  listCrewsForBusiness,
 };
 
 export function createStorageHandler(overrides = {}) {
@@ -228,7 +230,10 @@ export function createStorageHandler(overrides = {}) {
     if (entityType === 'job') {
       const job = await deps.getJobForBusiness(session.businessId, entityId);
       if (!job) return null;
-      return { entity: job, allowed: canAccessAttachmentRecord({ session, entityType, entity: job, accessMode }) };
+      const directlyAllowed = canAccessAttachmentRecord({ session, entityType, entity: job, accessMode });
+      if (directlyAllowed || !job.crewId) return { entity: job, allowed: directlyAllowed };
+      const crews = await deps.listCrewsForBusiness(session.businessId);
+      return { entity: job, allowed: canAccessAttachmentRecord({ session, entityType, entity: job, accessMode, context: { crews } }) };
     }
 
     if (entityType === 'customer') {

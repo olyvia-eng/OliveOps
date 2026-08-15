@@ -5,7 +5,7 @@ import { methodNotAllowed } from './_http.js';
 
 export default async function handler(req, res) {
   if (!['GET', 'PATCH'].includes(req.method)) return methodNotAllowed(res, ['GET', 'PATCH']);
-  const session = await requireSession(req, res, ['owner', 'admin']);
+  const session = await requireSession(req, res);
   if (!session) return;
   const connection = await getMicrosoftConnection({ businessId: session.businessId, userId: session.id });
   if (req.method === 'GET') {
@@ -18,6 +18,9 @@ export default async function handler(req, res) {
   const syncOliveOpsJobs = req.body?.syncOliveOpsJobs;
   if (typeof showOutlookEvents !== 'boolean' || typeof syncOliveOpsJobs !== 'boolean') {
     return res.status(400).json({ ok: false, error: 'Invalid integration preferences' });
+  }
+  if (syncOliveOpsJobs && !['owner', 'admin'].includes(session.role)) {
+    return res.status(403).json({ ok: false, error: 'Only owners and admins can sync company jobs' });
   }
   const preferences = { ...connection.preferences, showOutlookEvents, syncOliveOpsJobs, scope: 'all_company_jobs', employeeIds: [], divisionIds: [] };
   await updateMicrosoftConnectionSettings({ businessId: session.businessId, userId: session.id, preferences });

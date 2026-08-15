@@ -7,6 +7,8 @@ const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const settingsSource = readFileSync('src/pages/settings/IntegrationsPage.tsx', 'utf8');
 const calendarSource = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8');
 const homeSource = readFileSync('src/pages/home/HomePage.tsx', 'utf8');
+const personalCalendarSource = readFileSync('src/components/calendar/PersonalCalendar.tsx', 'utf8');
+const personalSettingsSource = readFileSync('src/pages/settings/PersonalCalendarSettingsPage.tsx', 'utf8');
 
 test('Google Calendar settings remain owner-admin guarded and expose no token fields', () => {
   assert.match(appSource, /path="settings\/integrations"/);
@@ -18,19 +20,19 @@ test('Google Calendar settings remain owner-admin guarded and expose no token fi
   assert.doesNotMatch(settingsSource, /refreshToken|accessToken|clientSecret/);
 });
 
-test('existing operations calendar merges provider-aware read-only external events', () => {
-  assert.match(calendarSource, /source: 'external'/);
-  assert.match(calendarSource, /selectedExternalEvent\.sourceLabel/);
-  assert.match(calendarSource, /editable: false/);
-  assert.match(calendarSource, /eventDrop\.event\.extendedProps\?\.source === 'external'/);
+test('company Schedule is provider-free and keeps operational job actions', () => {
+  assert.doesNotMatch(calendarSource, /api\/integrations\/calendars\/events/);
+  assert.doesNotMatch(calendarSource, /ExternalCalendarEvent|source: 'external'/);
   assert.match(calendarSource, /Open Job/);
   assert.match(calendarSource, /Edit Schedule/);
 });
 
-test('Home This Week normalizes aggregated external events and preserves job quick view navigation', () => {
-  assert.match(homeSource, /api\/integrations\/calendars\/events/);
-  assert.match(homeSource, /normalizeExternalScheduleEntry/);
-  assert.match(homeSource, /selectedExternalEvent\.sourceLabel/);
-  assert.match(homeSource, /setSelectedJobId\(entry\.jobId \?\? null\)/);
-  assert.match(homeSource, /to=\{`\/jobs\/\$\{selectedJob\.id\}`\}/);
+test('Home uses a range-loaded personal calendar and exposes self-service connections', () => {
+  assert.match(homeSource, /<PersonalCalendar/);
+  assert.match(personalCalendarSource, /timeGridWeek/);
+  assert.match(personalCalendarSource, /api\/integrations\/calendars\/events/);
+  assert.match(personalCalendarSource, /kind: 'task'/);
+  assert.match(appSource, /path="settings\/personal-calendar"/);
+  assert.match(personalSettingsSource, /Events remain private to your OliveOps account/);
+  assert.doesNotMatch(personalSettingsSource, /QuickBooks/);
 });

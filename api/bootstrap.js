@@ -105,7 +105,7 @@ export default async function handler(req, res) {
       crews: filterRecordsForSession(session, 'crews', crews),
       divisions: filterRecordsForSession(session, 'divisions', divisions),
       customers: filterRecordsForSession(session, 'customers', customers),
-      jobs: filterRecordsForSession(session, 'jobs', jobs),
+      jobs: filterRecordsForSession(session, 'jobs', jobs, { crews }),
       estimates: filterRecordsForSession(session, 'estimates', estimates),
       invoices: filterRecordsForSession(session, 'invoices', invoices),
       expenses: filterRecordsForSession(session, 'expenses', expenses),

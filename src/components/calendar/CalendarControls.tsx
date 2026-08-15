@@ -32,35 +32,46 @@ export function CalendarToolbar({ title, view, onNavigate, onViewChange }: {
   );
 }
 
-export function CalendarFilters({ divisions, crews, employees, jobs, equipment, divisionId, resourceId, jobId, equipmentId, showGoogleEvents, showOutlookEvents, onDivisionChange, onResourceChange, onJobChange, onEquipmentChange, onGoogleChange, onOutlookChange }: {
+export function CalendarFilters({ divisions, crews, employees, jobs, equipment, divisionId, crewId, employeeId, status, jobId, equipmentId, showGoogleEvents, showOutlookEvents, onDivisionChange, onCrewChange, onEmployeeChange, onStatusChange, onJobChange, onEquipmentChange, onGoogleChange, onOutlookChange }: {
   divisions: Array<Pick<Division, 'id' | 'name'>>;
   crews: Crew[];
   employees: Employee[];
   jobs: Job[];
   equipment: EquipmentAsset[];
   divisionId: string;
-  resourceId: string;
+  crewId: string;
+  employeeId: string;
+  status: string;
   jobId: string;
   equipmentId: string;
-  showGoogleEvents: boolean;
-  showOutlookEvents: boolean;
+  showGoogleEvents?: boolean;
+  showOutlookEvents?: boolean;
   onDivisionChange: (value: string) => void;
-  onResourceChange: (value: string) => void;
+  onCrewChange: (value: string) => void;
+  onEmployeeChange: (value: string) => void;
+  onStatusChange: (value: string) => void;
   onJobChange: (value: string) => void;
   onEquipmentChange: (value: string) => void;
-  onGoogleChange: (value: boolean) => void;
-  onOutlookChange: (value: boolean) => void;
+  onGoogleChange?: (value: boolean) => void;
+  onOutlookChange?: (value: boolean) => void;
 }) {
   return (
-    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto_auto]">
+    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       <Select value={divisionId} onChange={(event) => onDivisionChange(event.target.value)} aria-label="Filter by division">
         <option value="all">All divisions</option>
         {divisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
       </Select>
-      <Select value={resourceId} onChange={(event) => onResourceChange(event.target.value)} aria-label="Filter by crew or employee">
-        <option value="all">All crews & employees</option>
-        {crews.length > 0 ? <optgroup label="Crews">{crews.map((crew) => <option key={crew.id} value={`crew:${crew.id}`}>{crew.name}</option>)}</optgroup> : null}
-        {employees.length > 0 ? <optgroup label="Employees">{employees.map((employee) => <option key={employee.id} value={`employee:${employee.id}`}>{employee.name}</option>)}</optgroup> : null}
+      <Select value={crewId} onChange={(event) => onCrewChange(event.target.value)} aria-label="Filter by crew">
+        <option value="all">All crews</option>
+        {crews.map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
+      </Select>
+      <Select value={employeeId} onChange={(event) => onEmployeeChange(event.target.value)} aria-label="Filter by employee">
+        <option value="all">All employees</option>
+        {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+      </Select>
+      <Select value={status} onChange={(event) => onStatusChange(event.target.value)} aria-label="Filter by status">
+        <option value="all">All statuses</option>
+        <option value="scheduled">Scheduled</option><option value="in_progress">In progress</option><option value="on_hold">On hold</option><option value="completed">Completed</option>
       </Select>
       <Select value={jobId} onChange={(event) => onJobChange(event.target.value)} aria-label="Filter by job">
         <option value="all">All jobs</option>
@@ -70,14 +81,14 @@ export function CalendarFilters({ divisions, crews, employees, jobs, equipment, 
         <option value="all">All equipment</option>
         {equipment.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
       </Select>
-      <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border border-brand-100 bg-white px-3 text-sm font-medium text-brand-700 shadow-sm dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100">
+      {onGoogleChange ? <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border border-brand-100 bg-white px-3 text-sm font-medium text-brand-700 shadow-sm dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100">
         <input type="checkbox" checked={showGoogleEvents} onChange={(event) => onGoogleChange(event.target.checked)} className="h-4 w-4 accent-accent-500" />
         Google
-      </label>
-      <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border border-brand-100 bg-white px-3 text-sm font-medium text-brand-700 shadow-sm dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100">
+      </label> : null}
+      {onOutlookChange ? <label className="flex h-10 cursor-pointer items-center gap-2 whitespace-nowrap rounded-xl border border-brand-100 bg-white px-3 text-sm font-medium text-brand-700 shadow-sm dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100">
         <input type="checkbox" checked={showOutlookEvents} onChange={(event) => onOutlookChange(event.target.checked)} className="h-4 w-4 accent-accent-500" />
         Outlook
-      </label>
+      </label> : null}
     </div>
   );
 }
@@ -95,7 +106,7 @@ export function ColourBySelector({ value, onChange }: { value: CalendarColourBy;
   );
 }
 
-export function CalendarLegend({ items, showGoogleEvents, showOutlookEvents }: { items: Array<{ id: string; label: string; colour: ScheduleColour }>; showGoogleEvents: boolean; showOutlookEvents: boolean }) {
+export function CalendarLegend({ items, showGoogleEvents = false, showOutlookEvents = false }: { items: Array<{ id: string; label: string; colour: ScheduleColour }>; showGoogleEvents?: boolean; showOutlookEvents?: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2" aria-label="Calendar colour legend">
       {items.map((item) => <span key={item.id} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-100"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.colour.value }} />{item.label}</span>)}

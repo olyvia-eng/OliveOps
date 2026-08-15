@@ -7,13 +7,17 @@ import { durationHours, formatDateTime } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { FormRecord, TimeCorrectionRequestType, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
+import PersonalCalendar from '../../components/calendar/PersonalCalendar';
+import CalendarPage from '../calendar/CalendarPage';
 
 interface EmployeePortalPageProps {
   sessionEmployeeEmail?: string;
+  currentUserId: string;
+  currentUserRole: string;
   onLogout?: () => void | Promise<void>;
 }
 
-export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: EmployeePortalPageProps) {
+export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId, currentUserRole, onLogout }: EmployeePortalPageProps) {
   const {
     employees,
     jobs,
@@ -22,6 +26,8 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: E
     timeCorrections,
     forms,
     formSubmissions,
+    customers,
+    tasks,
     clockIn,
     clockOut,
     addFormSubmission,
@@ -52,6 +58,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: E
   const [requestedUnbillableCategoryId, setRequestedUnbillableCategoryId] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
+  const [portalView, setPortalView] = useState<'calendar' | 'schedule' | 'clock'>('calendar');
 
   const sessionEmployee = useMemo(() => {
     if (!sessionEmployeeEmail) return null;
@@ -333,7 +340,29 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: E
 
   return (
     <div className="min-h-screen bg-cream px-4 py-10">
-      <div className="mx-auto w-full max-w-lg">
+      <div className={`mx-auto w-full ${portalView === 'clock' ? 'max-w-lg' : 'max-w-7xl'}`}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-lg border border-brand-200 bg-white p-1">
+            {([
+              ['calendar', 'My Calendar'],
+              ['schedule', 'Schedule'],
+              ['clock', 'Time Clock'],
+            ] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setPortalView(value)} className={`h-9 rounded-md px-3 text-sm font-semibold ${portalView === value ? 'bg-brand-700 text-white' : 'text-brand-700'}`}>{label}</button>
+            ))}
+          </div>
+          <Button variant="secondary" onClick={handleLogout}>Log Out</Button>
+        </div>
+
+        {portalView === 'calendar' ? (
+          <Card className="overflow-hidden">
+            <PersonalCalendar jobs={jobs} tasks={tasks.filter((task) => task.assignedUserId === currentUserId)} customers={customers} />
+          </Card>
+        ) : null}
+
+        {portalView === 'schedule' ? <CalendarPage currentUserRole={currentUserRole} /> : null}
+
+        {portalView === 'clock' ? (
         <Card className="p-6 sm:p-8">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -510,10 +539,11 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, onLogout }: E
             </div>
           )}
         </Card>
+        ) : null}
 
-        <p className="mt-4 text-center text-xs text-gray-500">
+        {portalView === 'clock' ? <p className="mt-4 text-center text-xs text-gray-500">
           Admin access is available in the main app at <Link to="/" className="text-brand-600 hover:underline">dashboard</Link>.
-        </p>
+        </p> : null}
       </div>
 
       <Modal

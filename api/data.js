@@ -121,7 +121,7 @@ import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authoriza
 import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
-import { getCrewForBusiness, getDivisionForBusiness } from './_lib/schedulingConfig.js';
+import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness } from './_lib/schedulingConfig.js';
 import {
   deleteEquipmentBudgetAllocationForItem,
   repairBudgetGroupMembershipForDeletion,
@@ -1340,7 +1340,10 @@ export default async function handler(req, res) {
 
     try {
       const items = await config.list(session.businessId);
-      const filteredItems = filterRecordsForSession(session, entity, items);
+      const context = entity === 'jobs'
+        ? { crews: await listCrewsForBusiness(session.businessId) }
+        : {};
+      const filteredItems = filterRecordsForSession(session, entity, items, context);
       return res.status(200).json({ ok: true, items: filteredItems });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not load ${entity}` });
