@@ -29,10 +29,11 @@ test('lightweight estimate creation returns an id and opens the workspace', () =
   assert.match(estimatesSource, /Customer and pricing budget are required to start an estimate\./);
 });
 
-test('estimate list title and action both open the dedicated workspace', () => {
-  const workspaceNavigations = estimatesSource.match(/navigate\(`\/estimates\/\$\{estimate\.id\}`\)/g) ?? [];
-  assert.equal(workspaceNavigations.length, 2);
-  assert.match(estimatesSource, /title="Open Workspace"/);
+test('estimate list title and action open URL-backed details with a dedicated workspace available', () => {
+  assert.match(estimatesSource, /const selectEstimate = \(estimateId: string\) => setSearchParams\(openDetailWorkspace/);
+  assert.match(estimatesSource, /onClick=\{\(\) => selectEstimate\(estimate\.id\)\}/);
+  assert.match(estimatesSource, /title="Open Details"/);
+  assert.match(appSource, /path="estimates\/:id"/);
 });
 
 test('estimate editing uses a URL-backed tab workspace with restricted analysis', () => {

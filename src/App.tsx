@@ -502,7 +502,7 @@ export default function App() {
               <Route index element={<Navigate to="/home" replace />} />
               <Route path="home" element={<HomePage currentUserId={sessionUser.id} currentUserName={sessionDisplayName} />} />
               <Route path="company-dashboard" element={<Dashboard businessId={sessionUser.businessId} businessName={sessionUser.businessName} />} />
-              <Route path="crm" element={<CRMPage />} />
+              <Route path="crm" element={<CRMPage currentUserRole={sessionUser.role} />} />
               <Route path="revenue/dashboard" element={<RevenueDashboardPage />} />
               <Route
                 path="revenue/leads"
@@ -599,7 +599,7 @@ export default function App() {
                   />
                 }
               />
-              <Route path="estimates" element={<EstimatesPage />} />
+              <Route path="estimates" element={<EstimatesPage currentUserRole={sessionUser.role} />} />
               <Route
                 path="estimates/:id"
                 element={<EstimateWorkspacePage currentUserRole={sessionUser.role} />}
@@ -609,7 +609,7 @@ export default function App() {
                 element={<EstimateWorkAreaBuilderPage currentUserRole={sessionUser.role} />}
               />
               <Route path="estimates/templates" element={<TemplatesPage />} />
-              <Route path="jobs" element={<JobsPage />} />
+              <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets" element={<BudgetsPage />} />

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRight, FileDown, FilterX, Mail, Plus, RefreshCw, Search, Trash2, Users, Wallet, FileText } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -16,8 +16,19 @@ import {
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
 import type { Address, Estimate, EstimateStatus, ID } from '../../types';
+import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
+import {
+  closeDetailWorkspace,
+  openDetailWorkspace,
+  readDetailWorkspaceQuery,
+  setDetailWorkspaceMode,
+  setDetailWorkspaceTab,
+} from '../../components/detail-workspace/detailWorkspaceQuery';
+import EstimateDetailPanel, { type EstimateDetailTab } from './EstimateDetailPanel';
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
+const ESTIMATE_WORKSPACE_QUERY = { recordParam: 'estimate', tabParam: 'estimateTab', defaultTab: 'overview' } as const;
+const ESTIMATE_DETAIL_TABS: EstimateDetailTab[] = ['overview', 'scope', 'proposal', 'notes'];
 
 const isEstimateStatusFilter = (value: string | null): value is EstimateStatus | 'all' => {
   return value === 'all' || STATUSES.includes(value as EstimateStatus);
@@ -175,7 +186,11 @@ const createProposalDocument = (estimate: Estimate, customerName: string, custom
   return doc;
 };
 
-export default function EstimatesPage() {
+interface EstimatesPageProps {
+  currentUserRole: string;
+}
+
+export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const {
     estimates,
     customers,
@@ -186,6 +201,7 @@ export default function EstimatesPage() {
   } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<EstimateStatus | 'all'>('all');
@@ -200,6 +216,17 @@ export default function EstimatesPage() {
   });
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
   const [proposalEstimateId, setProposalEstimateId] = useState<string | null>(null);
+  const workspace = readDetailWorkspaceQuery(searchParams, ESTIMATE_WORKSPACE_QUERY);
+  const selectedEstimate = estimates.find((estimate) => estimate.id === workspace.recordId) ?? null;
+  const selectedEstimateCustomer = customers.find((customer) => customer.id === selectedEstimate?.customerId) ?? null;
+  const estimateDetailTab = ESTIMATE_DETAIL_TABS.includes(workspace.tab as EstimateDetailTab)
+    ? workspace.tab as EstimateDetailTab
+    : 'overview';
+  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const selectEstimate = (estimateId: string) => setSearchParams(openDetailWorkspace(searchParams, ESTIMATE_WORKSPACE_QUERY, estimateId));
+  const closeEstimate = () => setSearchParams(closeDetailWorkspace(searchParams, ESTIMATE_WORKSPACE_QUERY));
+  const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, ESTIMATE_WORKSPACE_QUERY, mode));
+  const setEstimateTab = (tab: EstimateDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, ESTIMATE_WORKSPACE_QUERY, tab));
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -213,13 +240,17 @@ export default function EstimatesPage() {
     const params = new URLSearchParams(location.search);
     if (params.get('create') !== 'estimate') return;
 
-    openNew();
+    const requestedCustomerId = params.get('customer');
+    openNew(requestedCustomerId && customers.some((customer) => customer.id === requestedCustomerId)
+      ? requestedCustomerId
+      : undefined);
     params.delete('create');
+    params.delete('customer');
     navigate({
       pathname: location.pathname,
       search: params.toString() ? `?${params.toString()}` : '',
     }, { replace: true });
-  }, [location.pathname, location.search, navigate]);
+  }, [customers, location.pathname, location.search, navigate]);
 
   const proposalEstimate = proposalEstimateId
     ? estimates.find((estimate) => estimate.id === proposalEstimateId) ?? null
@@ -253,7 +284,7 @@ export default function EstimatesPage() {
     return matchSearch && matchStatus;
   });
 
-  const openNew = () => {
+  const openNew = (customerId?: string) => {
     if (!hasCustomers) {
       emitAppToast({ tone: 'error', message: 'Add a client before creating an estimate.' });
       navigate('/crm');
@@ -268,6 +299,7 @@ export default function EstimatesPage() {
 
     setCreateForm({
       ...defaultCreateForm(),
+      customerId: customerId ?? '',
       pricingBudgetId: budgets.find((budget) => budget.status === 'active')?.id ?? budgets[0]?.id ?? '',
     });
     setCreateModalOpen(true);
@@ -385,10 +417,16 @@ export default function EstimatesPage() {
 
   return (
     <div>
+      <DetailWorkspace
+        open={Boolean(workspace.recordId)}
+        expanded={workspace.mode === 'expanded'}
+        detailKey={workspace.recordId}
+        list={(
+          <div>
       <PageHeader
         title="Estimates"
         subtitle="Create and manage estimates for your customers."
-        action={<Button onClick={openNew}><Plus size={16} /> New Estimate</Button>}
+        action={<Button onClick={() => openNew()}><Plus size={16} /> New Estimate</Button>}
       />
 
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
@@ -434,7 +472,7 @@ export default function EstimatesPage() {
               icon={<FileText aria-hidden="true" />}
               title="Create your first estimate"
               description="Build estimates using your company pricing and organize the scope into Work Areas."
-              action={<Button onClick={openNew}><Plus size={16} /> Create Estimate</Button>}
+              action={<Button onClick={() => openNew()}><Plus size={16} /> Create Estimate</Button>}
               helpText="Start with a client, property, and pricing budget."
             />
           )
@@ -455,7 +493,7 @@ export default function EstimatesPage() {
                 <th className="pb-2 font-medium">Customer</th>
                 <th className="pb-2 font-medium">Work Areas</th>
                 <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium text-right">Total</th>
+                {canViewFinancials ? <th className="pb-2 font-medium text-right">Total</th> : null}
                 <th className="pb-2 font-medium">Valid Until</th>
                 <th className="pb-2 font-medium">Actions</th>
               </tr>
@@ -468,9 +506,16 @@ export default function EstimatesPage() {
                 const total = computeEstimateTotal(subtotal, computeEstimateTax(subtotal, estimate.taxRate));
 
                 return (
-                  <tr key={estimate.id} className="hover:bg-gray-50">
+                  <tr
+                    key={estimate.id}
+                    className={`cursor-pointer transition-colors ${workspace.recordId === estimate.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`}
+                    onClick={() => selectEstimate(estimate.id)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectEstimate(estimate.id); }}
+                    tabIndex={0}
+                    aria-selected={workspace.recordId === estimate.id}
+                  >
                     <td className="py-3 font-medium text-gray-900">
-                      <button className="hover:text-brand-700" onClick={() => navigate(`/estimates/${estimate.id}`)}>
+                      <button type="button" className="hover:text-brand-700">
                         {estimate.title}
                       </button>
                     </td>
@@ -479,29 +524,29 @@ export default function EstimatesPage() {
                     <td className="py-3">
                       <Badge label={estimate.status} className={statusColor[estimate.status]} />
                     </td>
-                    <td className="py-3 text-right font-semibold">{formatCurrency(total)}</td>
+                    {canViewFinancials ? <td className="py-3 text-right font-semibold">{formatCurrency(total)}</td> : null}
                     <td className="py-3 text-gray-500">{estimate.validUntil ? formatDate(estimate.validUntil) : '—'}</td>
                     <td className="py-3">
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/estimates/${estimate.id}`)} title="Open Workspace">
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectEstimate(estimate.id); }} title="Open Details">
                           <ChevronRight size={13} />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setProposalEstimateId(estimate.id)} title="Create Proposal PDF">
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setProposalEstimateId(estimate.id); }} title="Create Proposal PDF">
                           <FileDown size={13} />
                         </Button>
                         {estimate.status === 'converted' && estimate.convertedToJobId && (
-                          <Link to={`/jobs/${estimate.convertedToJobId}`}>
+                          <Link to={`/jobs?job=${encodeURIComponent(estimate.convertedToJobId)}&workspace=panel`} onClick={(event) => event.stopPropagation()}>
                             <Button variant="ghost" size="sm" title="Open Job">
                               <ChevronRight size={13} />
                             </Button>
                           </Link>
                         )}
                         {estimate.status === 'accepted' && (
-                          <Button variant="ghost" size="sm" onClick={() => openConvertModal(estimate)} title="Convert to Job">
+                          <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openConvertModal(estimate); }} title="Convert to Job">
                             <RefreshCw size={13} />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(estimate.id)} title="Delete">
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(estimate.id); }} title="Delete">
                           <Trash2 size={13} className="text-accent-700" />
                         </Button>
                       </div>
@@ -513,6 +558,27 @@ export default function EstimatesPage() {
           </table>
         </div>
       )}
+
+          </div>
+        )}
+        detail={selectedEstimate ? (
+          <EstimateDetailPanel
+            estimate={selectedEstimate}
+            customer={selectedEstimateCustomer}
+            activeTab={estimateDetailTab}
+            expanded={workspace.mode === 'expanded'}
+            canViewFinancials={canViewFinancials}
+            onTabChange={setEstimateTab}
+            onCreateProposal={() => setProposalEstimateId(selectedEstimate.id)}
+            onConvert={() => openConvertModal(selectedEstimate)}
+            onExpand={() => setWorkspaceMode('expanded')}
+            onCollapse={() => setWorkspaceMode('panel')}
+            onClose={closeEstimate}
+          />
+        ) : (
+          <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Estimate not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeEstimate}>Close</Button></div>
+        )}
+      />
 
       <Modal
         open={createModalOpen}

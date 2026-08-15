@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
@@ -7,9 +7,20 @@ import { statusColor, formatCurrency, formatDate, durationHours } from '../../ut
 import type { Job, JobStatus } from '../../types';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
+import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
+import {
+  closeDetailWorkspace,
+  openDetailWorkspace,
+  readDetailWorkspaceQuery,
+  setDetailWorkspaceMode,
+  setDetailWorkspaceTab,
+} from '../../components/detail-workspace/detailWorkspaceQuery';
+import JobDetailPanel, { type JobDetailTab } from './JobDetailPanel';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
 type RiskFilter = 'all' | 'at_risk' | 'over_hours' | 'low_margin' | 'labor_variance';
+const JOB_WORKSPACE_QUERY = { recordParam: 'job', tabParam: 'jobTab', defaultTab: 'overview' } as const;
+const JOB_DETAIL_TABS: JobDetailTab[] = ['overview', 'scope', 'team', 'invoices', 'notes'];
 
 const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'updatedAt'> => ({
   customerId: customers[0]?.id ?? '',
@@ -29,10 +40,15 @@ const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'upd
   notes: '',
 });
 
-export default function JobsPage() {
-  const { jobs, customers, employees, estimates, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
+interface JobsPageProps {
+  currentUserRole: string;
+}
+
+export default function JobsPage({ currentUserRole }: JobsPageProps) {
+  const { jobs, customers, employees, estimates, invoices, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all');
   const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
@@ -40,6 +56,17 @@ export default function JobsPage() {
   const [editing, setEditing] = useState<Job | null>(null);
   const [form, setForm] = useState(empty(customers));
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const workspace = readDetailWorkspaceQuery(searchParams, JOB_WORKSPACE_QUERY);
+  const selectedJob = jobs.find((job) => job.id === workspace.recordId) ?? null;
+  const selectedCustomer = customers.find((customer) => customer.id === selectedJob?.customerId) ?? null;
+  const selectedEmployees = employees.filter((employee) => selectedJob?.assignedEmployeeIds.includes(employee.id));
+  const selectedInvoices = invoices.filter((invoice) => invoice.jobId === selectedJob?.id);
+  const jobDetailTab = JOB_DETAIL_TABS.includes(workspace.tab as JobDetailTab) ? workspace.tab as JobDetailTab : 'overview';
+  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const selectJob = (jobId: string) => setSearchParams(openDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY, jobId));
+  const closeJob = () => setSearchParams(closeDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY));
+  const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, JOB_WORKSPACE_QUERY, mode));
+  const setJobTab = (tab: JobDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, JOB_WORKSPACE_QUERY, tab));
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all' || riskFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
@@ -187,6 +214,12 @@ export default function JobsPage() {
 
   return (
     <div>
+      <DetailWorkspace
+        open={Boolean(workspace.recordId)}
+        expanded={workspace.mode === 'expanded'}
+        detailKey={workspace.recordId}
+        list={(
+          <div>
       <PageHeader
         title="Jobs"
         subtitle="Track active and completed jobs."
@@ -268,16 +301,24 @@ export default function JobsPage() {
             const profit = job.contractValue - actualCostTotal;
             const risk = jobRiskById.get(job.id);
             return (
-              <Card key={job.id} className="p-4">
+              <Card
+                key={job.id}
+                className={`cursor-pointer p-4 transition-colors ${workspace.recordId === job.id ? 'border-brand-400 bg-brand-50 ring-1 ring-brand-300 dark:border-brand-400 dark:bg-brand-600' : ''}`}
+                onClick={() => selectJob(job.id)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectJob(job.id); }}
+                role="button"
+                tabIndex={0}
+                aria-selected={workspace.recordId === job.id}
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <Badge label={job.status} className={statusColor[job.status]} />
                       {risk?.atRisk && <Badge label="At Risk" className="bg-accent-100 text-accent-700" />}
                       {job.sourceEstimateId ? <Badge label="From Estimate" className="bg-brand-100 text-brand-700" /> : null}
-                      <Link to={`/jobs/${job.id}`} className="font-semibold text-gray-900 hover:text-brand-600 truncate">
+                      <button type="button" className="truncate font-semibold text-gray-900 hover:text-brand-600 dark:text-brand-50">
                         {job.title}
-                      </Link>
+                      </button>
                     </div>
                     {job.jobNumber ? (
                       <p className="text-xs text-gray-500 mb-1">Job #{job.jobNumber}</p>
@@ -301,25 +342,46 @@ export default function JobsPage() {
                       <span className="text-xs text-gray-500">{job.actualHours.toFixed(1)}/{job.estimatedHours}h</span>
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
+                  {canViewFinancials ? <div className="text-right shrink-0">
                     <p className="text-sm font-semibold">{formatCurrency(job.contractValue)}</p>
                     <p className={`text-xs ${profit >= 0 ? 'text-brand-700' : 'text-accent-600'}`}>
                       {profit >= 0 ? '+' : ''}{formatCurrency(profit)} margin
                     </p>
-                  </div>
+                  </div> : null}
                 </div>
                 <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                  <Link to={`/jobs/${job.id}`}>
-                    <Button variant="secondary" size="sm"><ChevronRight size={13} /> Details</Button>
-                  </Link>
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(job)}><Pencil size={13} /></Button>
-                  <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(job.id)}><Trash2 size={13} className="text-accent-600" /></Button>
+                  <Button variant="secondary" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }}><ChevronRight size={13} /> Details</Button>
+                  <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }}><Pencil size={13} /></Button>
+                  <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }}><Trash2 size={13} className="text-accent-600" /></Button>
                 </div>
               </Card>
             );
           })}
         </div>
       )}
+
+          </div>
+        )}
+        detail={selectedJob ? (
+          <JobDetailPanel
+            job={selectedJob}
+            customer={selectedCustomer}
+            assignedEmployees={selectedEmployees}
+            invoices={selectedInvoices}
+            risk={jobRiskById.get(selectedJob.id)}
+            activeTab={jobDetailTab}
+            expanded={workspace.mode === 'expanded'}
+            canViewFinancials={canViewFinancials}
+            onTabChange={setJobTab}
+            onEdit={() => openEdit(selectedJob)}
+            onExpand={() => setWorkspaceMode('expanded')}
+            onCollapse={() => setWorkspaceMode('panel')}
+            onClose={closeJob}
+          />
+        ) : (
+          <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Job not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeJob}>Close</Button></div>
+        )}
+      />
 
       {/* Form Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Job' : 'New Job'} wide

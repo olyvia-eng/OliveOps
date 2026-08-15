@@ -1,14 +1,26 @@
-import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, Phone, Mail, MapPin, Users, FilterX } from 'lucide-react';
 import { statusColor } from '../../utils';
 import type { Address, Customer, CustomerStatus } from '../../types';
+import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
+import {
+  closeDetailWorkspace,
+  openDetailWorkspace,
+  readDetailWorkspaceQuery,
+  setDetailWorkspaceMode,
+  setDetailWorkspaceTab,
+} from '../../components/detail-workspace/detailWorkspaceQuery';
+import ClientDetailPanel, { type ClientDetailTab } from './ClientDetailPanel';
+import { selectClientDetailSummary } from './clientDetailSelectors';
 
 const STATUSES: CustomerStatus[] = ['lead', 'prospect', 'active', 'inactive'];
 const CRM_VIEW_MODE_STORAGE_KEY = 'oliveops.crm.viewMode';
 type CRMViewMode = 'card' | 'list';
+const CLIENT_WORKSPACE_QUERY = { recordParam: 'client', tabParam: 'clientTab', defaultTab: 'overview' } as const;
+const CLIENT_DETAIL_TABS: ClientDetailTab[] = ['overview', 'estimates', 'jobs', 'notes'];
 
 const emptyProperty = (): Address => ({
   nickname: '',
@@ -61,10 +73,15 @@ const emptyCustomer = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt'> => ({
   tags: [],
 });
 
-export default function CRMPage() {
-  const { customers, addCustomer, updateCustomer, deleteCustomer } = useStore();
+interface CRMPageProps {
+  currentUserRole: string;
+}
+
+export default function CRMPage({ currentUserRole }: CRMPageProps) {
+  const { customers, estimates, jobs, invoices, addCustomer, updateCustomer, deleteCustomer } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | 'all'>('all');
   const [crmViewMode, setCrmViewMode] = useState<CRMViewMode>(() => {
@@ -75,6 +92,23 @@ export default function CRMPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyCustomer());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const workspace = readDetailWorkspaceQuery(searchParams, CLIENT_WORKSPACE_QUERY);
+  const selectedCustomer = customers.find((customer) => customer.id === workspace.recordId) ?? null;
+  const clientDetailTab = CLIENT_DETAIL_TABS.includes(workspace.tab as ClientDetailTab)
+    ? workspace.tab as ClientDetailTab
+    : 'overview';
+  const clientSummary = useMemo(
+    () => selectedCustomer
+      ? selectClientDetailSummary(selectedCustomer.id, estimates, jobs, invoices)
+      : null,
+    [estimates, invoices, jobs, selectedCustomer]
+  );
+  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+
+  const selectCustomer = (customerId: string) => setSearchParams(openDetailWorkspace(searchParams, CLIENT_WORKSPACE_QUERY, customerId));
+  const closeCustomer = () => setSearchParams(closeDetailWorkspace(searchParams, CLIENT_WORKSPACE_QUERY));
+  const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, CLIENT_WORKSPACE_QUERY, mode));
+  const setClientTab = (tab: ClientDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, CLIENT_WORKSPACE_QUERY, tab));
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -180,6 +214,12 @@ export default function CRMPage() {
 
   return (
     <div>
+      <DetailWorkspace
+        open={Boolean(workspace.recordId)}
+        expanded={workspace.mode === 'expanded'}
+        detailKey={workspace.recordId}
+        list={(
+          <div>
       <PageHeader
         title="CRM"
         subtitle="Manage your customers, leads, and contacts."
@@ -251,7 +291,15 @@ export default function CRMPage() {
               const primaryProperty = properties[0];
 
               return (
-            <Card key={c.id} className="p-4">
+            <Card
+              key={c.id}
+              className={`cursor-pointer p-4 transition-colors ${workspace.recordId === c.id ? 'border-brand-400 bg-brand-50 ring-1 ring-brand-300 dark:border-brand-400 dark:bg-brand-600' : ''}`}
+              onClick={() => selectCustomer(c.id)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectCustomer(c.id); }}
+              role="button"
+              tabIndex={0}
+              aria-selected={workspace.recordId === c.id}
+            >
               <div className="flex items-start justify-between mb-2">
                 <div className="min-w-0">
                   <p className="font-semibold text-gray-900 truncate">{c.name}</p>
@@ -263,13 +311,13 @@ export default function CRMPage() {
                 {c.email && (
                   <div className="flex items-center gap-2">
                     <Mail size={13} className="text-gray-400" />
-                    <a href={`mailto:${c.email}`} className="hover:text-brand-600 truncate">{c.email}</a>
+                    <a href={`mailto:${c.email}`} onClick={(event) => event.stopPropagation()} className="hover:text-brand-600 truncate">{c.email}</a>
                   </div>
                 )}
                 {c.phone && (
                   <div className="flex items-center gap-2">
                     <Phone size={13} className="text-gray-400" />
-                    <a href={`tel:${c.phone}`} className="hover:text-brand-600">{c.phone}</a>
+                    <a href={`tel:${c.phone}`} onClick={(event) => event.stopPropagation()} className="hover:text-brand-600">{c.phone}</a>
                   </div>
                 )}
                 {primaryProperty.city && (
@@ -292,10 +340,10 @@ export default function CRMPage() {
               )}
               {c.notes && <p className="text-xs text-gray-400 mt-2 line-clamp-2">{c.notes}</p>}
               <div className="flex gap-2 mt-4 pt-3 border-t border-gray-100">
-                <Button variant="secondary" size="sm" onClick={() => openEdit(c)}>
+                <Button variant="secondary" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(c); }}>
                   <Pencil size={13} /> Edit
                 </Button>
-                <Button variant="danger" size="sm" onClick={() => setConfirmDelete(c.id)}>
+                <Button variant="danger" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(c.id); }}>
                   <Trash2 size={13} /> Delete
                 </Button>
               </div>
@@ -323,7 +371,14 @@ export default function CRMPage() {
                   const properties = normalizeProperties(customer.properties, customer.address);
                   const primaryProperty = properties[0];
                   return (
-                    <tr key={customer.id} className="hover:bg-gray-50">
+                    <tr
+                      key={customer.id}
+                      className={`cursor-pointer transition-colors ${workspace.recordId === customer.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`}
+                      onClick={() => selectCustomer(customer.id)}
+                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectCustomer(customer.id); }}
+                      tabIndex={0}
+                      aria-selected={workspace.recordId === customer.id}
+                    >
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900">{customer.name}</p>
                         {customer.company && <p className="text-sm text-gray-500">{customer.company}</p>}
@@ -351,8 +406,8 @@ export default function CRMPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="secondary" size="sm" onClick={() => openEdit(customer)}><Pencil size={13} /> Edit</Button>
-                          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(customer.id)}><Trash2 size={13} /> Delete</Button>
+                          <Button variant="secondary" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(customer); }}><Pencil size={13} /> Edit</Button>
+                          <Button variant="danger" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(customer.id); }}><Trash2 size={13} /> Delete</Button>
                         </div>
                       </td>
                     </tr>
@@ -363,6 +418,29 @@ export default function CRMPage() {
           </div>
         </Card>
       )}
+
+          </div>
+        )}
+        detail={selectedCustomer && clientSummary ? (
+          <ClientDetailPanel
+            customer={selectedCustomer}
+            summary={clientSummary}
+            activeTab={clientDetailTab}
+            expanded={workspace.mode === 'expanded'}
+            canViewFinancials={canViewFinancials}
+            onTabChange={setClientTab}
+            onEdit={() => openEdit(selectedCustomer)}
+            onNewEstimate={() => navigate(`/estimates?create=estimate&customer=${encodeURIComponent(selectedCustomer.id)}`)}
+            onSelectEstimate={(estimateId) => navigate(`/estimates?estimate=${encodeURIComponent(estimateId)}&workspace=panel`)}
+            onSelectJob={(jobId) => navigate(`/jobs?job=${encodeURIComponent(jobId)}&workspace=panel`)}
+            onExpand={() => setWorkspaceMode('expanded')}
+            onCollapse={() => setWorkspaceMode('panel')}
+            onClose={closeCustomer}
+          />
+        ) : (
+          <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Client not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeCustomer}>Close</Button></div>
+        )}
+      />
 
       {/* Form Modal */}
       <Modal

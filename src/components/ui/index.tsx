@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ChangeEvent, ChangeEventHandler, FocusEvent, FocusEventHandler, ReactNode } from 'react';
+import type { ChangeEvent, ChangeEventHandler, FocusEvent, FocusEventHandler, HTMLAttributes, ReactNode } from 'react';
 import { formatNumericDisplayValue, normalizeNumericInput } from '../../utils/numberInput';
 
 interface BadgeProps {
@@ -15,14 +15,14 @@ export function Badge({ label, className = '' }: BadgeProps) {
   );
 }
 
-interface CardProps {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   className?: string;
 }
 
-export function Card({ children, className = '' }: CardProps) {
+export function Card({ children, className = '', ...props }: CardProps) {
   return (
-    <div className={`bg-white dark:bg-brand-700 rounded-2xl border border-brand-100 dark:border-brand-600 shadow-sm ${className}`}>
+    <div className={`bg-white dark:bg-brand-700 rounded-2xl border border-brand-100 dark:border-brand-600 shadow-sm ${className}`} {...props}>
       {children}
     </div>
   );
