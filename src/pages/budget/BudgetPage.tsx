@@ -1057,6 +1057,11 @@ export default function BudgetPage() {
     updateBudget(activeBudgetId, { overheadRecoveryAllocation: next });
   };
 
+  const updateDesiredNetProfit = (value: number) => {
+    if (!activeBudgetId) return;
+    updateBudget(activeBudgetId, { desiredNetProfit: Math.max(0, Number.isFinite(value) ? value : 0) });
+  };
+
   const equipmentCostBreakdown = useMemo(() => {
     return calculateEquipmentCostBreakdown({
       equipmentCostType: equipmentInfoForm.equipmentCostType,
@@ -1249,6 +1254,9 @@ export default function BudgetPage() {
     materials: totalOverheadBudget * (overheadRecoveryAllocation.materialsPercent / 100),
     subcontractors: totalOverheadBudget * (overheadRecoveryAllocation.subcontractorsPercent / 100),
   };
+  const desiredNetProfit = Math.max(0, activeBudget?.desiredNetProfit ?? 0);
+  const requiredRevenueForDesiredProfit = totalBudgetedExpenses + desiredNetProfit;
+  const revenueGapForDesiredProfit = requiredRevenueForDesiredProfit - totalBudgetedRevenue;
   const equipmentOverheadRecoveryPerHour = pricingInputs.equipmentUtilizationHours > 0
     ? allocationAmounts.equipment / pricingInputs.equipmentUtilizationHours
     : 0;
@@ -1917,6 +1925,38 @@ export default function BudgetPage() {
                   </div>
                 </Card>
               )}
+            </div>
+
+            <div className="mt-5 border-t border-brand-100 pt-5">
+              <div className="mb-4">
+                <h3 className="font-semibold text-gray-900">Desired Net Profit</h3>
+                <p className="mt-1 text-sm text-gray-500">Set the annual profit target this budget should produce after all budgeted expenses.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Input
+                  label="Desired Net Profit ($)"
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={desiredNetProfit}
+                  onChange={(event) => updateDesiredNetProfit(Number(event.target.value))}
+                />
+                <Card className="p-3 bg-white border border-gray-100">
+                  <p className="text-xs text-gray-500">Required Revenue</p>
+                  <p className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(requiredRevenueForDesiredProfit)}</p>
+                  <p className="mt-1 text-xs text-gray-500">Expenses plus desired profit</p>
+                </Card>
+                <Card className="p-3 bg-white border border-gray-100">
+                  <p className="text-xs text-gray-500">Budgeted Net Profit</p>
+                  <p className={`mt-1 text-lg font-semibold ${budgetedProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(budgetedProfit)}</p>
+                  <p className="mt-1 text-xs text-gray-500">Based on current revenue</p>
+                </Card>
+                <Card className="p-3 bg-white border border-gray-100">
+                  <p className="text-xs text-gray-500">Revenue Gap</p>
+                  <p className={`mt-1 text-lg font-semibold ${revenueGapForDesiredProfit <= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{revenueGapForDesiredProfit <= 0 ? 'Target met' : formatCurrency(revenueGapForDesiredProfit)}</p>
+                  <p className="mt-1 text-xs text-gray-500">{revenueGapForDesiredProfit <= 0 ? `${formatCurrency(Math.abs(revenueGapForDesiredProfit))} above target` : 'Additional revenue needed'}</p>
+                </Card>
+              </div>
             </div>
           </div>
 

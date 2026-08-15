@@ -767,6 +767,7 @@ export interface Budget {
     materialsPercent: number;
     subcontractorsPercent: number;
   };
+  desiredNetProfit?: number;
   createdAt: string;
   updatedAt: string;
 }

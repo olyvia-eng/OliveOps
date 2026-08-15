@@ -15,6 +15,11 @@ test('budget page exposes a persisted overhead recovery strategy', () => {
   assert.match(budgetPageSource, /Total Allocation:/);
   assert.match(budgetPageSource, /updateBudget\(activeBudgetId, \{ overheadRecoveryAllocation: next \}\)/);
   assert.match(typesSource, /overheadRecoveryAllocation\?: \{/);
+  assert.match(budgetPageSource, /Desired Net Profit/);
+  assert.match(budgetPageSource, /Required Revenue/);
+  assert.match(budgetPageSource, /Revenue Gap/);
+  assert.match(budgetPageSource, /updateBudget\(activeBudgetId, \{ desiredNetProfit:/);
+  assert.match(typesSource, /desiredNetProfit\?: number/);
   assert.doesNotMatch(budgetPageSource, /Estimate Pricing Calculator/);
   assert.doesNotMatch(budgetPageSource, /Suggested Material Markup/);
   assert.doesNotMatch(budgetPageSource, /Suggested Subcontractor Markup/);
@@ -29,9 +34,9 @@ test('overhead tab includes labour overhead summary and overhead employee sectio
 });
 
 test('budget rates and estimate add-items use a single combined entry per catalog item', () => {
-  assert.match(budgetPageSource, /Suggested Sell/);
-  assert.match(budgetPageSource, /Final Sell/);
-  assert.match(budgetPageSource, /Overhead Recovery/);
+  assert.match(budgetPageSource, /findEquipmentRateForValues/);
+  assert.match(budgetPageSource, /if \(existingRate\) updateBudgetRate\(existingRate\.id, ratePayload\)/);
+  assert.match(budgetPageSource, /else addBudgetRate\(ratePayload\)/);
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.equipment\.filter\(\(value\) => !matchedEquipmentRateIds\.has\(value\.id\)\)/);
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.material\.filter\(\(value\) => !matchedMaterialRateIds\.has\(value\.id\)\)/);
   assert.match(estimateBuilderSource, /No pricing rate in selected budget/);
