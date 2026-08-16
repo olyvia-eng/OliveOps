@@ -48,7 +48,7 @@ test('estimate editing uses a URL-backed tab workspace with restricted analysis'
   assert.match(estimateWorkspaceSource, /Estimated Cost/);
   assert.match(estimateWorkspaceSource, /Open Work Area/);
   assert.match(estimateWorkspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
-  assert.match(estimateWorkspaceSource, /const saved = await persistEstimateForm\(nextForm\);\s*setSavingEstimate\(false\);\s*if \(saved\) \{\s*navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
+  assert.match(estimateWorkspaceSource, /saved = await persistEstimateForm\(nextForm\);\s*\} finally \{\s*saveInFlight\.current = false;\s*setSavingEstimate\(false\);\s*\}\s*if \(saved\) \{\s*navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
   assert.match(estimateWorkspaceSource, /\{budgets\.map\(\(budget\) => \(/);
   assert.match(estimateWorkspaceSource, /Your proposal isn't ready yet/);
   assert.match(estimateWorkspaceSource, /Nothing to analyze yet/);

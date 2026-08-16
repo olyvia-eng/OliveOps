@@ -1871,7 +1871,11 @@ export default async function handler(req, res) {
         }
       }
 
-      const updateResult = await config.update({ businessId: session.businessId, [config.updateArgKey]: next });
+      const updateResult = await config.update({
+        businessId: session.businessId,
+        [config.updateArgKey]: next,
+        ...(entity === 'estimates' ? { expectedUpdatedAt: req.body?.baseUpdatedAt } : {}),
+      });
       if (updateResult && updateResult.ok === false) {
         return res.status(409).json({ ok: false, error: updateResult.error ?? `Could not update ${entity}` });
       }
@@ -1904,7 +1908,10 @@ export default async function handler(req, res) {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: next });
       }
 
-      return res.status(200).json({ ok: true });
+      const persistedEstimate = entity === 'estimates'
+        ? await config.get(session.businessId, id)
+        : null;
+      return res.status(200).json(entity === 'estimates' ? { ok: true, estimate: persistedEstimate } : { ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not update ${entity}` });
     }

@@ -1,11 +1,12 @@
 import { getDisplayName } from './auth/displayName';
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
 import type { Budget, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
+import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
@@ -68,6 +69,7 @@ export default function App() {
   const [hasLoadedBusinessData, setHasLoadedBusinessData] = useState(false);
   const [businessDataError, setBusinessDataError] = useState('');
   const [toasts, setToasts] = useState<Array<AppToastDetail & { id: number }>>([]);
+  const businessDataRequestSequence = useRef(0);
 
   const canManageUsers =
     sessionUser?.role === 'owner' || sessionUser?.role === 'admin';
@@ -76,11 +78,15 @@ export default function App() {
 
   const loadBusinessData = async (user: SessionUser | null = sessionUser) => {
     if (!user) {
+      businessDataRequestSequence.current += 1;
       setHasLoadedBusinessData(false);
       setBusinessDataError('');
       return;
     }
 
+    const requestSequence = businessDataRequestSequence.current + 1;
+    businessDataRequestSequence.current = requestSequence;
+    const requestStartedAt = Date.now();
     setLoadingBusinessData(true);
     setBusinessDataError('');
 
@@ -122,7 +128,13 @@ export default function App() {
       }>(response);
 
       if (!response.ok || !payload?.ok) {
-        setBusinessDataError('Could not load business data. Please retry.');
+        if (shouldApplySequencedResponseModel(requestSequence, businessDataRequestSequence.current)) {
+          setBusinessDataError('Could not load business data. Please retry.');
+        }
+        return;
+      }
+
+      if (!shouldApplySequencedResponseModel(requestSequence, businessDataRequestSequence.current)) {
         return;
       }
 
@@ -139,7 +151,7 @@ export default function App() {
         divisions: payload.divisions ?? [],
         customers: payload.customers ?? [],
         jobs: payload.jobs ?? [],
-        estimates: payload.estimates ?? [],
+        estimates: mergeEstimateSnapshotsModel(state.estimates, payload.estimates ?? [], requestStartedAt),
         invoices: payload.invoices ?? [],
         expenses: payload.expenses ?? [],
         equipmentAssets: payload.equipmentAssets ?? [],
@@ -158,10 +170,14 @@ export default function App() {
       }));
       setBusinessDataError('');
     } catch {
-      setBusinessDataError('Could not load business data. Please retry.');
+      if (shouldApplySequencedResponseModel(requestSequence, businessDataRequestSequence.current)) {
+        setBusinessDataError('Could not load business data. Please retry.');
+      }
     } finally {
-      setLoadingBusinessData(false);
-      setHasLoadedBusinessData(true);
+      if (shouldApplySequencedResponseModel(requestSequence, businessDataRequestSequence.current)) {
+        setLoadingBusinessData(false);
+        setHasLoadedBusinessData(true);
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronRight, FileDown, Mail, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
@@ -200,6 +200,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const [confirmConvert, setConfirmConvert] = useState(false);
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
   const [savingEstimate, setSavingEstimate] = useState(false);
+  const saveInFlight = useRef(false);
   const [convertForm, setConvertForm] = useState({
     title: '',
     startDate: '',
@@ -207,14 +208,16 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   });
 
   const activeTab = (searchParams.get('tab') ?? 'info') as EstimateTab;
+  const persistedEstimateUpdatedAt = estimate?.updatedAt;
 
   useEffect(() => {
-    if (!estimate) {
+    const persistedEstimate = useStore.getState().estimates.find((item) => item.id === id);
+    if (!persistedEstimate) {
       setForm(null);
       return;
     }
-    setForm(loadFormState(estimate));
-  }, [estimate]);
+    setForm(loadFormState(persistedEstimate));
+  }, [id, persistedEstimateUpdatedAt]);
 
   useEffect(() => {
     const validTabs: EstimateTab[] = ['info', 'work-areas', 'proposal', 'project-management', 'analysis'];
@@ -245,7 +248,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   };
 
   const persistEstimateForm = async (nextForm: EstimateFormState) => {
-    if (!estimate) return false;
+    if (!estimate) return null;
 
     const normalizedWorkAreas = nextForm.workAreas.map((area, index) => ({
       ...area,
@@ -268,8 +271,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   };
 
   const addWorkArea = async () => {
-    if (!estimate || !form || savingEstimate) return;
+    if (!estimate || !form || savingEstimate || saveInFlight.current) return;
 
+    saveInFlight.current = true;
     setSavingEstimate(true);
     const nextWorkArea = createNewEstimateWorkArea(form.workAreas);
     const nextForm: EstimateFormState = {
@@ -281,8 +285,13 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     };
 
     setForm(nextForm);
-    const saved = await persistEstimateForm(nextForm);
-  setSavingEstimate(false);
+    let saved: Estimate | null = null;
+    try {
+      saved = await persistEstimateForm(nextForm);
+    } finally {
+      saveInFlight.current = false;
+      setSavingEstimate(false);
+    }
 
     if (saved) {
       navigate(`/estimates/${estimate.id}/work-areas/${nextWorkArea.id}`);
@@ -290,17 +299,22 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   };
 
   const save = async () => {
-    if (!estimate || !form || savingEstimate) return;
+    if (!estimate || !form || savingEstimate || saveInFlight.current) return;
     if (!form.title.trim() || !form.customerId || !form.pricingBudgetId || !form.validUntil) {
       emitAppToast({ tone: 'error', message: 'Title, customer, pricing budget, and valid-until date are required.' });
       return;
     }
 
+  saveInFlight.current = true;
     setSavingEstimate(true);
-    const saved = await persistEstimateForm(form);
-    setSavingEstimate(false);
-    if (saved) {
+    try {
+      const saved = await persistEstimateForm(form);
+      if (!saved) return;
+      setForm(loadFormState(saved));
       emitAppToast({ tone: 'success', message: 'Estimate saved.' });
+    } finally {
+      saveInFlight.current = false;
+      setSavingEstimate(false);
     }
   };
 
@@ -467,7 +481,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
             <Button variant="secondary" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={14} /> Delete
             </Button>
-            <Button onClick={() => void save()} disabled={savingEstimate}>Save Changes</Button>
+            <Button onClick={() => void save()} disabled={savingEstimate}>
+              {savingEstimate ? 'Saving...' : 'Save Changes'}
+            </Button>
           </div>
         )}
       />

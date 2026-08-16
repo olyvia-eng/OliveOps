@@ -133,12 +133,13 @@ test('creation, navigation, add, and delete flows use persisted embedded IDs', (
   assert.match(estimatesPageSource, /workAreas: \[generalWorkArea\]/);
   assert.match(estimatesPageSource, /if \(!estimateId\) return;\s*setCreateModalOpen\(false\);\s*navigate\(`\/estimates\/\$\{estimateId\}`\)/);
   assert.match(storeSource, /addEstimate: async \(e\) =>/);
-  assert.match(storeSource, /await ensureOk\(fetch\(dataUrl\('estimates'\)/);
-  assert.match(storeSource, /await ensureOk\([\s\S]*?set\(\(s\) => \(\{ estimates: \[\.\.\.s\.estimates, estimate\] \}\)\)/);
+  assert.match(storeSource, /const response = await fetch\(dataUrl\('estimates'\)/);
+  assert.match(storeSource, /if \(!payload\.ok \|\| !payload\.estimate\)/);
+  assert.match(storeSource, /estimates: \[\.\.\.s\.estimates, payload\.estimate as Estimate\]/);
   assert.match(dataApiSource, /record = ensureDefaultEstimateWorkArea\(record\)/);
 
   assert.match(workspaceSource, /createNewEstimateWorkArea\(form\.workAreas\)/);
-  assert.match(workspaceSource, /const saved = await persistEstimateForm\(nextForm\)/);
+  assert.match(workspaceSource, /saved = await persistEstimateForm\(nextForm\)/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
 

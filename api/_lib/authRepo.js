@@ -1595,21 +1595,33 @@ export async function getEstimateForBusiness(businessId, estimateId) {
   return result.Item ? mapEstimateRecordFromItem(result.Item) : null;
 }
 
-export async function updateEstimateForBusiness({ businessId, estimate }) {
-  await ddb.send(
-    new PutCommand({
-      TableName: tableName,
-      Item: {
-        PK: businessPk(businessId),
-        SK: estimateSk(estimate.id),
-        entityType: 'ESTIMATE',
-        businessId,
-        estimateId: estimate.id,
-        ...estimate,
-      },
-      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
-    })
-  );
+export async function updateEstimateForBusiness({ businessId, estimate, expectedUpdatedAt }) {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: estimateSk(estimate.id),
+          entityType: 'ESTIMATE',
+          businessId,
+          estimateId: estimate.id,
+          ...estimate,
+        },
+        ConditionExpression: expectedUpdatedAt
+          ? 'attribute_exists(PK) AND attribute_exists(SK) AND updatedAt = :expectedUpdatedAt'
+          : 'attribute_exists(PK) AND attribute_exists(SK)',
+        ...(expectedUpdatedAt ? {
+          ExpressionAttributeValues: { ':expectedUpdatedAt': expectedUpdatedAt },
+        } : {}),
+      })
+    );
+  } catch (error) {
+    if (error?.name === 'ConditionalCheckFailedException') {
+      return { ok: false, error: 'Estimate changed since it was opened. Review the latest version and save again.' };
+    }
+    throw error;
+  }
 
   return { ok: true };
 }
@@ -3310,13 +3322,26 @@ export async function deleteBudgetRateForBusiness(businessId, rateId) {
 }
 
 function mapEstimateRecordFromItem(item) {
+  const legacyTitle = [
+    item.title,
+    item.name,
+    item.estimateName,
+    item.projectName,
+    item.proposalTitle,
+    item.displayName,
+  ].find((value) => typeof value === 'string' && value.trim());
+  const title = legacyTitle?.trim()
+    || (typeof item.proposalNumber === 'string' && item.proposalNumber.trim()
+      ? `Draft Estimate ${item.proposalNumber.trim()}`
+      : 'Untitled Estimate');
+
   return {
     id: item.estimateId,
     customerId: item.customerId,
     convertedToJobId: item.convertedToJobId,
     convertedAt: item.convertedAt,
     proposalNumber: item.proposalNumber,
-    title: item.title,
+    title,
     description: item.description,
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : undefined,
     pricingBudgetId: item.pricingBudgetId,

@@ -41,6 +41,9 @@ import {
   createClockOutRequestMeta,
   endClockOutSubmission,
 } from '../utils/clockOutSubmission';
+import { nextEstimateUpdatedAtModel, shouldApplySequencedResponseModel } from '../utils/estimatePersistenceState.js';
+
+const estimateMutationSequences = new Map<ID, number>();
 
 async function ensureOk(responsePromise: Promise<Response>) {
   const response = await responsePromise;
@@ -117,7 +120,7 @@ interface AppState {
 
   // Estimates
   addEstimate: (e: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ID | null>;
-  updateEstimate: (id: ID, data: Partial<Estimate>) => Promise<boolean>;
+  updateEstimate: (id: ID, data: Partial<Estimate>) => Promise<Estimate | null>;
   deleteEstimate: (id: ID) => void;
   sendEstimate: (id: ID) => void;
   convertEstimateToJob: (estimateId: ID, options?: { title?: string; startDate?: string; endDate?: string }) => Promise<{ ok: boolean; jobId?: ID; error?: string }>;
@@ -314,46 +317,64 @@ export const useStore = create<AppState>()((set, get) => ({
         const estimate = { ...e, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
 
         try {
-          await ensureOk(fetch(dataUrl('estimates'), {
+          const response = await fetch(dataUrl('estimates'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             credentials: 'include',
             body: JSON.stringify({ data: estimate }),
-          }));
-          set((s) => ({ estimates: [...s.estimates, estimate] }));
-          return estimate.id;
+          });
+          if (!response.ok) {
+            await ensureOk(Promise.resolve(response));
+          }
+          const payload = (await response.json()) as { ok?: boolean; estimate?: Estimate };
+          if (!payload.ok || !payload.estimate) {
+            throw new Error('Estimate creation response was incomplete.');
+          }
+          set((s) => ({ estimates: [...s.estimates, payload.estimate as Estimate] }));
+          return payload.estimate.id;
         } catch (error: unknown) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate could not be saved.') });
           return null;
         }
       },
       updateEstimate: async (id, data) => {
-        const previous = get().estimates;
-        const updatedAt = nowISO();
-        set((s) => ({
-          estimates: s.estimates.map((e) =>
-            e.id === id ? { ...e, ...data, updatedAt } : e
-          ),
-        }));
-
-        const request = fetch(dataUrl('estimates', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        });
+        const baseUpdatedAt = get().estimates.find((estimate) => estimate.id === id)?.updatedAt;
+        const updatedAt = nextEstimateUpdatedAtModel(baseUpdatedAt);
+        const requestSequence = (estimateMutationSequences.get(id) ?? 0) + 1;
+        estimateMutationSequences.set(id, requestSequence);
 
         try {
-          await ensureOk(request);
-          return true;
+          const response = await fetch(dataUrl('estimates', id), {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt }, baseUpdatedAt }),
+          });
+          if (!response.ok) {
+            await ensureOk(Promise.resolve(response));
+          }
+          const payload = (await response.json()) as { ok?: boolean; estimate?: Estimate };
+          if (!payload.ok || !payload.estimate) {
+            throw new Error('Estimate update response was incomplete.');
+          }
+          if (!shouldApplySequencedResponseModel(requestSequence, estimateMutationSequences.get(id) ?? 0)) {
+            return null;
+          }
+          set((state) => ({
+            estimates: state.estimates.map((estimate) => (
+              estimate.id === id ? payload.estimate as Estimate : estimate
+            )),
+          }));
+          return payload.estimate;
         } catch (error: unknown) {
-          set({ estimates: previous });
-          emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate changes could not be saved.') });
-          return false;
+          if (shouldApplySequencedResponseModel(requestSequence, estimateMutationSequences.get(id) ?? 0)) {
+            emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate changes could not be saved.') });
+          }
+          return null;
         }
       },
       deleteEstimate: (id) => {

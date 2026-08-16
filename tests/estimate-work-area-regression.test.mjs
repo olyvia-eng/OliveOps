@@ -10,8 +10,8 @@ test('new and additional work areas are persisted before becoming actionable', (
   assert.match(workspaceSource, /No work areas yet/);
   assert.match(workspaceSource, /form\.workAreas\.length === 0/);
   assert.match(workspaceSource, /createNewEstimateWorkArea/);
-  assert.match(workspaceSource, /const saved = await persistEstimateForm\(nextForm\);/);
-  assert.match(workspaceSource, /const saved = await persistEstimateForm\(nextForm\);\s*setSavingEstimate\(false\);\s*if \(saved\) \{\s*navigate/);
+  assert.match(workspaceSource, /saved = await persistEstimateForm\(nextForm\);/);
+  assert.match(workspaceSource, /saved = await persistEstimateForm\(nextForm\);\s*\} finally \{\s*saveInFlight\.current = false;\s*setSavingEstimate\(false\);\s*\}\s*if \(saved\) \{\s*navigate/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
   assert.equal(workspaceSource.match(/navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/g)?.length, 1);
   assert.match(workspaceSource, /savingEstimate/);
