@@ -82,6 +82,12 @@ function normalizeJobLineItem(rawLineItem, sourceEstimateWorkAreaId) {
     id: generateId(),
     sourceEstimateLineItemId: rawLineItem.id,
     sourceEstimateWorkAreaId,
+    equipmentId: rawLineItem.equipmentId,
+    equipmentName: rawLineItem.equipmentName,
+    costRateAtEstimate: rawLineItem.costRateAtEstimate,
+    chargeOutRateAtEstimate: rawLineItem.chargeOutRateAtEstimate,
+    estimatedCost: toNumber(rawLineItem.estimatedCost, quantity * unitCost),
+    estimatedSell: toNumber(rawLineItem.estimatedSell, total),
     category: rawLineItem.category,
     itemName: isNonEmptyString(rawLineItem.itemName) ? rawLineItem.itemName.trim() : (isNonEmptyString(rawLineItem.description) ? rawLineItem.description.trim() : 'Line Item'),
     description: typeof rawLineItem.description === 'string' ? rawLineItem.description : '',
@@ -116,7 +122,7 @@ function buildJobWorkAreasFromEstimate(estimate) {
       }
 
       const estimatedRevenue = lineItems.reduce((sum, lineItem) => sum + lineItem.total, 0);
-      const estimatedCost = lineItems.reduce((sum, lineItem) => sum + (lineItem.quantity * lineItem.unitCost), 0);
+      const estimatedCost = lineItems.reduce((sum, lineItem) => sum + lineItem.estimatedCost, 0);
 
       return {
         id: generateId(),
@@ -158,6 +164,7 @@ function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
 function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   const operationalWorkAreas = buildJobWorkAreasFromEstimate(estimate);
   const snapshot = buildOriginalEstimateSnapshot(estimate, operationalWorkAreas);
+  const estimatedCost = operationalWorkAreas.reduce((sum, workArea) => sum + workArea.estimatedCost, 0);
   const hasExplicitSchedule = isNonEmptyString(startDate) || isNonEmptyString(endDate);
   const estimatedHours = operationalWorkAreas
     .flatMap((workArea) => workArea.lineItems)
@@ -188,7 +195,7 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     scheduleAllDay: true,
     estimatedHours,
     actualHours: 0,
-    estimatedCost: snapshot.subtotal,
+    estimatedCost,
     actualCosts: [],
     contractValue: snapshot.total,
     assignedEmployeeIds: [],

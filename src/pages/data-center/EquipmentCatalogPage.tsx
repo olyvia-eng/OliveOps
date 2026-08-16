@@ -472,10 +472,21 @@ export default function EquipmentCatalogPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600">
-                    <span>Fuel Cost / Hour: ${asset.hourlyCost.toFixed(2)}</span>
-                    <span>Updated: {new Date(asset.updatedAt).toLocaleDateString()}</span>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500">Cost Rate</p>
+                      <p className="mt-1 font-semibold text-gray-900">{formatCurrency(asset.costRateHourly ?? asset.hourlyCost)} / hr</p>
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-3">
+                      <p className="text-xs text-gray-500">Recommended Rate</p>
+                      <p className="mt-1 font-semibold text-gray-900">{asset.recommendedSellRate && asset.recommendedSellRate > 0 ? `${formatCurrency(asset.recommendedSellRate)} / hr` : 'Not calculated'}</p>
+                    </div>
+                    <div className="rounded-lg bg-brand-50 p-3">
+                      <p className="text-xs text-brand-700">Approved Charge-Out Rate</p>
+                      <p className="mt-1 font-semibold text-brand-900">{asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)} / hr` : 'Not approved'}</p>
+                    </div>
                   </div>
+                  <p className="mt-2 text-xs text-gray-500">Updated {new Date(asset.updatedAt).toLocaleDateString()}</p>
 
                   {budgetGroups.map((group) => {
                     const allocations = equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === asset.id && allocation.budgetGroupId === group.id);
@@ -537,8 +548,6 @@ export default function EquipmentCatalogPage() {
             totalCostPerDay={equipmentCostBreakdown.totalCostPerDay}
             showCalculationDetails={showEquipmentCalcDetails}
             onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)}
-            showBudgetSellRate={false}
-            editableBudgetSellRate={false}
           />
         </form>
       </Modal>

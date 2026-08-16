@@ -146,6 +146,47 @@ test('convert-to-job returns job and estimate patch on success', async () => {
   assert.equal(conversionPayload.job.jobNumber, 'JOB-2026-0007');
 });
 
+test('convert-to-job preserves accepted equipment cost and charge-out snapshots', async () => {
+  const estimate = baseEstimate();
+  estimate.workAreas[0].lineItems = [
+    {
+      id: 'equipment-line-1',
+      category: 'equipment',
+      description: 'Compact excavator',
+      quantity: 8,
+      unit: 'hr',
+      unitCost: 43,
+      sellPrice: 70,
+      total: 560,
+      equipmentId: 'equipment-1',
+      equipmentName: 'Compact Excavator',
+      costRateAtEstimate: 43,
+      chargeOutRateAtEstimate: 70,
+      estimatedCost: 344,
+      estimatedSell: 560,
+    },
+  ];
+
+  const handler = createEstimatesHandler({
+    requireSession: async () => baseSession(),
+    getEstimateForBusiness: async () => estimate,
+    reserveNextJobNumberForBusiness: async () => 'JOB-2026-0013',
+    convertEstimateToJobForBusiness: async () => ({ ok: true }),
+  });
+  const res = createMockRes();
+
+  await handler({ method: 'POST', query: { action: 'convert-to-job' }, body: { estimateId: 'est-1' } }, res);
+
+  const lineItem = res.body.job.operationalWorkAreas[0].lineItems[0];
+  assert.equal(lineItem.equipmentId, 'equipment-1');
+  assert.equal(lineItem.costRateAtEstimate, 43);
+  assert.equal(lineItem.chargeOutRateAtEstimate, 70);
+  assert.equal(lineItem.estimatedCost, 344);
+  assert.equal(lineItem.estimatedSell, 560);
+  assert.equal(res.body.job.estimatedCost, 344);
+  assert.equal(res.body.job.contractValue, 616);
+});
+
 test('convert-to-job replaces generic draft estimate labels with an operational job name', async () => {
   const handler = createEstimatesHandler({
     requireSession: async () => baseSession(),

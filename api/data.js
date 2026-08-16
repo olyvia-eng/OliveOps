@@ -117,7 +117,7 @@ import {
   updateTimeEntryForBusiness,
   updateTaskForBusiness,
 } from './_lib/authRepo.js';
-import { authorizeRecordAccess, filterRecordsForSession } from './_lib/authorization.js';
+import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
@@ -442,6 +442,11 @@ const PATCH_BLOCKED_FIELDS = new Set([
   'createdAt',
   'passwordHash',
 ]);
+const EQUIPMENT_PRICING_FIELDS = ['costRateHourly', 'recommendedSellRate', 'chargeOutRate'];
+
+function changesEquipmentPricing(data) {
+  return EQUIPMENT_PRICING_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(data ?? {}, field));
+}
 
 function sanitizePatchData(entity, id, rawData) {
   if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
@@ -727,6 +732,15 @@ function validateEquipmentAssetRecord(record) {
   }
   if (typeof record.hourlyCost !== 'number' || Number.isNaN(record.hourlyCost) || record.hourlyCost < 0) {
     return 'Equipment hourly cost must be zero or greater.';
+  }
+  for (const [field, label] of [
+    ['costRateHourly', 'Equipment cost rate'],
+    ['recommendedSellRate', 'Equipment recommended rate'],
+    ['chargeOutRate', 'Equipment charge-out rate'],
+  ]) {
+    if (record[field] !== undefined && record[field] !== null && (!isFiniteNumber(record[field]) || record[field] < 0)) {
+      return `${label} must be zero or greater.`;
+    }
   }
   if (record.purchasePrice !== undefined && record.purchasePrice !== null && (!isFiniteNumber(record.purchasePrice) || record.purchasePrice < 0)) {
     return 'Equipment purchase price must be zero or greater.';
@@ -1108,6 +1122,18 @@ function validateBudgetRateRecord(record) {
   if (!isNonEmptyString(record.itemName)) return 'Budget rate item name is required.';
   if (!isNonEmptyString(record.unit)) return 'Budget rate unit is required.';
   if (!isFiniteNumber(record.unitCost) || record.unitCost < 0) return 'Budget rate unit cost must be zero or greater.';
+  if (record.equipmentId !== undefined && record.equipmentId !== null && typeof record.equipmentId !== 'string') {
+    return 'Budget rate equipment id is invalid.';
+  }
+  for (const [field, label] of [
+    ['overheadRecoveryPerUnit', 'Budget rate overhead recovery'],
+    ['targetMarginPercent', 'Budget rate target margin'],
+    ['recommendedSellPrice', 'Budget rate recommended sell price'],
+  ]) {
+    if (record[field] !== undefined && record[field] !== null && (!isFiniteNumber(record[field]) || record[field] < 0)) {
+      return `${label} must be zero or greater.`;
+    }
+  }
   if (!isFiniteNumber(record.defaultMarkupPercent) || record.defaultMarkupPercent < 0) {
     return 'Budget rate default markup percent must be zero or greater.';
   }
@@ -1344,7 +1370,10 @@ export default async function handler(req, res) {
         ? { crews: await listCrewsForBusiness(session.businessId) }
         : {};
       const filteredItems = filterRecordsForSession(session, entity, items, context);
-      return res.status(200).json({ ok: true, items: filteredItems });
+      const responseItems = entity === 'equipment-assets'
+        ? redactEquipmentPricingForSession(session, filteredItems)
+        : filteredItems;
+      return res.status(200).json({ ok: true, items: responseItems });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not load ${entity}` });
     }
@@ -1361,6 +1390,9 @@ export default async function handler(req, res) {
 
     if (entity !== 'employees' && typeof record.id !== 'string') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
+    }
+    if (entity === 'equipment-assets' && changesEquipmentPricing(record) && session.role !== 'owner' && session.role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only owner/admin can set equipment pricing.' });
     }
 
     if (entity === 'budget') {
@@ -1575,6 +1607,9 @@ export default async function handler(req, res) {
     const accountAccess = req.body?.accountAccess;
     if (typeof id !== 'string' || !id || !data || typeof data !== 'object') {
       return res.status(400).json({ ok: false, error: 'Invalid payload' });
+    }
+    if (entity === 'equipment-assets' && changesEquipmentPricing(data) && session.role !== 'owner' && session.role !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Only owner/admin can change equipment pricing.' });
     }
 
     try {

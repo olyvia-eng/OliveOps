@@ -396,6 +396,60 @@ function requestWithToken(token, method, entity, body, id) {
   };
 }
 
+test('equipment pricing writes require owner/admin and internal rates are redacted for foremen', async (t) => {
+  const store = installDdbMock(t);
+  const users = [
+    { userId: 'user-owner-1', role: 'owner', email: 'owner@example.com', token: 'token-owner-pricing' },
+    { userId: 'user-admin-1', role: 'admin', email: 'admin@example.com', token: 'token-admin-pricing' },
+    { userId: 'user-foreman-1', role: 'foreman', email: 'foreman@example.com', token: 'token-foreman-pricing' },
+  ];
+
+  for (const user of users) {
+    seedBusinessUser(store, { businessId: 'biz-1', ...user });
+    await createBearerSession({ businessId: 'biz-1', ...user });
+  }
+
+  store.set(mapKey('BUSINESS#biz-1', 'EQUIPMENT#equipment-1'), {
+    PK: 'BUSINESS#biz-1',
+    SK: 'EQUIPMENT#equipment-1',
+    entityType: 'EQUIPMENT_ASSET',
+    businessId: 'biz-1',
+    equipmentId: 'equipment-1',
+    id: 'equipment-1',
+    name: 'Compact Excavator',
+    type: 'Excavator',
+    status: 'available',
+    costType: 'owned',
+    hourlyCost: 5,
+    costRateHourly: 43,
+    recommendedSellRate: 69,
+    chargeOutRate: 70,
+    notes: '',
+  });
+
+  for (const role of ['owner', 'admin']) {
+    const res = createMockRes();
+    await dataHandler(requestWithToken(`token-${role}-pricing`, 'PATCH', 'equipment-assets', {
+      data: { chargeOutRate: role === 'owner' ? 71 : 72 },
+    }, 'equipment-1'), res);
+    assert.equal(res.statusCode, 200, `${role} should be allowed to approve equipment pricing`);
+  }
+
+  const deniedRes = createMockRes();
+  await dataHandler(requestWithToken('token-foreman-pricing', 'PATCH', 'equipment-assets', {
+    data: { costRateHourly: 1, recommendedSellRate: 2, chargeOutRate: 3 },
+  }, 'equipment-1'), deniedRes);
+  assert.equal(deniedRes.statusCode, 403);
+  assert.equal(deniedRes.body.error, 'Only owner/admin can change equipment pricing.');
+
+  const foremanReadRes = createMockRes();
+  await dataHandler(requestWithToken('token-foreman-pricing', 'GET', 'equipment-assets'), foremanReadRes);
+  assert.equal(foremanReadRes.statusCode, 200);
+  assert.equal(foremanReadRes.body.items[0].costRateHourly, undefined);
+  assert.equal(foremanReadRes.body.items[0].recommendedSellRate, undefined);
+  assert.equal(foremanReadRes.body.items[0].chargeOutRate, 72);
+});
+
 test('crew_member /api/data list endpoints are entity and record authorized', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {

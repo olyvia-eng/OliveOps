@@ -306,12 +306,15 @@ test('converted job is persisted in canonical job format and returned by the nor
   assert.equal(persistedJob.convertedByUserName, 'Casey Foreman');
   assert.equal(persistedJob.convertedFromEstimateAt, res.body.estimate.convertedAt);
   assert.equal(persistedJob.contractValue, 2235.255);
-  assert.equal(persistedJob.estimatedCost, 2046);
+  assert.equal(persistedJob.estimatedCost, 1780);
   assert.equal(persistedJob.originalEstimateSnapshot.estimateId, 'est-1');
   assert.equal(persistedJob.originalEstimateSnapshot.proposalNumber, 'EST-2026-0021');
   assert.equal(persistedJob.originalEstimateSnapshot.total, 2235.255);
   assert.equal(persistedJob.operationalWorkAreas.length, 1);
   assert.equal(persistedJob.operationalWorkAreas[0].lineItems.length, 2);
+  assert.equal(persistedJob.operationalWorkAreas[0].estimatedCost, 1780);
+  assert.equal(persistedJob.operationalWorkAreas[0].estimatedRevenue, 2046);
+  assert.equal(persistedJob.operationalWorkAreas[0].estimatedMargin, 266);
 
   const businessJobs = await listJobsForBusiness('biz-1');
   assert.equal(businessJobs.length, 1);

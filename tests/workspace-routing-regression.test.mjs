@@ -58,7 +58,7 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(appSource, /<EstimateWorkAreaBuilderPage currentUserRole=\{sessionUser\.role\} \/>/);
   assert.match(workAreaBuilderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
   assert.match(workAreaBuilderSource, /Pricing: \$\{pricingBudget\.name\}/);
-  assert.match(workAreaBuilderSource, /rate\.budgetId === estimate\.pricingBudgetId/);
+  assert.match(workAreaBuilderSource, /rate\.budgetId === estimate\?\.pricingBudgetId/);
   assert.match(workAreaBuilderSource, /Custom Line Item|Custom \$\{CATEGORY_LABEL\[customItemCategory\]\} Item/);
   assert.match(workAreaBuilderSource, /Delete Work Area/);
 });

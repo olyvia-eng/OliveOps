@@ -1,4 +1,10 @@
 import type { EquipmentCostType } from '../types';
+import {
+  calculateEquipmentCostBreakdownModel,
+  calculateEquipmentRatePricingModel,
+  calculateSuggestedEquipmentSellRateModel,
+  resolveEquipmentSellRatePreviewModel,
+} from './equipmentPricingModel.js';
 
 export interface EquipmentPricingInput {
   equipmentCostType: EquipmentCostType;
@@ -25,6 +31,7 @@ export interface EquipmentCostBreakdown {
   annualMaintenanceCost: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
+  operatingDaysPerYear: number;
   monthsUsedPerYear: number;
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
@@ -37,66 +44,36 @@ export interface EquipmentSellRateInput {
   marginDivisor: number;
 }
 
-const normalizeNonNegative = (value: number | undefined) => {
-  const candidate = Number(value ?? 0);
-  if (!Number.isFinite(candidate)) return 0;
-  return Math.max(0, candidate);
-};
+export interface EquipmentRatePricingInput {
+  costRateHourly: number;
+  overheadRecoveryHourly: number;
+  targetMarginPercent: number;
+  chargeOutRate?: number | null;
+}
+
+export interface EquipmentRatePricingBreakdown {
+  costRateHourly: number;
+  overheadRecoveryHourly: number;
+  fullyBurdenedCostHourly: number;
+  targetMarginPercent: number;
+  recommendedSellRate: number;
+  chargeOutRate: number;
+  estimatedMarginPercent: number;
+  meetsTargetMargin: boolean;
+}
 
 export function calculateEquipmentCostBreakdown(input: EquipmentPricingInput): EquipmentCostBreakdown {
-  const paymentPerPeriod = input.equipmentCostType === 'owned'
-    ? 0
-    : normalizeNonNegative(input.equipmentPayment);
-  const paymentFrequencyPerYear = input.equipmentCostType === 'owned'
-    ? 0
-    : normalizeNonNegative(input.equipmentPaymentFrequencyPerYear);
-  const annualPayments = paymentPerPeriod * paymentFrequencyPerYear;
+  return calculateEquipmentCostBreakdownModel(input) as EquipmentCostBreakdown;
+}
 
-  const fuelPricePerUnit = normalizeNonNegative(input.averageFuelPrice);
-  const fuelBurnPerHour = normalizeNonNegative(input.averageFuelBurnPerHour);
-  const fuelCostPerHour = fuelPricePerUnit * fuelBurnPerHour;
-
-  const annualInsuranceCost = normalizeNonNegative(input.yearlyInsuranceCost);
-  const annualMaintenanceCost = normalizeNonNegative(input.yearlyMaintenanceCost);
-
-  const sellableHoursPerYear = normalizeNonNegative(input.sellableHoursPerYear);
-  const equipmentHoursPerDay = normalizeNonNegative(input.equipmentHoursPerDay);
-  const monthsUsedPerYear = Math.max(1, Math.min(12, Math.round(normalizeNonNegative(input.monthsUsedPerYear) || 1)));
-
-  const annualFuelCost = fuelCostPerHour * sellableHoursPerYear;
-  const totalEquipmentCostPerYear = annualPayments + annualFuelCost + annualInsuranceCost + annualMaintenanceCost;
-  const totalCostPerHour = sellableHoursPerYear > 0 ? totalEquipmentCostPerYear / sellableHoursPerYear : 0;
-  const totalCostPerDay = totalCostPerHour * equipmentHoursPerDay;
-
-  return {
-    paymentPerPeriod,
-    paymentFrequencyPerYear,
-    annualPayments,
-    fuelPricePerUnit,
-    fuelBurnPerHour,
-    fuelCostPerHour,
-    annualFuelCost,
-    annualInsuranceCost,
-    annualMaintenanceCost,
-    sellableHoursPerYear,
-    equipmentHoursPerDay,
-    monthsUsedPerYear,
-    totalEquipmentCostPerYear,
-    totalCostPerHour,
-    totalCostPerDay,
-  };
+export function calculateEquipmentRatePricing(input: EquipmentRatePricingInput): EquipmentRatePricingBreakdown {
+  return calculateEquipmentRatePricingModel(input) as EquipmentRatePricingBreakdown;
 }
 
 export function calculateSuggestedEquipmentSellRate(input: EquipmentSellRateInput): number {
-  const costPerHour = normalizeNonNegative(input.costPerHour);
-  const equipmentOverheadRecoveryPerHour = normalizeNonNegative(input.equipmentOverheadRecoveryPerHour);
-  const marginDivisor = Math.max(0.01, Number.isFinite(input.marginDivisor) ? input.marginDivisor : 0.01);
-  if (costPerHour <= 0) return 0;
-  return (costPerHour + equipmentOverheadRecoveryPerHour) / marginDivisor;
+  return calculateSuggestedEquipmentSellRateModel(input) as number;
 }
 
 export function resolveEquipmentSellRatePreview(overrideSellRate: number | null, suggestedSellRate: number): number {
-  if (overrideSellRate == null) return suggestedSellRate;
-  const normalizedOverride = normalizeNonNegative(overrideSellRate);
-  return normalizedOverride;
+  return resolveEquipmentSellRatePreviewModel(overrideSellRate, suggestedSellRate) as number;
 }

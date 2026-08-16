@@ -25,10 +25,10 @@ test('catalog and budget both use shared restored equipment info form', () => {
   assert.match(equipmentFormSource, /Billable Hours per Year/);
   assert.match(equipmentFormSource, /Hours per Day/);
   assert.match(equipmentFormSource, /Months Used Per Year/);
-  assert.match(equipmentFormSource, /Total Equipment Cost per Year/);
-  assert.match(equipmentFormSource, /Total Cost per Hour/);
-  assert.match(equipmentFormSource, /Total Cost per Day/);
-  assert.match(equipmentFormSource, /Budget Sell Rate \/ Charge-Out Rate/);
+  assert.match(equipmentFormSource, /Annual Equipment Cost/);
+  assert.match(equipmentFormSource, /Cost per Operating Hour/);
+  assert.match(equipmentFormSource, /Cost per Operating Day/);
+  assert.doesNotMatch(equipmentFormSource, /Budget Sell Rate \/ Charge-Out Rate/);
   assert.doesNotMatch(equipmentFormSource, /label="Status"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Date"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Price"/);

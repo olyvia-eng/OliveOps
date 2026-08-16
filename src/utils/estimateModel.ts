@@ -1,4 +1,4 @@
-import type { BudgetRate, Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
+import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
 
 const DEFAULT_AREA_NAME = 'General';
@@ -20,6 +20,7 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
   const markupPercent = Math.max(0, asNumber(item.markupPercent, asNumber(item.markup, 0)));
   const sellPrice = item.sellPrice !== undefined ? Math.max(0, asNumber(item.sellPrice, 0)) : unitCost * (1 + markupPercent / 100);
   const total = quantity * sellPrice;
+  const estimatedCost = quantity * unitCost;
 
   return {
     id: item.id ?? generateId(),
@@ -27,6 +28,12 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     sourceBudgetId: item.sourceBudgetId,
     sourceRateId: item.sourceRateId,
     sourceCategory: normalizeCategory(item.sourceCategory ?? item.category),
+    equipmentId: item.equipmentId,
+    equipmentName: item.equipmentName,
+    costRateAtEstimate: item.costRateAtEstimate !== undefined ? Math.max(0, asNumber(item.costRateAtEstimate, unitCost)) : undefined,
+    chargeOutRateAtEstimate: item.chargeOutRateAtEstimate !== undefined ? Math.max(0, asNumber(item.chargeOutRateAtEstimate, sellPrice)) : undefined,
+    estimatedCost: item.category === 'equipment' ? Math.max(0, asNumber(item.estimatedCost, estimatedCost)) : item.estimatedCost,
+    estimatedSell: item.category === 'equipment' ? Math.max(0, asNumber(item.estimatedSell, total)) : item.estimatedSell,
     itemName: typeof item.itemName === 'string' && item.itemName.trim() ? item.itemName : (typeof item.description === 'string' ? item.description : ''),
     description: typeof item.description === 'string' ? item.description : '',
     quantity,
@@ -93,6 +100,31 @@ export function applyBudgetRateToEstimateLineItem(lineItem: EstimateLineItem, ra
     markupPercent: rate.defaultMarkupPercent,
     sellPrice,
     markup: rate.defaultMarkupPercent,
+  });
+}
+
+export function applyEquipmentAssetToEstimateLineItem(lineItem: EstimateLineItem, asset: EquipmentAsset): EstimateLineItem {
+  const costRate = Math.max(0, asNumber(asset.costRateHourly, asNumber(asset.hourlyCost, 0)));
+  const chargeOutRate = Math.max(0, asNumber(asset.chargeOutRate, 0));
+  const quantity = Math.max(0, asNumber(lineItem.quantity, 0));
+
+  return calculateEstimateLineItem({
+    ...lineItem,
+    category: 'equipment',
+    sourceCategory: 'equipment',
+    equipmentId: asset.id,
+    equipmentName: asset.name,
+    itemName: asset.name,
+    description: asset.type || 'Company equipment',
+    unit: 'hr',
+    unitCost: costRate,
+    sellPrice: chargeOutRate,
+    markupPercent: costRate > 0 ? Math.max(0, ((chargeOutRate / costRate) - 1) * 100) : 0,
+    markup: costRate > 0 ? Math.max(0, ((chargeOutRate / costRate) - 1) * 100) : 0,
+    costRateAtEstimate: costRate,
+    chargeOutRateAtEstimate: chargeOutRate,
+    estimatedCost: quantity * costRate,
+    estimatedSell: quantity * chargeOutRate,
   });
 }
 

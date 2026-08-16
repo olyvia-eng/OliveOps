@@ -1,5 +1,6 @@
 import { Input, Select } from '../ui';
 import type { EquipmentCostType } from '../../types';
+import { formatCurrency } from '../../utils';
 
 export interface EquipmentInfoFormValue {
   description: string;
@@ -24,12 +25,8 @@ interface EquipmentInfoFormProps {
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
   totalCostPerDay: number;
-  budgetSellRate?: number;
-  onBudgetSellRateChange?: (nextValue: number) => void;
   showCalculationDetails: boolean;
   onToggleCalculationDetails: () => void;
-  showBudgetSellRate?: boolean;
-  editableBudgetSellRate?: boolean;
 }
 
 export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
@@ -55,12 +52,8 @@ export default function EquipmentInfoForm({
   totalEquipmentCostPerYear,
   totalCostPerHour,
   totalCostPerDay,
-  budgetSellRate = 0,
-  onBudgetSellRateChange,
   showCalculationDetails,
   onToggleCalculationDetails,
-  showBudgetSellRate = true,
-  editableBudgetSellRate = true,
 }: EquipmentInfoFormProps) {
   const set = <K extends keyof EquipmentInfoFormValue>(key: K, nextValue: EquipmentInfoFormValue[K]) => {
     onChange({ ...value, [key]: nextValue });
@@ -239,69 +232,17 @@ export default function EquipmentInfoForm({
         </div>
       </fieldset>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <label className="text-sm font-medium text-gray-700">Total Equipment Cost per Year</label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={totalEquipmentCostPerYear}
-              className="pl-7"
-              disabled
-            />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[
+          ['Annual Equipment Cost', totalEquipmentCostPerYear],
+          ['Cost per Operating Day', totalCostPerDay],
+          ['Cost per Operating Hour', totalCostPerHour],
+        ].map(([label, amount]) => (
+          <div key={String(label)} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-medium text-gray-500">{label}</p>
+            <p className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(Number(amount))}</p>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Total Cost per Hour</label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={totalCostPerHour}
-              className="pl-7"
-              disabled
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Total Cost per Day</label>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-            <Input
-              type="number"
-              min={0}
-              step={0.01}
-              value={totalCostPerDay}
-              className="pl-7"
-              disabled
-            />
-          </div>
-        </div>
-
-        {showBudgetSellRate && (
-          <div className="flex flex-col gap-1.5 sm:col-span-2">
-            <label className="text-sm font-medium text-gray-700">Budget Sell Rate / Charge-Out Rate</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={budgetSellRate}
-                className="pl-7"
-                onChange={(event) => onBudgetSellRateChange?.(Number(event.target.value || 0))}
-                disabled={!editableBudgetSellRate}
-              />
-            </div>
-          </div>
-        )}
+        ))}
       </div>
 
       <div className="mt-1">
@@ -315,28 +256,19 @@ export default function EquipmentInfoForm({
       </div>
 
       {showCalculationDetails && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700 space-y-1">
-          <p>
-            Annual Payments: {value.equipmentCostType === 'owned' ? '$0.00' : `$${Number(value.equipmentPayment || 0).toFixed(2)}`} x {value.equipmentCostType === 'owned' ? '0' : Number(value.equipmentPaymentFrequencyPerYear || 0).toFixed(0)} = ${value.equipmentCostType === 'owned' ? '0.00' : (Number(value.equipmentPayment || 0) * Number(value.equipmentPaymentFrequencyPerYear || 0)).toFixed(2)}
-          </p>
-          <p>
-            Variable Operating Cost: ${Number(fuelCostPerHour || 0).toFixed(2)} x {Number(value.sellableHoursPerYear || 0).toFixed(0)} hrs = ${(Number(fuelCostPerHour || 0) * Number(value.sellableHoursPerYear || 0)).toFixed(2)}
-          </p>
-          <p>
-            Yearly Insurance Cost: ${Number(value.yearlyInsuranceCost || 0).toFixed(2)}
-          </p>
-          <p>
-            Yearly Maintenance Cost: ${Number(value.yearlyMaintenanceCost || 0).toFixed(2)}
-          </p>
-          <p className="pt-1 border-t border-gray-200 font-semibold text-gray-900">
-            Total Equipment Cost per Year: ${Number(totalEquipmentCostPerYear || 0).toFixed(2)}
-          </p>
-          <p>
-            Total Cost per Hour: ${Number(totalCostPerHour || 0).toFixed(2)}
-          </p>
-          <p>
-            Total Cost per Day: ${Number(totalCostPerDay || 0).toFixed(2)}
-          </p>
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+          <h3 className="font-semibold text-gray-900">Equipment Cost Calculation</h3>
+          <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">
+            <dt>Annual Payments</dt><dd>{formatCurrency(value.equipmentCostType === 'owned' ? 0 : Number(value.equipmentPayment || 0) * Number(value.equipmentPaymentFrequencyPerYear || 0))}</dd>
+            <dt>Fuel / Operating Cost</dt><dd>{formatCurrency(Number(fuelCostPerHour || 0) * Number(value.sellableHoursPerYear || 0))}</dd>
+            <dt>Insurance</dt><dd>{formatCurrency(Number(value.yearlyInsuranceCost || 0))}</dd>
+            <dt>Maintenance</dt><dd>{formatCurrency(Number(value.yearlyMaintenanceCost || 0))}</dd>
+            <dt className="border-t border-gray-200 pt-2 font-semibold text-gray-900">Annual Equipment Cost</dt><dd className="border-t border-gray-200 pt-2 font-semibold text-gray-900">{formatCurrency(totalEquipmentCostPerYear)}</dd>
+            <dt className="pt-2">Expected Operating Days</dt><dd className="pt-2">{value.equipmentHoursPerDay > 0 ? (value.sellableHoursPerYear / value.equipmentHoursPerDay).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '0'}</dd>
+            <dt>Expected Operating Hours</dt><dd>{Number(value.sellableHoursPerYear || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</dd>
+            <dt className="font-semibold text-gray-900">Cost per Day</dt><dd className="font-semibold text-gray-900">{formatCurrency(totalCostPerDay)}</dd>
+            <dt className="font-semibold text-gray-900">Cost per Hour</dt><dd className="font-semibold text-gray-900">{formatCurrency(totalCostPerHour)}</dd>
+          </dl>
         </div>
       )}
     </div>

@@ -34,9 +34,12 @@ test('overhead tab includes labour overhead summary and overhead employee sectio
 });
 
 test('budget rates and estimate add-items use a single combined entry per catalog item', () => {
-  assert.match(budgetPageSource, /findEquipmentRateForValues/);
-  assert.match(budgetPageSource, /if \(existingRate\) updateBudgetRate\(existingRate\.id, ratePayload\)/);
-  assert.match(budgetPageSource, /else addBudgetRate\(ratePayload\)/);
+  assert.match(budgetPageSource, /findEquipmentRate/);
+  assert.match(budgetPageSource, /rate\.equipmentId === item\.equipmentId/);
+  assert.match(budgetPageSource, /if \(row\.rate\) updateBudgetRate\(row\.rate\.id, payload\)/);
+  assert.match(budgetPageSource, /else addBudgetRate\(payload\)/);
+  assert.match(estimateBuilderSource, /approvedChargeOutRate/);
+  assert.match(estimateBuilderSource, /legacy budget rate/);
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.equipment\.filter\(\(value\) => !matchedEquipmentRateIds\.has\(value\.id\)\)/);
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.material\.filter\(\(value\) => !matchedMaterialRateIds\.has\(value\.id\)\)/);
   assert.match(estimateBuilderSource, /No pricing rate in selected budget/);

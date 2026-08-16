@@ -7,6 +7,7 @@ import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
 import {
   applyBudgetRateToEstimateLineItem,
+  applyEquipmentAssetToEstimateLineItem,
   calculateEstimateLineItem,
   computeWorkAreaCategoryCostTotals,
   computeWorkAreaEstimatedCost,
@@ -16,7 +17,7 @@ import {
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
-import type { BudgetRate, Estimate, EstimateLineItem, LineItemCategory } from '../../types';
+import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, LineItemCategory } from '../../types';
 
 interface Props {
   currentUserRole: string;
@@ -38,6 +39,7 @@ type CatalogCandidate = {
   unit: string;
   priceText: string;
   rate?: BudgetRate;
+  equipment?: EquipmentAsset;
   disabledReason?: string;
   alreadyAdded: boolean;
   source: 'rate' | 'equipment' | 'material';
@@ -160,26 +162,12 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
-  if (!estimate || !workArea || !form) {
-    return (
-      <div className="space-y-4">
-        <Button variant="secondary" onClick={() => navigate(id ? `/estimates/${id}?tab=work-areas` : '/estimates')}>
-          <ArrowLeft size={15} /> Back to Estimate
-        </Button>
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Work area not found</h2>
-          <p className="mt-2 text-sm text-gray-500 dark:text-brand-200">This work area may have been removed or is still syncing.</p>
-        </Card>
-      </div>
-    );
-  }
-
-  const selectedBudgetRates = budgetRates
-    .filter((rate) => rate.active && rate.budgetId === estimate.pricingBudgetId)
+  const selectedBudgetRates = useMemo(() => budgetRates
+    .filter((rate) => rate.active && rate.budgetId === estimate?.pricingBudgetId)
     .slice()
-    .sort((a, b) => a.sortOrder - b.sortOrder || a.itemName.localeCompare(b.itemName));
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.itemName.localeCompare(b.itemName)), [budgetRates, estimate?.pricingBudgetId]);
 
-  const budgetRatesByCategory = CATEGORY_ORDER.reduce<Record<LineItemCategory, BudgetRate[]>>((accumulator, category) => {
+  const budgetRatesByCategory = useMemo(() => CATEGORY_ORDER.reduce<Record<LineItemCategory, BudgetRate[]>>((accumulator, category) => {
     accumulator[category] = selectedBudgetRates.filter((rate) => rate.category === category);
     return accumulator;
   }, {
@@ -187,23 +175,24 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     equipment: [],
     material: [],
     subcontractor: [],
-  });
-
-  const findMatchingRate = (category: LineItemCategory, values: string[]) => {
-    const normalizedValues = values.map(normalizeKey).filter(Boolean);
-    if (normalizedValues.length === 0) return null;
-
-    return budgetRatesByCategory[category].find((rate) => {
-      const rateTexts = [rate.itemName, rate.description].map(normalizeKey).filter(Boolean);
-      return normalizedValues.some((value) => rateTexts.some((text) => text === value || text.includes(value) || value.includes(text)));
-    }) ?? null;
-  };
+  }), [selectedBudgetRates]);
 
   const catalogCandidates = useMemo(() => {
-    const alreadyAddedRateIds = new Set(form.lineItems.map((item) => item.sourceRateId).filter((value): value is string => Boolean(value)));
+    const lineItems = form?.lineItems ?? [];
+    const alreadyAddedRateIds = new Set(lineItems.map((item) => item.sourceRateId).filter((value): value is string => Boolean(value)));
+    const alreadyAddedEquipmentIds = new Set(lineItems.map((item) => item.equipmentId).filter((value): value is string => Boolean(value)));
     const candidates: CatalogCandidate[] = [];
     const matchedEquipmentRateIds = new Set<string>();
     const matchedMaterialRateIds = new Set<string>();
+    const findMatchingRate = (category: LineItemCategory, values: string[]) => {
+      const normalizedValues = values.map(normalizeKey).filter(Boolean);
+      if (normalizedValues.length === 0) return null;
+
+      return budgetRatesByCategory[category].find((rate) => {
+        const rateTexts = [rate.itemName, rate.description].map(normalizeKey).filter(Boolean);
+        return normalizedValues.some((value) => rateTexts.some((text) => text === value || text.includes(value) || value.includes(text)));
+      }) ?? null;
+    };
 
     for (const rate of budgetRatesByCategory.labour) {
       candidates.push({
@@ -223,6 +212,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     for (const asset of equipmentAssets) {
       const matchedRate = findMatchingRate('equipment', [asset.name, asset.type]);
       if (matchedRate) matchedEquipmentRateIds.add(matchedRate.id);
+      const approvedChargeOutRate = Math.max(0, Number(asset.chargeOutRate ?? 0));
+      const hasCatalogPricing = approvedChargeOutRate > 0;
 
       candidates.push({
         key: `equipment:${asset.id}`,
@@ -230,10 +221,15 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         displayName: asset.name,
         description: asset.type || 'Company equipment',
         unit: matchedRate?.unit ?? 'hr',
-        priceText: matchedRate ? `${formatCurrency(rateSellPrice(matchedRate))}/${matchedRate.unit}` : 'No pricing rate in selected budget',
+        priceText: hasCatalogPricing
+          ? `${formatCurrency(approvedChargeOutRate)}/hr charge-out`
+          : matchedRate
+            ? `${formatCurrency(rateSellPrice(matchedRate))}/${matchedRate.unit} legacy budget rate`
+            : 'No approved charge-out rate',
         rate: matchedRate ?? undefined,
-        disabledReason: matchedRate ? undefined : 'Add an equipment pricing rate to the selected budget or use a custom item.',
-        alreadyAdded: matchedRate ? alreadyAddedRateIds.has(matchedRate.id) : false,
+        equipment: hasCatalogPricing ? asset : undefined,
+        disabledReason: hasCatalogPricing || matchedRate ? undefined : 'Approve a charge-out rate in Budget Pricing & Analysis or use a custom item.',
+        alreadyAdded: alreadyAddedEquipmentIds.has(asset.id) || (matchedRate ? alreadyAddedRateIds.has(matchedRate.id) : false),
         source: 'equipment',
         searchText: `${asset.name} ${asset.type} equipment ${matchedRate?.description ?? ''}`.toLowerCase(),
       });
@@ -274,7 +270,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     }
 
     return candidates;
-  }, [budgetRatesByCategory, equipmentAssets, form.lineItems, materialCatalogItems]);
+  }, [budgetRatesByCategory, equipmentAssets, form?.lineItems, materialCatalogItems]);
 
   const visibleCatalogCandidates = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
@@ -287,7 +283,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
   const groupedLineItems = useMemo(() => {
     return CATEGORY_ORDER.reduce<Record<LineItemCategory, EstimateLineItem[]>>((accumulator, category) => {
-      accumulator[category] = form.lineItems.filter((item) => item.category === category);
+      accumulator[category] = (form?.lineItems ?? []).filter((item) => item.category === category);
       return accumulator;
     }, {
       labour: [],
@@ -295,9 +291,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       material: [],
       subcontractor: [],
     });
-  }, [form.lineItems]);
+  }, [form?.lineItems]);
 
   const workAreaSummary = useMemo(() => {
+    if (!form || !workArea) return null;
     const currentWorkArea = {
       ...workArea,
       name: form.name,
@@ -311,6 +308,20 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       categoryCosts: computeWorkAreaCategoryCostTotals(currentWorkArea),
     };
   }, [form, workArea]);
+
+  if (!estimate || !workArea || !form || !workAreaSummary) {
+    return (
+      <div className="space-y-4">
+        <Button variant="secondary" onClick={() => navigate(id ? `/estimates/${id}?tab=work-areas` : '/estimates')}>
+          <ArrowLeft size={15} /> Back to Estimate
+        </Button>
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Work area not found</h2>
+          <p className="mt-2 text-sm text-gray-500 dark:text-brand-200">This work area may have been removed or is still syncing.</p>
+        </Card>
+      </div>
+    );
+  }
 
   const setLineItem = (lineItemId: string, key: keyof EstimateLineItem, value: unknown) => {
     setForm((current) => {
@@ -339,14 +350,15 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleAddFromCandidate = (candidate: CatalogCandidate) => {
-    if (!candidate.rate || addingCandidateKey === candidate.key) return;
-    const rate = candidate.rate;
+    if ((!candidate.rate && !candidate.equipment) || addingCandidateKey === candidate.key) return;
 
     setAddingCandidateKey(candidate.key);
     setForm((current) => {
       if (!current) return current;
 
-      const applied = applyBudgetRateToEstimateLineItem(createEmptyEstimateLineItem(candidate.category), rate);
+      const applied = candidate.equipment
+        ? applyEquipmentAssetToEstimateLineItem(createEmptyEstimateLineItem('equipment'), candidate.equipment)
+        : applyBudgetRateToEstimateLineItem(createEmptyEstimateLineItem(candidate.category), candidate.rate!);
       const nextItem = calculateEstimateLineItem({
         ...applied,
         itemName: candidate.displayName,
@@ -507,9 +519,9 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">{candidate.priceText}</p>
                   <Button
                     size="sm"
-                    variant={candidate.rate ? 'secondary' : 'ghost'}
+                    variant={candidate.rate || candidate.equipment ? 'secondary' : 'ghost'}
                     onClick={() => {
-                      if (candidate.rate) {
+                      if (candidate.rate || candidate.equipment) {
                         handleAddFromCandidate(candidate);
                         return;
                       }

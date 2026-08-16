@@ -27,7 +27,7 @@ import {
 } from './_lib/authRepo.js';
 import { DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS, getActiveShiftForEmployee, isPossiblyForgottenClockOut } from './_lib/clocking.js';
 import { requireSession } from './_lib/session.js';
-import { filterRecordsForSession } from './_lib/authorization.js';
+import { filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import {
   listBudgetGroupsForBusiness,
   listEquipmentBudgetAllocationsForBusiness,
@@ -109,7 +109,7 @@ export default async function handler(req, res) {
       estimates: filterRecordsForSession(session, 'estimates', estimates),
       invoices: filterRecordsForSession(session, 'invoices', invoices),
       expenses: filterRecordsForSession(session, 'expenses', expenses),
-      equipmentAssets: filterRecordsForSession(session, 'equipment-assets', equipmentAssets),
+      equipmentAssets: redactEquipmentPricingForSession(session, filterRecordsForSession(session, 'equipment-assets', equipmentAssets)),
       unbillableTimeCategories: filterRecordsForSession(session, 'unbillable-time-categories', unbillableTimeCategories),
       materialCatalogItems: filterRecordsForSession(session, 'material-catalog-items', materialCatalogItems),
       templates: filterRecordsForSession(session, 'templates', templates),

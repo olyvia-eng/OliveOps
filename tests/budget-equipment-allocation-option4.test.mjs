@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('budget equipment calculations use shared helper and live sell-rate preview pipeline', () => {
+test('budget equipment calculations use shared helper and defer sell-rate approval to Analysis', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 
   assert.match(source, /calculateEquipmentCostBreakdown/);
-  assert.match(source, /calculateSuggestedEquipmentSellRate/);
-  assert.match(source, /resolveEquipmentSellRatePreview\(equipmentSellRateOverride, suggestedEquipmentSellRate\)/);
-  assert.match(source, /budgetSellRate=\{previewEquipmentSellRate\}/);
-  assert.match(source, /defaultSellPrice: normalizedBudgetSellRate,/);
+  assert.match(source, /calculateEquipmentRatePricing/);
+  assert.doesNotMatch(source, /budgetSellRate=|onBudgetSellRateChange/);
+  assert.match(source, /Equipment Pricing/);
+  assert.match(source, /defaultSellPrice: chargeOutRate,/);
 });
 
 test('months used per year remains separate from grouped equipment allocation', () => {
@@ -59,7 +59,8 @@ test('budget equipment tab renders split equipment planner and equipment catalog
   assert.match(source, /Search equipment\.\.\./);
   assert.match(source, /Cost \/ Year/);
   assert.match(source, /Cost \/ Day/);
-  assert.match(source, /Budget Sell Rate \/ Hr/);
+  assert.match(source, /Cost \/ Hour/);
+  assert.doesNotMatch(source, /Budget Sell Rate \/ Hr/);
   assert.match(source, /lg:grid-cols-\[minmax\(0,7fr\)_minmax\(300px,3fr\)\]/);
 });
 

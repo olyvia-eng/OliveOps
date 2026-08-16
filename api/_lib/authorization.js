@@ -151,3 +151,11 @@ export function filterRecordsForSession(session, entity, records, context = {}) 
 
   return records.filter((record) => authorizeRecordAccess(session, entity, record, context));
 }
+
+export function redactEquipmentPricingForSession(session, records) {
+  if (!Array.isArray(records)) return [];
+  const role = normalizeRole(session?.role);
+  if (role === 'owner' || role === 'admin') return records;
+
+  return records.map(({ costRateHourly: _costRateHourly, recommendedSellRate: _recommendedSellRate, ...record }) => record);
+}

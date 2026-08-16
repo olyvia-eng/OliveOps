@@ -8,7 +8,6 @@ import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import type {
   BudgetItem,
-  BudgetRate,
   Budget,
   BudgetCategory,
   LabourBudgetPlan,
@@ -25,8 +24,7 @@ import EquipmentInfoForm, {
 } from '../../components/equipment/EquipmentInfoForm';
 import {
   calculateEquipmentCostBreakdown,
-  calculateSuggestedEquipmentSellRate,
-  resolveEquipmentSellRatePreview,
+  calculateEquipmentRatePricing,
 } from '../../utils/equipmentPricing';
 import {
   calculateAllocatedEquipmentCost,
@@ -247,7 +245,6 @@ export default function BudgetPage() {
   const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
   const [mobileEquipmentCatalogOpen, setMobileEquipmentCatalogOpen] = useState(false);
   const [equipmentInfoForm, setEquipmentInfoForm] = useState<EquipmentInfoFormValue>(emptyEquipmentInfoFormValue());
-  const [equipmentSellRateOverride, setEquipmentSellRateOverride] = useState<number | null>(null);
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
   const [employeeCatalogSearch, setEmployeeCatalogSearch] = useState('');
   const [employeeCatalogCollapsed, setEmployeeCatalogCollapsed] = useState(false);
@@ -255,6 +252,7 @@ export default function BudgetPage() {
   const [equipmentCatalogCollapsed, setEquipmentCatalogCollapsed] = useState(false);
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
   const [equipmentCatalogError, setEquipmentCatalogError] = useState('');
+  const [equipmentChargeOutDrafts, setEquipmentChargeOutDrafts] = useState<Record<string, string>>({});
   const [monthsAllocated, setMonthsAllocated] = useState(12);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
@@ -298,6 +296,15 @@ export default function BudgetPage() {
 
     setOverheadRecoveryAllocation(activeBudget.overheadRecoveryAllocation ?? defaultOverheadRecoveryAllocation);
   }, [activeBudget?.id, activeBudget?.overheadRecoveryAllocation]);
+
+  useEffect(() => {
+    if (!activeBudget) return;
+    setPricingInputs((current) => ({
+      ...current,
+      targetMarginPct: activeBudget.targetMarginPct ?? 20,
+      equipmentUtilizationHours: activeBudget.equipmentUtilizationHours ?? 120,
+    }));
+  }, [activeBudget?.equipmentUtilizationHours, activeBudget?.id, activeBudget?.targetMarginPct]);
 
 
   useEffect(() => {
@@ -445,19 +452,13 @@ export default function BudgetPage() {
     setModalOpen(true);
   };
 
-  const rateSellPrice = (rate: BudgetRate) => (
-    rate.defaultSellPrice > 0
-      ? rate.defaultSellPrice
-      : rate.unitCost * (1 + rate.defaultMarkupPercent / 100)
-  );
-
-  const findEquipmentRateForValues = (description: string, costCode: string) => {
-    const descriptionKey = normalizeRateKey(description);
-    const costCodeKey = normalizeRateKey(costCode);
-    const byDescription = scopedBudgetRates.filter((rate) => rate.category === 'equipment' && normalizeRateKey(rate.itemName) === descriptionKey);
-    if (byDescription.length === 0) return null;
-    if (!costCodeKey) return byDescription[0];
-    return byDescription.find((rate) => normalizeRateKey(rate.description).includes(costCodeKey)) ?? byDescription[0];
+  const findEquipmentRate = (item: BudgetItem) => {
+    if (item.equipmentId) {
+      const linkedRate = scopedBudgetRates.find((rate) => rate.category === 'equipment' && rate.equipmentId === item.equipmentId);
+      if (linkedRate) return linkedRate;
+    }
+    const descriptionKey = normalizeRateKey(item.description);
+    return scopedBudgetRates.find((rate) => rate.category === 'equipment' && normalizeRateKey(rate.itemName) === descriptionKey) ?? null;
   };
 
   const openEdit = (b: BudgetItem) => {
@@ -470,7 +471,6 @@ export default function BudgetPage() {
     const averageFuelBurnPerHour = b.averageFuelBurnPerHour
       ?? linkedAsset?.averageFuelBurnPerHour
       ?? ((b.fuelCostPerHour ?? linkedAsset?.hourlyCost ?? 0) > 0 ? 1 : 0);
-    const matchedRate = findEquipmentRateForValues(b.description, b.costCode ?? linkedAsset?.type ?? '');
     setEditing(b);
     setForm({
       budgetId: b.budgetId ?? activeBudgetId ?? undefined,
@@ -511,7 +511,6 @@ export default function BudgetPage() {
       equipmentHoursPerDay: b.equipmentHoursPerDay ?? 8,
       monthsUsedPerYear: b.monthsUsedPerYear ?? 12,
     });
-    setEquipmentSellRateOverride(matchedRate && matchedRate.defaultSellPrice > 0 ? matchedRate.defaultSellPrice : null);
     const allocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === b.id);
     setMonthsAllocated(allocation?.monthsAllocated ?? 12);
     setShowEquipmentCalcDetails(false);
@@ -625,38 +624,12 @@ export default function BudgetPage() {
       period: `${year}-01`,
     };
 
-    if (form.category === 'equipment' && activeBudgetId) {
-      const normalizedBudgetSellRate = Math.max(0, previewEquipmentSellRate);
-      const existingRate = findEquipmentRateForValues(normalizedDescription, normalizedCostCode);
-      const ratePayload = {
-        budgetId: activeBudgetId,
-        category: 'equipment' as const,
-        itemName: normalizedDescription,
-        description: normalizedCostCode ? `Cost Code: ${normalizedCostCode.toUpperCase()}` : 'Equipment rate',
-        unit: 'hr',
-        unitCost: equipmentCostBreakdown.totalCostPerHour,
-        defaultMarkupPercent: equipmentCostBreakdown.totalCostPerHour > 0 && normalizedBudgetSellRate > 0
-          ? Math.max(0, ((normalizedBudgetSellRate / equipmentCostBreakdown.totalCostPerHour) - 1) * 100)
-          : 0,
-        defaultSellPrice: normalizedBudgetSellRate,
-        active: true,
-        sortOrder: existingRate?.sortOrder ?? scopedBudgetRates.filter((rate) => rate.category === 'equipment').length,
-      };
-      if (existingRate) updateBudgetRate(existingRate.id, ratePayload);
-      else addBudgetRate(ratePayload);
-    }
-
     if (editing) updateBudgetItem(editing.id, yearlyForm, allocationMonths);
     else addBudgetItem(yearlyForm, allocationMonths);
     setEquipmentCatalogError('');
-    setEquipmentSellRateOverride(null);
     setModalOpen(false);
   };
   const set = (key: keyof typeof form, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
-  const handleEquipmentSellRateChange = (nextValue: number) => {
-    const normalized = Math.max(0, Number.isFinite(nextValue) ? nextValue : 0);
-    setEquipmentSellRateOverride(normalized > 0 ? normalized : null);
-  };
 
   const addEquipmentToCurrentBudget = (equipmentId: string) => {
     if (!activeBudgetId) return;
@@ -671,7 +644,6 @@ export default function BudgetPage() {
     }
 
     const equipmentDefaults = equipmentInfoDefaultsFromAsset(selected);
-    const matchedRate = findEquipmentRateForValues(selected.name, selected.type ?? '');
     const defaultAverageFuelPrice = selected.averageFuelPrice ?? selected.hourlyCost;
     const defaultAverageFuelBurnPerHour = selected.averageFuelBurnPerHour ?? (selected.hourlyCost > 0 ? 1 : 0);
     setEditing(null);
@@ -703,7 +675,6 @@ export default function BudgetPage() {
       equipmentHoursPerDay: 8,
       monthsUsedPerYear: 12,
     });
-    setEquipmentSellRateOverride(matchedRate && matchedRate.defaultSellPrice > 0 ? matchedRate.defaultSellPrice : null);
     setShowEquipmentCalcDetails(false);
     if (activeBudgetGroup) {
       const summary = calculateEquipmentAllocationSummary({
@@ -739,7 +710,6 @@ export default function BudgetPage() {
     }
     if (category === 'equipment') {
       setEquipmentInfoForm(emptyEquipmentInfoFormValue());
-      setEquipmentSellRateOverride(null);
     }
     setModalOpen(true);
   };
@@ -802,7 +772,7 @@ export default function BudgetPage() {
     { key: 'equipment', label: 'Equipment' },
     { key: 'subcontractors', label: 'Subcontractors' },
     { key: 'overhead', label: 'Overhead' },
-    { key: 'analysis', label: 'Analysis' },
+    { key: 'analysis', label: 'Pricing & Analysis' },
   ];
 
   const totalsByCategory = useMemo(() => {
@@ -1042,7 +1012,11 @@ export default function BudgetPage() {
 
   const updatePricingInput = (key: keyof typeof pricingInputs, value: number) => {
     const next = Number.isFinite(value) ? value : 0;
-    setPricingInputs((current) => ({ ...current, [key]: Math.max(0, next) }));
+    const normalized = Math.max(0, next);
+    setPricingInputs((current) => ({ ...current, [key]: normalized }));
+    if (!activeBudgetId) return;
+    if (key === 'targetMarginPct') updateBudget(activeBudgetId, { targetMarginPct: Math.min(95, normalized) });
+    if (key === 'equipmentUtilizationHours') updateBudget(activeBudgetId, { equipmentUtilizationHours: normalized });
   };
 
   const updateOverheadRecoveryAllocation = (key: keyof typeof overheadRecoveryAllocation, value: number) => {
@@ -1254,25 +1228,66 @@ export default function BudgetPage() {
     materials: totalOverheadBudget * (overheadRecoveryAllocation.materialsPercent / 100),
     subcontractors: totalOverheadBudget * (overheadRecoveryAllocation.subcontractorsPercent / 100),
   };
-  const desiredNetProfit = Math.max(0, activeBudget?.desiredNetProfit ?? 0);
-  const requiredRevenueForDesiredProfit = totalBudgetedExpenses + desiredNetProfit;
-  const revenueGapForDesiredProfit = requiredRevenueForDesiredProfit - totalBudgetedRevenue;
   const equipmentOverheadRecoveryPerHour = pricingInputs.equipmentUtilizationHours > 0
     ? allocationAmounts.equipment / pricingInputs.equipmentUtilizationHours
     : 0;
-
-  const suggestedEquipmentSellRate = useMemo(() => {
-    return calculateSuggestedEquipmentSellRate({
-      costPerHour: equipmentCostBreakdown.totalCostPerHour,
-      equipmentOverheadRecoveryPerHour,
-      marginDivisor,
+  const equipmentPricingRows = equipmentBudgetItemsForYear.map((item) => {
+    const asset = item.equipmentId ? equipmentAssetsById[item.equipmentId] : undefined;
+    const costRateHourly = (item.sellableHoursPerYear ?? 0) > 0 ? item.budgeted / (item.sellableHoursPerYear ?? 1) : 0;
+    const rate = findEquipmentRate(item);
+    const savedChargeOutRate = rate?.defaultSellPrice && rate.defaultSellPrice > 0
+      ? rate.defaultSellPrice
+      : asset?.chargeOutRate && asset.chargeOutRate > 0
+        ? asset.chargeOutRate
+        : null;
+    const pricing = calculateEquipmentRatePricing({
+      costRateHourly,
+      overheadRecoveryHourly: equipmentOverheadRecoveryPerHour,
+      targetMarginPercent: pricingInputs.targetMarginPct,
+      chargeOutRate: savedChargeOutRate,
     });
-  }, [equipmentCostBreakdown.totalCostPerHour, equipmentOverheadRecoveryPerHour, marginDivisor]);
+    return { item, asset, rate, pricing };
+  });
 
-  const previewEquipmentSellRate = useMemo(() => {
-    return resolveEquipmentSellRatePreview(equipmentSellRateOverride, suggestedEquipmentSellRate);
-  }, [equipmentSellRateOverride, suggestedEquipmentSellRate]);
-
+  const saveEquipmentChargeOutRate = (row: typeof equipmentPricingRows[number], requestedRate: number) => {
+    if (!activeBudgetId) return;
+    const chargeOutRate = Math.max(0, Number.isFinite(requestedRate) ? requestedRate : 0);
+    const pricing = calculateEquipmentRatePricing({
+      costRateHourly: row.pricing.costRateHourly,
+      overheadRecoveryHourly: row.pricing.overheadRecoveryHourly,
+      targetMarginPercent: row.pricing.targetMarginPercent,
+      chargeOutRate,
+    });
+    const payload = {
+      budgetId: activeBudgetId,
+      category: 'equipment' as const,
+      equipmentId: row.item.equipmentId,
+      itemName: row.item.description,
+      description: row.item.costCode ? `Cost Code: ${row.item.costCode}` : 'Equipment pricing',
+      unit: 'hr',
+      unitCost: pricing.costRateHourly,
+      overheadRecoveryPerUnit: pricing.overheadRecoveryHourly,
+      targetMarginPercent: pricing.targetMarginPercent,
+      recommendedSellPrice: pricing.recommendedSellRate,
+      defaultMarkupPercent: pricing.costRateHourly > 0 ? Math.max(0, ((chargeOutRate / pricing.costRateHourly) - 1) * 100) : 0,
+      defaultSellPrice: chargeOutRate,
+      active: true,
+      sortOrder: row.rate?.sortOrder ?? scopedBudgetRates.filter((rate) => rate.category === 'equipment').length,
+    };
+    if (row.rate) updateBudgetRate(row.rate.id, payload);
+    else addBudgetRate(payload);
+    if (row.asset) {
+      updateEquipmentAsset(row.asset.id, {
+        costRateHourly: pricing.costRateHourly,
+        recommendedSellRate: pricing.recommendedSellRate,
+        chargeOutRate,
+      });
+    }
+    setEquipmentChargeOutDrafts((current) => ({ ...current, [row.item.id]: chargeOutRate.toFixed(2) }));
+  };
+  const desiredNetProfit = Math.max(0, activeBudget?.desiredNetProfit ?? 0);
+  const requiredRevenueForDesiredProfit = totalBudgetedExpenses + desiredNetProfit;
+  const revenueGapForDesiredProfit = requiredRevenueForDesiredProfit - totalBudgetedRevenue;
   const categoryAnalysisRows = useMemo(() => {
     const rows = [...categoryRows];
     const labourIndex = rows.findIndex((row) => row.category === 'labour');
@@ -1742,6 +1757,93 @@ export default function BudgetPage() {
             </div>
           </Card>
 
+          <Card className="overflow-hidden mb-6">
+            <div className="border-b border-gray-100 p-4">
+              <h2 className="text-lg font-semibold text-gray-900">Equipment Pricing</h2>
+              <p className="mt-1 text-sm text-gray-500">Approve charge-out rates after direct cost, overhead recovery, and target gross margin are applied.</p>
+            </div>
+            {equipmentPricingRows.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">Add equipment cost assumptions in the Equipment tab before setting pricing.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1180px] text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500">
+                      <th className="px-4 py-3 font-medium">Equipment</th>
+                      <th className="px-4 py-3 text-right font-medium">Direct Cost / Hr</th>
+                      <th className="px-4 py-3 text-right font-medium">Overhead / Hr</th>
+                      <th className="px-4 py-3 text-right font-medium">Burdened Cost / Hr</th>
+                      <th className="px-4 py-3 text-right font-medium">Target Margin</th>
+                      <th className="px-4 py-3 text-right font-medium">Recommended Rate</th>
+                      <th className="px-4 py-3 text-right font-medium">Final Charge-Out</th>
+                      <th className="px-4 py-3 font-medium">Pricing Health</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {equipmentPricingRows.map((row) => {
+                      const draftValue = equipmentChargeOutDrafts[row.item.id] ?? row.pricing.chargeOutRate.toFixed(2);
+                      const draftRate = Math.max(0, Number(draftValue || 0));
+                      const draftPricing = calculateEquipmentRatePricing({
+                        costRateHourly: row.pricing.costRateHourly,
+                        overheadRecoveryHourly: row.pricing.overheadRecoveryHourly,
+                        targetMarginPercent: row.pricing.targetMarginPercent,
+                        chargeOutRate: draftRate,
+                      });
+                      return (
+                        <tr key={row.item.id} className="align-top">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-gray-900">{row.asset?.name ?? row.item.description}</p>
+                            <details className="mt-1">
+                              <summary className="cursor-pointer text-xs font-medium text-brand-600">Calculation details</summary>
+                              <div className="mt-2 space-y-1 text-xs text-gray-500">
+                                <p>Direct operating cost: {formatCurrency(row.pricing.costRateHourly)} / hr</p>
+                                <p>+ Overhead recovery: {formatCurrency(row.pricing.overheadRecoveryHourly)} / hr</p>
+                                <p>Fully burdened cost: {formatCurrency(row.pricing.fullyBurdenedCostHourly)} / hr</p>
+                                <p>Target gross margin: {row.pricing.targetMarginPercent.toFixed(1)}%</p>
+                                <p>Recommended charge-out: {formatCurrency(row.pricing.recommendedSellRate)} / hr</p>
+                              </div>
+                            </details>
+                          </td>
+                          <td className="px-4 py-3 text-right">{formatCurrency(row.pricing.costRateHourly)}</td>
+                          <td className="px-4 py-3 text-right">{formatCurrency(row.pricing.overheadRecoveryHourly)}</td>
+                          <td className="px-4 py-3 text-right">{formatCurrency(row.pricing.fullyBurdenedCostHourly)}</td>
+                          <td className="px-4 py-3 text-right">{row.pricing.targetMarginPercent.toFixed(1)}%</td>
+                          <td className="px-4 py-3 text-right font-semibold">{formatCurrency(row.pricing.recommendedSellRate)}</td>
+                          <td className="px-4 py-3">
+                            <div className="ml-auto flex w-48 flex-col items-end gap-2">
+                              <Input
+                                aria-label={`Final charge-out rate for ${row.item.description}`}
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={draftValue}
+                                onChange={(event) => setEquipmentChargeOutDrafts((current) => ({ ...current, [row.item.id]: event.target.value }))}
+                              />
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" variant="ghost" onClick={() => saveEquipmentChargeOutRate(row, row.pricing.recommendedSellRate)}>Use Recommended</Button>
+                                <Button type="button" size="sm" onClick={() => saveEquipmentChargeOutRate(row, draftRate)}>Save Rate</Button>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {draftPricing.meetsTargetMargin ? (
+                              <span className="font-medium text-brand-700">Meets target margin</span>
+                            ) : (
+                              <div className="text-accent-700">
+                                <p className="font-medium">Below recommended rate</p>
+                                <p className="mt-1 text-xs">Estimated margin: {draftPricing.estimatedMarginPercent.toFixed(1)}% · Target: {draftPricing.targetMarginPercent.toFixed(1)}%</p>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
         </>
       )}
 
@@ -2115,7 +2217,7 @@ export default function BudgetPage() {
                           <th className="px-4 py-3 font-medium">Cost Type</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Year</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Day</th>
-                          <th className="px-4 py-3 font-medium text-right">Budget Sell Rate / Hr</th>
+                          <th className="px-4 py-3 font-medium text-right">Cost / Hour</th>
                           <th className="px-4 py-3 font-medium text-right">Actions</th>
                         </tr>
                       </thead>
@@ -2126,8 +2228,6 @@ export default function BudgetPage() {
                           const equipmentHoursPerDay = Math.max(0, item.equipmentHoursPerDay ?? 0);
                           const costPerHour = billableHoursPerYear > 0 ? item.budgeted / billableHoursPerYear : 0;
                           const costPerDay = equipmentHoursPerDay > 0 ? costPerHour * equipmentHoursPerDay : 0;
-                          const matchedRate = findEquipmentRateForValues(item.description, item.costCode ?? linkedAsset?.type ?? '');
-                          const budgetSellRate = matchedRate ? rateSellPrice(matchedRate) : 0;
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
                               <td className="px-4 py-2 text-gray-700">
@@ -2141,7 +2241,7 @@ export default function BudgetPage() {
                               </td>
                               <td className="px-4 py-2 text-right">{formatCurrency(item.budgeted)}</td>
                               <td className="px-4 py-2 text-right">{formatCurrency(costPerDay)}</td>
-                              <td className="px-4 py-2 text-right">{matchedRate ? formatCurrency(budgetSellRate) : 'Set in Rates'}</td>
+                              <td className="px-4 py-2 text-right">{formatCurrency(costPerHour)}</td>
                               <td className="px-4 py-2">
                                 <div className="flex items-center justify-end gap-2">
                                   <Button variant="ghost" size="sm" onClick={() => openEdit(item)}><Pencil size={13} /></Button>
@@ -2491,12 +2591,8 @@ export default function BudgetPage() {
               totalEquipmentCostPerYear={calculatedTotalEquipmentCostPerYear}
               totalCostPerHour={calculatedTotalEquipmentCostPerHour}
               totalCostPerDay={calculatedTotalEquipmentCostPerDay}
-              budgetSellRate={previewEquipmentSellRate}
-              onBudgetSellRateChange={handleEquipmentSellRateChange}
               showCalculationDetails={showEquipmentCalcDetails}
               onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)}
-              showBudgetSellRate
-              editableBudgetSellRate
             />
             {activeBudgetGroup ? (
               <div className="border-y border-gray-200 py-4">

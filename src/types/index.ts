@@ -55,6 +55,12 @@ export interface EstimateLineItem {
   sourceBudgetId?: ID;
   sourceRateId?: ID;
   sourceCategory?: LineItemCategory;
+  equipmentId?: ID;
+  equipmentName?: string;
+  costRateAtEstimate?: number;
+  chargeOutRateAtEstimate?: number;
+  estimatedCost?: number;
+  estimatedSell?: number;
   itemName: string;
   description: string;
   quantity: number;
@@ -237,6 +243,9 @@ export interface EquipmentAsset {
   serialNumber: string;
   purchaseDate?: string;
   hourlyCost: number;
+  costRateHourly?: number;
+  recommendedSellRate?: number;
+  chargeOutRate?: number;
   purchasePrice?: number;
   equipmentPayment?: number;
   equipmentPaymentFrequencyPerYear?: number;
@@ -336,6 +345,12 @@ export interface JobWorkAreaLineItem {
   id: ID;
   sourceEstimateLineItemId?: ID;
   sourceEstimateWorkAreaId?: ID;
+  equipmentId?: ID;
+  equipmentName?: string;
+  costRateAtEstimate?: number;
+  chargeOutRateAtEstimate?: number;
+  estimatedCost?: number;
+  estimatedSell?: number;
   category: LineItemCategory;
   itemName: string;
   description: string;
@@ -768,6 +783,8 @@ export interface Budget {
     subcontractorsPercent: number;
   };
   desiredNetProfit?: number;
+  targetMarginPct?: number;
+  equipmentUtilizationHours?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -830,6 +847,10 @@ export interface BudgetRate {
   description: string;
   unit: string;
   unitCost: number;
+  equipmentId?: ID;
+  overheadRecoveryPerUnit?: number;
+  targetMarginPercent?: number;
+  recommendedSellPrice?: number;
   defaultMarkupPercent: number;
   defaultSellPrice: number;
   active: boolean;
