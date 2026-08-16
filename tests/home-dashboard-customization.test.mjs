@@ -6,6 +6,8 @@ const dashboardSource = readFileSync('src/pages/home/PersonalHomeDashboard.tsx',
 const gridSource = readFileSync('src/pages/home/CustomizableWidgetGrid.tsx', 'utf8');
 const preferencesHookSource = readFileSync('src/pages/home/useHomeDashboardPreferences.ts', 'utf8');
 const sidebarWidgetsSource = readFileSync('src/pages/home/PersonalDashboardSidebar.tsx', 'utf8');
+const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf8');
+const employeePortalSource = readFileSync('src/pages/employees/EmployeePortalPage.tsx', 'utf8');
 
 test('Home widgets support drag, accessible movement, removal, add, and reset', () => {
   assert.match(dashboardSource, /<CustomizableWidgetGrid/);
@@ -32,6 +34,22 @@ test('personal sidebar cards are independently movable widgets', () => {
   assert.match(sidebarWidgetsSource, /export function UpcomingScheduleWidget/);
   assert.match(sidebarWidgetsSource, /export function RecentActivityWidget/);
   assert.match(sidebarWidgetsSource, /export function QuickActionsWidget/);
+});
+
+test('Home uses preferred widget sizes in a responsive grid that fills incomplete rows', () => {
+  assert.match(gridSource, /size: 'small' \| 'medium' \| 'large'/);
+  assert.match(gridSource, /md:grid-cols-6 xl:grid-cols-12/);
+  assert.match(gridSource, /function balancedSpans/);
+  assert.match(gridSource, /fillRow\(spans\.length\)/);
+  assert.match(dashboardSource, /id: 'calendar'.*size: 'large'/);
+  assert.match(dashboardSource, /id: 'tasks'.*size: 'large'/);
+  assert.match(dashboardSource, /id: 'activity'.*size: 'medium'/);
+  assert.match(dashboardSource, /id: 'quick-actions'.*size: 'medium'/);
+});
+
+test('Home dashboard containers use the wider application layout', () => {
+  assert.match(appLayoutSource, /isHome \? 'max-w-\[1600px\]'/);
+  assert.match(employeePortalSource, /portalView === 'calendar' \? 'max-w-\[1600px\]'/);
 });
 
 test('Finance widgets are optional and only defined for financial roles', () => {

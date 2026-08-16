@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, Pin } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
@@ -38,6 +38,8 @@ function PinPageButton() {
 }
 
 export default function AppLayout({ userName, userFirstName, userLastName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
+  const location = useLocation();
+  const isHome = location.pathname === '/home';
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY) === 'true';
@@ -94,7 +96,7 @@ export default function AppLayout({ userName, userFirstName, userLastName, userE
               </div>
             </div>
           </div>
-          <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+          <div className={`mx-auto w-full p-4 sm:p-6 ${isHome ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
             <Outlet />
           </div>
         </main>

@@ -7,7 +7,7 @@ export interface HomeWidgetDefinition {
   id: HomeWidgetId;
   title: string;
   description: string;
-  size: 'compact' | 'wide';
+  size: 'small' | 'medium' | 'large';
   content: ReactNode;
   category: 'Personal' | 'Finance';
 }
@@ -21,10 +21,45 @@ interface CustomizableWidgetGridProps {
   onReset: () => void;
 }
 
-const sizeClass = {
-  compact: 'sm:col-span-1 xl:col-span-3',
-  wide: 'sm:col-span-2 xl:col-span-9',
+const preferredSpan = {
+  small: { medium: 3, large: 3 },
+  medium: { medium: 3, large: 3 },
+  large: { medium: 6, large: 9 },
 };
+
+const mediumSpanClass = ['md:col-span-1', 'md:col-span-2', 'md:col-span-3', 'md:col-span-4', 'md:col-span-5', 'md:col-span-6'] as const;
+const largeSpanClass = ['xl:col-span-1', 'xl:col-span-2', 'xl:col-span-3', 'xl:col-span-4', 'xl:col-span-5', 'xl:col-span-6', 'xl:col-span-7', 'xl:col-span-8', 'xl:col-span-9', 'xl:col-span-10', 'xl:col-span-11', 'xl:col-span-12'] as const;
+
+function balancedSpans(widgets: HomeWidgetDefinition[], columns: 6 | 12, breakpoint: 'medium' | 'large') {
+  const spans = widgets.map((widget) => preferredSpan[widget.size][breakpoint]);
+  let rowStart = 0;
+  let usedColumns = 0;
+
+  const fillRow = (rowEnd: number) => {
+    let remaining = columns - usedColumns;
+    let index = rowStart;
+    while (remaining > 0 && rowEnd > rowStart) {
+      spans[index] += 1;
+      remaining -= 1;
+      index = index + 1 < rowEnd ? index + 1 : rowStart;
+    }
+  };
+
+  spans.forEach((span, index) => {
+    if (usedColumns + span > columns) {
+      fillRow(index);
+      rowStart = index;
+      usedColumns = 0;
+    }
+    usedColumns += span;
+    if (usedColumns === columns) {
+      rowStart = index + 1;
+      usedColumns = 0;
+    }
+  });
+  fillRow(spans.length);
+  return spans;
+}
 
 export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, definitions, hydrated, onChange, onReset }: CustomizableWidgetGridProps) {
   const [customizing, setCustomizing] = useState(false);
@@ -32,6 +67,8 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
   const [draggedId, setDraggedId] = useState<HomeWidgetId | null>(null);
   const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
   const visibleDefinitions = widgetIds.map((id) => definitionById.get(id)).filter((value): value is HomeWidgetDefinition => Boolean(value));
+  const mediumSpans = balancedSpans(visibleDefinitions, 6, 'medium');
+  const largeSpans = balancedSpans(visibleDefinitions, 12, 'large');
   const hiddenDefinitions = availableWidgetIds
     .map((id) => definitionById.get(id))
     .filter((value): value is HomeWidgetDefinition => Boolean(value))
@@ -83,11 +120,11 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
         <Card className="rounded-lg p-8 text-center"><p className="font-semibold text-brand-900 dark:text-brand-50">Your Home is ready to personalize</p><p className="mt-1 text-sm text-brand-400 dark:text-brand-300">Add the widgets that help you run your day.</p><Button className="mt-4" onClick={() => setCatalogOpen(true)}><Plus />Add widget</Button></Card>
       ) : null}
       {hydrated && visibleDefinitions.length > 0 ? (
-        <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-12">
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-6 xl:grid-cols-12">
           {visibleDefinitions.map((widget, index) => (
             <section
               key={widget.id}
-              className={`relative min-w-0 ${sizeClass[widget.size]} ${customizing ? 'rounded-lg outline outline-2 outline-dashed outline-brand-300 dark:outline-brand-500' : ''} ${draggedId === widget.id ? 'opacity-50' : ''}`}
+              className={`relative min-w-0 ${mediumSpanClass[mediumSpans[index] - 1]} ${largeSpanClass[largeSpans[index] - 1]} ${customizing ? 'rounded-lg outline outline-2 outline-dashed outline-brand-300 dark:outline-brand-500' : ''} ${draggedId === widget.id ? 'opacity-50' : ''}`}
               onDragOver={(event) => { if (customizing) event.preventDefault(); }}
               onDrop={() => dropWidget(widget.id)}
               aria-label={`${widget.title} widget`}

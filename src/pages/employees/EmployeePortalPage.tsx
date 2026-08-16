@@ -346,7 +346,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
 
   return (
     <div className="min-h-screen bg-cream px-4 py-10">
-      <div className={`mx-auto w-full ${portalView === 'clock' ? 'max-w-lg' : 'max-w-7xl'}`}>
+      <div className={`mx-auto w-full ${portalView === 'clock' ? 'max-w-lg' : portalView === 'calendar' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-lg border border-brand-200 bg-white p-1">
             {([
