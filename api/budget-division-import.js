@@ -13,7 +13,7 @@ import {
   listMaterialCatalogItemsForBusiness,
 } from './_lib/authRepo.js';
 import { createDivisionPlanningItems, listDivisionPlanningItems } from './_lib/budgetDivisionPlanning.js';
-import { appendImportedSortOrders, copyDivisionPlanAssumptions, DIVISION_PLAN_CATEGORIES, divisionPlanIdentity } from './_lib/budgetDivisionPlanningModel.js';
+import { appendImportedSortOrders, copyDivisionPlanAssumptions, DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, normalizeLabourPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
 
 const LEGACY_DIVISION_ID = '__legacy_budget_wide__';
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -28,6 +28,7 @@ function legacyItemsForCategory({ category, budget, budgetItems, budgetRates, la
         name: employee?.name ?? plan.description ?? 'Labour plan', role: plan.description,
         compType: plan.compType, hourlyRate: plan.hourlyRate, annualSalary: plan.annualSalary,
         plannedHours: plan.hoursPerYear, billableHours: plan.billableHoursYear,
+        labourClassification: 'billable', expectedBillablePct: plan.billablePct,
         unbillableHours: plan.unbillableHoursYear, overtimeHours: plan.overtimeHoursYear,
         overtimeMultiplier: plan.overtimeMultiplier, payrollBurdenPct: plan.payrollBurdenPct,
         labourBurdenPct: plan.labourBurdenPct, benefitsExtraCost: plan.benefitsExtraCost,
@@ -95,7 +96,7 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
-  const session = await requireSession(req, res, req.method === 'POST' ? ['owner', 'admin'] : undefined, 'budget-divisions');
+  const session = await requireSession(req, res, ['owner', 'admin'], 'budget-divisions');
   if (!session) return;
   const input = req.method === 'GET' ? req.query ?? {} : req.body ?? {};
   const { budgetId, divisionId, category, sourceBudgetId, sourceDivisionId } = input;
@@ -167,7 +168,14 @@ export default async function handler(req, res) {
       return true;
     });
     if (!selected.length) return res.status(400).json({ ok: false, error: 'Select at least one available item to import.' });
-    const copied = appendImportedSortOrders(existing, selected.map((item) => copyDivisionPlanAssumptions(item, { budgetId, divisionId }, generateId)));
+    const sourceDivisionById = new Map(divisions.filter((item) => item.budgetId === sourceBudget.id).map((item) => [item.id, item]));
+    const destinationDivisions = divisions.filter((item) => item.budgetId === budgetId && item.status !== 'archived');
+    const divisionIdMap = new Map([[selectedSourceDivisionId, divisionId]]);
+    for (const [sourceId, sourceDivision] of sourceDivisionById) {
+      const match = destinationDivisions.find((item) => normalized(item.name) === normalized(sourceDivision.name));
+      if (match) divisionIdMap.set(sourceId, match.id);
+    }
+    const copied = appendImportedSortOrders(existing, selected.map((item) => normalizeLabourPlanAssumptions(copyDivisionPlanAssumptions(item, { budgetId, divisionId, divisionIdMap }, generateId))));
     const imported = await createDivisionPlanningItems({ businessId: session.businessId, items: copied });
     const skipped = selectedIds.size - imported.length;
     return res.status(200).json({ ok: true, items: imported, importedCount: imported.length, skippedCount: skipped, source: { budget: sourceBudget, division: preview.sourceDivision }, destination: { budget: destinationBudget, division: destinationDivision } });

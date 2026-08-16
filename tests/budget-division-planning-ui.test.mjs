@@ -44,3 +44,29 @@ test('successful imports merge authoritative records without refreshing the brow
   assert.match(store, /budgetDivisionPlanningItems:/);
   assert.doesNotMatch(importer, /window\.location|location\.reload/);
 });
+
+test('Labour form separates classification, billable capacity, overtime, and Division allocation', () => {
+  assert.match(planner, /Labour Classification/);
+  assert.match(planner, /Billable Labour/);
+  assert.match(planner, /Overhead Labour/);
+  assert.match(planner, /Expected Billable %/);
+  assert.match(planner, /draft\.labourClassification !== 'overhead'/);
+  assert.match(planner, /Planned Overtime Hours \/ Year/);
+  assert.match(planner, /Overtime Multiplier/);
+  assert.match(planner, /Expected Billable Hours/);
+  assert.match(planner, /Direct Cost \/ Billable Hour/);
+  assert.match(planner, /Included in overhead pool; no billable charge-out rate/);
+  assert.match(planner, /activeDivisions\.map/);
+  assert.match(planner, /Allocate Employee Cost Across Divisions/);
+  assert.match(planner, /Remaining:/);
+  assert.match(planner, /over allocation/);
+  assert.match(planner, /!labourAllocationValid \|\| !labourInputsValid/);
+});
+
+test('Labour plan table stays compact while showing recovery and allocation summaries', () => {
+  assert.match(planner, /Annual Cost/);
+  assert.match(planner, /directCostPerBillableHour/);
+  assert.match(planner, /allocationNames/);
+  assert.match(planner, /overhead pool/);
+  assert.doesNotMatch(planner, /overhead recovery|target margin|sell rate/i);
+});

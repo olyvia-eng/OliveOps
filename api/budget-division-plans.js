@@ -7,7 +7,7 @@ import {
   reorderDivisionPlanningItems,
   updateDivisionPlanningItem,
 } from './_lib/budgetDivisionPlanning.js';
-import { DIVISION_PLAN_CATEGORIES, divisionPlanIdentity } from './_lib/budgetDivisionPlanningModel.js';
+import { DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, normalizeLabourPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
 
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
 const isNonNegative = (value) => value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
@@ -16,12 +16,22 @@ function validate(item) {
   if (!DIVISION_PLAN_CATEGORIES.includes(item.category)) return 'Planning category is invalid.';
   if (!isText(item.name) && !isText(item.description)) return 'A planning item name or description is required.';
   if (!divisionPlanIdentity(item)) return 'A planning item identity is required.';
-  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate']) {
+  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate']) {
     if (!isNonNegative(item[field])) return `${field} must be zero or greater.`;
   }
   if (item.category === 'equipment' && !isText(item.equipmentId)) return 'Equipment must reference a catalog asset.';
   if (item.allocationMonths !== undefined && item.allocationMonths > 12) return 'Equipment allocation months cannot exceed 12.';
   if (item.allocationPercent !== undefined && item.allocationPercent > 100) return 'Equipment allocation percent cannot exceed 100.';
+  if (item.category === 'labour') {
+    if (!['billable', 'overhead'].includes(item.labourClassification)) return 'Labour classification is invalid.';
+    if (item.expectedBillablePct > 100) return 'Expected billable percent cannot exceed 100.';
+    if (item.overtimeMultiplier < 1) return 'Overtime multiplier must be at least 1.';
+    if (!Array.isArray(item.divisionAllocations) || item.divisionAllocations.length === 0) return 'Labour must be allocated across Divisions.';
+    if (new Set(item.divisionAllocations.map((allocation) => allocation.divisionId)).size !== item.divisionAllocations.length) return 'Each Division can appear only once in Labour allocation.';
+    if (item.divisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(allocation.percentage) || allocation.percentage > 100)) return 'Division allocation percentages must be between 0 and 100.';
+    const allocationTotal = item.divisionAllocations.reduce((sum, allocation) => sum + allocation.percentage, 0);
+    if (Math.abs(allocationTotal - 100) > 0.001) return 'Division allocation must total 100%.';
+  }
   return null;
 }
 
@@ -29,6 +39,10 @@ async function validateReferences(businessId, item) {
   if (item.employeeId && !await getEmployeeForBusiness(businessId, item.employeeId)) return 'Employee must belong to this business.';
   if (item.equipmentId && !await getEquipmentAssetForBusiness(businessId, item.equipmentId)) return 'Equipment must belong to this business.';
   if (item.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, item.materialCatalogItemId)) return 'Material must belong to this business.';
+  if (item.category === 'labour') {
+    const divisions = await Promise.all(item.divisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
+    if (divisions.some((division) => !division)) return 'Every Labour allocation Division must belong to this Budget.';
+  }
   return null;
 }
 
@@ -45,7 +59,7 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST, PATCH, PUT, DELETE');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
-  const session = await requireSession(req, res, req.method === 'GET' ? undefined : ['owner', 'admin'], 'budget-divisions');
+  const session = await requireSession(req, res, ['owner', 'admin'], 'budget-divisions');
   if (!session) return;
   const budgetId = req.query?.budgetId ?? req.body?.budgetId ?? req.body?.data?.budgetId;
   const divisionId = req.query?.divisionId ?? req.body?.divisionId ?? req.body?.data?.divisionId;
@@ -68,7 +82,7 @@ export default async function handler(req, res) {
     const itemId = req.query?.id;
     if (req.method === 'POST') {
       const now = new Date().toISOString();
-      const item = { ...req.body?.data, id: generateId(), budgetId, divisionId, category, sortOrder: items.length, createdAt: now, updatedAt: now };
+      const item = normalizeLabourPlanAssumptions({ ...req.body?.data, id: generateId(), budgetId, divisionId, category, sortOrder: items.length, createdAt: now, updatedAt: now });
       const error = validate(item);
       if (error) return res.status(400).json({ ok: false, error });
       const referenceError = await validateReferences(session.businessId, item);
@@ -82,7 +96,7 @@ export default async function handler(req, res) {
       await deleteDivisionPlanningItem({ businessId: session.businessId, item: existing });
       return res.status(200).json({ ok: true });
     }
-    const next = { ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId, category, updatedAt: new Date().toISOString() };
+    const next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId, category, updatedAt: new Date().toISOString() });
     const error = validate(next);
     if (error) return res.status(400).json({ ok: false, error });
     const referenceError = await validateReferences(session.businessId, next);

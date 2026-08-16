@@ -4,6 +4,7 @@ import planningHandler from '../api/budget-division-plans.js';
 import importHandler from '../api/budget-division-import.js';
 import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
 import { ddb } from '../api/_lib/db.js';
+import { readFileSync } from 'node:fs';
 
 const key = (pk, sk) => `${pk}|${sk}`;
 const response = () => ({ statusCode: 200, body: null, headers: {}, status(code) { this.statusCode = code; return this; }, setHeader(name, value) { this.headers[name] = value; return this; }, json(body) { this.body = body; return this; } });
@@ -115,4 +116,52 @@ test('Division planning rejects mismatched tenants and unauthorized writers', as
   const crossTenantImport = response();
   await importHandler({ method: 'POST', query: {}, headers: { authorization: 'Bearer admin-a-token' }, body: { budgetId: 'budget-a', divisionId: 'division-a', category: 'materials', sourceBudgetId: 'budget-b', sourceDivisionId: 'division-b', sourceItemIds: ['anything'] } }, crossTenantImport);
   assert.equal(crossTenantImport.statusCode, 404);
+});
+
+test('Labour planning validates classification, overtime, and exact same-Budget Division allocation', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land', 'Landscaping');
+  seedDivision(store, 'biz-a', 'budget-a', 'snow', 'Snow Removal');
+  seedBudget(store, 'biz-a', 'budget-other', '2027');
+  seedDivision(store, 'biz-a', 'budget-other', 'foreign-division', 'Excavation');
+
+  const valid = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: {
+    name: 'Operator', compType: 'hourly', hourlyRate: 30, plannedHours: 2000,
+    labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
+    divisionAllocations: [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }],
+  } } }, valid);
+  assert.equal(valid.statusCode, 200);
+  assert.equal(valid.body.item.divisionAllocations.length, 2);
+
+  const overBillable = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Labourer', expectedBillablePct: 101, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', percentage: 100 }] } } }, overBillable);
+  assert.equal(overBillable.statusCode, 400);
+
+  const invalidMultiplier = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Installer', overtimeMultiplier: 0.5, divisionAllocations: [{ divisionId: 'land', percentage: 100 }] } } }, invalidMultiplier);
+  assert.equal(invalidMultiplier.statusCode, 400);
+
+  const incomplete = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Foreman', overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', percentage: 80 }] } } }, incomplete);
+  assert.equal(incomplete.statusCode, 400);
+
+  const crossBudget = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Estimator', overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'foreign-division', percentage: 100 }] } } }, crossBudget);
+  assert.equal(crossBudget.statusCode, 400);
+  assert.match(crossBudget.body.error, /belong to this Budget/);
+});
+
+test('non-financial roles cannot retrieve Labour planning costs from endpoint or bootstrap', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store, { businessId: 'biz-a', userId: 'foreman-a', role: 'foreman', token: 'foreman-a-token' });
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+  const getRes = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer foreman-a-token' } }, getRes);
+  assert.equal(getRes.statusCode, 403);
+  const bootstrapSource = readFileSync('api/bootstrap.js', 'utf8');
+  assert.match(bootstrapSource, /session\.role === 'owner' \|\| session\.role === 'admin' \? budgetDivisionPlanningItems : \[\]/);
 });

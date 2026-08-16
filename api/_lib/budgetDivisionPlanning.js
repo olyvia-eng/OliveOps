@@ -1,6 +1,6 @@
 import { QueryCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { divisionPlanIdentity } from './budgetDivisionPlanningModel.js';
+import { divisionPlanIdentity, normalizeLabourPlanAssumptions } from './budgetDivisionPlanningModel.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLAN#${budgetId}#DIVISION#${divisionId}#${category ? `CATEGORY#${category}#` : ''}`;
@@ -15,7 +15,7 @@ const mapItem = (item) => {
   delete record.businessId;
   delete record.planningItemId;
   delete record.identity;
-  return record;
+  return normalizeLabourPlanAssumptions(record);
 };
 
 export async function listDivisionPlanningItemsForBusiness(businessId) {

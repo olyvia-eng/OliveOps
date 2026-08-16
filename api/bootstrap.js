@@ -105,7 +105,7 @@ export default async function handler(req, res) {
       formResponses: filterRecordsForSession(session, 'form-responses', formResponses),
       budgets: filterRecordsForSession(session, 'budgets', budgets),
       budgetDivisions: filterRecordsForSession(session, 'budget-divisions', budgetDivisions),
-      budgetDivisionPlanningItems,
+      budgetDivisionPlanningItems: session.role === 'owner' || session.role === 'admin' ? budgetDivisionPlanningItems : [],
       budgetGroups: filterRecordsForSession(session, 'budget-groups', budgetGroups),
       equipmentBudgetAllocations: filterRecordsForSession(session, 'equipment-budget-allocations', equipmentBudgetAllocations),
       crews: filterRecordsForSession(session, 'crews', crews),

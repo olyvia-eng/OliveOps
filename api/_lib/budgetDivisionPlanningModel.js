@@ -12,7 +12,7 @@ export function divisionPlanIdentity(item) {
 
 const SHARED_FIELDS = ['name', 'description', 'sortOrder'];
 const CATEGORY_FIELDS = {
-  labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus'],
+  labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'labourClassification', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'divisionAllocations'],
   equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
   subcontractors: ['vendorId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
@@ -25,6 +25,14 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
   for (const field of [...SHARED_FIELDS, ...CATEGORY_FIELDS[category]]) {
     if (source[field] !== undefined) copied[field] = source[field];
   }
+  if (category === 'labour' && Array.isArray(copied.divisionAllocations) && destination.divisionIdMap) {
+    const percentages = new Map();
+    for (const allocation of copied.divisionAllocations) {
+      const divisionId = destination.divisionIdMap.get(allocation.divisionId) ?? destination.divisionId;
+      percentages.set(divisionId, (percentages.get(divisionId) ?? 0) + allocation.percentage);
+    }
+    copied.divisionAllocations = [...percentages].map(([divisionId, percentage]) => ({ divisionId, percentage }));
+  }
   return {
     ...copied,
     id: createId(),
@@ -33,6 +41,27 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
     category,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+export function normalizeLabourPlanAssumptions(item) {
+  if (item.category !== 'labour') return item;
+  const plannedHours = Number.isFinite(item.plannedHours) && item.plannedHours >= 0 ? item.plannedHours : 0;
+  const fallbackBillablePct = plannedHours > 0 && Number.isFinite(item.billableHours)
+    ? Math.min(100, Math.max(0, (item.billableHours / plannedHours) * 100))
+    : 0;
+  const labourClassification = item.labourClassification === 'overhead' ? 'overhead' : 'billable';
+  return {
+    ...item,
+    labourClassification,
+    expectedBillablePct: labourClassification === 'overhead'
+      ? 0
+      : (Number.isFinite(item.expectedBillablePct) ? item.expectedBillablePct : fallbackBillablePct),
+    overtimeHours: Number.isFinite(item.overtimeHours) ? item.overtimeHours : 0,
+    overtimeMultiplier: Number.isFinite(item.overtimeMultiplier) ? item.overtimeMultiplier : 1.5,
+    divisionAllocations: Array.isArray(item.divisionAllocations) && item.divisionAllocations.length
+      ? item.divisionAllocations
+      : [{ divisionId: item.divisionId, percentage: 100 }],
   };
 }
 

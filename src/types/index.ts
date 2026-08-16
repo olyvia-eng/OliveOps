@@ -811,6 +811,13 @@ export interface BudgetDivision {
 
 export type BudgetDivisionPlanCategory = 'labour' | 'equipment' | 'materials' | 'subcontractors';
 
+export type LabourClassification = 'billable' | 'overhead';
+
+export interface LabourDivisionAllocation {
+  divisionId: ID;
+  percentage: number;
+}
+
 export interface BudgetDivisionPlanningItem {
   id: ID;
   budgetId: ID;
@@ -825,6 +832,9 @@ export interface BudgetDivisionPlanningItem {
   hourlyRate?: number;
   annualSalary?: number;
   plannedHours?: number;
+  labourClassification?: LabourClassification;
+  expectedBillablePct?: number;
+  divisionAllocations?: LabourDivisionAllocation[];
   billableHours?: number;
   unbillableHours?: number;
   overtimeHours?: number;
