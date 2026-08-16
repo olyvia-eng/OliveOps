@@ -13,10 +13,13 @@ import {
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
 import type { EquipmentAsset } from '../../types';
-import EquipmentInfoForm, {
+import EquipmentInfoForm from '../../components/equipment/EquipmentInfoForm';
+import {
   emptyEquipmentInfoFormValue,
+  normalizeEquipmentInfoForm,
   type EquipmentInfoFormValue,
-} from '../../components/equipment/EquipmentInfoForm';
+  validateEquipmentInfoForm,
+} from '../../components/equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 
@@ -287,29 +290,26 @@ export default function EquipmentCatalogPage() {
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!form.description.trim()) {
-      return;
-    }
+    if (validateEquipmentInfoForm(form)) return;
+    const normalizedForm = normalizeEquipmentInfoForm(form);
 
     const existingAsset = editingId ? equipmentAssets.find((asset) => asset.id === editingId) : undefined;
-    const normalizedPayment = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0));
-    const normalizedFrequency = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0));
     const payload = {
-      name: form.description.trim(),
-      type: (form.costCode.trim() || existingAsset?.type || 'General Equipment'),
+      name: normalizedForm.description,
+      type: (normalizedForm.costCode || existingAsset?.type || 'General Equipment'),
       status: existingAsset?.status ?? 'available' as const,
-      costType: form.equipmentCostType,
-      equipmentClassification: form.equipmentClassification,
+      costType: normalizedForm.equipmentCostType,
+      equipmentClassification: normalizedForm.equipmentClassification,
       serialNumber: existingAsset?.serialNumber ?? '',
       purchaseDate: existingAsset?.purchaseDate,
       hourlyCost: equipmentCostBreakdown.totalCostPerHour,
       purchasePrice: existingAsset?.purchasePrice,
-      equipmentPayment: normalizedPayment,
-      equipmentPaymentFrequencyPerYear: normalizedFrequency,
-      yearlyFuelCost: Math.max(0, Number(form.yearlyFuelCost || 0)),
-      ...(form.equipmentClassification === 'overhead' ? { recommendedSellRate: 0, chargeOutRate: 0 } : {}),
-      yearlyInsuranceCost: Math.max(0, Number(form.yearlyInsuranceCost || 0)),
-      yearlyMaintenanceCost: Math.max(0, Number(form.yearlyMaintenanceCost || 0)),
+      equipmentPayment: normalizedForm.equipmentPayment,
+      equipmentPaymentFrequencyPerYear: normalizedForm.equipmentPaymentFrequencyPerYear,
+      yearlyFuelCost: normalizedForm.yearlyFuelCost,
+      ...(normalizedForm.equipmentClassification === 'overhead' ? { recommendedSellRate: 0, chargeOutRate: 0 } : {}),
+      yearlyInsuranceCost: normalizedForm.yearlyInsuranceCost,
+      yearlyMaintenanceCost: normalizedForm.yearlyMaintenanceCost,
       notes: existingAsset?.notes ?? '',
     };
 
@@ -621,6 +621,7 @@ export default function EquipmentCatalogPage() {
           <EquipmentInfoForm
             value={form}
             onChange={setForm}
+            context="catalog"
             totalEquipmentCostPerYear={equipmentCostBreakdown.totalEquipmentCostPerYear}
             totalCostPerHour={equipmentCostBreakdown.totalCostPerHour}
             totalCostPerDay={equipmentCostBreakdown.totalCostPerDay}

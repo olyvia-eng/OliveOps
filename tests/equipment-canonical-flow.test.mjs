@@ -2,21 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-test('catalog and budget both use shared restored equipment info form', () => {
+test('catalog and budget both use shared equipment fields with context-specific extensions', () => {
   const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
   const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
   const equipmentFormSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
+  const equipmentFormModelSource = readFileSync('src/components/equipment/equipmentFormModel.ts', 'utf8');
 
   assert.match(catalogSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentInfoForm'/);
   assert.match(catalogSource, /<EquipmentInfoForm/);
+  assert.match(catalogSource, /context="catalog"/);
 
   assert.match(budgetSource, /from '\.\.\/\.\.\/components\/equipment\/EquipmentInfoForm'/);
   assert.match(budgetSource, /<EquipmentInfoForm/);
+  assert.match(budgetSource, /context="budget"/);
+  assert.match(budgetSource, /identityReadOnly=\{Boolean\(form\.equipmentId\)\}/);
   assert.doesNotMatch(budgetSource, /Equipment Record/);
   assert.doesNotMatch(budgetSource, /Budget Equipment Planning/);
   assert.doesNotMatch(budgetSource, /createCatalogEquipmentOnSave/);
 
   assert.match(equipmentFormSource, /Equipment Details/);
+  assert.match(equipmentFormSource, /export function EquipmentFormFields/);
+  assert.match(equipmentFormSource, /Budget Annual Cost Assumptions/);
+  assert.match(equipmentFormSource, /Catalog identity is read-only here/);
   assert.match(equipmentFormSource, /Payment Frequency \(# per year\)/);
   assert.match(equipmentFormSource, /Yearly Fuel Cost/);
   assert.doesNotMatch(equipmentFormSource, /Fuel Price Unit/);
@@ -34,6 +41,30 @@ test('catalog and budget both use shared restored equipment info form', () => {
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Date"/);
   assert.doesNotMatch(equipmentFormSource, /label="Purchase Price"/);
   assert.doesNotMatch(equipmentFormSource, /label="Serial Number"/);
+  assert.match(equipmentFormModelSource, /EquipmentInfoFormValue/);
+});
+
+test('catalog stays compact while budget equipment keeps the large modal and allocations', () => {
+  const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
+  const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.doesNotMatch(catalogSource, /size="large"/);
+  assert.match(budgetSource, /size=\{form\.category === 'equipment' \? 'large' : 'default'\}/);
+  assert.match(budgetSource, /Allocate Annual Equipment Cost/);
+  assert.doesNotMatch(catalogSource, /Allocate Annual Equipment Cost/);
+});
+
+test('shared equipment validation and normalization are used by both save paths', () => {
+  const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
+  const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+  const equipmentFormSource = readFileSync('src/components/equipment/equipmentFormModel.ts', 'utf8');
+
+  assert.match(equipmentFormSource, /validateEquipmentInfoForm/);
+  assert.match(equipmentFormSource, /normalizeEquipmentInfoForm/);
+  assert.match(catalogSource, /validateEquipmentInfoForm\(form\)/);
+  assert.match(catalogSource, /normalizeEquipmentInfoForm\(form\)/);
+  assert.match(budgetSource, /validateEquipmentInfoForm\(equipmentInfoForm\)/);
+  assert.match(budgetSource, /normalizeEquipmentInfoForm\(equipmentInfoForm\)/);
 });
 
 test('equipment asset type includes permanent economics fields', () => {
@@ -79,6 +110,21 @@ test('budget equipment add paths prefer canonical creation/linking', () => {
   assert.match(source, /const created = await addEquipmentAsset\(\{/);
   assert.match(source, /const equipmentInfoDefaultsFromAsset = \(asset: EquipmentAsset\) => \{/);
   assert.match(source, /const equipmentDefaults = equipmentInfoDefaultsFromAsset\(selected\);/);
+  assert.match(source, /equipmentId,/);
   assert.match(source, /setModalOpen\(true\);/);
   assert.doesNotMatch(source, /normalizedCostCode = normalizedCostCode \|\| createdEquipmentAssetPayload\.serialNumber/);
+});
+
+test('budget planning save creates at most one catalog asset and does not overwrite linked global fields', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+  const saveSource = source.slice(source.indexOf('const handleSave = async () =>'), source.indexOf('const set = (key:', source.indexOf('const handleSave = async () =>')));
+
+  assert.equal((saveSource.match(/addEquipmentAsset\(/g) ?? []).length, 1);
+  assert.doesNotMatch(saveSource, /updateEquipmentAsset\(/);
+  assert.match(saveSource, /equipmentId: normalizedEquipmentId/);
+  assert.match(saveSource, /else addBudgetItem\(yearlyForm, allocationMonths\)/);
+  assert.match(source, /const yearlyFuelCost = b\.yearlyFuelCost\s*\?\?/);
+  assert.match(source, /fuelCostPerHour/);
+  assert.match(source, /monthlyInsuranceCost/);
+  assert.match(source, /monthlyMaintenanceCost/);
 });

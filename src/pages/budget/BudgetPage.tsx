@@ -18,10 +18,13 @@ import type {
 } from '../../types';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
-import EquipmentInfoForm, {
+import EquipmentInfoForm from '../../components/equipment/EquipmentInfoForm';
+import {
   emptyEquipmentInfoFormValue,
+  normalizeEquipmentInfoForm,
   type EquipmentInfoFormValue,
-} from '../../components/equipment/EquipmentInfoForm';
+  validateEquipmentInfoForm,
+} from '../../components/equipment/equipmentFormModel';
 import {
   calculateEquipmentCostBreakdown,
   calculateEquipmentRatePricing,
@@ -552,9 +555,17 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
     setModalOpen(true);
   };
   const handleSave = async () => {
-    const normalizedDescription = form.category === 'equipment' ? equipmentInfoForm.description.trim() : form.description.trim();
+    if (form.category === 'equipment') {
+      const validationError = validateEquipmentInfoForm(equipmentInfoForm);
+      if (validationError) {
+        setEquipmentCatalogError(validationError);
+        return;
+      }
+    }
+    const normalizedEquipmentForm = normalizeEquipmentInfoForm(equipmentInfoForm);
+    const normalizedDescription = form.category === 'equipment' ? normalizedEquipmentForm.description : form.description.trim();
     if (!normalizedDescription) return;
-    let normalizedCostCode = form.category === 'equipment' ? equipmentInfoForm.costCode.trim() : (form.costCode?.trim() ?? '');
+    let normalizedCostCode = form.category === 'equipment' ? normalizedEquipmentForm.costCode : (form.costCode?.trim() ?? '');
     let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
     const usesGroupedAllocationEditor = Boolean(editing && activeBudgetGroup && groupedEquipmentAllocationRows.length > 0);
@@ -599,21 +610,6 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
 
       normalizedEquipmentId = created.id;
       setEquipmentCatalogError('');
-    }
-
-    if (form.category === 'equipment' && normalizedEquipmentId) {
-      updateEquipmentAsset(normalizedEquipmentId, {
-        name: normalizedDescription,
-        type: normalizedCostCode || equipmentAssetsById[normalizedEquipmentId]?.type || 'General Equipment',
-        costType: equipmentInfoForm.equipmentCostType,
-        equipmentClassification: equipmentInfoForm.equipmentClassification,
-        hourlyCost: equipmentCostBreakdown.totalCostPerHour,
-        equipmentPayment: equipmentCostBreakdown.paymentPerPeriod,
-        equipmentPaymentFrequencyPerYear: equipmentCostBreakdown.paymentFrequencyPerYear,
-        yearlyFuelCost: equipmentCostBreakdown.annualFuelCost,
-        yearlyInsuranceCost: equipmentCostBreakdown.annualInsuranceCost,
-        yearlyMaintenanceCost: equipmentCostBreakdown.annualMaintenanceCost,
-      });
     }
 
     const equipmentFields = form.category === 'equipment'
@@ -2716,6 +2712,8 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
             <EquipmentInfoForm
               value={equipmentInfoForm}
               onChange={setEquipmentInfoForm}
+              context="budget"
+              identityReadOnly={Boolean(form.equipmentId)}
               totalEquipmentCostPerYear={calculatedTotalEquipmentCostPerYear}
               totalCostPerHour={calculatedTotalEquipmentCostPerHour}
               totalCostPerDay={calculatedTotalEquipmentCostPerDay}

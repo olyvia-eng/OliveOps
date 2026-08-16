@@ -1,24 +1,13 @@
 import { Input, Select } from '../ui';
 import type { EquipmentClassification, EquipmentCostType } from '../../types';
 import { formatCurrency } from '../../utils';
-
-export interface EquipmentInfoFormValue {
-  description: string;
-  costCode: string;
-  equipmentCostType: EquipmentCostType;
-  equipmentClassification: EquipmentClassification;
-  equipmentPayment: number;
-  equipmentPaymentFrequencyPerYear: number;
-  yearlyFuelCost: number;
-  yearlyInsuranceCost: number;
-  yearlyMaintenanceCost: number;
-  sellableHoursPerYear: number;
-  equipmentHoursPerDay: number;
-}
+import type { EquipmentInfoFormValue } from './equipmentFormModel';
 
 interface EquipmentInfoFormProps {
   value: EquipmentInfoFormValue;
   onChange: (next: EquipmentInfoFormValue) => void;
+  context?: 'catalog' | 'budget';
+  identityReadOnly?: boolean;
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
   totalCostPerDay: number;
@@ -26,23 +15,57 @@ interface EquipmentInfoFormProps {
   onToggleCalculationDetails: () => void;
 }
 
-export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
-  description: '',
-  costCode: '',
-  equipmentCostType: 'financed',
-  equipmentClassification: 'billable',
-  equipmentPayment: 0,
-  equipmentPaymentFrequencyPerYear: 12,
-  yearlyFuelCost: 0,
-  yearlyInsuranceCost: 0,
-  yearlyMaintenanceCost: 0,
-  sellableHoursPerYear: 0,
-  equipmentHoursPerDay: 8,
-});
+interface EquipmentFormFieldsProps {
+  value: EquipmentInfoFormValue;
+  onChange: (next: EquipmentInfoFormValue) => void;
+  context?: 'catalog' | 'budget';
+  identityReadOnly?: boolean;
+}
+
+export function EquipmentFormFields({ value, onChange, context = 'catalog', identityReadOnly = false }: EquipmentFormFieldsProps) {
+  const set = <K extends keyof EquipmentInfoFormValue>(key: K, nextValue: EquipmentInfoFormValue[K]) => {
+    onChange({ ...value, [key]: nextValue });
+  };
+
+  return <>
+    <section>
+      <h3 className="text-sm font-semibold text-gray-900">Equipment Details</h3>
+      {identityReadOnly ? <p className="mt-1 text-xs text-gray-500">Catalog identity is read-only here. Edit global details from Equipment Catalog.</p> : null}
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <Input label="Name / Equipment *" required value={value.description} disabled={identityReadOnly} onChange={(event) => set('description', event.target.value)} />
+        <Input label="Cost Code" value={value.costCode} disabled={identityReadOnly} onChange={(event) => set('costCode', event.target.value)} placeholder="e.g. 06-200" />
+        <Select label="Classification" value={value.equipmentClassification} disabled={identityReadOnly} onChange={(event) => set('equipmentClassification', event.target.value as EquipmentClassification)}>
+          <option value="billable">Billable Equipment</option>
+          <option value="overhead">Overhead Equipment</option>
+        </Select>
+        <Select label="Ownership" value={value.equipmentCostType} disabled={identityReadOnly} onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}>
+          <option value="financed">Financed</option>
+          <option value="leased">Leased</option>
+          <option value="owned">Owned</option>
+        </Select>
+      </div>
+    </section>
+
+    <section>
+      <h3 className="text-sm font-semibold text-gray-900">{context === 'budget' ? 'Budget Annual Cost Assumptions' : 'Annual Costs'}</h3>
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {value.equipmentCostType !== 'owned' && <>
+          <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Payment</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.equipmentPayment} className="pl-7" onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))} /></div></div>
+          <Input label="Payment Frequency (# per year)" type="number" min={0} step={1} value={value.equipmentPaymentFrequencyPerYear} onChange={(event) => set('equipmentPaymentFrequencyPerYear', Number(event.target.value || 0))} />
+        </>}
+        <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Fuel Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyFuelCost} className="pl-7" onChange={(event) => set('yearlyFuelCost', Number(event.target.value || 0))} /></div><p className="text-xs text-gray-500">Estimated total fuel cost for this equipment for the year.</p></div>
+        <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Insurance Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyInsuranceCost} className="pl-7" onChange={(event) => set('yearlyInsuranceCost', Number(event.target.value || 0))} /></div></div>
+        <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Maintenance Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyMaintenanceCost} className="pl-7" onChange={(event) => set('yearlyMaintenanceCost', Number(event.target.value || 0))} /></div></div>
+      </div>
+    </section>
+  </>;
+}
 
 export default function EquipmentInfoForm({
   value,
   onChange,
+  context = 'budget',
+  identityReadOnly = false,
   totalEquipmentCostPerYear,
   totalCostPerHour,
   totalCostPerDay,
@@ -55,101 +78,9 @@ export default function EquipmentInfoForm({
 
   return (
     <div className="space-y-6">
-      <section>
-        <h3 className="text-sm font-semibold text-gray-900">Equipment Details</h3>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Input label="Name / Equipment *" required value={value.description} onChange={(event) => set('description', event.target.value)} />
-          <Input label="Cost Code" value={value.costCode} onChange={(event) => set('costCode', event.target.value)} placeholder="e.g. 06-200" />
-          <Select label="Classification" value={value.equipmentClassification} onChange={(event) => set('equipmentClassification', event.target.value as EquipmentClassification)}>
-            <option value="billable">Billable Equipment</option>
-            <option value="overhead">Overhead Equipment</option>
-          </Select>
-          <Select label="Ownership" value={value.equipmentCostType} onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}>
-            <option value="financed">Financed</option>
-            <option value="leased">Leased</option>
-            <option value="owned">Owned</option>
-          </Select>
-        </div>
-      </section>
+      <EquipmentFormFields value={value} onChange={onChange} context={context} identityReadOnly={identityReadOnly} />
 
-      <section>
-        <h3 className="text-sm font-semibold text-gray-900">Annual Costs</h3>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {value.equipmentCostType !== 'owned' && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Payment</label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={value.equipmentPayment}
-                    className="pl-7"
-                    onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))}
-                  />
-                </div>
-              </div>
-              <Input
-                label="Payment Frequency (# per year)"
-                type="number"
-                min={0}
-                step={1}
-                value={value.equipmentPaymentFrequencyPerYear}
-                onChange={(event) => set('equipmentPaymentFrequencyPerYear', Number(event.target.value || 0))}
-              />
-            </>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Yearly Fuel Cost</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={value.yearlyFuelCost}
-                className="pl-7"
-                onChange={(event) => set('yearlyFuelCost', Number(event.target.value || 0))}
-              />
-            </div>
-            <p className="text-xs text-gray-500">Estimated total fuel cost for this equipment for the year.</p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Yearly Insurance Cost</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={value.yearlyInsuranceCost}
-                className="pl-7"
-                onChange={(event) => set('yearlyInsuranceCost', Number(event.target.value || 0))}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Yearly Maintenance Cost</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={value.yearlyMaintenanceCost}
-                className="pl-7"
-                onChange={(event) => set('yearlyMaintenanceCost', Number(event.target.value || 0))}
-              />
-            </div>
-          </div>
-
-        </div>
-      </section>
+      {context === 'budget' ? <>
 
       <section>
         <h3 className="text-sm font-semibold text-gray-900">Utilization / Cost Calculation</h3>
@@ -219,6 +150,7 @@ export default function EquipmentInfoForm({
           </dl>
         </div>
       )}
+      </> : null}
     </div>
   );
 }
