@@ -43,12 +43,21 @@ export function normalizeHomeDashboardPreferences(value, role) {
   const normalized = { widgetIds };
   const taskFilterLabels = {};
   for (const id of TASK_FILTER_IDS) {
+    if (id === 'today') continue;
     const label = value?.taskFilterLabels?.[id];
     if (typeof label !== 'string') continue;
     const trimmed = label.trim().slice(0, 30);
     if (trimmed) taskFilterLabels[id] = trimmed;
   }
   if (Object.keys(taskFilterLabels).length > 0) normalized.taskFilterLabels = taskFilterLabels;
+
+  const taskFilterOrder = [];
+  const requestedTaskFilterOrder = Array.isArray(value?.taskFilterOrder) ? value.taskFilterOrder : [];
+  for (const id of [...requestedTaskFilterOrder, ...TASK_FILTER_IDS]) {
+    if (!TASK_FILTER_IDS.includes(id) || taskFilterOrder.includes(id)) continue;
+    taskFilterOrder.push(id);
+  }
+  normalized.taskFilterOrder = taskFilterOrder;
 
   const dismissedTodayTaskIds = [];
   if (Array.isArray(value?.dismissedTodayTaskIds)) {
@@ -73,6 +82,7 @@ export async function getHomeDashboardPreferencesForUser(businessId, userId, rol
   return normalizeHomeDashboardPreferences({
     widgetIds: result.Item.widgetIds,
     taskFilterLabels: result.Item.taskFilterLabels,
+    taskFilterOrder: result.Item.taskFilterOrder,
     dismissedTodayTaskIds: result.Item.dismissedTodayTaskIds,
   }, role);
 }
@@ -89,6 +99,7 @@ export async function saveHomeDashboardPreferencesForUser({ businessId, userId, 
       userId,
       widgetIds: normalized.widgetIds,
       taskFilterLabels: normalized.taskFilterLabels,
+      taskFilterOrder: normalized.taskFilterOrder,
       dismissedTodayTaskIds: normalized.dismissedTodayTaskIds,
       updatedAt: new Date().toISOString(),
     },

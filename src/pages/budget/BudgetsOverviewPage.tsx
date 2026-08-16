@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, FolderArchive, Plus, Wallet } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Plus, Wallet } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import type { BudgetStatus } from '../../types';
@@ -27,12 +27,13 @@ interface Props {
 
 export default function BudgetsOverviewPage({ currentUserRole }: Props) {
   const navigate = useNavigate();
-  const { budgets, budgetGroups, addBudget } = useStore();
+  const { budgets, addBudget } = useStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const visibleBudgets = budgets.filter((budget) => budget.planningModel === 'divisions_v1');
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -82,7 +83,7 @@ export default function BudgetsOverviewPage({ currentUserRole }: Props) {
         action={canEdit ? <Button onClick={openCreate}><Plus size={16} /> New Budget</Button> : undefined}
       />
 
-      {budgets.length === 0 ? (
+      {visibleBudgets.length === 0 ? (
         <Card>
           <EmptyState
             icon={<Wallet />}
@@ -93,7 +94,7 @@ export default function BudgetsOverviewPage({ currentUserRole }: Props) {
         </Card>
       ) : (
         <div className="divide-y divide-brand-100 border-y border-brand-100 bg-white dark:divide-brand-600 dark:border-brand-600 dark:bg-brand-700">
-          {budgets.slice().sort((a, b) => b.fiscalYear.localeCompare(a.fiscalYear) || a.name.localeCompare(b.name)).map((budget) => (
+          {visibleBudgets.slice().sort((a, b) => b.fiscalYear.localeCompare(a.fiscalYear) || a.name.localeCompare(b.name)).map((budget) => (
             <button
               key={budget.id}
               type="button"
@@ -104,7 +105,6 @@ export default function BudgetsOverviewPage({ currentUserRole }: Props) {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold text-gray-900 dark:text-brand-50">{budget.name}</span>
                   <Badge label={budget.status} className={statusClass[budget.status]} />
-                  {!budget.planningModel ? <Badge label="Legacy planning" className="bg-amber-50 text-amber-800" /> : null}
                 </div>
                 <p className="mt-1 text-sm text-gray-500 dark:text-brand-300">{budget.fiscalYear}{budget.description ? ` · ${budget.description}` : ''}</p>
               </div>
@@ -113,23 +113,6 @@ export default function BudgetsOverviewPage({ currentUserRole }: Props) {
           ))}
         </div>
       )}
-
-      {budgetGroups.length > 0 ? (
-        <section className="mt-8" aria-labelledby="legacy-rollups-title">
-          <div className="mb-3">
-            <h2 id="legacy-rollups-title" className="text-sm font-semibold text-gray-900 dark:text-brand-50">Legacy budget roll-ups</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">Existing grouped budgets remain available for read-only compatibility.</p>
-          </div>
-          <div className="divide-y divide-brand-100 border-y border-brand-100 bg-white dark:divide-brand-600 dark:border-brand-600 dark:bg-brand-700">
-            {budgetGroups.map((group) => (
-              <Link key={group.id} to={`/budgets/groups/${group.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-800">
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-brand-100"><FolderArchive size={16} /> {group.name}</span>
-                <span className="text-xs text-gray-500 dark:text-brand-300">{group.year} · {group.budgetIds.length} budgets</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <Modal
         open={modalOpen}

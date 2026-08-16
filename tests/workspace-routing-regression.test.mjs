@@ -10,7 +10,6 @@ const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'u
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
-const combinedBudgetSource = readFileSync('src/pages/budget/CombinedBudgetPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
 const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
@@ -65,25 +64,22 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(workAreaBuilderSource, /Delete Work Area/);
 });
 
-test('Budget screens use the parent workspace and retain explicit legacy compatibility', () => {
+test('Budget screens use the parent workspace without exposing legacy compatibility routes', () => {
   assert.doesNotMatch(budgetsSource, /label="Division"|New Group|Group Selected/);
   assert.match(budgetsSource, /const created = await addBudget/);
   assert.match(budgetsSource, /navigate\(`\/budgets\/\$\{created\.id\}\?tab=info`\)/);
   assert.match(budgetWorkspaceSource, /Info[\s\S]*Divisions[\s\S]*Company Overhead[\s\S]*Analysis/);
-  assert.match(budgetWorkspaceSource, /Open Legacy Planning/);
+  assert.doesNotMatch(budgetWorkspaceSource, /Open Legacy Planning|Legacy Planning/);
   assert.match(budgetDetailSource, /Budget not found/);
   assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);
-  assert.match(appSource, /path="budgets\/combined"/);
-  assert.match(appSource, /path="budgets\/:budgetId\/legacy"/);
-  assert.match(combinedBudgetSource, /Legacy read-only reporting across existing budgets/);
-  assert.match(combinedBudgetSource, /Back to Budgets/);
+  assert.doesNotMatch(appSource, /budgets\/:budgetId\/legacy|budgets\/combined|budgets\/groups\/:groupId/);
   assert.doesNotMatch(budgetDetailSource, /<h2 className="text-lg font-semibold text-gray-900">Pricing \/ Rates<\/h2>/);
 });
 
-test('Budget list rows open Info and legacy roll-ups remain read-only links', () => {
+test('Budget list rows open Info and hide legacy roll-ups', () => {
   assert.match(budgetsSource, /onClick=\{\(\) => navigate\(`\/budgets\/\$\{budget\.id\}\?tab=info`\)\}/);
   assert.match(budgetsSource, /<button[\s\S]*type="button"[\s\S]*hover:bg-brand-50/);
-  assert.match(budgetsSource, /<Link key=\{group\.id\} to=\{`\/budgets\/groups\/\$\{group\.id\}`\}/);
+  assert.doesNotMatch(budgetsSource, /Legacy budget roll-ups|budgets\/groups/);
   assert.doesNotMatch(budgetsSource, /Pencil|Trash2|saveInlineBudgetNameEdit|dissolveBudgetGroup/);
 });
 

@@ -17,6 +17,9 @@ test('Home answers what this user needs to do with a personal command center', (
   assert.match(personalCalendarSource, /\['month', 'week', 'day'\]|VIEW_MAP/);
   assert.match(tasksSource, />Tasks</);
   assert.match(tasksSource, /Click again to rename/);
+  assert.match(tasksSource, /value !== 'today'/);
+  assert.match(tasksSource, /draggable/);
+  assert.match(tasksSource, /onFilterOrderChange/);
   assert.match(tasksSource, /Hide \$\{task\.title\} from Today/);
   assert.match(sidebarSource, /Upcoming Schedule/);
 });

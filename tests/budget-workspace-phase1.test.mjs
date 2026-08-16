@@ -28,10 +28,10 @@ test('stale bootstrap cannot remove a Budget or Division inserted while in fligh
   );
 });
 
-test('parent and Division routes preserve Budget context', () => {
+test('parent and Division routes preserve Budget context without legacy routes', () => {
   assert.match(appSource, /path="budgets\/:budgetId\/divisions\/:divisionId"/);
-  assert.match(appSource, /path="budgets\/:budgetId\/legacy"/);
   assert.match(appSource, /path="budgets\/:budgetId" element=\{<BudgetWorkspacePage/);
+  assert.doesNotMatch(appSource, /budgets\/:budgetId\/legacy|budgets\/combined|budgets\/groups\/:groupId/);
   assert.match(divisionSource, /navigate\(`\/budgets\/\$\{budget\.id\}\?tab=divisions`\)/);
   assert.match(divisionSource, /Overview[\s\S]*Labour[\s\S]*Equipment[\s\S]*Materials[\s\S]*Subcontractors[\s\S]*Other Costs/);
 });
@@ -44,7 +44,8 @@ test('Division roll-ups use stored revenue targets and do not fabricate direct c
   assert.match(workspaceSource, /Overhead Allocation[\s\S]*Net Contribution/);
 });
 
-test('group creation controls are absent from the new Budget overview', () => {
-  assert.match(overviewSource, /Legacy budget roll-ups/);
+test('legacy Budgets and group controls are absent from the Budget overview', () => {
+  assert.match(overviewSource, /budget\.planningModel === 'divisions_v1'/);
+  assert.doesNotMatch(overviewSource, /Legacy budget roll-ups|Legacy planning|FolderArchive/);
   assert.doesNotMatch(overviewSource, /New Group|Group Selected|saveBudgetGroup|dissolveBudgetGroup/);
 });

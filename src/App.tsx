@@ -18,11 +18,9 @@ const EstimateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/Estimat
 const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
-const BudgetPage = lazy(() => import('./pages/budget/BudgetPage'));
 const BudgetsOverviewPage = lazy(() => import('./pages/budget/BudgetsOverviewPage'));
 const BudgetWorkspacePage = lazy(() => import('./pages/budget/BudgetWorkspacePage'));
 const DivisionWorkspacePage = lazy(() => import('./pages/budget/DivisionWorkspacePage'));
-const CombinedBudgetPage = lazy(() => import('./pages/budget/CombinedBudgetPage'));
 const EmployeesPage = lazy(() => import('./pages/employees/EmployeesPage'));
 const DataCenterPage = lazy(() => import('./pages/datacenter/DataCenterPage'));
 const TimeReportsPage = lazy(() => import('./pages/reports/TimeReportsPage'));
@@ -653,10 +651,7 @@ export default function App() {
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />
-              <Route path="budgets/combined" element={<CombinedBudgetPage />} />
-              <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
               <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage currentUserRole={sessionUser.role} />} />
-              <Route path="budgets/:budgetId/legacy" element={<BudgetPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/:budgetId" element={<BudgetWorkspacePage currentUserRole={sessionUser.role} />} />
               <Route path="budget" element={<Navigate to="/budgets" replace />} />
               <Route path="employees" element={<EmployeesPage />} />

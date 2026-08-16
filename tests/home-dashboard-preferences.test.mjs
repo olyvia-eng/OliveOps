@@ -25,17 +25,22 @@ test('field roles cannot persist Finance widgets', () => {
 });
 
 test('widget preferences remove unknown and duplicate ids while preserving order', () => {
-  assert.deepEqual(normalizeHomeDashboardPreferences({ widgetIds: ['tasks', 'unknown', 'calendar', 'tasks'] }, 'admin'), { widgetIds: ['tasks', 'calendar'] });
+  assert.deepEqual(normalizeHomeDashboardPreferences({ widgetIds: ['tasks', 'unknown', 'calendar', 'tasks'] }, 'admin'), {
+    widgetIds: ['tasks', 'calendar'],
+    taskFilterOrder: ['all', 'today', 'overdue', 'week', 'completed'],
+  });
 });
 
 test('task filter labels and dismissed Today tasks are normalized per user', () => {
   assert.deepEqual(normalizeHomeDashboardPreferences({
     widgetIds: ['tasks'],
     taskFilterLabels: { all: 'To do', today: 'Now', unknown: 'Nope', overdue: '   ' },
+    taskFilterOrder: ['completed', 'today', 'all', 'completed', 'unknown'],
     dismissedTodayTaskIds: ['task-1', 'task-1', '', 42],
   }, 'admin'), {
     widgetIds: ['tasks'],
-    taskFilterLabels: { all: 'To do', today: 'Now' },
+    taskFilterLabels: { all: 'To do' },
+    taskFilterOrder: ['completed', 'today', 'all', 'overdue', 'week'],
     dismissedTodayTaskIds: ['task-1'],
   });
 });

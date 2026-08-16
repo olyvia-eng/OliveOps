@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, Circle, ClipboardList, Plus, X } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, Circle, ClipboardList, GripVertical, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { Task, TaskPriority } from '../../types';
 import { Badge, Button, Card, EmptyState, Input, Select } from '../../components/ui';
@@ -9,10 +9,12 @@ interface OutstandingTasksProps {
   tasks: Task[];
   filter: HomeTaskFilter;
   filterLabels: Record<HomeTaskFilter, string>;
+  filterOrder: HomeTaskFilter[];
   expanded: boolean;
   addRequest: number;
   onFilterChange: (filter: HomeTaskFilter) => void;
   onFilterLabelChange: (filter: HomeTaskFilter, label: string) => void;
+  onFilterOrderChange: (filters: HomeTaskFilter[]) => void;
   onViewAll: () => void;
   onAdd: (input: { title: string; dueDate?: string; priority: TaskPriority }) => Promise<boolean>;
   onToggle: (task: Task) => Promise<void>;
@@ -20,15 +22,13 @@ interface OutstandingTasksProps {
   onDismissCompletedToday: (taskId: string) => void;
 }
 
-const filters: HomeTaskFilter[] = ['all', 'today', 'overdue', 'week', 'completed'];
-
 const priorityTone = (priority?: string) => {
   if (priority === 'high') return 'bg-accent-100 text-accent-700';
   if (priority === 'low') return 'bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-brand-100';
   return 'bg-gray-100 text-gray-700 dark:bg-brand-600 dark:text-brand-100';
 };
 
-export default function OutstandingTasks({ tasks, filter, filterLabels, expanded, addRequest, onFilterChange, onFilterLabelChange, onViewAll, onAdd, onToggle, onDelete, onDismissCompletedToday }: OutstandingTasksProps) {
+export default function OutstandingTasks({ tasks, filter, filterLabels, filterOrder, expanded, addRequest, onFilterChange, onFilterLabelChange, onFilterOrderChange, onViewAll, onAdd, onToggle, onDelete, onDismissCompletedToday }: OutstandingTasksProps) {
   const [adding, setAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
@@ -36,6 +36,7 @@ export default function OutstandingTasks({ tasks, filter, filterLabels, expanded
   const [priority, setPriority] = useState<TaskPriority>('normal');
   const [editingFilter, setEditingFilter] = useState<HomeTaskFilter | null>(null);
   const [filterDraft, setFilterDraft] = useState('');
+  const [draggedFilter, setDraggedFilter] = useState<HomeTaskFilter | null>(null);
   const visibleTasks = expanded ? tasks : tasks.slice(0, 5);
 
   useEffect(() => {
@@ -59,8 +60,19 @@ export default function OutstandingTasks({ tasks, filter, filterLabels, expanded
       onFilterChange(value);
       return;
     }
-    setFilterDraft(filterLabels[value]);
-    setEditingFilter(value);
+    if (value !== 'today') {
+      setFilterDraft(filterLabels[value]);
+      setEditingFilter(value);
+    }
+  };
+
+  const moveFilter = (value: HomeTaskFilter, nextIndex: number) => {
+    const currentIndex = filterOrder.indexOf(value);
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= filterOrder.length || currentIndex === nextIndex) return;
+    const next = [...filterOrder];
+    next.splice(currentIndex, 1);
+    next.splice(nextIndex, 0, value);
+    onFilterOrderChange(next);
   };
 
   const saveFilterLabel = (value: HomeTaskFilter) => {
@@ -79,8 +91,14 @@ export default function OutstandingTasks({ tasks, filter, filterLabels, expanded
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" aria-label="Task filters">
-        {filters.map((value) => editingFilter === value ? (
-          <Input key={value} autoFocus value={filterDraft} maxLength={30} aria-label={`Rename ${filterLabels[value]} filter`} className="h-8 w-28 shrink-0 px-2 text-xs" onChange={(event) => setFilterDraft(event.target.value)} onBlur={() => saveFilterLabel(value)} onKeyDown={(event) => {
+        {filterOrder.map((value, index) => (
+          <div key={value} draggable onDragStart={() => setDraggedFilter(value)} onDragEnd={() => setDraggedFilter(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => {
+            if (draggedFilter) moveFilter(draggedFilter, index);
+            setDraggedFilter(null);
+          }} className="flex shrink-0 items-center gap-0.5">
+            <GripVertical size={14} className="cursor-grab text-brand-300" aria-hidden="true" />
+            {editingFilter === value ? (
+          <Input autoFocus value={filterDraft} maxLength={30} aria-label={`Rename ${filterLabels[value]} filter`} className="h-8 w-28 shrink-0 px-2 text-xs" onChange={(event) => setFilterDraft(event.target.value)} onBlur={() => saveFilterLabel(value)} onKeyDown={(event) => {
             if (event.key === 'Enter') saveFilterLabel(value);
             if (event.key === 'Escape') {
               setFilterDraft(filterLabels[value]);
@@ -88,7 +106,11 @@ export default function OutstandingTasks({ tasks, filter, filterLabels, expanded
             }
           }} />
         ) : (
-          <button key={value} type="button" onClick={() => editFilter(value)} title={filter === value ? 'Click again to rename' : undefined} className={`h-8 shrink-0 rounded-md px-3 text-xs font-semibold ${filter === value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{filterLabels[value]}</button>
+          <button type="button" onClick={() => editFilter(value)} title={filter === value && value !== 'today' ? 'Click again to rename' : undefined} className={`h-8 shrink-0 rounded-md px-3 text-xs font-semibold ${filter === value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{value === 'today' ? 'Today' : filterLabels[value]}</button>
+        )}
+            <button type="button" disabled={index === 0} onClick={() => moveFilter(value, index - 1)} aria-label={`Move ${filterLabels[value]} earlier`} title="Move earlier" className="grid h-7 w-6 place-items-center rounded text-brand-400 hover:bg-brand-50 disabled:opacity-30"><ChevronLeft size={13} /></button>
+            <button type="button" disabled={index === filterOrder.length - 1} onClick={() => moveFilter(value, index + 1)} aria-label={`Move ${filterLabels[value]} later`} title="Move later" className="grid h-7 w-6 place-items-center rounded text-brand-400 hover:bg-brand-50 disabled:opacity-30"><ChevronRight size={13} /></button>
+          </div>
         ))}
       </div>
 
