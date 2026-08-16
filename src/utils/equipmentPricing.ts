@@ -1,4 +1,4 @@
-import type { EquipmentCostType } from '../types';
+import type { EquipmentAsset, EquipmentCostType } from '../types';
 import {
   calculateEquipmentCostBreakdownModel,
   calculateEquipmentRatePricingModel,
@@ -76,4 +76,11 @@ export function calculateSuggestedEquipmentSellRate(input: EquipmentSellRateInpu
 
 export function resolveEquipmentSellRatePreview(overrideSellRate: number | null, suggestedSellRate: number): number {
   return resolveEquipmentSellRatePreviewModel(overrideSellRate, suggestedSellRate) as number;
+}
+
+export function resolveEquipmentCostRate(equipment: EquipmentAsset): number | null {
+  if (typeof equipment.costRateHourly === 'number' && equipment.costRateHourly > 0) return equipment.costRateHourly;
+  const hasModernFuelInputs = equipment.averageFuelPrice !== undefined || equipment.averageFuelBurnPerHour !== undefined;
+  if (!hasModernFuelInputs && equipment.hourlyCost > 0) return equipment.hourlyCost;
+  return null;
 }

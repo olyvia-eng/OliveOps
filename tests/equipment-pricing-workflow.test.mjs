@@ -9,7 +9,7 @@ import { redactEquipmentPricingForSession } from '../api/_lib/authorization.js';
 
 const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const formSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
-const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
+const catalogDetailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
 const estimateBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const estimateModelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
 const conversionSource = readFileSync('api/estimates.js', 'utf8');
@@ -94,9 +94,9 @@ test('approved rate is saved to budget pricing and synchronized to the catalog',
   assert.match(budgetSource, /recommendedSellPrice: pricing\.recommendedSellRate/);
   assert.match(budgetSource, /defaultSellPrice: chargeOutRate/);
   assert.match(budgetSource, /updateEquipmentAsset\(row\.asset\.id/);
-  assert.match(catalogSource, /Cost Rate/);
-  assert.match(catalogSource, /Recommended Rate/);
-  assert.match(catalogSource, /Approved Charge-Out Rate/);
+  assert.match(catalogDetailSource, /Direct Cost \/ Hour/);
+  assert.match(catalogDetailSource, /Recommended Charge-Out/);
+  assert.match(catalogDetailSource, /Approved Charge-Out/);
   assert.match(repoSource, /costRateHourly: Number\(item\.costRateHourly \?\? item\.hourlyCost \?\? 0\)/);
   assert.match(repoSource, /chargeOutRate: Number\(item\.chargeOutRate \?\? item\.recommendedSellRate \?\? 0\)/);
 });
