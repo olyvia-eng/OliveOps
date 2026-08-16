@@ -1,0 +1,50 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { mergeBudgetSnapshotsModel } from '../src/utils/budgetPersistenceState.js';
+
+const appSource = readFileSync('src/App.tsx', 'utf8');
+const overviewSource = readFileSync('src/pages/budget/BudgetsOverviewPage.tsx', 'utf8');
+const workspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage.tsx', 'utf8');
+const divisionSource = readFileSync('src/pages/budget/DivisionWorkspacePage.tsx', 'utf8');
+const storeSource = readFileSync('src/store/index.ts', 'utf8');
+
+test('new Budget creation installs one persisted record before workspace navigation', () => {
+  assert.match(overviewSource, /if \(creating\) return/);
+  assert.match(overviewSource, /const created = await addBudget/);
+  assert.match(overviewSource, /planningModel: 'divisions_v1'/);
+  assert.match(overviewSource, /navigate\(`\/budgets\/\$\{created\.id\}\?tab=info`\)/);
+  assert.doesNotMatch(overviewSource, /window\.location|setTimeout/);
+  assert.match(storeSource, /if \(!payload\.ok \|\| !payload\.budget\)/);
+  assert.match(storeSource, /budgets: \[\.\.\.state\.budgets\.filter/);
+});
+
+test('stale bootstrap cannot remove a Budget or Division inserted while in flight', () => {
+  const existing = { id: 'old', updatedAt: '2027-01-01T00:00:00.000Z' };
+  const created = { id: 'new', updatedAt: '2027-01-01T00:00:00.000Z' };
+  assert.deepEqual(
+    mergeBudgetSnapshotsModel([existing, created], [existing], new Set([existing.id])).map((item) => item.id),
+    ['old', 'new'],
+  );
+});
+
+test('parent and Division routes preserve Budget context', () => {
+  assert.match(appSource, /path="budgets\/:budgetId\/divisions\/:divisionId"/);
+  assert.match(appSource, /path="budgets\/:budgetId\/legacy"/);
+  assert.match(appSource, /path="budgets\/:budgetId" element=\{<BudgetWorkspacePage/);
+  assert.match(divisionSource, /navigate\(`\/budgets\/\$\{budget\.id\}\?tab=divisions`\)/);
+  assert.match(divisionSource, /Overview[\s\S]*Labour[\s\S]*Equipment[\s\S]*Materials[\s\S]*Subcontractors[\s\S]*Other Costs/);
+});
+
+test('Division roll-ups use stored revenue targets and do not fabricate direct costs', () => {
+  const divisions = [{ revenueTarget: 500000 }, { revenueTarget: 700000 }];
+  assert.equal(divisions.reduce((sum, item) => sum + item.revenueTarget, 0), 1200000);
+  assert.match(workspaceSource, /activeDivisions\.reduce\(\(sum, item\) => sum \+ item\.revenueTarget, 0\)/);
+  assert.match(workspaceSource, /Total Direct Cost[\s\S]*Not calculated yet/);
+  assert.match(workspaceSource, /Overhead Allocation[\s\S]*Net Contribution/);
+});
+
+test('group creation controls are absent from the new Budget overview', () => {
+  assert.match(overviewSource, /Legacy budget roll-ups/);
+  assert.doesNotMatch(overviewSource, /New Group|Group Selected|saveBudgetGroup|dissolveBudgetGroup/);
+});

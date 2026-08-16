@@ -532,6 +532,7 @@ const TASK_PRIORITIES = new Set(['low', 'normal', 'high']);
 const TASK_RELATED_ENTITY_TYPES = new Set(['customer', 'estimate', 'job', 'invoice', 'employee']);
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_REGEX = /^\d{4}$/;
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const PERIOD_REGEX = /^\d{4}-\d{2}$/;
 
 function isNonEmptyString(value) {
@@ -823,6 +824,19 @@ function validateBudgetRecord(record) {
   if (!isNonEmptyString(record.division)) return 'Budget division is required.';
   if (typeof record.fiscalYear !== 'string' || !YEAR_REGEX.test(record.fiscalYear)) {
     return 'Fiscal year must use YYYY format.';
+  }
+  if (record.description !== undefined && typeof record.description !== 'string') return 'Budget description is invalid.';
+  if (record.startDate !== undefined && (!isNonEmptyString(record.startDate) || !DATE_REGEX.test(record.startDate))) {
+    return 'Budget start date must use YYYY-MM-DD format.';
+  }
+  if (record.endDate !== undefined && (!isNonEmptyString(record.endDate) || !DATE_REGEX.test(record.endDate))) {
+    return 'Budget end date must use YYYY-MM-DD format.';
+  }
+  if (record.startDate && record.endDate && record.startDate > record.endDate) {
+    return 'Budget end date must be on or after the start date.';
+  }
+  if (record.planningModel !== undefined && record.planningModel !== 'divisions_v1') {
+    return 'Budget planning model is invalid.';
   }
   if (!BUDGET_STATUSES.has(record.status)) return 'Budget status is invalid.';
   return null;
@@ -1614,7 +1628,12 @@ export default async function handler(req, res) {
       if (entity === 'jobs') {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: record });
       }
-      return res.status(200).json(entity === 'estimates' ? { ok: true, estimate: record } : { ok: true });
+      if (entity === 'estimates') return res.status(200).json({ ok: true, estimate: record });
+      if (entity === 'budgets') {
+        const persistedBudget = await config.get(session.businessId, record.id);
+        return res.status(200).json({ ok: true, budget: persistedBudget });
+      }
+      return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not create ${entity}` });
     }
@@ -1923,10 +1942,15 @@ export default async function handler(req, res) {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: next });
       }
 
-      const persistedEstimate = entity === 'estimates'
-        ? await config.get(session.businessId, id)
-        : null;
-      return res.status(200).json(entity === 'estimates' ? { ok: true, estimate: persistedEstimate } : { ok: true });
+      if (entity === 'estimates') {
+        const persistedEstimate = await config.get(session.businessId, id);
+        return res.status(200).json({ ok: true, estimate: persistedEstimate });
+      }
+      if (entity === 'budgets') {
+        const persistedBudget = await config.get(session.businessId, id);
+        return res.status(200).json({ ok: true, budget: persistedBudget });
+      }
+      return res.status(200).json({ ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not update ${entity}` });
     }

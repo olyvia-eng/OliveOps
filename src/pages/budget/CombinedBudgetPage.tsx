@@ -94,14 +94,14 @@ export default function CombinedBudgetPage() {
       <PageHeader
         title={budgetGroup?.name ?? 'Combined Budget'}
         subtitle={isGroupView
-          ? 'Persistent roll-up across this group. Member budgets remain the source of truth.'
-          : 'Read-only reporting view across multiple existing budgets. Individual budgets remain the source of truth.'}
+          ? 'Legacy read-only roll-up. Member budgets remain unchanged and are still the source of truth.'
+          : 'Legacy read-only reporting across existing budgets. Individual budgets remain unchanged.'}
         action={<Button variant="secondary" onClick={() => navigate('/budgets')}><ArrowLeft size={16} /> Back to Budgets</Button>}
       />
 
       <div className="space-y-4 mb-6">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge label={isGroupView ? 'Budget Group' : 'Read Only'} className="bg-gray-100 text-gray-700" />
+          <Badge label={isGroupView ? 'Legacy Budget Group' : 'Legacy Read Only'} className="bg-gray-100 text-gray-700" />
           <span className="inline-flex items-center rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">{combined.fiscalYear}</span>
           <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{combined.selectedBudgets.length} budgets included</span>
         </div>

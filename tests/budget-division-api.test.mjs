@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import dataHandler from '../api/data.js';
+import budgetDivisionsHandler from '../api/budget-divisions.js';
 import { ddb } from '../api/_lib/db.js';
 import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
 
@@ -62,6 +63,11 @@ function installDdbMock(t) {
       return { Items: items };
     }
 
+    if (commandType === 'DeleteCommand') {
+      store.delete(mapKey(input.Key.PK, input.Key.SK));
+      return {};
+    }
+
     return originalSend(command);
   };
 
@@ -91,17 +97,22 @@ function seedBusinessUser(store, { businessId, userId, role = 'admin', email = '
   );
 }
 
-async function seedSessionToken() {
+async function seedSessionToken({
+  userId = 'user-a',
+  businessId = 'biz-a',
+  email = 'admin@example.com',
+  accessToken = 'budget-token-a',
+} = {}) {
   await createMobileSessionForUser({
     user: {
-      id: 'user-a',
-      businessId: 'biz-a',
+      id: userId,
+      businessId,
       name: 'Admin User',
-      email: 'admin@example.com',
+      email,
       role: 'admin',
-      businessName: 'Business A',
+      businessName: businessId,
     },
-    accessToken: 'budget-token-a',
+    accessToken,
     expiresInSeconds: 604800,
   });
 }
@@ -227,4 +238,85 @@ test('budget update accepts arbitrary division values', async (t) => {
   assert.equal(listRes.statusCode, 200);
   assert.equal(listRes.body.ok, true);
   assert.equal(listRes.body.items[0].division, 'special projects north');
+});
+
+test('budget create and update return authoritative workspace metadata', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
+  await seedSessionToken();
+
+  const createRes = createMockRes();
+  await dataHandler({
+    method: 'POST',
+    query: { entity: 'budgets' },
+    headers: { authorization: 'Bearer budget-token-a' },
+    body: {
+      data: buildBudgetRecord({
+        id: 'budget-workspace',
+        name: '2027 Annual Budget',
+        fiscalYear: '2027',
+        description: 'Company-wide operating budget for 2027.',
+        startDate: '2027-01-01',
+        endDate: '2027-12-31',
+        planningModel: 'divisions_v1',
+      }),
+    },
+  }, createRes);
+
+  assert.equal(createRes.statusCode, 200);
+  assert.equal(createRes.body.budget.name, '2027 Annual Budget');
+  assert.equal(createRes.body.budget.description, 'Company-wide operating budget for 2027.');
+  assert.equal(createRes.body.budget.startDate, '2027-01-01');
+  assert.equal(createRes.body.budget.endDate, '2027-12-31');
+  assert.equal(createRes.body.budget.planningModel, 'divisions_v1');
+
+  const patchRes = createMockRes();
+  await dataHandler({
+    method: 'PATCH',
+    query: { entity: 'budgets', id: 'budget-workspace' },
+    headers: { authorization: 'Bearer budget-token-a' },
+    body: { data: { description: 'Updated operating plan.' } },
+  }, patchRes);
+
+  assert.equal(patchRes.statusCode, 200);
+  assert.equal(patchRes.body.budget.description, 'Updated operating plan.');
+});
+
+test('Budget Divisions are isolated by parent Budget and business', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
+  await seedSessionToken();
+  store.set(mapKey('BUSINESS#biz-a', 'BUDGET_META#budget-1'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_META#budget-1', entityType: 'BUDGET', businessId: 'biz-a', budgetId: 'budget-1', ...buildBudgetRecord(),
+  });
+  store.set(mapKey('BUSINESS#biz-a', 'BUDGET_META#budget-2'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_META#budget-2', entityType: 'BUDGET', businessId: 'biz-a', budgetId: 'budget-2', ...buildBudgetRecord({ id: 'budget-2' }),
+  });
+
+  const createRes = createMockRes();
+  await budgetDivisionsHandler({
+    method: 'POST',
+    query: { budgetId: 'budget-1' },
+    headers: { authorization: 'Bearer budget-token-a' },
+    body: { data: { id: 'division-snow', budgetId: 'budget-1', name: 'Snow Removal', description: '', revenueTarget: 500000, status: 'active', sortOrder: 0 } },
+  }, createRes);
+  assert.equal(createRes.statusCode, 200);
+  assert.equal(createRes.body.division.revenueTarget, 500000);
+
+  const listRes = createMockRes();
+  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1' }, headers: { authorization: 'Bearer budget-token-a' } }, listRes);
+  assert.deepEqual(listRes.body.divisions.map((division) => division.name), ['Snow Removal']);
+
+  const wrongParentRes = createMockRes();
+  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-2', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-a' } }, wrongParentRes);
+  assert.equal(wrongParentRes.statusCode, 404);
+
+  seedBusinessUser(store, { businessId: 'biz-b', userId: 'user-b', email: 'admin-b@example.com' });
+  store.set(mapKey('BUSINESS#biz-b', 'BUDGET_META#budget-1'), {
+    PK: 'BUSINESS#biz-b', SK: 'BUDGET_META#budget-1', entityType: 'BUDGET', businessId: 'biz-b', budgetId: 'budget-1', ...buildBudgetRecord(),
+  });
+  await seedSessionToken({ userId: 'user-b', businessId: 'biz-b', email: 'admin-b@example.com', accessToken: 'budget-token-b' });
+  const foreignBusinessRes = createMockRes();
+  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-b' } }, foreignBusinessRes);
+  assert.equal(foreignBusinessRes.statusCode, 404);
 });

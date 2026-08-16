@@ -106,7 +106,8 @@ test('legacy estimate naming fields map into authoritative title without adding 
 });
 
 test('estimate API and store use the persisted Estimate returned by create and update', () => {
-  assert.match(dataApiSource, /entity === 'estimates' \? \{ ok: true, estimate: persistedEstimate \} : \{ ok: true \}/);
+  assert.match(dataApiSource, /if \(entity === 'estimates'\) \{[\s\S]*estimate: persistedEstimate/);
+  assert.match(dataApiSource, /if \(entity === 'budgets'\) \{[\s\S]*budget: persistedBudget/);
   assert.match(storeSource, /const payload = \(await response\.json\(\)\) as \{ ok\?: boolean; estimate\?: Estimate \}/);
   assert.match(storeSource, /updateEstimate: \(id: ID, data: Partial<Estimate>\) => Promise<Estimate \| null>/);
   assert.match(storeSource, /return payload\.estimate/);

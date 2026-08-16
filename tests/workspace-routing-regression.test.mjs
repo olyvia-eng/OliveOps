@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync('src/App.tsx', 'utf8');
-const budgetsSource = readFileSync('src/pages/budget/BudgetsPage.tsx', 'utf8');
+const budgetsSource = readFileSync('src/pages/budget/BudgetsOverviewPage.tsx', 'utf8');
+const budgetWorkspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage.tsx', 'utf8');
 const budgetDetailSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
@@ -64,43 +65,26 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(workAreaBuilderSource, /Delete Work Area/);
 });
 
-test('budget screens use free-text division input and keep detail display formatting', () => {
-  assert.match(budgetsSource, /<Input\s+label="Division"/);
-  assert.match(budgetsSource, /const payload = \{/);
-  assert.match(budgetsSource, /const created = await addBudget\(payload\);/);
-  assert.match(budgetsSource, /const startInlineBudgetNameEdit = \(budgetId: string, currentName: string\) => \{/);
-  assert.match(budgetsSource, /const saveInlineBudgetNameEdit = \(budgetId: string\) => \{/);
-  assert.match(budgetsSource, /onKeyDown=\{\(event\) => \{/);
-  assert.match(budgetsSource, /if \(event.key === 'Enter'\)/);
-  assert.match(budgetsSource, /if \(event.key === 'Escape'\)/);
-  assert.match(budgetsSource, /aria-label=\{`Edit \$\{budget\.name\}`\}/);
+test('Budget screens use the parent workspace and retain explicit legacy compatibility', () => {
+  assert.doesNotMatch(budgetsSource, /label="Division"|New Group|Group Selected/);
+  assert.match(budgetsSource, /const created = await addBudget/);
+  assert.match(budgetsSource, /navigate\(`\/budgets\/\$\{created\.id\}\?tab=info`\)/);
+  assert.match(budgetWorkspaceSource, /Info[\s\S]*Divisions[\s\S]*Company Overhead[\s\S]*Analysis/);
+  assert.match(budgetWorkspaceSource, /Open Legacy Planning/);
   assert.match(budgetDetailSource, /Budget not found/);
   assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);
-  assert.match(budgetsSource, /View Combined Budget/);
-  assert.match(budgetsSource, /Select all visible budgets/);
   assert.match(appSource, /path="budgets\/combined"/);
-  assert.match(combinedBudgetSource, /Read-only reporting view across multiple existing budgets/);
+  assert.match(appSource, /path="budgets\/:budgetId\/legacy"/);
+  assert.match(combinedBudgetSource, /Legacy read-only reporting across existing budgets/);
   assert.match(combinedBudgetSource, /Back to Budgets/);
   assert.doesNotMatch(budgetDetailSource, /<h2 className="text-lg font-semibold text-gray-900">Pricing \/ Rates<\/h2>/);
 });
 
-test('budget list row navigation and control interactions remain consistent', () => {
-  assert.match(budgetsSource, /onClick=\{\(\) => navigate\(`\/budgets\/\$\{budget\.id\}`\)\}/);
-  assert.match(budgetsSource, /tabIndex=\{0\}/);
-  assert.match(budgetsSource, /if \(event\.target !== event\.currentTarget\) return;/);
-  assert.match(budgetsSource, /if \(event\.key === 'Enter' \|\| event\.key === ' '\)/);
-  assert.match(budgetsSource, /<td className="px-4 py-3 font-medium text-gray-900">/);
-  assert.doesNotMatch(budgetsSource, /<td className="px-4 py-3 font-medium text-gray-900" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
-
-  assert.match(budgetsSource, /<td className="px-4 py-3" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
-  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*startInlineBudgetNameEdit\(budget\.id, budget\.name\);/);
-  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*setBudgetToDelete\(budget\.id\);/);
-  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*saveInlineBudgetNameEdit\(budget\.id\);/);
-  assert.match(budgetsSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*cancelInlineBudgetNameEdit\(\);/);
-  assert.match(budgetsSource, /<div className="space-y-2" onClick=\{\(event\) => event\.stopPropagation\(\)\}>/);
-
-  assert.match(budgetsSource, /View Combined Budget/);
-  assert.match(budgetsSource, /Select all visible budgets/);
+test('Budget list rows open Info and legacy roll-ups remain read-only links', () => {
+  assert.match(budgetsSource, /onClick=\{\(\) => navigate\(`\/budgets\/\$\{budget\.id\}\?tab=info`\)\}/);
+  assert.match(budgetsSource, /<button[\s\S]*type="button"[\s\S]*hover:bg-brand-50/);
+  assert.match(budgetsSource, /<Link key=\{group\.id\} to=\{`\/budgets\/groups\/\$\{group\.id\}`\}/);
+  assert.doesNotMatch(budgetsSource, /Pencil|Trash2|saveInlineBudgetNameEdit|dissolveBudgetGroup/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {

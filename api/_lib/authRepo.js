@@ -125,6 +125,14 @@ function budgetMetaSk(budgetId) {
   return `BUDGET_META#${budgetId}`;
 }
 
+function budgetDivisionPrefix(budgetId) {
+  return `BUDGET_DIVISION#${budgetId}#DIVISION#`;
+}
+
+function budgetDivisionSk(budgetId, divisionId) {
+  return `${budgetDivisionPrefix(budgetId)}${divisionId}`;
+}
+
 function budgetRateSk(rateId) {
   return `BUDGET_RATE#${rateId}`;
 }
@@ -3073,6 +3081,10 @@ export async function listBudgetsForBusiness(businessId) {
     budgetType: item.budgetType,
     division: item.division,
     fiscalYear: item.fiscalYear,
+    description: item.description,
+    startDate: item.startDate,
+    endDate: item.endDate,
+    planningModel: item.planningModel,
     status: item.status,
     overheadRecoveryAllocation: item.overheadRecoveryAllocation,
     desiredNetProfit: Number(item.desiredNetProfit ?? 0),
@@ -3121,6 +3133,10 @@ export async function getBudgetForBusiness(businessId, budgetId) {
         budgetType: result.Item.budgetType,
         division: result.Item.division,
         fiscalYear: result.Item.fiscalYear,
+        description: result.Item.description,
+        startDate: result.Item.startDate,
+        endDate: result.Item.endDate,
+        planningModel: result.Item.planningModel,
         status: result.Item.status,
         overheadRecoveryAllocation: result.Item.overheadRecoveryAllocation,
         desiredNetProfit: Number(result.Item.desiredNetProfit ?? 0),
@@ -3162,6 +3178,102 @@ export async function deleteBudgetForBusiness(businessId, budgetId) {
     })
   );
 
+  return { ok: true };
+}
+
+function mapBudgetDivision(item) {
+  return {
+    id: item.divisionId,
+    budgetId: item.budgetId,
+    name: item.name,
+    description: item.description,
+    revenueTarget: Number(item.revenueTarget ?? 0),
+    status: item.status === 'archived' ? 'archived' : 'active',
+    sortOrder: Number(item.sortOrder ?? 0),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+export async function listBudgetDivisionsForBusiness(businessId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': businessPk(businessId),
+      ':prefix': 'BUDGET_DIVISION#',
+    },
+  }));
+  return (result.Items ?? []).map(mapBudgetDivision);
+}
+
+export async function listBudgetDivisionsForBudget(businessId, budgetId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': businessPk(businessId),
+      ':prefix': budgetDivisionPrefix(budgetId),
+    },
+  }));
+  return (result.Items ?? []).map(mapBudgetDivision);
+}
+
+export async function getBudgetDivisionForBusiness(businessId, budgetId, divisionId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: {
+      PK: businessPk(businessId),
+      SK: budgetDivisionSk(budgetId, divisionId),
+    },
+  }));
+  if (!result.Item || result.Item.businessId !== businessId || result.Item.budgetId !== budgetId) return null;
+  return mapBudgetDivision(result.Item);
+}
+
+export async function createBudgetDivisionForBusiness({ businessId, division }) {
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId),
+      SK: budgetDivisionSk(division.budgetId, division.id),
+      entityType: 'BUDGET_DIVISION',
+      businessId,
+      budgetId: division.budgetId,
+      divisionId: division.id,
+      ...division,
+    },
+    ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+  }));
+  return getBudgetDivisionForBusiness(businessId, division.budgetId, division.id);
+}
+
+export async function updateBudgetDivisionForBusiness({ businessId, division }) {
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId),
+      SK: budgetDivisionSk(division.budgetId, division.id),
+      entityType: 'BUDGET_DIVISION',
+      businessId,
+      budgetId: division.budgetId,
+      divisionId: division.id,
+      ...division,
+    },
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+  }));
+  return getBudgetDivisionForBusiness(businessId, division.budgetId, division.id);
+}
+
+export async function deleteBudgetDivisionForBusiness(businessId, budgetId, divisionId) {
+  await ddb.send(new DeleteCommand({
+    TableName: tableName,
+    Key: {
+      PK: businessPk(businessId),
+      SK: budgetDivisionSk(budgetId, divisionId),
+    },
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+  }));
   return { ok: true };
 }
 

@@ -4,9 +4,10 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetDivision, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
+import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
@@ -18,7 +19,9 @@ const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
 const BudgetPage = lazy(() => import('./pages/budget/BudgetPage'));
-const BudgetsPage = lazy(() => import('./pages/budget/BudgetsPage'));
+const BudgetsOverviewPage = lazy(() => import('./pages/budget/BudgetsOverviewPage'));
+const BudgetWorkspacePage = lazy(() => import('./pages/budget/BudgetWorkspacePage'));
+const DivisionWorkspacePage = lazy(() => import('./pages/budget/DivisionWorkspacePage'));
 const CombinedBudgetPage = lazy(() => import('./pages/budget/CombinedBudgetPage'));
 const EmployeesPage = lazy(() => import('./pages/employees/EmployeesPage'));
 const DataCenterPage = lazy(() => import('./pages/datacenter/DataCenterPage'));
@@ -87,6 +90,8 @@ export default function App() {
     const requestSequence = businessDataRequestSequence.current + 1;
     businessDataRequestSequence.current = requestSequence;
     const estimateIdsAtRequestStart = new Set(useStore.getState().estimates.map((estimate) => estimate.id));
+    const budgetIdsAtRequestStart = new Set(useStore.getState().budgets.map((budget) => budget.id));
+    const budgetDivisionIdsAtRequestStart = new Set(useStore.getState().budgetDivisions.map((division) => division.id));
     setLoadingBusinessData(true);
     setBusinessDataError('');
 
@@ -103,6 +108,7 @@ export default function App() {
         formSubmissions?: FormSubmission[];
         formResponses?: FormResponse[];
         budgets?: Budget[];
+        budgetDivisions?: BudgetDivision[];
         budgetGroups?: BudgetGroup[];
         equipmentBudgetAllocations?: EquipmentBudgetAllocation[];
         crews?: Crew[];
@@ -144,7 +150,8 @@ export default function App() {
         formFields: payload.formFields ?? [],
         formSubmissions: payload.formSubmissions ?? [],
         formResponses: payload.formResponses ?? [],
-        budgets: payload.budgets ?? [],
+        budgets: mergeBudgetSnapshotsModel(state.budgets, payload.budgets ?? [], budgetIdsAtRequestStart),
+        budgetDivisions: mergeBudgetSnapshotsModel(state.budgetDivisions, payload.budgetDivisions ?? [], budgetDivisionIdsAtRequestStart),
         budgetGroups: payload.budgetGroups ?? [],
         equipmentBudgetAllocations: payload.equipmentBudgetAllocations ?? [],
         crews: payload.crews ?? [],
@@ -264,6 +271,7 @@ export default function App() {
       formSubmissions: [],
       formResponses: [],
       budgets: [],
+      budgetDivisions: [],
       budgetGroups: [],
       equipmentBudgetAllocations: [],
       crews: [],
@@ -641,11 +649,13 @@ export default function App() {
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
-              <Route path="budgets" element={<BudgetsPage />} />
+              <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
-              <Route path="budgets/:budgetId" element={<BudgetPage currentUserRole={sessionUser.role} />} />
-              <Route path="budget" element={<BudgetPage currentUserRole={sessionUser.role} />} />
+              <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage />} />
+              <Route path="budgets/:budgetId/legacy" element={<BudgetPage currentUserRole={sessionUser.role} />} />
+              <Route path="budgets/:budgetId" element={<BudgetWorkspacePage currentUserRole={sessionUser.role} />} />
+              <Route path="budget" element={<Navigate to="/budgets" replace />} />
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="data-center" element={<DataCenterPage />} />
               <Route

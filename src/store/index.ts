@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   Budget,
+  BudgetDivision,
   BudgetGroup,
   BudgetRate,
   FormField,
@@ -42,8 +43,11 @@ import {
   endClockOutSubmission,
 } from '../utils/clockOutSubmission';
 import { nextEstimateUpdatedAtModel, shouldApplySequencedResponseModel } from '../utils/estimatePersistenceState.js';
+import { shouldApplyBudgetResponseModel } from '../utils/budgetPersistenceState.js';
 
 const estimateMutationSequences = new Map<ID, number>();
+const budgetMutationSequences = new Map<ID, number>();
+const budgetDivisionMutationSequences = new Map<ID, number>();
 
 async function ensureOk(responsePromise: Promise<Response>) {
   const response = await responsePromise;
@@ -84,6 +88,7 @@ function dataUrl(entity: string, id?: string) {
 
 interface AppState {
   budgets: Budget[];
+  budgetDivisions: BudgetDivision[];
   budgetGroups: BudgetGroup[];
   equipmentBudgetAllocations: EquipmentBudgetAllocation[];
   crews: Crew[];
@@ -195,8 +200,10 @@ interface AppState {
 
   // Budget
   addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget | null>;
-  updateBudget: (id: ID, data: Partial<Budget>) => void;
+  updateBudget: (id: ID, data: Partial<Budget>) => Promise<Budget | null>;
   deleteBudget: (id: ID) => void;
+  addBudgetDivision: (division: Omit<BudgetDivision, 'id' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivision | null>;
+  updateBudgetDivision: (budgetId: ID, id: ID, data: Partial<BudgetDivision>) => Promise<BudgetDivision | null>;
   saveBudgetGroup: (group: Omit<BudgetGroup, 'createdAt' | 'updatedAt'>, confirmAllocationMove?: boolean) => Promise<{ ok: boolean; requiresConfirmation?: boolean; error?: string }>;
   dissolveBudgetGroup: (id: ID) => Promise<boolean>;
   refreshBudgetGroups: () => Promise<void>;
@@ -236,6 +243,7 @@ interface AppState {
 
 export const useStore = create<AppState>()((set, get) => ({
   budgets: [],
+  budgetDivisions: [],
       budgetGroups: [],
       equipmentBudgetAllocations: [],
       crews: [],
@@ -1595,50 +1603,86 @@ export const useStore = create<AppState>()((set, get) => ({
 
       // ── Budget ────────────────────────────────────────────────────────────
       addBudget: async (budgetInput) => {
-        const previous = get().budgets;
         const budget = {
           ...budgetInput,
           id: generateId(),
           createdAt: nowISO(),
           updatedAt: nowISO(),
         };
-        set((s) => ({ budgets: [...s.budgets, budget] }));
-
         try {
-          await ensureOk(fetch(dataUrl('budgets'), {
+          const response = await fetch(dataUrl('budgets'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             credentials: 'include',
             body: JSON.stringify({ data: budget }),
-          }));
-
-          return budget;
+          });
+          if (!response.ok) await ensureOk(Promise.resolve(response));
+          const payload = await response.json() as { ok?: boolean; budget?: Budget };
+          if (!payload.ok || !payload.budget) throw new Error('Budget creation response was incomplete.');
+          set((state) => ({ budgets: [...state.budgets.filter((item) => item.id !== payload.budget?.id), payload.budget as Budget] }));
+          return payload.budget;
         } catch (error: unknown) {
-          set({ budgets: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget could not be saved.') });
           return null;
         }
       },
-      updateBudget: (id, data) => {
-        const previous = get().budgets;
+      updateBudget: async (id, data) => {
         const updatedAt = nowISO();
-        set((s) => ({
-          budgets: s.budgets.map((budget) => (budget.id === id ? { ...budget, ...data, updatedAt } : budget)),
-        }));
-
-        void ensureOk(fetch(dataUrl('budgets', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
-          set({ budgets: previous });
+        const requestSequence = (budgetMutationSequences.get(id) ?? 0) + 1;
+        budgetMutationSequences.set(id, requestSequence);
+        try {
+          const response = await fetch(dataUrl('budgets', id), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt } }),
+          });
+          if (!response.ok) await ensureOk(Promise.resolve(response));
+          const payload = await response.json() as { ok?: boolean; budget?: Budget };
+          if (!payload.ok || !payload.budget) throw new Error('Budget update response was incomplete.');
+          if (!shouldApplyBudgetResponseModel(requestSequence, budgetMutationSequences.get(id) ?? 0)) return null;
+          set((state) => ({ budgets: state.budgets.map((item) => item.id === id ? payload.budget as Budget : item) }));
+          return payload.budget;
+        } catch (error: unknown) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget changes could not be saved.') });
-        });
+          return null;
+        }
+      },
+      addBudgetDivision: async (divisionInput) => {
+        const division = { ...divisionInput, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
+        try {
+          const response = await fetch(`/api/budget-divisions?budgetId=${encodeURIComponent(division.budgetId)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: division }),
+          });
+          if (!response.ok) await ensureOk(Promise.resolve(response));
+          const payload = await response.json() as { ok?: boolean; division?: BudgetDivision };
+          if (!payload.ok || !payload.division) throw new Error('Division creation response was incomplete.');
+          set((state) => ({ budgetDivisions: [...state.budgetDivisions.filter((item) => item.id !== payload.division?.id), payload.division as BudgetDivision] }));
+          return payload.division;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Division could not be saved.') });
+          return null;
+        }
+      },
+      updateBudgetDivision: async (budgetId, id, data) => {
+        const requestSequence = (budgetDivisionMutationSequences.get(id) ?? 0) + 1;
+        budgetDivisionMutationSequences.set(id, requestSequence);
+        try {
+          const response = await fetch(`/api/budget-divisions?budgetId=${encodeURIComponent(budgetId)}&id=${encodeURIComponent(id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: { ...data, updatedAt: nowISO() } }),
+          });
+          if (!response.ok) await ensureOk(Promise.resolve(response));
+          const payload = await response.json() as { ok?: boolean; division?: BudgetDivision };
+          if (!payload.ok || !payload.division) throw new Error('Division update response was incomplete.');
+          if (!shouldApplyBudgetResponseModel(requestSequence, budgetDivisionMutationSequences.get(id) ?? 0)) return null;
+          set((state) => ({ budgetDivisions: state.budgetDivisions.map((item) => item.id === id ? payload.division as BudgetDivision : item) }));
+          return payload.division;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Division changes could not be saved.') });
+          return null;
+        }
       },
       deleteBudget: (id) => {
         const previous = get().budgets;

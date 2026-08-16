@@ -768,16 +768,21 @@ export { BUDGET_CATEGORIES };
 export type BudgetCategory = typeof BUDGET_CATEGORIES[number];
 
 export type BudgetType = 'operating' | 'capital' | 'project' | 'forecast' | 'custom';
-export type BudgetDivision = string;
 export type BudgetStatus = 'draft' | 'active' | 'archived';
+export type BudgetPlanningModel = 'divisions_v1';
+export type BudgetDivisionStatus = 'active' | 'archived';
 
 export interface Budget {
   id: ID;
   budgetGroupId?: ID;
   name: string;
   budgetType: BudgetType;
-  division: BudgetDivision;
+  division: string;
   fiscalYear: string;
+  description?: string;
+  startDate?: string;
+  endDate?: string;
+  planningModel?: BudgetPlanningModel;
   status: BudgetStatus;
   overheadRecoveryAllocation?: {
     labourPercent: number;
@@ -788,6 +793,18 @@ export interface Budget {
   desiredNetProfit?: number;
   targetMarginPct?: number;
   equipmentUtilizationHours?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetDivision {
+  id: ID;
+  budgetId: ID;
+  name: string;
+  description?: string;
+  revenueTarget: number;
+  status: BudgetDivisionStatus;
+  sortOrder: number;
   createdAt: string;
   updatedAt: string;
 }
