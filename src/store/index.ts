@@ -201,8 +201,14 @@ interface AppState {
   dissolveBudgetGroup: (id: ID) => Promise<boolean>;
   refreshBudgetGroups: () => Promise<void>;
   addBudgetItem: (item: Omit<BudgetItem, 'id'>, allocationMonths?: number) => void;
-  updateBudgetItem: (id: ID, data: Partial<BudgetItem>, allocationMonths?: number) => void;
+  updateBudgetItem: (id: ID, data: Partial<BudgetItem>, allocationMonths?: number) => Promise<boolean>;
   deleteBudgetItem: (id: ID) => void;
+  saveGroupedEquipmentAllocations: (input: {
+    budgetId: ID;
+    equipmentId: ID;
+    annualCost: number;
+    allocations: Array<{ budgetId: ID; budgetItemId: ID; monthsAllocated: number }>;
+  }) => Promise<{ ok: boolean; error?: string }>;
   reorderBudgetEquipment: (budgetId: ID, orderedIds: ID[]) => Promise<boolean>;
   addBudgetRate: (rate: Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateBudgetRate: (id: ID, data: Partial<BudgetRate>) => void;
@@ -1713,7 +1719,7 @@ export const useStore = create<AppState>()((set, get) => ({
           emitAppToast({ tone: 'error', message: 'Budget item could not be saved.' });
         });
       },
-      updateBudgetItem: (id, data, allocationMonths) => {
+      updateBudgetItem: async (id, data, allocationMonths) => {
         const previous = get().budgetItems;
         set((s) => ({
           budgetItems: s.budgetItems.map((b) =>
@@ -1727,19 +1733,22 @@ export const useStore = create<AppState>()((set, get) => ({
           ),
         }));
 
-        void ensureOk(fetch(dataUrl('budget', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data, allocationMonths }),
-        })).then(() => {
+        try {
+          await ensureOk(fetch(dataUrl('budget', id), {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data, allocationMonths }),
+          }));
           if (allocationMonths !== undefined) void get().refreshBudgetGroups();
-        }).catch(() => {
+          return true;
+        } catch {
           set({ budgetItems: previous });
           emitAppToast({ tone: 'error', message: 'Budget changes could not be saved.' });
-        });
+          return false;
+        }
       },
       deleteBudgetItem: (id) => {
         const previous = get().budgetItems;
@@ -1752,6 +1761,45 @@ export const useStore = create<AppState>()((set, get) => ({
           set({ budgetItems: previous });
           emitAppToast({ tone: 'error', message: 'Budget item could not be deleted.' });
         });
+      },
+      saveGroupedEquipmentAllocations: async (input) => {
+        try {
+          const response = await fetch('/api/budget-equipment-allocations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(input),
+          });
+          const payload = await response.json() as {
+            ok?: boolean;
+            error?: string;
+            allocations?: EquipmentBudgetAllocation[];
+            budgetItems?: BudgetItem[];
+          };
+          if (!response.ok || !payload.ok || !payload.allocations || !payload.budgetItems) {
+            return { ok: false, error: payload.error ?? 'Equipment allocations could not be saved.' };
+          }
+          const savedBudgetItems = payload.budgetItems;
+          const savedAllocations = payload.allocations;
+          const affectedBudgetItemIds = new Set(savedBudgetItems.map((item) => item.id));
+          const affectedAllocationIds = new Set(savedAllocations.map((allocation) => allocation.id));
+          set((state) => ({
+            budgetItems: [
+              ...state.budgetItems.filter((item) => !affectedBudgetItemIds.has(item.id)),
+              ...savedBudgetItems,
+            ],
+            equipmentBudgetAllocations: [
+              ...state.equipmentBudgetAllocations.filter((allocation) => (
+                !affectedAllocationIds.has(allocation.id)
+                && !affectedBudgetItemIds.has(allocation.budgetItemId)
+              )),
+              ...savedAllocations,
+            ],
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error, 'Equipment allocations could not be saved.') };
+        }
       },
       reorderBudgetEquipment: async (budgetId, orderedIds) => {
         const previous = get().budgetItems;

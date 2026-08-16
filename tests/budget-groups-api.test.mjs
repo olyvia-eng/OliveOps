@@ -4,7 +4,11 @@ import assert from 'node:assert/strict';
 import budgetGroupsHandler from '../api/budget-groups.js';
 import { ddb } from '../api/_lib/db.js';
 import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
-import { saveEquipmentBudgetAllocationForItem } from '../api/_lib/budgetGroups.js';
+import {
+  allocationSk,
+  saveEquipmentBudgetAllocationForItem,
+  saveGroupedEquipmentAllocationsForBusiness,
+} from '../api/_lib/budgetGroups.js';
 
 function createMockRes() {
   return {
@@ -82,6 +86,24 @@ function seedBudget(store, businessId, id, fiscalYear = '2027') {
     status: 'draft',
     createdAt: '2027-01-01T00:00:00.000Z',
     updatedAt: '2027-01-01T00:00:00.000Z',
+  });
+}
+
+function seedEquipmentBudgetItem(store, businessId, id, budgetId, equipmentId, budgeted = 0) {
+  store.set(key(`BUSINESS#${businessId}`, `BUDGET#${id}`), {
+    PK: `BUSINESS#${businessId}`,
+    SK: `BUDGET#${id}`,
+    entityType: 'BUDGET_ITEM',
+    businessId,
+    budgetItemId: id,
+    id,
+    budgetId,
+    category: 'equipment',
+    equipmentId,
+    description: equipmentId,
+    budgeted,
+    actual: 0,
+    period: '2027-01',
   });
 }
 
@@ -171,4 +193,113 @@ test('equipment allocation rejects capacity above twelve months within a group',
   assert.equal(first.ok, true);
   assert.equal(second.ok, false);
   assert.match(second.error, /4.5 months of annual cost responsibility remain/i);
+});
+
+test('grouped equipment allocation atomically persists every affected Budget Item', async (t) => {
+  const store = installDdbMock(t);
+  seedBudget(store, 'biz-a', 'snow');
+  seedBudget(store, 'biz-a', 'landscape');
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#snow')).budgetGroupId = 'operations';
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#landscape')).budgetGroupId = 'operations';
+  store.set(key('BUSINESS#biz-a', 'BUDGET_GROUP#operations'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_GROUP#operations', entityType: 'BUDGET_GROUP', businessId: 'biz-a',
+    budgetGroupId: 'operations', name: 'Operations', year: '2027', budgetIds: ['snow', 'landscape'],
+  });
+  seedEquipmentBudgetItem(store, 'biz-a', 'snow-loader', 'snow', 'loader');
+  seedEquipmentBudgetItem(store, 'biz-a', 'landscape-loader', 'landscape', 'loader');
+  await saveEquipmentBudgetAllocationForItem({ businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', budgetItemId: 'snow-loader', monthsAllocated: 5 });
+  await saveEquipmentBudgetAllocationForItem({ businessId: 'biz-a', budgetId: 'landscape', equipmentId: 'loader', budgetItemId: 'landscape-loader', monthsAllocated: 7 });
+
+  const result = await saveGroupedEquipmentAllocationsForBusiness({
+    businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', annualCost: 68_940,
+    allocations: [
+      { budgetId: 'snow', budgetItemId: 'snow-loader', monthsAllocated: 4 },
+      { budgetId: 'landscape', budgetItemId: 'landscape-loader', monthsAllocated: 8 },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(store.get(key('BUSINESS#biz-a', 'BUDGET#snow-loader')).budgeted, 22_980);
+  assert.equal(store.get(key('BUSINESS#biz-a', 'BUDGET#landscape-loader')).budgeted, 45_960);
+  assert.equal(store.get(key('BUSINESS#biz-a', allocationSk('operations', 'loader', 'snow'))).monthsAllocated, 4);
+  assert.equal(store.get(key('BUSINESS#biz-a', allocationSk('operations', 'loader', 'landscape'))).monthsAllocated, 8);
+  assert.equal(result.budgetItems.reduce((sum, item) => sum + item.budgeted, 0), 68_940);
+});
+
+test('grouped equipment allocation rejects over-allocation and foreign relationships without writes', async (t) => {
+  const store = installDdbMock(t);
+  seedBudget(store, 'biz-a', 'snow');
+  seedBudget(store, 'biz-a', 'landscape');
+  seedBudget(store, 'biz-a', 'construction');
+  seedBudget(store, 'biz-b', 'foreign');
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#snow')).budgetGroupId = 'operations';
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#landscape')).budgetGroupId = 'operations';
+  store.set(key('BUSINESS#biz-a', 'BUDGET_GROUP#operations'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_GROUP#operations', businessId: 'biz-a', budgetGroupId: 'operations', name: 'Operations', year: '2027', budgetIds: ['snow', 'landscape'],
+  });
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#construction')).budgetGroupId = 'construction-group';
+  store.set(key('BUSINESS#biz-a', 'BUDGET_GROUP#construction-group'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_GROUP#construction-group', businessId: 'biz-a', budgetGroupId: 'construction-group', name: 'Construction', year: '2027', budgetIds: ['construction'],
+  });
+  seedEquipmentBudgetItem(store, 'biz-a', 'snow-loader', 'snow', 'loader', 25_000);
+  seedEquipmentBudgetItem(store, 'biz-a', 'landscape-loader', 'landscape', 'loader', 25_000);
+  seedEquipmentBudgetItem(store, 'biz-b', 'foreign-loader', 'foreign', 'loader', 50_000);
+  seedEquipmentBudgetItem(store, 'biz-a', 'construction-loader', 'construction', 'loader', 50_000);
+  await saveEquipmentBudgetAllocationForItem({ businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', budgetItemId: 'snow-loader', monthsAllocated: 6 });
+  await saveEquipmentBudgetAllocationForItem({ businessId: 'biz-a', budgetId: 'landscape', equipmentId: 'loader', budgetItemId: 'landscape-loader', monthsAllocated: 6 });
+
+  const over = await saveGroupedEquipmentAllocationsForBusiness({
+    businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', annualCost: 50_000,
+    allocations: [
+      { budgetId: 'snow', budgetItemId: 'snow-loader', monthsAllocated: 7 },
+      { budgetId: 'landscape', budgetItemId: 'landscape-loader', monthsAllocated: 7 },
+    ],
+  });
+  assert.equal(over.ok, false);
+  assert.match(over.error, /14 of 12/);
+  assert.equal(store.get(key('BUSINESS#biz-a', 'BUDGET#snow-loader')).budgeted, 25_000);
+
+  const foreign = await saveGroupedEquipmentAllocationsForBusiness({
+    businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', annualCost: 50_000,
+    allocations: [
+      { budgetId: 'snow', budgetItemId: 'snow-loader', monthsAllocated: 6 },
+      { budgetId: 'foreign', budgetItemId: 'foreign-loader', monthsAllocated: 6 },
+    ],
+  });
+  assert.equal(foreign.ok, false);
+  assert.match(foreign.error, /every existing Budget Equipment row/);
+
+  const otherGroup = await saveGroupedEquipmentAllocationsForBusiness({
+    businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', annualCost: 50_000,
+    allocations: [
+      { budgetId: 'snow', budgetItemId: 'snow-loader', monthsAllocated: 6 },
+      { budgetId: 'construction', budgetItemId: 'construction-loader', monthsAllocated: 6 },
+    ],
+  });
+  assert.equal(otherGroup.ok, false);
+  assert.match(otherGroup.error, /every existing Budget Equipment row/);
+});
+
+test('legacy grouped Budget Equipment rows without allocations are included on first grouped save', async (t) => {
+  const store = installDdbMock(t);
+  seedBudget(store, 'biz-a', 'snow');
+  seedBudget(store, 'biz-a', 'landscape');
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#snow')).budgetGroupId = 'operations';
+  store.get(key('BUSINESS#biz-a', 'BUDGET_META#landscape')).budgetGroupId = 'operations';
+  store.set(key('BUSINESS#biz-a', 'BUDGET_GROUP#operations'), {
+    PK: 'BUSINESS#biz-a', SK: 'BUDGET_GROUP#operations', businessId: 'biz-a', budgetGroupId: 'operations', name: 'Operations', year: '2027', budgetIds: ['snow', 'landscape'],
+  });
+  seedEquipmentBudgetItem(store, 'biz-a', 'snow-loader', 'snow', 'loader');
+  seedEquipmentBudgetItem(store, 'biz-a', 'landscape-loader', 'landscape', 'loader');
+  await saveEquipmentBudgetAllocationForItem({ businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', budgetItemId: 'snow-loader', monthsAllocated: 5 });
+
+  const result = await saveGroupedEquipmentAllocationsForBusiness({
+    businessId: 'biz-a', budgetId: 'snow', equipmentId: 'loader', annualCost: 60_000,
+    allocations: [
+      { budgetId: 'snow', budgetItemId: 'snow-loader', monthsAllocated: 5 },
+      { budgetId: 'landscape', budgetItemId: 'landscape-loader', monthsAllocated: 7 },
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(store.get(key('BUSINESS#biz-a', allocationSk('operations', 'loader', 'landscape'))).monthsAllocated, 7);
 });

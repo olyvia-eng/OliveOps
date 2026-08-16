@@ -4,6 +4,16 @@ export const EQUIPMENT_ALLOCATION_CAPACITY_MONTHS: 12;
 
 export function normalizeAllocatedMonths(value: number): number;
 export function calculateAllocatedEquipmentCost(annualCost: number, monthsAllocated: number): number;
+export function calculateGroupedEquipmentAllocationDraft<T extends { monthsAllocated: number }>(
+  annualCost: number,
+  rows: T[],
+): {
+  rows: Array<T & { allocatedCost: number }>;
+  totalMonthsAllocated: number;
+  remainingMonths: number;
+  overAllocatedMonths: number;
+  totalAllocatedCost: number;
+};
 export function getEquipmentAllocationsForGroup(
   allocations: EquipmentBudgetAllocation[],
   budgetGroupId: string,

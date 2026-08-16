@@ -7,7 +7,7 @@ import {
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { getBudgetForBusiness, listBudgetsForBusiness } from './authRepo.js';
+import { getBudgetForBusiness, getBudgetItemForBusiness, listBudgetItemsForBusiness } from './authRepo.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const budgetMetaSk = (budgetId) => `BUDGET_META#${budgetId}`;
@@ -159,6 +159,141 @@ export async function saveEquipmentBudgetAllocationForItem({
     },
   });
   return { ok: true, allocation };
+}
+
+export async function saveGroupedEquipmentAllocationsForBusiness({
+  businessId,
+  budgetId,
+  equipmentId,
+  annualCost,
+  allocations,
+}) {
+  if (!equipmentId || !Number.isFinite(annualCost) || annualCost < 0 || !Array.isArray(allocations) || allocations.length === 0) {
+    return { ok: false, error: 'Equipment, annual cost, and allocation rows are required.' };
+  }
+  const context = await findBudgetGroupContext({ businessId, budgetId, equipmentId });
+  if (!context || !context.group.budgetIds.includes(budgetId)) {
+    return { ok: false, error: 'Equipment allocations must belong to one tenant-owned Budget Group.' };
+  }
+
+  const applicableBudgetItems = (await listBudgetItemsForBusiness(businessId)).filter((item) => (
+    item.category === 'equipment'
+    && item.equipmentId === equipmentId
+    && item.budgetId
+    && context.group.budgetIds.includes(item.budgetId)
+  ));
+  const applicableBudgetItemIds = new Set(applicableBudgetItems.map((item) => item.id));
+  const submittedBudgetItemIds = new Set(allocations.map((allocation) => allocation?.budgetItemId));
+  if (submittedBudgetItemIds.size !== allocations.length) {
+    return { ok: false, error: 'Each applicable Budget Equipment row must appear exactly once.' };
+  }
+  const existingByBudgetItemId = new Map(context.allocations.map((allocation) => [allocation.budgetItemId, allocation]));
+  if (
+    allocations.length !== applicableBudgetItems.length
+    || allocations.some((allocation) => !applicableBudgetItemIds.has(allocation.budgetItemId))
+  ) {
+    return { ok: false, error: 'Allocation changes must include every existing Budget Equipment row in this group.' };
+  }
+
+  const budgetItems = await Promise.all(allocations.map((allocation) => getBudgetItemForBusiness(businessId, allocation.budgetItemId)));
+  const invalidRelationship = allocations.some((allocation, index) => {
+    const item = budgetItems[index];
+    const existing = existingByBudgetItemId.get(allocation.budgetItemId);
+    return !item
+      || item.category !== 'equipment'
+      || item.equipmentId !== equipmentId
+      || item.budgetId !== allocation.budgetId
+      || (existing && existing.budgetId !== allocation.budgetId)
+      || !context.group.budgetIds.includes(allocation.budgetId);
+  });
+  if (invalidRelationship) {
+    return { ok: false, error: 'One or more allocations do not match an existing Budget Equipment relationship in this group.' };
+  }
+
+  if (allocations.some((allocation) => !Number.isFinite(allocation.monthsAllocated) || allocation.monthsAllocated <= 0 || allocation.monthsAllocated > 12)) {
+    return { ok: false, error: 'Each annual cost allocation must be greater than 0 and no more than 12 months.' };
+  }
+  const totalMonths = allocations.reduce((sum, allocation) => sum + allocation.monthsAllocated, 0);
+  if (totalMonths > 12) {
+    return { ok: false, error: `${totalMonths} of 12 months are allocated. Reduce the allocation by ${totalMonths - 12} months.` };
+  }
+
+  const timestamp = nowIso();
+  const transactItems = allocations.flatMap((allocation, index) => {
+    const existing = existingByBudgetItemId.get(allocation.budgetItemId);
+    const allocatedCost = annualCost * (allocation.monthsAllocated / 12);
+    return [{
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: allocationSk(context.group.id, equipmentId, allocation.budgetId),
+          entityType: 'EQUIPMENT_BUDGET_ALLOCATION',
+          businessId,
+          allocationId: existing?.id ?? buildEquipmentAllocationId({ budgetGroupId: context.group.id, equipmentId, budgetId: allocation.budgetId }),
+          budgetGroupId: context.group.id,
+          budgetId: allocation.budgetId,
+          equipmentId,
+          budgetItemId: allocation.budgetItemId,
+          monthsAllocated: allocation.monthsAllocated,
+          createdAt: existing?.createdAt ?? timestamp,
+          updatedAt: timestamp,
+        },
+        ...(existing ? {
+          ConditionExpression: 'businessId = :businessId AND budgetGroupId = :budgetGroupId AND equipmentId = :equipmentId AND budgetItemId = :budgetItemId',
+          ExpressionAttributeValues: {
+            ':businessId': businessId,
+            ':budgetGroupId': context.group.id,
+            ':equipmentId': equipmentId,
+            ':budgetItemId': allocation.budgetItemId,
+          },
+        } : {
+          ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+        }),
+      },
+    }, {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: `BUDGET#${allocation.budgetItemId}`,
+          entityType: 'BUDGET_ITEM',
+          businessId,
+          budgetItemId: allocation.budgetItemId,
+          ...budgetItems[index],
+          budgeted: allocatedCost,
+        },
+        ConditionExpression: 'businessId = :businessId AND budgetId = :budgetId AND equipmentId = :equipmentId',
+        ExpressionAttributeValues: {
+          ':businessId': businessId,
+          ':budgetId': allocation.budgetId,
+          ':equipmentId': equipmentId,
+        },
+      },
+    }];
+  });
+  if (transactItems.length > 100) return { ok: false, error: 'This equipment allocation is too large to save at once.' };
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+
+  return {
+    ok: true,
+    allocations: allocations.map((allocation) => ({
+      ...existingByBudgetItemId.get(allocation.budgetItemId),
+      id: existingByBudgetItemId.get(allocation.budgetItemId)?.id
+        ?? buildEquipmentAllocationId({ budgetGroupId: context.group.id, equipmentId, budgetId: allocation.budgetId }),
+      budgetGroupId: context.group.id,
+      equipmentId,
+      budgetId: allocation.budgetId,
+      budgetItemId: allocation.budgetItemId,
+      createdAt: existingByBudgetItemId.get(allocation.budgetItemId)?.createdAt ?? timestamp,
+      monthsAllocated: allocation.monthsAllocated,
+      updatedAt: timestamp,
+    })),
+    budgetItems: allocations.map((allocation, index) => ({
+      ...budgetItems[index],
+      budgeted: annualCost * (allocation.monthsAllocated / 12),
+    })),
+  };
 }
 
 export async function deleteEquipmentBudgetAllocationForItem({ businessId, budgetItemId }) {

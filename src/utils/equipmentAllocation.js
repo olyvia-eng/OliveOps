@@ -76,3 +76,28 @@ export function buildEquipmentAllocationGroups({
     })
     .filter((summary) => summary.allocations.length > 0);
 }
+
+export function calculateGroupedEquipmentAllocationDraft(annualCost, rows) {
+  const normalizedAnnualCost = normalizeNonNegative(annualCost);
+  const calculatedRows = rows.map((row) => {
+    const monthsAllocated = Number(row.monthsAllocated);
+    return {
+      ...row,
+      monthsAllocated,
+      allocatedCost: Number.isFinite(monthsAllocated)
+        ? normalizedAnnualCost * (monthsAllocated / EQUIPMENT_ALLOCATION_CAPACITY_MONTHS)
+        : 0,
+    };
+  });
+  const totalMonthsAllocated = calculatedRows.reduce(
+    (sum, row) => sum + (Number.isFinite(row.monthsAllocated) ? row.monthsAllocated : 0),
+    0,
+  );
+  return {
+    rows: calculatedRows,
+    totalMonthsAllocated,
+    remainingMonths: Math.max(0, EQUIPMENT_ALLOCATION_CAPACITY_MONTHS - totalMonthsAllocated),
+    overAllocatedMonths: Math.max(0, totalMonthsAllocated - EQUIPMENT_ALLOCATION_CAPACITY_MONTHS),
+    totalAllocatedCost: calculatedRows.reduce((sum, row) => sum + row.allocatedCost, 0),
+  };
+}

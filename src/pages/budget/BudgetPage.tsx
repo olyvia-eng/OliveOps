@@ -29,6 +29,7 @@ import {
 import {
   calculateAllocatedEquipmentCost,
   calculateEquipmentAllocationSummary,
+  calculateGroupedEquipmentAllocationDraft,
 } from '../../utils/equipmentAllocation.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -221,6 +222,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
     addBudgetItem,
     updateBudgetItem,
     deleteBudgetItem,
+    saveGroupedEquipmentAllocations,
     reorderBudgetEquipment,
     addBudgetRate,
     updateBudgetRate,
@@ -253,6 +255,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
   const [draggedEquipmentId, setDraggedEquipmentId] = useState<string | null>(null);
   const [equipmentChargeOutDrafts, setEquipmentChargeOutDrafts] = useState<Record<string, string>>({});
   const [monthsAllocated, setMonthsAllocated] = useState(12);
+  const [groupAllocationDrafts, setGroupAllocationDrafts] = useState<Record<string, number>>({});
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
   const [dragOverPlanId, setDragOverPlanId] = useState<string | null>(null);
   const [removePlanId, setRemovePlanId] = useState<string | null>(null);
@@ -410,6 +413,37 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       excludeAllocationId: editingAllocation?.id,
     });
   }, [activeBudgetGroup, editingAllocation?.id, equipmentBudgetAllocations, form.category, form.equipmentId]);
+  const groupedEquipmentAllocationRows = useMemo(() => {
+    if (!activeBudgetGroup || !form.equipmentId) return [];
+    return budgetItems
+      .filter((item) => (
+        item.category === 'equipment'
+        && item.equipmentId === form.equipmentId
+        && item.budgetId
+        && activeBudgetGroup.budgetIds.includes(item.budgetId)
+      ))
+      .map((item) => ({
+        item,
+        budget: budgets.find((budget) => budget.id === item.budgetId) ?? null,
+        allocation: equipmentBudgetAllocations.find((allocation) => allocation.budgetItemId === item.id) ?? null,
+      }))
+      .filter((row) => row.budget)
+      .sort((left, right) => left.budget!.name.localeCompare(right.budget!.name));
+  }, [activeBudgetGroup, budgetItems, budgets, equipmentBudgetAllocations, form.equipmentId]);
+  const groupedAllocationDraft = calculateGroupedEquipmentAllocationDraft(
+    0,
+    groupedEquipmentAllocationRows.map((row) => ({
+      budgetItemId: row.item.id,
+      monthsAllocated: groupAllocationDrafts[row.item.id] ?? row.allocation?.monthsAllocated ?? 0,
+    })),
+  );
+  const groupedAllocationTotalMonths = groupedAllocationDraft.totalMonthsAllocated;
+  const groupedAllocationRemainingMonths = groupedAllocationDraft.remainingMonths;
+  const groupedAllocationOverMonths = groupedAllocationDraft.overAllocatedMonths;
+  const groupedAllocationHasInvalidRow = groupedEquipmentAllocationRows.some((row) => {
+    const value = groupAllocationDrafts[row.item.id] ?? row.allocation?.monthsAllocated ?? 0;
+    return !Number.isFinite(value) || value <= 0 || value > 12;
+  });
   const availableCatalogEquipment = useMemo(() => {
     return sortedEquipmentAssets
       .filter((asset) => asset.id && asset.id.trim().length > 0 && asset.id in equipmentAssetsById);
@@ -505,6 +539,15 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
     });
     const allocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === b.id);
     setMonthsAllocated(allocation?.monthsAllocated ?? 12);
+    const matchingBudgetIds = new Set(activeBudgetGroup?.budgetIds ?? []);
+    setGroupAllocationDrafts(Object.fromEntries(
+      budgetItems
+        .filter((item) => item.category === 'equipment' && item.equipmentId === b.equipmentId && item.budgetId && matchingBudgetIds.has(item.budgetId))
+        .map((item) => {
+          const itemAllocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === item.id);
+          return [item.id, itemAllocation?.monthsAllocated ?? 0];
+        }),
+    ));
     setShowEquipmentCalcDetails(false);
     setModalOpen(true);
   };
@@ -514,7 +557,17 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
     let normalizedCostCode = form.category === 'equipment' ? equipmentInfoForm.costCode.trim() : (form.costCode?.trim() ?? '');
     let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
-    const allocationMonths = form.category === 'equipment' && activeBudgetGroup ? monthsAllocated : undefined;
+    const usesGroupedAllocationEditor = Boolean(editing && activeBudgetGroup && groupedEquipmentAllocationRows.length > 0);
+    const allocationMonths = form.category === 'equipment' && activeBudgetGroup && !usesGroupedAllocationEditor ? monthsAllocated : undefined;
+    if (usesGroupedAllocationEditor && (
+      groupedAllocationOverMonths > 0
+      || groupedEquipmentAllocationRows.some((row) => !Number.isFinite(groupAllocationDrafts[row.item.id]) || groupAllocationDrafts[row.item.id] <= 0)
+    )) {
+      setEquipmentCatalogError(groupedAllocationOverMonths > 0
+        ? `Reduce the annual cost allocation by ${groupedAllocationOverMonths} months before saving.`
+        : 'Allocate more than 0 months to each applicable budget before saving.');
+      return;
+    }
     if (allocationMonths !== undefined && (!Number.isFinite(allocationMonths) || allocationMonths <= 0 || allocationMonths > (allocationSummary?.remainingMonths ?? 12))) {
       setEquipmentCatalogError(`Allocate more than 0 and no more than ${allocationSummary?.remainingMonths ?? 12} months.`);
       return;
@@ -615,8 +668,29 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       period: `${year}-01`,
     };
 
-    if (editing) updateBudgetItem(editing.id, yearlyForm, allocationMonths);
-    else addBudgetItem(yearlyForm, allocationMonths);
+    if (editing && usesGroupedAllocationEditor && normalizedEquipmentId) {
+      const allocationResult = await saveGroupedEquipmentAllocations({
+        budgetId: activeBudgetId!,
+        equipmentId: normalizedEquipmentId,
+        annualCost: equipmentCostBreakdown.totalEquipmentCostPerYear,
+        allocations: groupedEquipmentAllocationRows.map((row) => ({
+          budgetId: row.item.budgetId!,
+          budgetItemId: row.item.id,
+          monthsAllocated: groupAllocationDrafts[row.item.id],
+        })),
+      });
+      if (!allocationResult.ok) {
+        setEquipmentCatalogError(allocationResult.error ?? 'Equipment allocations could not be saved.');
+        return;
+      }
+      const currentMonths = groupAllocationDrafts[editing.id];
+      const currentBudgeted = calculateAllocatedEquipmentCost(equipmentCostBreakdown.totalEquipmentCostPerYear, currentMonths);
+      const itemSaved = await updateBudgetItem(editing.id, { ...yearlyForm, budgeted: currentBudgeted });
+      if (!itemSaved) return;
+    } else if (editing) {
+      const itemSaved = await updateBudgetItem(editing.id, yearlyForm, allocationMonths);
+      if (!itemSaved) return;
+    } else addBudgetItem(yearlyForm, allocationMonths);
     setEquipmentCatalogError('');
     setModalOpen(false);
   };
@@ -2236,6 +2310,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                           {canReorderEquipment ? <th className="w-10 px-2 py-3"><span className="sr-only">Order</span></th> : null}
                           <th className="px-4 py-3 font-medium">Equipment</th>
                           <th className="px-4 py-3 font-medium">Cost Type</th>
+                          <th className="px-4 py-3 font-medium text-right">Allocation</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Year</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Day</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Hour</th>
@@ -2249,6 +2324,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                           const equipmentHoursPerDay = Math.max(0, item.equipmentHoursPerDay ?? 0);
                           const costPerHour = billableHoursPerYear > 0 ? item.budgeted / billableHoursPerYear : 0;
                           const costPerDay = equipmentHoursPerDay > 0 ? costPerHour * equipmentHoursPerDay : 0;
+                          const itemAllocation = equipmentBudgetAllocations.find((allocation) => allocation.budgetItemId === item.id);
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
                               {canReorderEquipment ? (
@@ -2287,6 +2363,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                                   {normalizeEquipmentCostType(item.equipmentCostType).replace('_', ' ')}
                                 </span>
                               </td>
+                              <td className="px-4 py-2 text-right text-gray-600">{itemAllocation ? `${itemAllocation.monthsAllocated} mo` : '—'}</td>
                               <td className="px-4 py-2 text-right">{formatCurrency(item.budgeted)}</td>
                               <td className="px-4 py-2 text-right">{formatCurrency(costPerDay)}</td>
                               <td className="px-4 py-2 text-right">{formatCurrency(costPerHour)}</td>
@@ -2608,7 +2685,10 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
         size={form.category === 'equipment' ? 'large' : 'default'}
         footer={<>
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={() => void handleSave()}>Save</Button>
+          <Button
+            disabled={Boolean(editing && activeBudgetGroup && groupedEquipmentAllocationRows.length > 0 && (groupedAllocationOverMonths > 0 || groupedAllocationHasInvalidRow))}
+            onClick={() => void handleSave()}
+          >Save</Button>
         </>}
       >
         <div className="space-y-4">
@@ -2644,25 +2724,71 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
             />
             {activeBudgetGroup ? (
               <div className="border-y border-gray-200 py-4">
-                <div className="mb-3">
+                <div className="mb-4">
                   <p className="text-sm font-semibold text-gray-900">Allocate Annual Equipment Cost</p>
-                  <p className="mt-1 text-xs text-gray-500">Allocate this equipment&apos;s 12 months of annual ownership cost across the budgets in {activeBudgetGroup.name}. This represents cost recovery responsibility, not months of physical equipment use.</p>
+                  <p className="mt-1 text-sm text-gray-600">This equipment has <span className="font-semibold text-gray-900">{formatCurrency(calculatedTotalEquipmentCostPerYear)}</span> in annual cost.</p>
+                  <p className="mt-1 text-xs text-gray-500">Allocate this equipment&apos;s 12 months of annual ownership cost across the budgets in {activeBudgetGroup.name}. This determines which budget is responsible for recovering the cost and does not represent months of physical equipment use.</p>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Input
-                    label="Annual Cost Allocation (Months)"
-                    type="number"
-                    min={0.25}
-                    max={allocationSummary?.remainingMonths ?? 12}
-                    step={0.25}
-                    value={monthsAllocated}
-                    onChange={(event) => setMonthsAllocated(Number(event.target.value))}
-                  />
-                  <div className="flex flex-col justify-end rounded-lg bg-gray-50 px-3 py-2">
-                    <span className="text-xs text-gray-500">12 months total · {monthsAllocated} allocated · {Math.max(0, (allocationSummary?.remainingMonths ?? 12) - monthsAllocated)} remaining</span>
-                    <span className="text-lg font-semibold text-gray-900">{formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, monthsAllocated))}</span>
+                {editing && groupedEquipmentAllocationRows.length > 0 ? (
+                  groupedEquipmentAllocationRows.length === 1 ? (
+                    <div className="grid items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_160px_180px]">
+                      <div>
+                        <p className="font-medium text-gray-900">{groupedEquipmentAllocationRows[0].budget!.name}</p>
+                        {groupedEquipmentAllocationRows[0].item.budgetId === activeBudgetId ? <span className="text-xs font-medium text-brand-700">Current Budget</span> : null}
+                      </div>
+                      <Input
+                        label="Allocation (Months)"
+                        type="number"
+                        min={0.25}
+                        max={12}
+                        step={0.25}
+                        value={groupAllocationDrafts[groupedEquipmentAllocationRows[0].item.id] ?? groupedEquipmentAllocationRows[0].allocation?.monthsAllocated ?? 0}
+                        onChange={(event) => setGroupAllocationDrafts((current) => ({ ...current, [groupedEquipmentAllocationRows[0].item.id]: Number(event.target.value) }))}
+                      />
+                      <div className="pb-2 text-right font-semibold text-gray-900">
+                        {formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, groupAllocationDrafts[groupedEquipmentAllocationRows[0].item.id] ?? groupedEquipmentAllocationRows[0].allocation?.monthsAllocated ?? 0))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
+                          <tr><th className="px-4 py-2.5">Budget</th><th className="w-44 px-4 py-2.5">Allocation</th><th className="px-4 py-2.5 text-right">Annual Cost</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {groupedEquipmentAllocationRows.map((row) => {
+                            const draftMonths = groupAllocationDrafts[row.item.id] ?? row.allocation?.monthsAllocated ?? 0;
+                            return (
+                              <tr key={row.item.id} className={row.item.budgetId === activeBudgetId ? 'bg-brand-50/70' : 'bg-white'}>
+                                <td className="px-4 py-3">
+                                  <span className="font-medium text-gray-900">{row.budget!.name}</span>
+                                  {row.item.budgetId === activeBudgetId ? <span className="ml-2 inline-flex rounded bg-brand-100 px-1.5 py-0.5 text-[11px] font-medium text-brand-700">Current Budget</span> : null}
+                                </td>
+                                <td className="px-4 py-2"><div className="flex items-center gap-2"><Input type="number" min={0.25} max={12} step={0.25} value={draftMonths} onChange={(event) => setGroupAllocationDrafts((current) => ({ ...current, [row.item.id]: Number(event.target.value) }))} /><span className="text-xs text-gray-500">months</span></div></td>
+                                <td className="px-4 py-3 text-right font-medium text-gray-900">{formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, draftMonths))}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-900">
+                          <tr><td className="px-4 py-3">Total</td><td className="px-4 py-3">{groupedAllocationTotalMonths} / 12 months</td><td className="px-4 py-3 text-right">{formatCurrency(groupedEquipmentAllocationRows.reduce((sum, row) => sum + calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, groupAllocationDrafts[row.item.id] ?? row.allocation?.monthsAllocated ?? 0), 0))}</td></tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Input label="Annual Cost Allocation (Months)" type="number" min={0.25} max={allocationSummary?.remainingMonths ?? 12} step={0.25} value={monthsAllocated} onChange={(event) => setMonthsAllocated(Number(event.target.value))} />
+                    <div className="flex flex-col justify-end rounded-lg bg-gray-50 px-3 py-2"><span className="text-xs text-gray-500">12 months total · {monthsAllocated} allocated · {Math.max(0, (allocationSummary?.remainingMonths ?? 12) - monthsAllocated)} remaining</span><span className="text-lg font-semibold text-gray-900">{formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, monthsAllocated))}</span></div>
                   </div>
-                </div>
+                )}
+                {editing && groupedEquipmentAllocationRows.length > 0 ? (
+                  <div className={`mt-3 rounded-md px-3 py-2 text-sm ${groupedAllocationOverMonths > 0 || groupedAllocationHasInvalidRow ? 'bg-red-50 text-red-700' : groupedAllocationRemainingMonths > 0 ? 'bg-amber-50 text-amber-800' : 'bg-green-50 text-green-700'}`}>
+                    <p className="font-medium">{groupedAllocationTotalMonths} of 12 months allocated{groupedAllocationRemainingMonths > 0 ? ` · ${groupedAllocationRemainingMonths} remaining` : ''}</p>
+                    {groupedAllocationOverMonths > 0 ? <p className="mt-0.5">{groupedAllocationOverMonths} months over allocation. Reduce the allocation before saving.</p> : null}
+                    {groupedAllocationHasInvalidRow && groupedAllocationOverMonths === 0 ? <p className="mt-0.5">Each applicable budget requires more than 0 and no more than 12 months.</p> : null}
+                  </div>
+                ) : null}
                 {equipmentCatalogError ? <p className="mt-2 text-xs text-accent-700">{equipmentCatalogError}</p> : null}
               </div>
             ) : null}

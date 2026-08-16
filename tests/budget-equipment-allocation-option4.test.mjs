@@ -23,7 +23,7 @@ test('annual cost allocation remains separate from utilization assumptions', () 
   assert.doesNotMatch(source, /monthsUsedPerYear\s*\/\s*12/);
   assert.doesNotMatch(source, /normalizedMonthsUsedPerYear\s*\/\s*12/);
   assert.match(source, /Annual Cost Allocation \(Months\)/);
-  assert.match(source, /cost recovery responsibility, not months of physical equipment use/);
+  assert.match(source, /responsible for recovering the cost and does not represent months of physical equipment use/);
   assert.match(source, /calculateAllocatedEquipmentCost/);
 });
 
@@ -94,10 +94,25 @@ test('equipment add flow does not use first-item category lookup and preserves e
   assert.doesNotMatch(source, /items\.find\(\(item\) => item\.category === category\)/);
   assert.match(source, /const openNewCategoryItem = \(category: BudgetCategory\) => \{/);
   assert.match(source, /setEditing\(null\);/);
-  assert.match(source, /if \(editing\) updateBudgetItem\(editing\.id, yearlyForm, allocationMonths\);/);
+  assert.match(source, /if \(editing && usesGroupedAllocationEditor && normalizedEquipmentId\)/);
+  assert.match(source, /else if \(editing\)/);
   assert.match(source, /else addBudgetItem\(yearlyForm, allocationMonths\);/);
   assert.match(source, /const addEquipmentToCurrentBudget = \(equipmentId: string\) => \{/);
   assert.match(source, /setModalOpen\(true\);/);
+});
+
+test('grouped allocation editor shows actual related budgets with current and single-row states', () => {
+  const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(source, /item\.equipmentId === form\.equipmentId/);
+  assert.match(source, /activeBudgetGroup\.budgetIds\.includes\(item\.budgetId\)/);
+  assert.match(source, /groupedEquipmentAllocationRows\.length === 1/);
+  assert.match(source, /Current Budget/);
+  assert.match(source, /groupedAllocationTotalMonths/);
+  assert.match(source, /groupedAllocationRemainingMonths/);
+  assert.match(source, /months over allocation/);
+  assert.match(source, /saveGroupedEquipmentAllocations/);
+  assert.doesNotMatch(source, /Months Used Per Year/);
 });
 
 test('multi-row category summary cards no longer open ambiguous first-item editors', () => {

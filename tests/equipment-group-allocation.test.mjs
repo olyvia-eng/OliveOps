@@ -5,6 +5,7 @@ import {
   buildEquipmentAllocationGroups,
   calculateAllocatedEquipmentCost,
   calculateEquipmentAllocationSummary,
+  calculateGroupedEquipmentAllocationDraft,
   normalizeAllocatedMonths,
 } from '../src/utils/equipmentAllocation.js';
 
@@ -103,4 +104,35 @@ test('annual equipment cost responsibility is always allocated over twelve month
     calculateAllocatedEquipmentCost(24_000, 7) + calculateAllocatedEquipmentCost(24_000, 5),
     24_000,
   );
+});
+
+test('grouped allocation drafts recalculate rows, totals, and remaining months live', () => {
+  const summary = calculateGroupedEquipmentAllocationDraft(68_940, [
+    { budgetItemId: 'snow', monthsAllocated: 5 },
+    { budgetItemId: 'landscaping', monthsAllocated: 7 },
+  ]);
+  assert.equal(summary.rows[0].allocatedCost, 28_725);
+  assert.equal(summary.rows[1].allocatedCost, 40_215);
+  assert.equal(summary.totalMonthsAllocated, 12);
+  assert.equal(summary.remainingMonths, 0);
+  assert.equal(summary.overAllocatedMonths, 0);
+  assert.equal(summary.totalAllocatedCost, 68_940);
+});
+
+test('grouped allocation drafts expose incomplete and over-allocated states without normalization', () => {
+  const incomplete = calculateGroupedEquipmentAllocationDraft(60_000, [
+    { budgetItemId: 'snow', monthsAllocated: 4 },
+    { budgetItemId: 'landscaping', monthsAllocated: 5 },
+  ]);
+  assert.equal(incomplete.totalMonthsAllocated, 9);
+  assert.equal(incomplete.remainingMonths, 3);
+  assert.equal(incomplete.totalAllocatedCost, 45_000);
+
+  const over = calculateGroupedEquipmentAllocationDraft(60_000, [
+    { budgetItemId: 'snow', monthsAllocated: 7 },
+    { budgetItemId: 'landscaping', monthsAllocated: 7 },
+  ]);
+  assert.equal(over.totalMonthsAllocated, 14);
+  assert.equal(over.overAllocatedMonths, 2);
+  assert.equal(over.totalAllocatedCost, 70_000);
 });
