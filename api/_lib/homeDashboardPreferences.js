@@ -20,7 +20,7 @@ export const FINANCE_HOME_WIDGET_IDS = [
   'finance-budget-profit',
 ];
 
-const TASK_FILTER_IDS = ['all', 'today', 'overdue', 'week', 'completed'];
+export const TASK_FILTER_IDS = ['all', 'today', 'overdue', 'week', 'completed'];
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const preferencesSk = (userId) => `HOME_DASHBOARD_PREFERENCES#${userId}`;
@@ -51,10 +51,26 @@ export function normalizeHomeDashboardPreferences(value, role) {
   }
   if (Object.keys(taskFilterLabels).length > 0) normalized.taskFilterLabels = taskFilterLabels;
 
+  const customTaskTabs = [];
+  const customTaskTabNames = new Set();
+  if (Array.isArray(value?.customTaskTabs)) {
+    for (const tab of value.customTaskTabs) {
+      if (!tab || typeof tab !== 'object' || typeof tab.id !== 'string' || !/^task-tab-[a-zA-Z0-9-]{8,}$/.test(tab.id)) continue;
+      const name = typeof tab.name === 'string' ? tab.name.trim().slice(0, 30) : '';
+      const normalizedName = name.toLowerCase();
+      if (!name || customTaskTabs.some((item) => item.id === tab.id) || customTaskTabNames.has(normalizedName)) continue;
+      customTaskTabNames.add(normalizedName);
+      customTaskTabs.push({ id: tab.id, name, sortOrder: customTaskTabs.length, createdAt: typeof tab.createdAt === 'string' ? tab.createdAt : new Date(0).toISOString() });
+      if (customTaskTabs.length >= 20) break;
+    }
+  }
+  if (customTaskTabs.length > 0) normalized.customTaskTabs = customTaskTabs;
+
   const taskFilterOrder = [];
   const requestedTaskFilterOrder = Array.isArray(value?.taskFilterOrder) ? value.taskFilterOrder : [];
-  for (const id of [...requestedTaskFilterOrder, ...TASK_FILTER_IDS]) {
-    if (!TASK_FILTER_IDS.includes(id) || taskFilterOrder.includes(id)) continue;
+  const validTaskFilterIds = [...TASK_FILTER_IDS, ...customTaskTabs.map((tab) => tab.id)];
+  for (const id of [...requestedTaskFilterOrder, ...validTaskFilterIds]) {
+    if (!validTaskFilterIds.includes(id) || taskFilterOrder.includes(id)) continue;
     taskFilterOrder.push(id);
   }
   normalized.taskFilterOrder = taskFilterOrder;
@@ -82,6 +98,7 @@ export async function getHomeDashboardPreferencesForUser(businessId, userId, rol
   return normalizeHomeDashboardPreferences({
     widgetIds: result.Item.widgetIds,
     taskFilterLabels: result.Item.taskFilterLabels,
+    customTaskTabs: result.Item.customTaskTabs,
     taskFilterOrder: result.Item.taskFilterOrder,
     dismissedTodayTaskIds: result.Item.dismissedTodayTaskIds,
   }, role);
@@ -99,6 +116,7 @@ export async function saveHomeDashboardPreferencesForUser({ businessId, userId, 
       userId,
       widgetIds: normalized.widgetIds,
       taskFilterLabels: normalized.taskFilterLabels,
+      customTaskTabs: normalized.customTaskTabs,
       taskFilterOrder: normalized.taskFilterOrder,
       dismissedTodayTaskIds: normalized.dismissedTodayTaskIds,
       updatedAt: new Date().toISOString(),

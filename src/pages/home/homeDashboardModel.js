@@ -50,12 +50,21 @@ export function filterTasksByRange(tasks, filter, now = new Date()) {
   const weekEndKey = localDateKey(new Date(weekEnd.getTime() - 1));
   return tasks.filter((task) => {
     if (filter === 'completed') return task.status === 'completed';
-    if (filter === 'today') return task.dueDate === todayKey && (task.status === 'open' || task.status === 'completed');
+    if (filter === 'today') return task.dueDate === todayKey && task.status === 'open';
+    if (!['all', 'overdue', 'week'].includes(filter)) return task.taskTabId === filter;
     if (task.status !== 'open') return false;
     if (filter === 'overdue') return Boolean(task.dueDate && task.dueDate < todayKey);
     if (filter === 'week') return Boolean(task.dueDate && task.dueDate >= weekStartKey && task.dueDate <= weekEndKey);
     return true;
   });
+}
+
+export function taskCreationDefaults(viewId, customTabs = [], now = new Date()) {
+  return {
+    dueDate: viewId === 'today' ? localDateKey(now) : '',
+    taskTabId: customTabs.some((tab) => tab.id === viewId) ? viewId : '',
+    status: 'open',
+  };
 }
 
 export function getTaskSummary(tasks, now = new Date()) {

@@ -129,6 +129,7 @@ import {
   repairBudgetGroupMembershipForDeletion,
   saveEquipmentBudgetAllocationForItem,
 } from './_lib/budgetGroups.js';
+import { getHomeDashboardPreferencesForUser } from './_lib/homeDashboardPreferences.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -1322,6 +1323,9 @@ function validateTaskRecord(record) {
   if (record.priority !== undefined && record.priority !== null && !TASK_PRIORITIES.has(record.priority)) {
     return 'Task priority is invalid.';
   }
+  if (record.taskTabId !== undefined && record.taskTabId !== null && record.taskTabId !== '' && !isNonEmptyString(record.taskTabId)) {
+    return 'Task tab id is invalid.';
+  }
   if (record.relatedEntityType !== undefined && record.relatedEntityType !== null && !TASK_RELATED_ENTITY_TYPES.has(record.relatedEntityType)) {
     return 'Task related entity type is invalid.';
   }
@@ -1337,7 +1341,12 @@ function validateTaskRecord(record) {
   return null;
 }
 
-async function validateTaskRelationships({ businessId, record }) {
+async function validateTaskRelationships({ businessId, record, session }) {
+  if (isNonEmptyString(record.taskTabId)) {
+    if (record.assignedUserId !== session.id) return 'Personal task tabs can only be assigned to your own tasks.';
+    const preferences = await getHomeDashboardPreferencesForUser(businessId, session.id, session.role);
+    if (!preferences.customTaskTabs?.some((tab) => tab.id === record.taskTabId)) return 'Task tab must belong to the signed-in user.';
+  }
   if (!isNonEmptyString(record.relatedEntityType) || !isNonEmptyString(record.relatedEntityId)) {
     return null;
   }
@@ -1491,6 +1500,7 @@ export default async function handler(req, res) {
       const validationError = validateTaskRecord(record) ?? await validateTaskRelationships({
         businessId: session.businessId,
         record,
+        session,
       });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
@@ -1751,6 +1761,7 @@ export default async function handler(req, res) {
         const validationError = validateTaskRecord(next) ?? await validateTaskRelationships({
           businessId: session.businessId,
           record: next,
+          session,
         });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });

@@ -9,6 +9,7 @@ import {
   getPersonalJobs,
   getTaskSummary,
   resolveSessionEmployee,
+  taskCreationDefaults,
 } from '../src/pages/home/homeDashboardModel.js';
 
 const now = new Date(2026, 7, 12, 12, 0, 0);
@@ -17,10 +18,28 @@ const task = (id, dueDate, priority = 'normal', status = 'open') => ({ id, title
 test('dashboard task summaries and tabs use local due-date boundaries', () => {
   const tasks = [task('today-high', '2026-08-12', 'high'), task('today-low', '2026-08-12', 'low'), task('overdue', '2026-08-11'), task('week', '2026-08-16'), task('later', '2026-08-20'), task('done', '2026-08-12', 'normal', 'completed')];
   assert.deepEqual(getTaskSummary(tasks, now), { dueToday: 2, highPriorityDueToday: 1, overdue: 1 });
-  assert.deepEqual(filterTasksByRange(tasks, 'today', now).map((item) => item.id), ['today-high', 'today-low', 'done']);
+  assert.deepEqual(filterTasksByRange(tasks, 'today', now).map((item) => item.id), ['today-high', 'today-low']);
   assert.deepEqual(filterTasksByRange(tasks, 'overdue', now).map((item) => item.id), ['overdue']);
   assert.deepEqual(filterTasksByRange(tasks, 'week', now).map((item) => item.id), ['today-high', 'today-low', 'overdue', 'week']);
   assert.deepEqual(filterTasksByRange(tasks, 'completed', now).map((item) => item.id), ['done']);
+});
+
+test('custom task tabs are additive categories while system views stay computed', () => {
+  const followUpToday = { ...task('follow-up-today', '2026-08-12'), taskTabId: 'task-tab-follow-up' };
+  const followUpLater = { ...task('follow-up-later', '2026-08-20'), taskTabId: 'task-tab-follow-up' };
+  const done = { ...task('follow-up-done', '2026-08-12', 'normal', 'completed'), taskTabId: 'task-tab-follow-up' };
+  const tasks = [followUpToday, followUpLater, done];
+  assert.deepEqual(filterTasksByRange(tasks, 'task-tab-follow-up', now).map((item) => item.id), ['follow-up-today', 'follow-up-later', 'follow-up-done']);
+  assert.deepEqual(filterTasksByRange(tasks, 'all', now).map((item) => item.id), ['follow-up-today', 'follow-up-later']);
+  assert.deepEqual(filterTasksByRange(tasks, 'today', now).map((item) => item.id), ['follow-up-today']);
+  assert.deepEqual(filterTasksByRange(tasks, 'completed', now).map((item) => item.id), ['follow-up-done']);
+});
+
+test('task creation defaults use custom category context but never persist system views', () => {
+  const tabs = [{ id: 'task-tab-follow-up', name: 'Follow Ups' }];
+  assert.deepEqual(taskCreationDefaults('task-tab-follow-up', tabs, now), { dueDate: '', taskTabId: 'task-tab-follow-up', status: 'open' });
+  assert.deepEqual(taskCreationDefaults('today', tabs, now), { dueDate: '2026-08-12', taskTabId: '', status: 'open' });
+  assert.deepEqual(taskCreationDefaults('completed', tabs, now), { dueDate: '', taskTabId: '', status: 'open' });
 });
 
 test('personal jobs include direct and active crew work only', () => {

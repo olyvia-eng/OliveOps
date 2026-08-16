@@ -304,6 +304,13 @@ export type TaskStatus = 'open' | 'completed';
 export type TaskPriority = 'low' | 'normal' | 'high';
 export type TaskRelatedEntityType = 'customer' | 'estimate' | 'job' | 'invoice' | 'employee';
 
+export interface TaskTab {
+  id: ID;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 export interface Task {
   id: ID;
   title: string;
@@ -312,6 +319,7 @@ export interface Task {
   assignedUserId: ID;
   status: TaskStatus;
   priority?: TaskPriority;
+  taskTabId?: ID;
   relatedEntityType?: TaskRelatedEntityType;
   relatedEntityId?: ID;
   createdByUserId: ID;

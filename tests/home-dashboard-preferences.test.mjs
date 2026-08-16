@@ -44,3 +44,27 @@ test('task filter labels and dismissed Today tasks are normalized per user', () 
     dismissedTodayTaskIds: ['task-1'],
   });
 });
+
+test('custom task tabs keep stable ids, unique names, and persisted mixed ordering', () => {
+  const preferences = normalizeHomeDashboardPreferences({
+    widgetIds: ['tasks'],
+    customTaskTabs: [
+      { id: 'task-tab-follow-up-1', name: ' Follow Ups ', createdAt: '2026-08-16T00:00:00.000Z' },
+      { id: 'task-tab-purchasing-1', name: 'Purchasing', createdAt: '2026-08-16T00:00:00.000Z' },
+      { id: 'task-tab-duplicate-1', name: 'follow ups', createdAt: '2026-08-16T00:00:00.000Z' },
+      { id: 'invalid', name: 'Invalid', createdAt: '2026-08-16T00:00:00.000Z' },
+    ],
+    taskFilterOrder: ['task-tab-purchasing-1', 'today', 'task-tab-follow-up-1'],
+  }, 'admin');
+  assert.deepEqual(preferences.customTaskTabs, [
+    { id: 'task-tab-follow-up-1', name: 'Follow Ups', sortOrder: 0, createdAt: '2026-08-16T00:00:00.000Z' },
+    { id: 'task-tab-purchasing-1', name: 'Purchasing', sortOrder: 1, createdAt: '2026-08-16T00:00:00.000Z' },
+  ]);
+  assert.deepEqual(preferences.taskFilterOrder, ['task-tab-purchasing-1', 'today', 'task-tab-follow-up-1', 'all', 'overdue', 'week', 'completed']);
+});
+
+test('custom tab deletion cleanup is session-owned and never deletes tasks', () => {
+  assert.match(apiSource, /task\.assignedUserId === session\.id && task\.taskTabId === deletedTaskTabId/);
+  assert.match(apiSource, /delete next\.taskTabId/);
+  assert.doesNotMatch(apiSource, /deleteTaskForBusiness/);
+});
