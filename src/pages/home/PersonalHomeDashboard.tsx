@@ -53,6 +53,9 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const [addRequest, setAddRequest] = useState(0);
   const externalEvents = usePersonalCalendarEvents(calendarRange);
   const now = new Date();
+  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const isFieldPortal = currentUserRole === 'crew_member' || currentUserRole === 'foreman';
+  const dashboardPreferences = useHomeDashboardPreferences(canViewFinancials);
 
   const employee = useMemo(() => resolveSessionEmployee({ employees, userId: currentUserId, email: currentUserEmail }), [currentUserEmail, currentUserId, employees]);
   const personalJobs = useMemo(() => getPersonalJobs({ jobs, crews, employeeId: employee?.id }), [crews, employee?.id, jobs]);
@@ -60,12 +63,12 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const taskFilterValue = searchParams.get('taskFilter');
   const taskFilter: HomeTaskFilter = taskFilters.includes(taskFilterValue as HomeTaskFilter) ? taskFilterValue as HomeTaskFilter : 'all';
   const tasksExpanded = searchParams.get('tasks') === 'all';
-  const filteredTasks = useMemo(() => filterTasksByRange(personalTasks, taskFilter, now).slice().sort((left, right) => {
+  const filteredTasks = useMemo(() => filterTasksByRange(personalTasks, taskFilter, now).filter((task) => taskFilter !== 'today' || !dashboardPreferences.dismissedTodayTaskIds.includes(task.id)).slice().sort((left, right) => {
     if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate);
     if (left.dueDate && !right.dueDate) return -1;
     if (!left.dueDate && right.dueDate) return 1;
     return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
-  }), [personalTasks, taskFilter]);
+  }), [dashboardPreferences.dismissedTodayTaskIds, personalTasks, taskFilter]);
   const summary = useMemo(() => getTaskSummary(personalTasks, now), [personalTasks]);
   const weekJobs = useMemo(() => getJobsThisWeek(personalJobs, now), [personalJobs]);
   const hoursToday = useMemo(() => getHoursLoggedToday(timeEntries, employee?.id, now), [employee?.id, timeEntries]);
@@ -82,10 +85,6 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const tabValue = searchParams.get('homeJobTab');
   const selectedTab: JobDetailTab = jobTabs.includes(tabValue as JobDetailTab) ? tabValue as JobDetailTab : 'overview';
   const expandedJob = searchParams.get('homeJobMode') === 'expanded';
-  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
-  const isFieldPortal = currentUserRole === 'crew_member' || currentUserRole === 'foreman';
-  const dashboardPreferences = useHomeDashboardPreferences(canViewFinancials);
-
   const updateQuery = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(changes).forEach(([key, value]) => value === null ? next.delete(key) : next.set(key, value));
@@ -109,7 +108,10 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     return result.ok;
   };
   const toggleTask = async (task: Task) => {
-    if (task.status === 'completed') await updateTask(task.id, { status: 'open', completedAt: undefined });
+    if (task.status === 'completed') {
+      dashboardPreferences.restoreTodayTask(task.id);
+      await updateTask(task.id, { status: 'open', completedAt: undefined });
+    }
     else await completeTask(task.id);
   };
   const removeTask = async (taskId: string) => { await deleteTask(taskId); };
@@ -134,7 +136,7 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     { id: 'hours-today', title: 'Hours Today', description: 'Your recorded work hours today.', size: 'small', category: 'Personal', content: <StatCard label="Hours Today" value={hoursToday.toFixed(1)} sub="Recorded work hours" icon={<Clock3 />} color="text-brand-700 dark:text-brand-100" /> },
     { id: 'calendar', title: 'My Calendar', description: 'Assigned work, tasks, and private calendar events.', size: 'large', category: 'Personal', content: <Card className="overflow-hidden rounded-lg"><PersonalCalendar jobs={personalJobs} tasks={personalTasks} customers={customers} externalEvents={externalEvents} selectedDate={selectedDate} onDateChange={setSelectedDate} onRangeChange={setCalendarRange} onOpenJob={openJob} onSelectTask={openTasks} /></Card> },
     { id: 'mini-calendar', title: 'Mini Calendar', description: 'Jump the main calendar to another day.', size: 'small', category: 'Personal', content: <MiniCalendarWidget selectedDate={selectedDate} onSelectDate={setSelectedDate} /> },
-    { id: 'tasks', title: 'Outstanding Tasks', description: 'Create, filter, and complete personal tasks.', size: 'large', category: 'Personal', content: <OutstandingTasks tasks={filteredTasks} filter={taskFilter} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onViewAll={openTasks} onAdd={createTask} onToggle={toggleTask} onDelete={removeTask} /> },
+    { id: 'tasks', title: 'Tasks', description: 'Create, filter, and complete personal tasks.', size: 'large', category: 'Personal', content: <OutstandingTasks tasks={filteredTasks} filter={taskFilter} filterLabels={dashboardPreferences.taskFilterLabels} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onFilterLabelChange={dashboardPreferences.saveTaskFilterLabel} onViewAll={openTasks} onAdd={createTask} onToggle={toggleTask} onDelete={removeTask} onDismissCompletedToday={dashboardPreferences.dismissTodayTask} /> },
     { id: 'upcoming', title: 'Upcoming Schedule', description: 'Your next jobs, tasks, and private events.', size: 'small', category: 'Personal', content: <UpcomingScheduleWidget upcoming={upcoming} onOpenJob={openJob} onOpenTask={openTasks} /> },
     { id: 'activity', title: 'Recent Activity', description: 'Recent changes to your work and time.', size: 'medium', category: 'Personal', content: <RecentActivityWidget activity={activity} /> },
     { id: 'quick-actions', title: 'Quick Actions', description: 'Shortcuts to common personal workflows.', size: 'medium', category: 'Personal', content: <QuickActionsWidget showTimeClock={Boolean(onOpenTimeClock)} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} /> },

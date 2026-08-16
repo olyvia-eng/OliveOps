@@ -50,8 +50,8 @@ export function filterTasksByRange(tasks, filter, now = new Date()) {
   const weekEndKey = localDateKey(new Date(weekEnd.getTime() - 1));
   return tasks.filter((task) => {
     if (filter === 'completed') return task.status === 'completed';
+    if (filter === 'today') return task.dueDate === todayKey && (task.status === 'open' || task.status === 'completed');
     if (task.status !== 'open') return false;
-    if (filter === 'today') return task.dueDate === todayKey;
     if (filter === 'overdue') return Boolean(task.dueDate && task.dueDate < todayKey);
     if (filter === 'week') return Boolean(task.dueDate && task.dueDate >= weekStartKey && task.dueDate <= weekEndKey);
     return true;
@@ -59,7 +59,7 @@ export function filterTasksByRange(tasks, filter, now = new Date()) {
 }
 
 export function getTaskSummary(tasks, now = new Date()) {
-  const dueToday = filterTasksByRange(tasks, 'today', now);
+  const dueToday = filterTasksByRange(tasks, 'today', now).filter((task) => task.status === 'open');
   const overdue = filterTasksByRange(tasks, 'overdue', now);
   return {
     dueToday: dueToday.length,

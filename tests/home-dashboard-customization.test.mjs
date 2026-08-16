@@ -25,7 +25,7 @@ test('Home widgets support drag, accessible movement, removal, add, and reset', 
 test('widget order is loaded and saved through user-scoped preferences', () => {
   assert.match(preferencesHookSource, /fetch\('\/api\/home-dashboard-preferences'/);
   assert.match(preferencesHookSource, /method: 'PATCH'/);
-  assert.match(preferencesHookSource, /body: JSON\.stringify\(\{ widgetIds: next \}\)/);
+  assert.match(preferencesHookSource, /body: JSON\.stringify\(\{ widgetIds: nextWidgetIds, taskFilterLabels: nextLabels, dismissedTodayTaskIds: nextDismissedIds \}\)/);
   assert.match(gridSource, /onChange\(next\)/);
 });
 

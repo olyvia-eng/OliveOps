@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { HomeTaskFilter } from './homeDashboardModel.js';
 
 export const PERSONAL_HOME_WIDGET_IDS = [
   'due-today',
@@ -21,6 +22,14 @@ export const FINANCE_HOME_WIDGET_IDS = [
 
 export type HomeWidgetId = typeof PERSONAL_HOME_WIDGET_IDS[number] | typeof FINANCE_HOME_WIDGET_IDS[number];
 
+export const DEFAULT_TASK_FILTER_LABELS: Record<HomeTaskFilter, string> = {
+  all: 'Open',
+  today: 'Today',
+  overdue: 'Overdue',
+  week: 'This week',
+  completed: 'Completed',
+};
+
 const allowedWidgetIds = (canViewFinancials: boolean): HomeWidgetId[] => canViewFinancials
   ? [...PERSONAL_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS]
   : [...PERSONAL_HOME_WIDGET_IDS];
@@ -33,14 +42,19 @@ const normalizeWidgetIds = (value: unknown, canViewFinancials: boolean): HomeWid
 
 export default function useHomeDashboardPreferences(canViewFinancials: boolean) {
   const [widgetIds, setWidgetIds] = useState<HomeWidgetId[]>(() => [...PERSONAL_HOME_WIDGET_IDS]);
+  const [taskFilterLabels, setTaskFilterLabels] = useState<Record<HomeTaskFilter, string>>(DEFAULT_TASK_FILTER_LABELS);
+  const [dismissedTodayTaskIds, setDismissedTodayTaskIds] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     void fetch('/api/home-dashboard-preferences', { credentials: 'include', signal: controller.signal })
-      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; preferences?: { widgetIds?: unknown } } }))
+      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; preferences?: { widgetIds?: unknown; taskFilterLabels?: Partial<Record<HomeTaskFilter, string>>; dismissedTodayTaskIds?: unknown } } }))
       .then(({ response, payload }) => {
-        if (response.ok && payload.ok) setWidgetIds(normalizeWidgetIds(payload.preferences?.widgetIds, canViewFinancials));
+        if (!response.ok || !payload.ok) return;
+        setWidgetIds(normalizeWidgetIds(payload.preferences?.widgetIds, canViewFinancials));
+        setTaskFilterLabels({ ...DEFAULT_TASK_FILTER_LABELS, ...payload.preferences?.taskFilterLabels });
+        setDismissedTodayTaskIds(Array.isArray(payload.preferences?.dismissedTodayTaskIds) ? payload.preferences.dismissedTodayTaskIds.filter((id): id is string => typeof id === 'string') : []);
       })
       .catch((error: Error) => {
         if (error.name !== 'AbortError') setWidgetIds([...PERSONAL_HOME_WIDGET_IDS]);
@@ -49,22 +63,50 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     return () => controller.abort();
   }, [canViewFinancials]);
 
-  const saveWidgetIds = (nextValue: HomeWidgetId[]) => {
-    const next = normalizeWidgetIds(nextValue, canViewFinancials);
-    setWidgetIds(next);
+  const savePreferences = (nextWidgetIds: HomeWidgetId[], nextLabels: Record<HomeTaskFilter, string>, nextDismissedIds: string[]) => {
     void fetch('/api/home-dashboard-preferences', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ widgetIds: next }),
+      body: JSON.stringify({ widgetIds: nextWidgetIds, taskFilterLabels: nextLabels, dismissedTodayTaskIds: nextDismissedIds }),
     });
+  };
+
+  const saveWidgetIds = (nextValue: HomeWidgetId[]) => {
+    const next = normalizeWidgetIds(nextValue, canViewFinancials);
+    setWidgetIds(next);
+    savePreferences(next, taskFilterLabels, dismissedTodayTaskIds);
+  };
+
+  const saveTaskFilterLabel = (filter: HomeTaskFilter, value: string) => {
+    const label = value.trim().slice(0, 30) || DEFAULT_TASK_FILTER_LABELS[filter];
+    const next = { ...taskFilterLabels, [filter]: label };
+    setTaskFilterLabels(next);
+    savePreferences(widgetIds, next, dismissedTodayTaskIds);
+  };
+
+  const dismissTodayTask = (taskId: string) => {
+    const next = Array.from(new Set([...dismissedTodayTaskIds, taskId])).slice(-200);
+    setDismissedTodayTaskIds(next);
+    savePreferences(widgetIds, taskFilterLabels, next);
+  };
+
+  const restoreTodayTask = (taskId: string) => {
+    const next = dismissedTodayTaskIds.filter((id) => id !== taskId);
+    setDismissedTodayTaskIds(next);
+    savePreferences(widgetIds, taskFilterLabels, next);
   };
 
   return {
     widgetIds,
     hydrated,
     availableWidgetIds: allowedWidgetIds(canViewFinancials),
+    taskFilterLabels,
+    dismissedTodayTaskIds,
     saveWidgetIds,
+    saveTaskFilterLabel,
+    dismissTodayTask,
+    restoreTodayTask,
     resetWidgetIds: () => saveWidgetIds([...PERSONAL_HOME_WIDGET_IDS]),
   };
 }

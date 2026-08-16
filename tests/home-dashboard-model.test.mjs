@@ -17,7 +17,7 @@ const task = (id, dueDate, priority = 'normal', status = 'open') => ({ id, title
 test('dashboard task summaries and tabs use local due-date boundaries', () => {
   const tasks = [task('today-high', '2026-08-12', 'high'), task('today-low', '2026-08-12', 'low'), task('overdue', '2026-08-11'), task('week', '2026-08-16'), task('later', '2026-08-20'), task('done', '2026-08-12', 'normal', 'completed')];
   assert.deepEqual(getTaskSummary(tasks, now), { dueToday: 2, highPriorityDueToday: 1, overdue: 1 });
-  assert.deepEqual(filterTasksByRange(tasks, 'today', now).map((item) => item.id), ['today-high', 'today-low']);
+  assert.deepEqual(filterTasksByRange(tasks, 'today', now).map((item) => item.id), ['today-high', 'today-low', 'done']);
   assert.deepEqual(filterTasksByRange(tasks, 'overdue', now).map((item) => item.id), ['overdue']);
   assert.deepEqual(filterTasksByRange(tasks, 'week', now).map((item) => item.id), ['today-high', 'today-low', 'overdue', 'week']);
   assert.deepEqual(filterTasksByRange(tasks, 'completed', now).map((item) => item.id), ['done']);

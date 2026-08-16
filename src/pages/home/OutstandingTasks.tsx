@@ -8,22 +8,19 @@ import type { HomeTaskFilter } from './homeDashboardModel.js';
 interface OutstandingTasksProps {
   tasks: Task[];
   filter: HomeTaskFilter;
+  filterLabels: Record<HomeTaskFilter, string>;
   expanded: boolean;
   addRequest: number;
   onFilterChange: (filter: HomeTaskFilter) => void;
+  onFilterLabelChange: (filter: HomeTaskFilter, label: string) => void;
   onViewAll: () => void;
   onAdd: (input: { title: string; dueDate?: string; priority: TaskPriority }) => Promise<boolean>;
   onToggle: (task: Task) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
+  onDismissCompletedToday: (taskId: string) => void;
 }
 
-const filters: Array<{ value: HomeTaskFilter; label: string }> = [
-  { value: 'all', label: 'Open' },
-  { value: 'today', label: 'Today' },
-  { value: 'overdue', label: 'Overdue' },
-  { value: 'week', label: 'This week' },
-  { value: 'completed', label: 'Completed' },
-];
+const filters: HomeTaskFilter[] = ['all', 'today', 'overdue', 'week', 'completed'];
 
 const priorityTone = (priority?: string) => {
   if (priority === 'high') return 'bg-accent-100 text-accent-700';
@@ -31,12 +28,14 @@ const priorityTone = (priority?: string) => {
   return 'bg-gray-100 text-gray-700 dark:bg-brand-600 dark:text-brand-100';
 };
 
-export default function OutstandingTasks({ tasks, filter, expanded, addRequest, onFilterChange, onViewAll, onAdd, onToggle, onDelete }: OutstandingTasksProps) {
+export default function OutstandingTasks({ tasks, filter, filterLabels, expanded, addRequest, onFilterChange, onFilterLabelChange, onViewAll, onAdd, onToggle, onDelete, onDismissCompletedToday }: OutstandingTasksProps) {
   const [adding, setAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('normal');
+  const [editingFilter, setEditingFilter] = useState<HomeTaskFilter | null>(null);
+  const [filterDraft, setFilterDraft] = useState('');
   const visibleTasks = expanded ? tasks : tasks.slice(0, 5);
 
   useEffect(() => {
@@ -55,18 +54,42 @@ export default function OutstandingTasks({ tasks, filter, expanded, addRequest, 
     setAdding(false);
   };
 
+  const editFilter = (value: HomeTaskFilter) => {
+    if (filter !== value) {
+      onFilterChange(value);
+      return;
+    }
+    setFilterDraft(filterLabels[value]);
+    setEditingFilter(value);
+  };
+
+  const saveFilterLabel = (value: HomeTaskFilter) => {
+    onFilterLabelChange(value, filterDraft);
+    setEditingFilter(null);
+  };
+
   return (
     <Card id="outstanding-tasks" className="overflow-hidden rounded-lg">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-100 px-4 py-3 dark:border-brand-600">
         <div>
-          <h2 className="font-semibold text-brand-900 dark:text-brand-50">Outstanding Tasks</h2>
+          <h2 className="font-semibold text-brand-900 dark:text-brand-50">Tasks</h2>
           <p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Your next personal actions</p>
         </div>
         <Button size="sm" onClick={() => setAdding((value) => !value)}>{adding ? <X /> : <Plus />}{adding ? 'Cancel' : 'Add task'}</Button>
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" aria-label="Task filters">
-        {filters.map((item) => <button key={item.value} type="button" onClick={() => onFilterChange(item.value)} className={`h-8 shrink-0 rounded-md px-3 text-xs font-semibold ${filter === item.value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{item.label}</button>)}
+        {filters.map((value) => editingFilter === value ? (
+          <Input key={value} autoFocus value={filterDraft} maxLength={30} aria-label={`Rename ${filterLabels[value]} filter`} className="h-8 w-28 shrink-0 px-2 text-xs" onChange={(event) => setFilterDraft(event.target.value)} onBlur={() => saveFilterLabel(value)} onKeyDown={(event) => {
+            if (event.key === 'Enter') saveFilterLabel(value);
+            if (event.key === 'Escape') {
+              setFilterDraft(filterLabels[value]);
+              setEditingFilter(null);
+            }
+          }} />
+        ) : (
+          <button key={value} type="button" onClick={() => editFilter(value)} title={filter === value ? 'Click again to rename' : undefined} className={`h-8 shrink-0 rounded-md px-3 text-xs font-semibold ${filter === value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{filterLabels[value]}</button>
+        ))}
       </div>
 
       {adding ? (
@@ -93,7 +116,7 @@ export default function OutstandingTasks({ tasks, filter, expanded, addRequest, 
                   <span>Updated {formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true })}</span>
                 </div>
               </div>
-              <button type="button" onClick={() => void onDelete(task.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-400 hover:bg-accent-50 hover:text-accent-700" aria-label={`Remove ${task.title}`}><X size={15} /></button>
+              <button type="button" onClick={() => filter === 'today' && task.status === 'completed' ? onDismissCompletedToday(task.id) : void onDelete(task.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-400 hover:bg-accent-50 hover:text-accent-700" aria-label={filter === 'today' && task.status === 'completed' ? `Hide ${task.title} from Today` : `Remove ${task.title}`}><X size={15} /></button>
             </li>
           ))}
         </ul>
