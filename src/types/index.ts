@@ -809,6 +809,53 @@ export interface BudgetDivision {
   updatedAt: string;
 }
 
+export type BudgetDivisionPlanCategory = 'labour' | 'equipment' | 'materials' | 'subcontractors';
+
+export interface BudgetDivisionPlanningItem {
+  id: ID;
+  budgetId: ID;
+  divisionId: ID;
+  category: BudgetDivisionPlanCategory;
+  name?: string;
+  description?: string;
+  sortOrder: number;
+  employeeId?: ID;
+  role?: string;
+  compType?: LabourCompType;
+  hourlyRate?: number;
+  annualSalary?: number;
+  plannedHours?: number;
+  billableHours?: number;
+  unbillableHours?: number;
+  overtimeHours?: number;
+  overtimeMultiplier?: number;
+  payrollBurdenPct?: number;
+  labourBurdenPct?: number;
+  benefitsExtraCost?: number;
+  bonus?: number;
+  equipmentId?: ID;
+  costType?: EquipmentCostType;
+  classification?: EquipmentClassification;
+  equipmentPayment?: number;
+  paymentFrequencyPerYear?: number;
+  yearlyFuelCost?: number;
+  yearlyInsuranceCost?: number;
+  yearlyMaintenanceCost?: number;
+  sellableHoursPerYear?: number;
+  utilizationHours?: number;
+  allocationMonths?: number;
+  allocationPercent?: number;
+  materialCatalogItemId?: ID;
+  unit?: string;
+  unitCost?: number;
+  rate?: number;
+  plannedQuantity?: number;
+  plannedAmount?: number;
+  vendorId?: ID;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BudgetGroup {
   id: ID;
   name: string;

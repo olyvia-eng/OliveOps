@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   Budget,
   BudgetDivision,
+  BudgetDivisionPlanningItem,
   BudgetGroup,
   BudgetRate,
   FormField,
@@ -89,6 +90,7 @@ function dataUrl(entity: string, id?: string) {
 interface AppState {
   budgets: Budget[];
   budgetDivisions: BudgetDivision[];
+  budgetDivisionPlanningItems: BudgetDivisionPlanningItem[];
   budgetGroups: BudgetGroup[];
   equipmentBudgetAllocations: EquipmentBudgetAllocation[];
   crews: Crew[];
@@ -204,6 +206,11 @@ interface AppState {
   deleteBudget: (id: ID) => void;
   addBudgetDivision: (division: Omit<BudgetDivision, 'id' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivision | null>;
   updateBudgetDivision: (budgetId: ID, id: ID, data: Partial<BudgetDivision>) => Promise<BudgetDivision | null>;
+  addBudgetDivisionPlanningItem: (input: Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivisionPlanningItem | null>;
+  updateBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem, data: Partial<BudgetDivisionPlanningItem>) => Promise<BudgetDivisionPlanningItem | null>;
+  deleteBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem) => Promise<boolean>;
+  reorderBudgetDivisionPlanningItems: (budgetId: ID, divisionId: ID, category: BudgetDivisionPlanningItem['category'], orderedIds: ID[]) => Promise<boolean>;
+  importBudgetDivisionPlanningItems: (input: { budgetId: ID; divisionId: ID; category: BudgetDivisionPlanningItem['category']; sourceBudgetId: ID; sourceDivisionId: ID; sourceItemIds: ID[] }) => Promise<{ ok: boolean; importedCount: number; skippedCount: number; error?: string }>;
   saveBudgetGroup: (group: Omit<BudgetGroup, 'createdAt' | 'updatedAt'>, confirmAllocationMove?: boolean) => Promise<{ ok: boolean; requiresConfirmation?: boolean; error?: string }>;
   dissolveBudgetGroup: (id: ID) => Promise<boolean>;
   refreshBudgetGroups: () => Promise<void>;
@@ -244,6 +251,7 @@ interface AppState {
 export const useStore = create<AppState>()((set, get) => ({
   budgets: [],
   budgetDivisions: [],
+  budgetDivisionPlanningItems: [],
       budgetGroups: [],
       equipmentBudgetAllocations: [],
       crews: [],
@@ -1682,6 +1690,76 @@ export const useStore = create<AppState>()((set, get) => ({
         } catch (error: unknown) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Division changes could not be saved.') });
           return null;
+        }
+      },
+      addBudgetDivisionPlanningItem: async (input) => {
+        try {
+          const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(input.budgetId)}&divisionId=${encodeURIComponent(input.divisionId)}&category=${encodeURIComponent(input.category)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: input }),
+          });
+          const payload = await response.json() as { ok?: boolean; item?: BudgetDivisionPlanningItem; error?: string };
+          if (!response.ok || !payload.ok || !payload.item) throw new Error(payload.error);
+          set((state) => ({ budgetDivisionPlanningItems: [...state.budgetDivisionPlanningItems.filter((item) => item.id !== payload.item?.id), payload.item as BudgetDivisionPlanningItem] }));
+          return payload.item;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning item could not be added.') });
+          return null;
+        }
+      },
+      updateBudgetDivisionPlanningItem: async (item, data) => {
+        try {
+          const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(item.budgetId)}&divisionId=${encodeURIComponent(item.divisionId)}&category=${encodeURIComponent(item.category)}&id=${encodeURIComponent(item.id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data }),
+          });
+          const payload = await response.json() as { ok?: boolean; item?: BudgetDivisionPlanningItem; error?: string };
+          if (!response.ok || !payload.ok || !payload.item) throw new Error(payload.error);
+          set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((value) => value.id === item.id ? payload.item as BudgetDivisionPlanningItem : value) }));
+          return payload.item;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning item could not be updated.') });
+          return null;
+        }
+      },
+      deleteBudgetDivisionPlanningItem: async (item) => {
+        try {
+          const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(item.budgetId)}&divisionId=${encodeURIComponent(item.divisionId)}&category=${encodeURIComponent(item.category)}&id=${encodeURIComponent(item.id)}`, { method: 'DELETE', credentials: 'include' });
+          if (!response.ok) throw new Error('Planning item could not be removed.');
+          set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.filter((value) => value.id !== item.id) }));
+          return true;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning item could not be removed.') });
+          return false;
+        }
+      },
+      reorderBudgetDivisionPlanningItems: async (budgetId, divisionId, category, orderedIds) => {
+        const previous = get().budgetDivisionPlanningItems;
+        const order = new Map(orderedIds.map((id, index) => [id, index]));
+        set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((item) => item.budgetId === budgetId && item.divisionId === divisionId && item.category === category ? { ...item, sortOrder: order.get(item.id) ?? item.sortOrder } : item) }));
+        try {
+          const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(budgetId)}&divisionId=${encodeURIComponent(divisionId)}&category=${encodeURIComponent(category)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ orderedIds }),
+          });
+          const payload = await response.json() as { ok?: boolean; items?: BudgetDivisionPlanningItem[]; error?: string };
+          if (!response.ok || !payload.ok || !payload.items) throw new Error(payload.error);
+          const savedIds = new Set(payload.items.map((value) => value.id));
+          set((state) => ({ budgetDivisionPlanningItems: [...state.budgetDivisionPlanningItems.filter((value) => !savedIds.has(value.id)), ...payload.items as BudgetDivisionPlanningItem[]] }));
+          return true;
+        } catch (error) {
+          set({ budgetDivisionPlanningItems: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning order could not be saved.') });
+          return false;
+        }
+      },
+      importBudgetDivisionPlanningItems: async (input) => {
+        try {
+          const response = await fetch('/api/budget-division-import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(input) });
+          const payload = await response.json() as { ok?: boolean; items?: BudgetDivisionPlanningItem[]; importedCount?: number; skippedCount?: number; error?: string };
+          if (!response.ok || !payload.ok || !payload.items) throw new Error(payload.error);
+          const importedIds = new Set(payload.items.map((value) => value.id));
+          set((state) => ({ budgetDivisionPlanningItems: [...state.budgetDivisionPlanningItems.filter((value) => !importedIds.has(value.id)), ...payload.items as BudgetDivisionPlanningItem[]] }));
+          return { ok: true, importedCount: payload.importedCount ?? payload.items.length, skippedCount: payload.skippedCount ?? 0 };
+        } catch (error) {
+          return { ok: false, importedCount: 0, skippedCount: 0, error: errorMessage(error, 'Planning items could not be imported.') };
         }
       },
       deleteBudget: (id) => {

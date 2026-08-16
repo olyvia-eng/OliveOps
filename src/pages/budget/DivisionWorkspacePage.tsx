@@ -1,8 +1,9 @@
-import { ArrowLeft, BriefcaseBusiness, HardHat, Package, Plus, Truck, Users } from 'lucide-react';
+import { ArrowLeft, BriefcaseBusiness, Plus } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, EmptyState, PageHeader } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency, formatDate } from '../../utils';
+import DivisionPlanningTab from '../../components/budget/DivisionPlanningTab';
 
 type DivisionTab = 'overview' | 'labour' | 'equipment' | 'materials' | 'subcontractors' | 'other-costs';
 
@@ -15,15 +16,7 @@ const tabs: Array<{ key: DivisionTab; label: string }> = [
   { key: 'other-costs', label: 'Other Costs' },
 ];
 
-const categoryIcons: Record<Exclude<DivisionTab, 'overview'>, typeof Users> = {
-  labour: Users,
-  equipment: Truck,
-  materials: Package,
-  subcontractors: HardHat,
-  'other-costs': BriefcaseBusiness,
-};
-
-export default function DivisionWorkspacePage() {
+export default function DivisionWorkspacePage({ currentUserRole }: { currentUserRole: string }) {
   const { budgetId, divisionId } = useParams<{ budgetId: string; divisionId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,6 +24,7 @@ export default function DivisionWorkspacePage() {
   const budget = budgets.find((item) => item.id === budgetId);
   const division = budgetDivisions.find((item) => item.id === divisionId && item.budgetId === budgetId);
   const activeTab = (searchParams.get('tab') ?? 'overview') as DivisionTab;
+  const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
   const setTab = (tab: DivisionTab) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set('tab', tab); return next; });
 
   if (!budget || !division) {
@@ -50,7 +44,8 @@ export default function DivisionWorkspacePage() {
 
       {activeTab === 'overview' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Revenue Target" value={formatCurrency(division.revenueTarget)} /><Metric label="Direct Cost" value="—" sub="Not calculated yet" /><Metric label="Gross Profit" value="—" sub="Not calculated yet" /><Metric label="Gross Margin" value="—" sub="Not calculated yet" /></div><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Cost Breakdown</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Detailed cost planning will be connected to this Division in a later phase.</p><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <button key={tab.key} type="button" onClick={() => setTab(tab.key)} className="border-y border-brand-100 px-3 py-3 text-left text-sm font-medium text-gray-700 hover:bg-brand-50 dark:border-brand-600 dark:text-brand-100 dark:hover:bg-brand-800">{tab.label}<span className="mt-1 block text-xs font-normal text-gray-400">Not connected yet</span></button>)}</div></Card><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Quick Actions</h2><div className="mt-3 flex flex-wrap gap-2">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <Button key={tab.key} variant="secondary" onClick={() => setTab(tab.key)}><Plus size={14} /> Add {tab.label === 'Other Costs' ? 'Other Cost' : tab.label.replace(/s$/, '')}</Button>)}</div></Card></div> : null}
 
-      {activeTab !== 'overview' ? (() => { const Icon = categoryIcons[activeTab]; return <Card><EmptyState icon={<Icon />} title={`${tabs.find((tab) => tab.key === activeTab)?.label} planning is coming next`} description={`The existing Budget planning tools have not been duplicated. ${division.name} will receive its own ${tabs.find((tab) => tab.key === activeTab)?.label.toLowerCase()} workspace in a later migration phase.`} action={<Button variant="secondary" onClick={() => setTab('overview')}>Return to Overview</Button>} /></Card>; })() : null}
+      {activeTab === 'labour' || activeTab === 'equipment' || activeTab === 'materials' || activeTab === 'subcontractors' ? <DivisionPlanningTab budget={budget} division={division} category={activeTab} canEdit={canEdit} /> : null}
+      {activeTab === 'other-costs' ? <Card><EmptyState icon={<BriefcaseBusiness />} title="Other costs planning is coming next" description={`${division.name} will receive its own other-costs workspace in a later phase.`} action={<Button variant="secondary" onClick={() => setTab('overview')}>Return to Overview</Button>} /></Card> : null}
     </div>
   );
 }

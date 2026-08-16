@@ -30,3 +30,25 @@ Opening the new workspace performs no migration. Budgets without `planningModel 
 ## Deferred Migration
 
 Labour, Equipment, Materials, Subcontractors, Other Costs, Company Overhead recovery, and consolidated financial formulas remain on their existing Budget IDs. A later controlled migration can add `divisionId` to each category-specific relationship after its mapping and rollback behavior are approved. Until then, only Division revenue targets are aggregated; unavailable direct-cost and profit metrics are displayed as unavailable rather than estimated.
+
+## Division Planning
+
+Labour, Equipment, Materials, and Subcontractors now use additive Division-owned planning records. Legacy Budget Items, Budget Rates, Labour Plans, and grouped Equipment Allocations are not rewritten.
+
+```text
+PK = BUSINESS#{businessId}
+SK = BUDGET_DIVISION_PLAN#{budgetId}#DIVISION#{divisionId}#CATEGORY#{category}#ITEM#{itemId}
+```
+
+Each destination/category also stores an identity marker based on its reusable catalog reference, or a normalized manual name when no catalog exists. The marker prevents repeated or concurrent imports from creating duplicate plans.
+
+Imports are explicit snapshots, not live links. Every imported row receives a new ID and destination Budget/Division ownership. Source records remain unchanged.
+
+- Labour copies employee references and reusable compensation, hour, overtime, burden, benefit, and bonus assumptions. It never reads time entries, payroll actuals, completed Jobs, or historical variance.
+- Equipment reuses the Equipment Catalog asset and copies Budget-specific classification, payment, fuel, insurance, maintenance, utilization, and allocation suggestions. It never copies group IDs, allocation IDs, source Budget IDs, historical machine usage, or Job data.
+- Materials reuse the Material Catalog reference when it still exists and copy description, unit, unit cost, quantity, and amount assumptions. Missing catalog references become independent snapshots; purchases, invoices, expenses, and Job consumption are excluded.
+- Subcontractors copy independent name, description, rate, quantity, and planned amount assumptions. OliveOps does not yet have a Vendor Catalog, so imports do not create or duplicate vendor/contact records. Invoices, payments, expenses, and Job actuals are excluded.
+
+Division-aware Budgets expose real source Divisions. Older Budgets expose a synthetic read-only `Legacy Budget-wide plan` source because their detailed records have no Division IDs. This compatibility adapter performs no migration or backfill.
+
+Only owner/admin Budget editors can create, edit, delete, reorder, or import plans. APIs resolve source and destination Budgets and Divisions from the authenticated business and revalidate catalog references and duplicates at write time.

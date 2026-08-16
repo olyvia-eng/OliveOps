@@ -34,6 +34,7 @@ import {
   listEquipmentBudgetAllocationsForBusiness,
 } from './_lib/budgetGroups.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
+import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -61,13 +62,14 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
       listFormResponsesForBusiness(session.businessId),
       listBudgetsForBusiness(session.businessId),
       listBudgetDivisionsForBusiness(session.businessId),
+      listDivisionPlanningItemsForBusiness(session.businessId),
       listBudgetGroupsForBusiness(session.businessId),
       listEquipmentBudgetAllocationsForBusiness(session.businessId),
       listCrewsForBusiness(session.businessId),
@@ -103,6 +105,7 @@ export default async function handler(req, res) {
       formResponses: filterRecordsForSession(session, 'form-responses', formResponses),
       budgets: filterRecordsForSession(session, 'budgets', budgets),
       budgetDivisions: filterRecordsForSession(session, 'budget-divisions', budgetDivisions),
+      budgetDivisionPlanningItems,
       budgetGroups: filterRecordsForSession(session, 'budget-groups', budgetGroups),
       equipmentBudgetAllocations: filterRecordsForSession(session, 'equipment-budget-allocations', equipmentBudgetAllocations),
       crews: filterRecordsForSession(session, 'crews', crews),

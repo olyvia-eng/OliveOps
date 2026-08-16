@@ -7,6 +7,7 @@ import {
   listBudgetDivisionsForBudget,
   updateBudgetDivisionForBusiness,
 } from './_lib/authRepo.js';
+import { listDivisionPlanningItems } from './_lib/budgetDivisionPlanning.js';
 
 const STATUSES = new Set(['active', 'archived']);
 
@@ -66,6 +67,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'DELETE') {
+      const planningItems = await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId });
+      if (planningItems.length > 0) return res.status(409).json({ ok: false, error: 'Archive this Division instead; it has planning items.' });
       await deleteBudgetDivisionForBusiness(session.businessId, budgetId, divisionId);
       return res.status(200).json({ ok: true });
     }

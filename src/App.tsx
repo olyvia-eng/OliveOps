@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetDivision, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
 import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
@@ -92,6 +92,7 @@ export default function App() {
     const estimateIdsAtRequestStart = new Set(useStore.getState().estimates.map((estimate) => estimate.id));
     const budgetIdsAtRequestStart = new Set(useStore.getState().budgets.map((budget) => budget.id));
     const budgetDivisionIdsAtRequestStart = new Set(useStore.getState().budgetDivisions.map((division) => division.id));
+    const budgetDivisionPlanningItemIdsAtRequestStart = new Set(useStore.getState().budgetDivisionPlanningItems.map((item) => item.id));
     setLoadingBusinessData(true);
     setBusinessDataError('');
 
@@ -109,6 +110,7 @@ export default function App() {
         formResponses?: FormResponse[];
         budgets?: Budget[];
         budgetDivisions?: BudgetDivision[];
+        budgetDivisionPlanningItems?: BudgetDivisionPlanningItem[];
         budgetGroups?: BudgetGroup[];
         equipmentBudgetAllocations?: EquipmentBudgetAllocation[];
         crews?: Crew[];
@@ -152,6 +154,7 @@ export default function App() {
         formResponses: payload.formResponses ?? [],
         budgets: mergeBudgetSnapshotsModel(state.budgets, payload.budgets ?? [], budgetIdsAtRequestStart),
         budgetDivisions: mergeBudgetSnapshotsModel(state.budgetDivisions, payload.budgetDivisions ?? [], budgetDivisionIdsAtRequestStart),
+        budgetDivisionPlanningItems: mergeBudgetSnapshotsModel(state.budgetDivisionPlanningItems, payload.budgetDivisionPlanningItems ?? [], budgetDivisionPlanningItemIdsAtRequestStart),
         budgetGroups: payload.budgetGroups ?? [],
         equipmentBudgetAllocations: payload.equipmentBudgetAllocations ?? [],
         crews: payload.crews ?? [],
@@ -652,7 +655,7 @@ export default function App() {
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
-              <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage />} />
+              <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/:budgetId/legacy" element={<BudgetPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/:budgetId" element={<BudgetWorkspacePage currentUserRole={sessionUser.role} />} />
               <Route path="budget" element={<Navigate to="/budgets" replace />} />
