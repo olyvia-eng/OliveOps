@@ -195,9 +195,38 @@ test('default title is creation-only and workspace save retains failed edits', (
   assert.match(estimatesPageSource, /title: draftTitle/);
   assert.doesNotMatch(workspaceSource, /Draft Estimate/);
   assert.match(workspaceSource, /\[id, persistedEstimateUpdatedAt\]/);
-  assert.match(workspaceSource, /if \(!saved\) return;\s*setForm\(loadFormState\(saved\)\)/);
+  assert.match(workspaceSource, /if \(!saved\) return false;\s*const savedForm = loadFormState\(saved\)/);
   assert.match(workspaceSource, /\{savingEstimate \? 'Saving\.\.\.' : 'Save Changes'\}/);
-  assert.match(workspaceSource, /savingEstimate \|\| saveInFlight\.current/);
+  assert.match(workspaceSource, /saveInFlight\.current/);
   assert.match(workspaceSource, /saveInFlight\.current = true/);
   assert.match(workspaceSource, /finally \{\s*saveInFlight\.current = false;\s*setSavingEstimate\(false\);\s*\}/);
+});
+
+test('dirty Estimate Info fields save before tab navigation through one shared update path', () => {
+  assert.match(workspaceSource, /const saveIfDirty = async/);
+  assert.match(workspaceSource, /serializeEstimateForm\(form\) !== serializeEstimateForm\(persistedFormBaseline\.current\)/);
+  assert.match(workspaceSource, /const saved = await saveIfDirty\(\);\s*if \(!saved\) return;\s*setSearchParams/);
+  assert.match(workspaceSource, /await saveIfDirty\(\{ force: true, showSuccess: true \}\)/);
+  assert.match(workspaceSource, /persistedFormBaseline\.current = savedForm;\s*setForm\(savedForm\)/);
+  assert.match(workspaceSource, /disabled=\{savingEstimate\}/);
+  assert.doesNotMatch(workspaceSource, /addEstimate\(/);
+
+  for (const field of [
+    'customerId',
+    'pricingBudgetId',
+    'propertyLabel',
+    'propertyAddressSnapshot',
+    'proposalNumber',
+    'title',
+    'description',
+    'validUntil',
+  ]) {
+    assert.match(workspaceSource, new RegExp(`${field}: estimate\\.${field}|\\.\\.${field}|${field}: nextForm\\.${field}`));
+  }
+});
+
+test('persisted hydration cannot overwrite a newer dirty local Estimate form', () => {
+  assert.match(workspaceSource, /const hasLocalChanges = Boolean/);
+  assert.match(workspaceSource, /if \(!estimateChanged && hasLocalChanges\) return current/);
+  assert.match(workspaceSource, /if \(!saved\) return false/);
 });

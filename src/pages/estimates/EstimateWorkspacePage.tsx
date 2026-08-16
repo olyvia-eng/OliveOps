@@ -177,6 +177,14 @@ const loadFormState = (estimate: Estimate): EstimateFormState => ({
   templateId: estimate.templateId,
 });
 
+const serializeEstimateForm = (form: EstimateFormState) => JSON.stringify(form);
+
+const validateEstimateForm = (form: EstimateFormState) => (
+  form.title.trim() && form.customerId && form.pricingBudgetId && form.validUntil
+    ? null
+    : 'Title, customer, pricing budget, and valid-until date are required.'
+);
+
 export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -201,6 +209,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
   const [savingEstimate, setSavingEstimate] = useState(false);
   const saveInFlight = useRef(false);
+  const hydratedEstimateId = useRef(id);
+  const persistedFormBaseline = useRef<EstimateFormState | null>(estimate ? loadFormState(estimate) : null);
   const [convertForm, setConvertForm] = useState({
     title: '',
     startDate: '',
@@ -213,10 +223,23 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   useEffect(() => {
     const persistedEstimate = useStore.getState().estimates.find((item) => item.id === id);
     if (!persistedEstimate) {
+      persistedFormBaseline.current = null;
       setForm(null);
       return;
     }
-    setForm(loadFormState(persistedEstimate));
+    const nextPersistedForm = loadFormState(persistedEstimate);
+    setForm((current) => {
+      const estimateChanged = hydratedEstimateId.current !== id;
+      const hasLocalChanges = Boolean(
+        current
+        && persistedFormBaseline.current
+        && serializeEstimateForm(current) !== serializeEstimateForm(persistedFormBaseline.current),
+      );
+      if (!estimateChanged && hasLocalChanges) return current;
+      hydratedEstimateId.current = id;
+      persistedFormBaseline.current = nextPersistedForm;
+      return nextPersistedForm;
+    });
   }, [id, persistedEstimateUpdatedAt]);
 
   useEffect(() => {
@@ -230,15 +253,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       });
     }
   }, [activeTab, canViewAnalysis, setSearchParams]);
-
-  const setTab = (tab: EstimateTab) => {
-    if (tab === 'analysis' && !canViewAnalysis) return;
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.set('tab', tab);
-      return next;
-    });
-  };
 
   const setField = (key: keyof EstimateFormState, value: unknown) => {
     setForm((current) => {
@@ -258,7 +272,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
     const payload: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'> = {
       ...nextForm,
-      proposalNumber: nextForm.proposalNumber?.trim() || estimate.proposalNumber || '',
+      proposalNumber: nextForm.proposalNumber?.trim() || '',
       title: nextForm.title.trim(),
       description: nextForm.description ?? '',
       workAreas: normalizedWorkAreas,
@@ -268,6 +282,45 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     };
 
     return updateEstimate(estimate.id, payload);
+  };
+
+  const saveIfDirty = async ({ force = false, showSuccess = false } = {}) => {
+    if (!estimate || !form || saveInFlight.current) return false;
+    const isDirty = !persistedFormBaseline.current
+      || serializeEstimateForm(form) !== serializeEstimateForm(persistedFormBaseline.current);
+    if (!force && !isDirty) return true;
+
+    const validationError = validateEstimateForm(form);
+    if (validationError) {
+      emitAppToast({ tone: 'error', message: validationError });
+      return false;
+    }
+
+    saveInFlight.current = true;
+    setSavingEstimate(true);
+    try {
+      const saved = await persistEstimateForm(form);
+      if (!saved) return false;
+      const savedForm = loadFormState(saved);
+      persistedFormBaseline.current = savedForm;
+      setForm(savedForm);
+      if (showSuccess) emitAppToast({ tone: 'success', message: 'Estimate saved.' });
+      return true;
+    } finally {
+      saveInFlight.current = false;
+      setSavingEstimate(false);
+    }
+  };
+
+  const setTab = async (tab: EstimateTab) => {
+    if (tab === activeTab || (tab === 'analysis' && !canViewAnalysis) || saveInFlight.current) return;
+    const saved = await saveIfDirty();
+    if (!saved) return;
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set('tab', tab);
+      return next;
+    });
   };
 
   const addWorkArea = async () => {
@@ -299,23 +352,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   };
 
   const save = async () => {
-    if (!estimate || !form || savingEstimate || saveInFlight.current) return;
-    if (!form.title.trim() || !form.customerId || !form.pricingBudgetId || !form.validUntil) {
-      emitAppToast({ tone: 'error', message: 'Title, customer, pricing budget, and valid-until date are required.' });
-      return;
-    }
-
-  saveInFlight.current = true;
-    setSavingEstimate(true);
-    try {
-      const saved = await persistEstimateForm(form);
-      if (!saved) return;
-      setForm(loadFormState(saved));
-      emitAppToast({ tone: 'success', message: 'Estimate saved.' });
-    } finally {
-      saveInFlight.current = false;
-      setSavingEstimate(false);
-    }
+    await saveIfDirty({ force: true, showSuccess: true });
   };
 
   const createProposalPdf = (item: Estimate) => {
@@ -507,7 +544,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               type="button"
               role="tab"
               aria-selected={activeTab === tab.key}
-              onClick={() => setTab(tab.key)}
+              onClick={() => void setTab(tab.key)}
+              disabled={savingEstimate}
               className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'bg-brand-600 text-white'
