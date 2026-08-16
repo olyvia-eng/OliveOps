@@ -644,8 +644,8 @@ export default function App() {
               <Route path="budgets" element={<BudgetsPage />} />
               <Route path="budgets/combined" element={<CombinedBudgetPage />} />
               <Route path="budgets/groups/:groupId" element={<CombinedBudgetPage />} />
-              <Route path="budgets/:budgetId" element={<BudgetPage />} />
-              <Route path="budget" element={<BudgetPage />} />
+              <Route path="budgets/:budgetId" element={<BudgetPage currentUserRole={sessionUser.role} />} />
+              <Route path="budget" element={<BudgetPage currentUserRole={sessionUser.role} />} />
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="data-center" element={<DataCenterPage />} />
               <Route

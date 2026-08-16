@@ -251,13 +251,11 @@ export default function EquipmentCatalogPage() {
       equipmentCostType: form.equipmentCostType,
       equipmentPayment: form.equipmentPayment,
       equipmentPaymentFrequencyPerYear: form.equipmentPaymentFrequencyPerYear,
-      averageFuelPrice: form.averageFuelPrice,
-      averageFuelBurnPerHour: form.averageFuelBurnPerHour,
+      yearlyFuelCost: form.yearlyFuelCost,
       yearlyInsuranceCost: form.yearlyInsuranceCost,
       yearlyMaintenanceCost: form.yearlyMaintenanceCost,
       sellableHoursPerYear: form.sellableHoursPerYear,
       equipmentHoursPerDay: form.equipmentHoursPerDay,
-      monthsUsedPerYear: form.monthsUsedPerYear,
     });
   }, [form]);
 
@@ -294,9 +292,6 @@ export default function EquipmentCatalogPage() {
     }
 
     const existingAsset = editingId ? equipmentAssets.find((asset) => asset.id === editingId) : undefined;
-    const normalizedFuelPrice = Math.max(0, Number(form.averageFuelPrice || 0));
-    const normalizedFuelBurnPerHour = Math.max(0, Number(form.averageFuelBurnPerHour || 0));
-    const normalizedFuelCostPerHour = normalizedFuelPrice * normalizedFuelBurnPerHour;
     const normalizedPayment = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPayment || 0));
     const normalizedFrequency = form.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(form.equipmentPaymentFrequencyPerYear || 0));
     const payload = {
@@ -304,15 +299,15 @@ export default function EquipmentCatalogPage() {
       type: (form.costCode.trim() || existingAsset?.type || 'General Equipment'),
       status: existingAsset?.status ?? 'available' as const,
       costType: form.equipmentCostType,
+      equipmentClassification: form.equipmentClassification,
       serialNumber: existingAsset?.serialNumber ?? '',
       purchaseDate: existingAsset?.purchaseDate,
-      hourlyCost: normalizedFuelCostPerHour,
+      hourlyCost: equipmentCostBreakdown.totalCostPerHour,
       purchasePrice: existingAsset?.purchasePrice,
       equipmentPayment: normalizedPayment,
       equipmentPaymentFrequencyPerYear: normalizedFrequency,
-      fuelPriceUnit: form.fuelPriceUnit,
-      averageFuelPrice: normalizedFuelPrice,
-      averageFuelBurnPerHour: normalizedFuelBurnPerHour,
+      yearlyFuelCost: Math.max(0, Number(form.yearlyFuelCost || 0)),
+      ...(form.equipmentClassification === 'overhead' ? { recommendedSellRate: 0, chargeOutRate: 0 } : {}),
       yearlyInsuranceCost: Math.max(0, Number(form.yearlyInsuranceCost || 0)),
       yearlyMaintenanceCost: Math.max(0, Number(form.yearlyMaintenanceCost || 0)),
       notes: existingAsset?.notes ?? '',
@@ -334,16 +329,14 @@ export default function EquipmentCatalogPage() {
       description: asset.name,
       costCode: asset.type,
       equipmentCostType: asset.costType,
+      equipmentClassification: asset.equipmentClassification ?? 'billable',
       equipmentPayment: asset.equipmentPayment ?? 0,
       equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
-      fuelPriceUnit: asset.fuelPriceUnit ?? 'L',
-      averageFuelPrice: asset.averageFuelPrice ?? asset.hourlyCost,
-      averageFuelBurnPerHour: asset.averageFuelBurnPerHour ?? 1,
+      yearlyFuelCost: asset.yearlyFuelCost ?? 0,
       yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
       yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
       sellableHoursPerYear: 0,
       equipmentHoursPerDay: 8,
-      monthsUsedPerYear: 12,
     });
     setShowEquipmentCalcDetails(false);
     setEquipmentModalOpen(true);
@@ -628,7 +621,6 @@ export default function EquipmentCatalogPage() {
           <EquipmentInfoForm
             value={form}
             onChange={setForm}
-            fuelCostPerHour={equipmentCostBreakdown.fuelCostPerHour}
             totalEquipmentCostPerYear={equipmentCostBreakdown.totalEquipmentCostPerYear}
             totalCostPerHour={equipmentCostBreakdown.totalCostPerHour}
             totalCostPerDay={equipmentCostBreakdown.totalCostPerDay}

@@ -10,13 +10,13 @@ export interface EquipmentPricingInput {
   equipmentCostType: EquipmentCostType;
   equipmentPayment: number;
   equipmentPaymentFrequencyPerYear: number;
-  averageFuelPrice: number;
-  averageFuelBurnPerHour: number;
+  yearlyFuelCost?: number;
+  averageFuelPrice?: number;
+  averageFuelBurnPerHour?: number;
   yearlyInsuranceCost: number;
   yearlyMaintenanceCost: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
-  monthsUsedPerYear: number;
 }
 
 export interface EquipmentCostBreakdown {
@@ -32,7 +32,6 @@ export interface EquipmentCostBreakdown {
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
   operatingDaysPerYear: number;
-  monthsUsedPerYear: number;
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
   totalCostPerDay: number;

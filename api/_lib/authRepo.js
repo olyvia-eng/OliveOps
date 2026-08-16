@@ -2496,6 +2496,7 @@ export async function listEquipmentAssetsForBusiness(businessId) {
     type: item.type,
     status: item.status,
     costType: item.costType,
+    equipmentClassification: item.equipmentClassification === 'overhead' ? 'overhead' : 'billable',
     serialNumber: item.serialNumber,
     purchaseDate: item.purchaseDate,
     hourlyCost: item.hourlyCost,
@@ -2508,6 +2509,7 @@ export async function listEquipmentAssetsForBusiness(businessId) {
     fuelPriceUnit: item.fuelPriceUnit,
     averageFuelPrice: item.averageFuelPrice,
     averageFuelBurnPerHour: item.averageFuelBurnPerHour,
+    yearlyFuelCost: item.yearlyFuelCost,
     yearlyInsuranceCost: item.yearlyInsuranceCost,
     yearlyMaintenanceCost: item.yearlyMaintenanceCost,
     currentJobId: item.currentJobId,
@@ -2554,6 +2556,7 @@ export async function getEquipmentAssetForBusiness(businessId, equipmentId) {
         type: result.Item.type,
         status: result.Item.status,
         costType: result.Item.costType,
+        equipmentClassification: result.Item.equipmentClassification === 'overhead' ? 'overhead' : 'billable',
         serialNumber: result.Item.serialNumber,
         purchaseDate: result.Item.purchaseDate,
         hourlyCost: result.Item.hourlyCost,
@@ -2566,6 +2569,7 @@ export async function getEquipmentAssetForBusiness(businessId, equipmentId) {
         fuelPriceUnit: result.Item.fuelPriceUnit,
         averageFuelPrice: result.Item.averageFuelPrice,
         averageFuelBurnPerHour: result.Item.averageFuelBurnPerHour,
+        yearlyFuelCost: result.Item.yearlyFuelCost,
         yearlyInsuranceCost: result.Item.yearlyInsuranceCost,
         yearlyMaintenanceCost: result.Item.yearlyMaintenanceCost,
         currentJobId: result.Item.currentJobId,
@@ -3179,12 +3183,14 @@ export async function listBudgetItemsForBusiness(businessId) {
     category: item.category,
     equipmentId: item.equipmentId,
     equipmentCostType: item.equipmentCostType === 'other' ? 'owned' : item.equipmentCostType,
+    equipmentClassification: item.equipmentClassification === 'overhead' ? 'overhead' : 'billable',
     costCode: item.costCode,
     equipmentPayment: item.equipmentPayment,
     equipmentPaymentFrequencyPerYear: item.equipmentPaymentFrequencyPerYear,
     fuelPriceUnit: item.fuelPriceUnit,
     averageFuelPrice: item.averageFuelPrice,
     averageFuelBurnPerHour: item.averageFuelBurnPerHour,
+    yearlyFuelCost: item.yearlyFuelCost,
     fuelCostPerHour: item.fuelCostPerHour,
     yearlyInsuranceCost: item.yearlyInsuranceCost ?? ((item.monthlyInsuranceCost ?? 0) * 12),
     yearlyMaintenanceCost: item.yearlyMaintenanceCost ?? ((item.monthlyMaintenanceCost ?? 0) * 12),
@@ -3195,6 +3201,7 @@ export async function listBudgetItemsForBusiness(businessId) {
     actualMachineHoursPerYear: item.actualMachineHoursPerYear,
     monthsUsedPerYear: item.monthsUsedPerYear,
     equipmentCostAllocationPercent: item.equipmentCostAllocationPercent,
+    sortOrder: item.sortOrder,
     description: item.description,
     budgeted: item.budgeted,
     actual: item.actual,
@@ -3450,12 +3457,14 @@ export async function getBudgetItemForBusiness(businessId, budgetItemId) {
         category: result.Item.category,
       equipmentId: result.Item.equipmentId,
       equipmentCostType: result.Item.equipmentCostType === 'other' ? 'owned' : result.Item.equipmentCostType,
+        equipmentClassification: result.Item.equipmentClassification === 'overhead' ? 'overhead' : 'billable',
         costCode: result.Item.costCode,
         equipmentPayment: result.Item.equipmentPayment,
         equipmentPaymentFrequencyPerYear: result.Item.equipmentPaymentFrequencyPerYear,
         fuelPriceUnit: result.Item.fuelPriceUnit,
         averageFuelPrice: result.Item.averageFuelPrice,
         averageFuelBurnPerHour: result.Item.averageFuelBurnPerHour,
+        yearlyFuelCost: result.Item.yearlyFuelCost,
         fuelCostPerHour: result.Item.fuelCostPerHour,
         yearlyInsuranceCost: result.Item.yearlyInsuranceCost ?? ((result.Item.monthlyInsuranceCost ?? 0) * 12),
         yearlyMaintenanceCost: result.Item.yearlyMaintenanceCost ?? ((result.Item.monthlyMaintenanceCost ?? 0) * 12),
@@ -3466,6 +3475,7 @@ export async function getBudgetItemForBusiness(businessId, budgetItemId) {
         actualMachineHoursPerYear: result.Item.actualMachineHoursPerYear,
         monthsUsedPerYear: result.Item.monthsUsedPerYear,
         equipmentCostAllocationPercent: result.Item.equipmentCostAllocationPercent,
+        sortOrder: result.Item.sortOrder,
         description: result.Item.description,
         budgeted: result.Item.budgeted,
         actual: result.Item.actual,
@@ -3490,6 +3500,39 @@ export async function updateBudgetItemForBusiness({ businessId, budgetItem }) {
     })
   );
 
+  return { ok: true };
+}
+
+export function isCompleteEquipmentOrder(existingIds, orderedIds) {
+  const existingIdSet = new Set(existingIds);
+  return orderedIds.length === existingIdSet.size
+    && new Set(orderedIds).size === orderedIds.length
+    && orderedIds.every((id) => existingIdSet.has(id));
+}
+
+export async function reorderBudgetEquipmentForBusiness({ businessId, budgetId, orderedIds }) {
+  const budgetItems = await listBudgetItemsForBusiness(businessId);
+  const equipmentItems = budgetItems.filter((item) => item.budgetId === budgetId && item.category === 'equipment');
+  if (!isCompleteEquipmentOrder(equipmentItems.map((item) => item.id), orderedIds)) {
+    return { ok: false, code: 'INVALID_EQUIPMENT_ORDER', error: 'Equipment order must include every equipment row in this budget exactly once.' };
+  }
+  if (orderedIds.length === 0) return { ok: true };
+
+  await ddb.send(new TransactWriteCommand({
+    TransactItems: orderedIds.map((id, sortOrder) => ({
+      Update: {
+        TableName: tableName,
+        Key: { PK: businessPk(businessId), SK: budgetSk(id) },
+        UpdateExpression: 'SET sortOrder = :sortOrder',
+        ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND budgetId = :budgetId AND category = :category',
+        ExpressionAttributeValues: {
+          ':sortOrder': sortOrder,
+          ':budgetId': budgetId,
+          ':category': 'equipment',
+        },
+      },
+    })),
+  }));
   return { ok: true };
 }
 

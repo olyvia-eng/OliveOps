@@ -20,13 +20,11 @@ const costInput = {
   equipmentCostType: 'financed',
   equipmentPayment: 2000,
   equipmentPaymentFrequencyPerYear: 12,
-  averageFuelPrice: 3,
-  averageFuelBurnPerHour: 5,
+  yearlyFuelCost: 18000,
   yearlyInsuranceCost: 4000,
   yearlyMaintenanceCost: 6000,
   sellableHoursPerYear: 1200,
   equipmentHoursPerDay: 8,
-  monthsUsedPerYear: 12,
 };
 
 test('equipment costing calculates annual, daily, and hourly operating cost', () => {
@@ -49,6 +47,27 @@ test('equipment costing handles zero utilization and recalculates from changed i
   const recalculated = calculateEquipmentCostBreakdownModel({ ...costInput, equipmentPayment: 2500 });
   assert.equal(recalculated.totalEquipmentCostPerYear, 58000);
   assert.ok(Math.abs(recalculated.totalCostPerHour - 48.3333333333) < 0.000001);
+});
+
+test('legacy months used does not affect annual or utilization cost calculations', () => {
+  const fourMonths = calculateEquipmentCostBreakdownModel({ ...costInput, monthsUsedPerYear: 4 });
+  const twelveMonths = calculateEquipmentCostBreakdownModel({ ...costInput, monthsUsedPerYear: 12 });
+
+  assert.equal(fourMonths.totalEquipmentCostPerYear, twelveMonths.totalEquipmentCostPerYear);
+  assert.equal(fourMonths.totalCostPerDay, twelveMonths.totalCostPerDay);
+  assert.equal(fourMonths.totalCostPerHour, twelveMonths.totalCostPerHour);
+  assert.equal(Object.hasOwn(fourMonths, 'monthsUsedPerYear'), false);
+});
+
+test('legacy fuel inputs remain a fallback when yearly fuel cost is absent', () => {
+  const legacy = calculateEquipmentCostBreakdownModel({
+    ...costInput,
+    yearlyFuelCost: undefined,
+    averageFuelPrice: 3,
+    averageFuelBurnPerHour: 5,
+  });
+  assert.equal(legacy.annualFuelCost, 18000);
+  assert.equal(legacy.totalEquipmentCostPerYear, 52000);
 });
 
 test('recommended equipment rate applies overhead and target gross margin, not markup', () => {

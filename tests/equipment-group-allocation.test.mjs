@@ -95,3 +95,12 @@ test('catalog summaries remain separated by Budget Group', () => {
   assert.equal(groups[0].totalMonthsAllocated, 4);
   assert.equal(groups[1].totalMonthsAllocated, 9);
 });
+
+test('annual equipment cost responsibility is always allocated over twelve months', () => {
+  assert.equal(calculateAllocatedEquipmentCost(24_000, 7), 14_000);
+  assert.equal(calculateAllocatedEquipmentCost(24_000, 5), 10_000);
+  assert.equal(
+    calculateAllocatedEquipmentCost(24_000, 7) + calculateAllocatedEquipmentCost(24_000, 5),
+    24_000,
+  );
+});

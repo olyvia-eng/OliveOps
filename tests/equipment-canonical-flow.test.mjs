@@ -16,15 +16,16 @@ test('catalog and budget both use shared restored equipment info form', () => {
   assert.doesNotMatch(budgetSource, /Budget Equipment Planning/);
   assert.doesNotMatch(budgetSource, /createCatalogEquipmentOnSave/);
 
-  assert.match(equipmentFormSource, /<legend className=\"text-sm font-medium text-gray-700 px-1\">Equipment Info<\/legend>/);
+  assert.match(equipmentFormSource, /Equipment Details/);
   assert.match(equipmentFormSource, /Payment Frequency \(# per year\)/);
-  assert.match(equipmentFormSource, /Fuel Price Unit/);
-  assert.match(equipmentFormSource, /Fuel Burned per Hour/);
+  assert.match(equipmentFormSource, /Yearly Fuel Cost/);
+  assert.doesNotMatch(equipmentFormSource, /Fuel Price Unit/);
+  assert.doesNotMatch(equipmentFormSource, /Fuel Burned per Hour/);
   assert.match(equipmentFormSource, /Yearly Insurance Cost/);
   assert.match(equipmentFormSource, /Yearly Maintenance Cost/);
-  assert.match(equipmentFormSource, /Billable Hours per Year/);
-  assert.match(equipmentFormSource, /Hours per Day/);
-  assert.match(equipmentFormSource, /Months Used Per Year/);
+  assert.match(equipmentFormSource, /Expected Operating Hours \/ Year/);
+  assert.match(equipmentFormSource, /Expected Operating Hours \/ Day/);
+  assert.doesNotMatch(equipmentFormSource, /Months Used Per Year/);
   assert.match(equipmentFormSource, /Annual Equipment Cost/);
   assert.match(equipmentFormSource, /Cost per Operating Hour/);
   assert.match(equipmentFormSource, /Cost per Operating Day/);

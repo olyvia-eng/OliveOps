@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Modal, Input, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, FileDown, Info, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileDown, Info, Users, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 import { BUDGET_CATEGORIES } from '../../config/budgetCategories.js';
 import { formatCurrency } from '../../utils';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
@@ -88,12 +88,14 @@ const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   category: 'labour',
   equipmentId: undefined,
   equipmentCostType: undefined,
+  equipmentClassification: undefined,
   costCode: '',
   equipmentPayment: undefined,
   equipmentPaymentFrequencyPerYear: undefined,
   fuelPriceUnit: undefined,
   averageFuelPrice: undefined,
   averageFuelBurnPerHour: undefined,
+  yearlyFuelCost: undefined,
   fuelCostPerHour: undefined,
   yearlyInsuranceCost: undefined,
   yearlyMaintenanceCost: undefined,
@@ -102,7 +104,6 @@ const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
   monthlyMaintenanceCost: undefined,
   sellableHoursPerYear: undefined,
   actualMachineHoursPerYear: undefined,
-  monthsUsedPerYear: undefined,
   equipmentCostAllocationPercent: undefined,
   description: '',
   budgeted: 0,
@@ -113,35 +114,27 @@ const empty = (budgetId?: string): Omit<BudgetItem, 'id'> => ({
 const equipmentInfoDefaults = () => ({
   equipmentPayment: 0,
   equipmentPaymentFrequencyPerYear: 12,
-  fuelPriceUnit: 'L' as const,
-  averageFuelPrice: 0,
-  averageFuelBurnPerHour: 0,
-  fuelCostPerHour: 0,
+  equipmentClassification: 'billable' as const,
+  yearlyFuelCost: 0,
   yearlyInsuranceCost: 0,
   yearlyMaintenanceCost: 0,
   equipmentHoursPerDay: 8,
   sellableHoursPerYear: 0,
   actualMachineHoursPerYear: 0,
-  monthsUsedPerYear: 12,
   equipmentCostAllocationPercent: 100,
 });
 
 const equipmentInfoDefaultsFromAsset = (asset: EquipmentAsset) => {
-  const averageFuelPrice = asset.averageFuelPrice ?? 0;
-  const averageFuelBurnPerHour = asset.averageFuelBurnPerHour ?? 0;
   return {
     equipmentPayment: asset.equipmentPayment ?? 0,
     equipmentPaymentFrequencyPerYear: asset.equipmentPaymentFrequencyPerYear ?? 12,
-    fuelPriceUnit: asset.fuelPriceUnit ?? 'L' as const,
-    averageFuelPrice,
-    averageFuelBurnPerHour,
-    fuelCostPerHour: averageFuelPrice * averageFuelBurnPerHour,
+    equipmentClassification: asset.equipmentClassification ?? 'billable' as const,
+    yearlyFuelCost: asset.yearlyFuelCost ?? 0,
     yearlyInsuranceCost: asset.yearlyInsuranceCost ?? 0,
     yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
     equipmentHoursPerDay: 8,
     sellableHoursPerYear: 0,
     actualMachineHoursPerYear: 0,
-    monthsUsedPerYear: 12,
     equipmentCostAllocationPercent: 100,
   };
 };
@@ -203,7 +196,11 @@ const formatBudgetTabLabel = (value: BudgetTab) => {
   }
 };
 
-export default function BudgetPage() {
+interface BudgetPageProps {
+  currentUserRole?: 'owner' | 'admin' | 'foreman' | 'crew_member';
+}
+
+export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
   const navigate = useNavigate();
   const { budgetId: routeBudgetId } = useParams<{ budgetId: string }>();
   const {
@@ -224,6 +221,7 @@ export default function BudgetPage() {
     addBudgetItem,
     updateBudgetItem,
     deleteBudgetItem,
+    reorderBudgetEquipment,
     addBudgetRate,
     updateBudgetRate,
     upsertLabourBudgetPlan,
@@ -252,6 +250,7 @@ export default function BudgetPage() {
   const [equipmentCatalogCollapsed, setEquipmentCatalogCollapsed] = useState(false);
   const [plannerEmployeeError, setPlannerEmployeeError] = useState('');
   const [equipmentCatalogError, setEquipmentCatalogError] = useState('');
+  const [draggedEquipmentId, setDraggedEquipmentId] = useState<string | null>(null);
   const [equipmentChargeOutDrafts, setEquipmentChargeOutDrafts] = useState<Record<string, string>>({});
   const [monthsAllocated, setMonthsAllocated] = useState(12);
   const [draggedPlanId, setDraggedPlanId] = useState<string | null>(null);
@@ -463,33 +462,28 @@ export default function BudgetPage() {
 
   const openEdit = (b: BudgetItem) => {
     const linkedAsset = b.equipmentId ? equipmentAssetsById[b.equipmentId] : undefined;
-    const averageFuelPrice = b.averageFuelPrice
-      ?? linkedAsset?.averageFuelPrice
-      ?? b.fuelCostPerHour
-      ?? linkedAsset?.hourlyCost
-      ?? 0;
-    const averageFuelBurnPerHour = b.averageFuelBurnPerHour
-      ?? linkedAsset?.averageFuelBurnPerHour
-      ?? ((b.fuelCostPerHour ?? linkedAsset?.hourlyCost ?? 0) > 0 ? 1 : 0);
+    const operatingHours = b.sellableHoursPerYear ?? 0;
+    const yearlyFuelCost = b.yearlyFuelCost
+      ?? linkedAsset?.yearlyFuelCost
+      ?? ((b.averageFuelPrice ?? linkedAsset?.averageFuelPrice ?? b.fuelCostPerHour ?? linkedAsset?.hourlyCost ?? 0)
+        * (b.averageFuelBurnPerHour ?? linkedAsset?.averageFuelBurnPerHour ?? 1)
+        * operatingHours);
     setEditing(b);
     setForm({
       budgetId: b.budgetId ?? activeBudgetId ?? undefined,
       category: b.category,
       equipmentId: b.equipmentId,
       equipmentCostType: normalizeEquipmentCostType(b.equipmentCostType ?? linkedAsset?.costType),
+      equipmentClassification: b.equipmentClassification ?? linkedAsset?.equipmentClassification ?? 'billable',
       costCode: b.costCode ?? linkedAsset?.type ?? '',
       equipmentPayment: b.equipmentPayment ?? linkedAsset?.equipmentPayment,
       equipmentPaymentFrequencyPerYear: b.equipmentPaymentFrequencyPerYear ?? linkedAsset?.equipmentPaymentFrequencyPerYear,
-      fuelPriceUnit: b.fuelPriceUnit ?? linkedAsset?.fuelPriceUnit ?? 'L',
-      averageFuelPrice,
-      averageFuelBurnPerHour,
-      fuelCostPerHour: b.fuelCostPerHour,
+      yearlyFuelCost,
       yearlyInsuranceCost: b.yearlyInsuranceCost ?? linkedAsset?.yearlyInsuranceCost ?? ((b.monthlyInsuranceCost ?? 0) * 12),
       yearlyMaintenanceCost: b.yearlyMaintenanceCost ?? linkedAsset?.yearlyMaintenanceCost ?? ((b.monthlyMaintenanceCost ?? 0) * 12),
       equipmentHoursPerDay: b.equipmentHoursPerDay ?? 8,
       sellableHoursPerYear: b.sellableHoursPerYear,
       actualMachineHoursPerYear: b.actualMachineHoursPerYear,
-      monthsUsedPerYear: b.monthsUsedPerYear ?? 12,
       equipmentCostAllocationPercent: b.equipmentCostAllocationPercent ?? 100,
       description: b.description,
       budgeted: b.budgeted,
@@ -500,16 +494,14 @@ export default function BudgetPage() {
       description: b.description,
       costCode: b.costCode ?? linkedAsset?.type ?? '',
       equipmentCostType: normalizeEquipmentCostType(b.equipmentCostType ?? linkedAsset?.costType),
+      equipmentClassification: b.equipmentClassification ?? linkedAsset?.equipmentClassification ?? 'billable',
       equipmentPayment: b.equipmentPayment ?? linkedAsset?.equipmentPayment ?? 0,
       equipmentPaymentFrequencyPerYear: b.equipmentPaymentFrequencyPerYear ?? linkedAsset?.equipmentPaymentFrequencyPerYear ?? 12,
-      fuelPriceUnit: (b.fuelPriceUnit ?? linkedAsset?.fuelPriceUnit) === 'gal' ? 'gal' : 'L',
-      averageFuelPrice,
-      averageFuelBurnPerHour,
+      yearlyFuelCost,
       yearlyInsuranceCost: b.yearlyInsuranceCost ?? linkedAsset?.yearlyInsuranceCost ?? ((b.monthlyInsuranceCost ?? 0) * 12),
       yearlyMaintenanceCost: b.yearlyMaintenanceCost ?? linkedAsset?.yearlyMaintenanceCost ?? ((b.monthlyMaintenanceCost ?? 0) * 12),
       sellableHoursPerYear: b.sellableHoursPerYear ?? 0,
       equipmentHoursPerDay: b.equipmentHoursPerDay ?? 8,
-      monthsUsedPerYear: b.monthsUsedPerYear ?? 12,
     });
     const allocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === b.id);
     setMonthsAllocated(allocation?.monthsAllocated ?? 12);
@@ -522,7 +514,6 @@ export default function BudgetPage() {
     let normalizedCostCode = form.category === 'equipment' ? equipmentInfoForm.costCode.trim() : (form.costCode?.trim() ?? '');
     let normalizedEquipmentId = form.equipmentId?.trim() ? form.equipmentId.trim() : undefined;
     const normalizeNumber = (value: number | undefined) => Math.max(0, Number.isFinite(value ?? 0) ? (value ?? 0) : 0);
-    const normalizedMonthsUsedPerYear = equipmentCostBreakdown.monthsUsedPerYear;
     const allocationMonths = form.category === 'equipment' && activeBudgetGroup ? monthsAllocated : undefined;
     if (allocationMonths !== undefined && (!Number.isFinite(allocationMonths) || allocationMonths <= 0 || allocationMonths > (allocationSummary?.remainingMonths ?? 12))) {
       setEquipmentCatalogError(`Allocate more than 0 and no more than ${allocationSummary?.remainingMonths ?? 12} months.`);
@@ -535,15 +526,14 @@ export default function BudgetPage() {
         type: normalizedCostCode || 'General Equipment',
         status: 'available',
         costType: equipmentInfoForm.equipmentCostType,
+        equipmentClassification: equipmentInfoForm.equipmentClassification,
         serialNumber: '',
         purchaseDate: undefined,
-        hourlyCost: equipmentCostBreakdown.fuelCostPerHour,
+        hourlyCost: equipmentCostBreakdown.totalCostPerHour,
         purchasePrice: undefined,
         equipmentPayment: equipmentCostBreakdown.paymentPerPeriod,
         equipmentPaymentFrequencyPerYear: equipmentCostBreakdown.paymentFrequencyPerYear,
-        fuelPriceUnit: equipmentInfoForm.fuelPriceUnit,
-        averageFuelPrice: equipmentCostBreakdown.fuelPricePerUnit,
-        averageFuelBurnPerHour: equipmentCostBreakdown.fuelBurnPerHour,
+        yearlyFuelCost: equipmentCostBreakdown.annualFuelCost,
         yearlyInsuranceCost: equipmentCostBreakdown.annualInsuranceCost,
         yearlyMaintenanceCost: equipmentCostBreakdown.annualMaintenanceCost,
         notes: '',
@@ -563,12 +553,11 @@ export default function BudgetPage() {
         name: normalizedDescription,
         type: normalizedCostCode || equipmentAssetsById[normalizedEquipmentId]?.type || 'General Equipment',
         costType: equipmentInfoForm.equipmentCostType,
-        hourlyCost: equipmentCostBreakdown.fuelCostPerHour,
+        equipmentClassification: equipmentInfoForm.equipmentClassification,
+        hourlyCost: equipmentCostBreakdown.totalCostPerHour,
         equipmentPayment: equipmentCostBreakdown.paymentPerPeriod,
         equipmentPaymentFrequencyPerYear: equipmentCostBreakdown.paymentFrequencyPerYear,
-        fuelPriceUnit: equipmentInfoForm.fuelPriceUnit,
-        averageFuelPrice: equipmentCostBreakdown.fuelPricePerUnit,
-        averageFuelBurnPerHour: equipmentCostBreakdown.fuelBurnPerHour,
+        yearlyFuelCost: equipmentCostBreakdown.annualFuelCost,
         yearlyInsuranceCost: equipmentCostBreakdown.annualInsuranceCost,
         yearlyMaintenanceCost: equipmentCostBreakdown.annualMaintenanceCost,
       });
@@ -577,12 +566,10 @@ export default function BudgetPage() {
     const equipmentFields = form.category === 'equipment'
       ? {
           equipmentId: normalizedEquipmentId,
+          equipmentClassification: equipmentInfoForm.equipmentClassification,
           equipmentPayment: equipmentCostBreakdown.paymentPerPeriod,
           equipmentPaymentFrequencyPerYear: equipmentCostBreakdown.paymentFrequencyPerYear,
-          fuelPriceUnit: equipmentInfoForm.fuelPriceUnit,
-          averageFuelPrice: equipmentCostBreakdown.fuelPricePerUnit,
-          averageFuelBurnPerHour: equipmentCostBreakdown.fuelBurnPerHour,
-          fuelCostPerHour: equipmentCostBreakdown.fuelCostPerHour,
+          yearlyFuelCost: equipmentCostBreakdown.annualFuelCost,
           yearlyInsuranceCost: equipmentCostBreakdown.annualInsuranceCost,
           yearlyMaintenanceCost: equipmentCostBreakdown.annualMaintenanceCost,
           equipmentHoursPerDay: equipmentCostBreakdown.equipmentHoursPerDay,
@@ -590,16 +577,20 @@ export default function BudgetPage() {
           monthlyMaintenanceCost: undefined,
           sellableHoursPerYear: equipmentCostBreakdown.sellableHoursPerYear,
           actualMachineHoursPerYear: normalizeNumber(form.actualMachineHoursPerYear),
-          monthsUsedPerYear: normalizedMonthsUsedPerYear,
           equipmentCostAllocationPercent: editing?.equipmentCostAllocationPercent ?? 100,
+          sortOrder: editing?.sortOrder ?? scopedBudgetItems
+            .filter((item) => item.category === 'equipment')
+            .reduce((highest, item) => Math.max(highest, item.sortOrder ?? -1), -1) + 1,
         }
       : {
           equipmentId: undefined,
+          equipmentClassification: undefined,
           equipmentPayment: undefined,
           equipmentPaymentFrequencyPerYear: undefined,
           fuelPriceUnit: undefined,
           averageFuelPrice: undefined,
           averageFuelBurnPerHour: undefined,
+          yearlyFuelCost: undefined,
           fuelCostPerHour: undefined,
           yearlyInsuranceCost: undefined,
           yearlyMaintenanceCost: undefined,
@@ -608,8 +599,8 @@ export default function BudgetPage() {
           monthlyMaintenanceCost: undefined,
           sellableHoursPerYear: undefined,
           actualMachineHoursPerYear: undefined,
-          monthsUsedPerYear: undefined,
           equipmentCostAllocationPercent: undefined,
+          sortOrder: undefined,
         };
     const yearlyForm = {
       ...form,
@@ -644,8 +635,6 @@ export default function BudgetPage() {
     }
 
     const equipmentDefaults = equipmentInfoDefaultsFromAsset(selected);
-    const defaultAverageFuelPrice = selected.averageFuelPrice ?? selected.hourlyCost;
-    const defaultAverageFuelBurnPerHour = selected.averageFuelBurnPerHour ?? (selected.hourlyCost > 0 ? 1 : 0);
     setEditing(null);
     setForm({
       ...empty(activeBudgetId),
@@ -654,6 +643,7 @@ export default function BudgetPage() {
       category: 'equipment',
       equipmentId,
       equipmentCostType: selected.costType,
+      equipmentClassification: selected.equipmentClassification ?? 'billable',
       description: selected.name,
       costCode: selected.type,
       period: `${year}-01`,
@@ -664,16 +654,14 @@ export default function BudgetPage() {
       description: selected.name,
       costCode: selected.type,
       equipmentCostType: selected.costType,
+      equipmentClassification: selected.equipmentClassification ?? 'billable',
       equipmentPayment: selected.equipmentPayment ?? 0,
       equipmentPaymentFrequencyPerYear: selected.equipmentPaymentFrequencyPerYear ?? 12,
-      fuelPriceUnit: selected.fuelPriceUnit ?? 'L',
-      averageFuelPrice: defaultAverageFuelPrice,
-      averageFuelBurnPerHour: defaultAverageFuelBurnPerHour,
+      yearlyFuelCost: selected.yearlyFuelCost ?? 0,
       yearlyInsuranceCost: selected.yearlyInsuranceCost ?? 0,
       yearlyMaintenanceCost: selected.yearlyMaintenanceCost ?? 0,
       sellableHoursPerYear: 0,
       equipmentHoursPerDay: 8,
-      monthsUsedPerYear: 12,
     });
     setShowEquipmentCalcDetails(false);
     if (activeBudgetGroup) {
@@ -776,9 +764,11 @@ export default function BudgetPage() {
   ];
 
   const totalsByCategory = useMemo(() => {
+    const billableEquipment = grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead');
+    const overheadEquipment = grouped.equipment.filter((item) => item.equipmentClassification === 'overhead');
     const sum = (category: BudgetCategory) => ({
-      budgeted: grouped[category].reduce((value, item) => value + item.budgeted, 0),
-      actual: grouped[category].reduce((value, item) => value + item.actual, 0),
+      budgeted: (category === 'equipment' ? billableEquipment : grouped[category]).reduce((value, item) => value + item.budgeted, 0),
+      actual: (category === 'equipment' ? billableEquipment : grouped[category]).reduce((value, item) => value + item.actual, 0),
     });
 
     return {
@@ -791,17 +781,23 @@ export default function BudgetPage() {
         budgeted: grouped.overhead.reduce((value, item) => value + item.budgeted, 0)
           + grouped.marketing.reduce((value, item) => value + item.budgeted, 0)
           + grouped.insurance.reduce((value, item) => value + item.budgeted, 0)
-          + grouped.other.reduce((value, item) => value + item.budgeted, 0),
+          + grouped.other.reduce((value, item) => value + item.budgeted, 0)
+          + overheadEquipment.reduce((value, item) => value + item.budgeted, 0),
         actual: grouped.overhead.reduce((value, item) => value + item.actual, 0)
           + grouped.marketing.reduce((value, item) => value + item.actual, 0)
           + grouped.insurance.reduce((value, item) => value + item.actual, 0)
-          + grouped.other.reduce((value, item) => value + item.actual, 0),
+          + grouped.other.reduce((value, item) => value + item.actual, 0)
+          + overheadEquipment.reduce((value, item) => value + item.actual, 0),
       },
     };
   }, [grouped]);
 
   const categoryRows = BUDGET_CATEGORIES.map((category) => {
-    const catItems = grouped[category];
+    const catItems = category === 'equipment'
+      ? grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead')
+      : category === 'overhead'
+        ? [...grouped.overhead, ...grouped.equipment.filter((item) => item.equipmentClassification === 'overhead')]
+        : grouped[category];
     const budgeted = catItems.reduce((sum, item) => sum + item.budgeted, 0);
     const actual = catItems.reduce((sum, item) => sum + item.actual, 0);
     const variance = category === 'revenue' ? actual - budgeted : budgeted - actual;
@@ -809,7 +805,7 @@ export default function BudgetPage() {
   }).filter((row) => row.count > 0);
 
   const equipmentByCostType = useMemo(() => {
-    const equipmentItems = grouped.equipment;
+    const equipmentItems = grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead');
     const totalFor = (costType: EquipmentCostType) => ({
       budgeted: equipmentItems
         .filter((item) => normalizeEquipmentCostType(item.equipmentCostType) === costType)
@@ -830,9 +826,34 @@ export default function BudgetPage() {
   const selectedCategory = activeTab !== 'analysis' ? activeTab : null;
   const selectedCategoryItems = selectedCategory ? grouped[selectedCategory] : [];
   const equipmentFilteredItems = useMemo(() => {
-    if (equipmentTableView === 'all') return grouped.equipment;
-    return grouped.equipment.filter((item) => normalizeEquipmentCostType(item.equipmentCostType) === equipmentTableView);
+    const ordered = grouped.equipment.slice().sort((a, b) => {
+      const orderDifference = (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      return orderDifference || compareBudgetItemsByCostCode(a, b);
+    });
+    if (equipmentTableView === 'all') return ordered;
+    return ordered.filter((item) => normalizeEquipmentCostType(item.equipmentCostType) === equipmentTableView);
   }, [equipmentTableView, grouped.equipment]);
+
+  const canReorderEquipment = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const moveEquipmentRow = (sourceId: string, targetId: string) => {
+    if (!activeBudgetId || sourceId === targetId) return;
+    const ordered = scopedBudgetItems.filter((item) => item.category === 'equipment').sort((a, b) => {
+      const orderDifference = (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      return orderDifference || compareBudgetItemsByCostCode(a, b);
+    });
+    const sourceIndex = ordered.findIndex((item) => item.id === sourceId);
+    const targetIndex = ordered.findIndex((item) => item.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = ordered.splice(sourceIndex, 1);
+    ordered.splice(targetIndex, 0, moved);
+    void reorderBudgetEquipment(activeBudgetId, ordered.map((item) => item.id));
+  };
+
+  const moveEquipmentRowByOffset = (itemId: string, offset: -1 | 1) => {
+    const currentIndex = equipmentFilteredItems.findIndex((item) => item.id === itemId);
+    const target = equipmentFilteredItems[currentIndex + offset];
+    if (target) moveEquipmentRow(itemId, target.id);
+  };
 
   const displayCategoryItems = activeTab === 'equipment' ? equipmentFilteredItems : selectedCategoryItems;
 
@@ -1041,16 +1062,13 @@ export default function BudgetPage() {
       equipmentCostType: equipmentInfoForm.equipmentCostType,
       equipmentPayment: equipmentInfoForm.equipmentPayment,
       equipmentPaymentFrequencyPerYear: equipmentInfoForm.equipmentPaymentFrequencyPerYear,
-      averageFuelPrice: equipmentInfoForm.averageFuelPrice,
-      averageFuelBurnPerHour: equipmentInfoForm.averageFuelBurnPerHour,
+      yearlyFuelCost: equipmentInfoForm.yearlyFuelCost,
       yearlyInsuranceCost: equipmentInfoForm.yearlyInsuranceCost,
       yearlyMaintenanceCost: equipmentInfoForm.yearlyMaintenanceCost,
       sellableHoursPerYear: equipmentInfoForm.sellableHoursPerYear,
       equipmentHoursPerDay: equipmentInfoForm.equipmentHoursPerDay,
-      monthsUsedPerYear: equipmentInfoForm.monthsUsedPerYear,
     });
   }, [equipmentInfoForm]);
-  const calculatedFuelCostPerHour = equipmentCostBreakdown.fuelCostPerHour;
   const calculatedTotalEquipmentCostPerYear = equipmentCostBreakdown.totalEquipmentCostPerYear;
   const calculatedTotalEquipmentCostPerHour = equipmentCostBreakdown.totalCostPerHour;
   const calculatedTotalEquipmentCostPerDay = equipmentCostBreakdown.totalCostPerDay;
@@ -1231,7 +1249,9 @@ export default function BudgetPage() {
   const equipmentOverheadRecoveryPerHour = pricingInputs.equipmentUtilizationHours > 0
     ? allocationAmounts.equipment / pricingInputs.equipmentUtilizationHours
     : 0;
-  const equipmentPricingRows = equipmentBudgetItemsForYear.map((item) => {
+  const equipmentPricingRows = equipmentBudgetItemsForYear
+    .filter((item) => item.equipmentClassification !== 'overhead')
+    .map((item) => {
     const asset = item.equipmentId ? equipmentAssetsById[item.equipmentId] : undefined;
     const costRateHourly = (item.sellableHoursPerYear ?? 0) > 0 ? item.budgeted / (item.sellableHoursPerYear ?? 1) : 0;
     const rate = findEquipmentRate(item);
@@ -1247,7 +1267,7 @@ export default function BudgetPage() {
       chargeOutRate: savedChargeOutRate,
     });
     return { item, asset, rate, pricing };
-  });
+    });
 
   const saveEquipmentChargeOutRate = (row: typeof equipmentPricingRows[number], requestedRate: number) => {
     if (!activeBudgetId) return;
@@ -2213,6 +2233,7 @@ export default function BudgetPage() {
                     <table className="w-full text-sm min-w-[1240px]">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
+                          {canReorderEquipment ? <th className="w-10 px-2 py-3"><span className="sr-only">Order</span></th> : null}
                           <th className="px-4 py-3 font-medium">Equipment</th>
                           <th className="px-4 py-3 font-medium">Cost Type</th>
                           <th className="px-4 py-3 font-medium text-right">Cost / Year</th>
@@ -2230,9 +2251,36 @@ export default function BudgetPage() {
                           const costPerDay = equipmentHoursPerDay > 0 ? costPerHour * equipmentHoursPerDay : 0;
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
+                              {canReorderEquipment ? (
+                                <td className="w-10 px-2 py-2">
+                                  <button
+                                    type="button"
+                                    draggable
+                                    aria-label={`Reorder ${linkedAsset?.name ?? item.description}. Use up and down arrow keys to move.`}
+                                    className="cursor-grab rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 active:cursor-grabbing"
+                                    onDragStart={() => setDraggedEquipmentId(item.id)}
+                                    onDragEnd={() => setDraggedEquipmentId(null)}
+                                    onDragOver={(event) => event.preventDefault()}
+                                    onDrop={(event) => {
+                                      event.preventDefault();
+                                      if (draggedEquipmentId) moveEquipmentRow(draggedEquipmentId, item.id);
+                                      setDraggedEquipmentId(null);
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                                        event.preventDefault();
+                                        moveEquipmentRowByOffset(item.id, event.key === 'ArrowUp' ? -1 : 1);
+                                      }
+                                    }}
+                                  >
+                                    <GripVertical size={16} aria-hidden="true" />
+                                  </button>
+                                </td>
+                              ) : null}
                               <td className="px-4 py-2 text-gray-700">
                                 <p className="font-medium text-gray-900">{linkedAsset?.name ?? item.description}</p>
                                 <p className="text-xs text-gray-500 mt-1">{linkedAsset ? linkedAsset.type : 'Unlinked custom budget row'}</p>
+                                <p className="text-xs text-gray-500 mt-1">{item.equipmentClassification === 'overhead' ? 'Overhead Equipment' : 'Billable Equipment'}</p>
                               </td>
                               <td className="px-4 py-2">
                                 <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
@@ -2557,6 +2605,7 @@ export default function BudgetPage() {
 
       {/* Form modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Budget Item' : 'New Budget Item'}
+        size={form.category === 'equipment' ? 'large' : 'default'}
         footer={<>
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
           <Button onClick={() => void handleSave()}>Save</Button>
@@ -2587,7 +2636,6 @@ export default function BudgetPage() {
             <EquipmentInfoForm
               value={equipmentInfoForm}
               onChange={setEquipmentInfoForm}
-              fuelCostPerHour={calculatedFuelCostPerHour}
               totalEquipmentCostPerYear={calculatedTotalEquipmentCostPerYear}
               totalCostPerHour={calculatedTotalEquipmentCostPerHour}
               totalCostPerDay={calculatedTotalEquipmentCostPerDay}
@@ -2597,12 +2645,12 @@ export default function BudgetPage() {
             {activeBudgetGroup ? (
               <div className="border-y border-gray-200 py-4">
                 <div className="mb-3">
-                  <p className="text-sm font-semibold text-gray-900">Allocate within {activeBudgetGroup.name}</p>
-                  <p className="mt-1 text-xs text-gray-500">{allocationSummary?.remainingMonths ?? 12} months available for this equipment across the group.</p>
+                  <p className="text-sm font-semibold text-gray-900">Allocate Annual Equipment Cost</p>
+                  <p className="mt-1 text-xs text-gray-500">Allocate this equipment&apos;s 12 months of annual ownership cost across the budgets in {activeBudgetGroup.name}. This represents cost recovery responsibility, not months of physical equipment use.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
-                    label="Months allocated"
+                    label="Annual Cost Allocation (Months)"
                     type="number"
                     min={0.25}
                     max={allocationSummary?.remainingMonths ?? 12}
@@ -2611,7 +2659,7 @@ export default function BudgetPage() {
                     onChange={(event) => setMonthsAllocated(Number(event.target.value))}
                   />
                   <div className="flex flex-col justify-end rounded-lg bg-gray-50 px-3 py-2">
-                    <span className="text-xs text-gray-500">Cost charged to this budget</span>
+                    <span className="text-xs text-gray-500">12 months total · {monthsAllocated} allocated · {Math.max(0, (allocationSummary?.remainingMonths ?? 12) - monthsAllocated)} remaining</span>
                     <span className="text-lg font-semibold text-gray-900">{formatCurrency(calculateAllocatedEquipmentCost(calculatedTotalEquipmentCostPerYear, monthsAllocated))}</span>
                   </div>
                 </div>

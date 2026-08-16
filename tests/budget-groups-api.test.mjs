@@ -170,5 +170,5 @@ test('equipment allocation rejects capacity above twelve months within a group',
 
   assert.equal(first.ok, true);
   assert.equal(second.ok, false);
-  assert.match(second.error, /4.5 months remain/i);
+  assert.match(second.error, /4.5 months of annual cost responsibility remain/i);
 });

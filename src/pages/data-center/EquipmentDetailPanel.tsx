@@ -57,8 +57,7 @@ export default function EquipmentDetailPanel({
     : null;
   const recommendedRate = pricingRate?.recommendedSellPrice ?? equipment.recommendedSellRate;
   const approvedRate = equipment.chargeOutRate;
-  const fuelCostPerHour = Math.max(0, Number(equipment.averageFuelPrice ?? 0))
-    * Math.max(0, Number(equipment.averageFuelBurnPerHour ?? 0));
+  const isOverheadEquipment = equipment.equipmentClassification === 'overhead';
   const allocatedRows = allocations.map((allocation) => {
     const budget = budgets.find((value) => value.id === allocation.budgetId);
     const budgetGroup = budgetGroups.find((value) => value.id === allocation.budgetGroupId);
@@ -105,15 +104,14 @@ export default function EquipmentDetailPanel({
                   <dt className="text-gray-500 dark:text-brand-200">ID / SKU</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.serialNumber)}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Type / Class</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Ownership</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
+                  <dt className="text-gray-500 dark:text-brand-200">Classification</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{isOverheadEquipment ? 'Overhead Equipment' : 'Billable Equipment'}</dd>
                 </dl>
               </Card>
 
               <Card className="p-4">
                 <h2 className="font-semibold text-gray-900 dark:text-brand-50">Operating Costs</h2>
                 <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 text-sm">
-                  <dt className="text-gray-500 dark:text-brand-200">Fuel cost / hour</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{fuelCostPerHour > 0 ? formatCurrency(fuelCostPerHour) : 'Not recorded'}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Fuel price / {equipment.fuelPriceUnit ?? 'unit'}</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.averageFuelPrice !== undefined ? formatCurrency(equipment.averageFuelPrice) : 'Not recorded'}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Fuel burn / hour</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.averageFuelBurnPerHour !== undefined ? `${equipment.averageFuelBurnPerHour} ${equipment.fuelPriceUnit ?? 'unit'}` : 'Not recorded'}</dd>
+                  <dt className="text-gray-500 dark:text-brand-200">Yearly fuel cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyFuelCost !== undefined ? formatCurrency(equipment.yearlyFuelCost) : 'Not recorded'}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Annual insurance</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyInsuranceCost !== undefined ? formatCurrency(equipment.yearlyInsuranceCost) : 'Not recorded'}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Annual maintenance</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyMaintenanceCost !== undefined ? formatCurrency(equipment.yearlyMaintenanceCost) : 'Not recorded'}</dd>
                 </dl>
@@ -127,13 +125,11 @@ export default function EquipmentDetailPanel({
                   {utilizationRows.map(({ allocation, budget, budgetItem }) => {
                     const hoursPerDay = budgetItem?.equipmentHoursPerDay;
                     const sellableHours = budgetItem?.sellableHoursPerYear;
-                    const months = allocation.monthsAllocated;
                     const operatingDays = hoursPerDay && sellableHours ? sellableHours / hoursPerDay : null;
-                    const daysPerMonth = operatingDays && months > 0 ? operatingDays / months : null;
                     return (
                       <div key={allocation.id} className="rounded-lg border border-brand-100 p-3 dark:border-brand-600">
                         <p className="text-sm font-medium text-gray-900 dark:text-brand-50">{budget?.name ?? 'Unavailable budget'}</p>
-                        <p className="mt-2 text-xs text-gray-500 dark:text-brand-200">{hoursPerDay ? `${hoursPerDay} hours/day` : 'Hours/day not recorded'} · {daysPerMonth ? `${daysPerMonth.toFixed(1)} days/month` : 'Days/month not calculated'} · {months} months/year</p>
+                        <p className="mt-2 text-xs text-gray-500 dark:text-brand-200">{hoursPerDay ? `${hoursPerDay} hours/day` : 'Hours/day not recorded'} · {operatingDays ? `${operatingDays.toFixed(1)} operating days/year` : 'Operating days not calculated'}</p>
                       </div>
                     );
                   })}
@@ -147,7 +143,9 @@ export default function EquipmentDetailPanel({
         ) : null}
 
         {activeTab === 'pricing' ? (
-          recommendedRate && recommendedRate > 0 ? (
+          isOverheadEquipment ? (
+            <EmptyState title="Charge-out pricing is not available" description="Overhead equipment costs are recovered through overhead rather than estimate charge-out rates." />
+          ) : recommendedRate && recommendedRate > 0 ? (
             <div className={`grid gap-3 ${expanded ? 'sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2'}`}>
               {[
                 ['Direct Cost / Hour', directCostRate !== null && directCostRate !== undefined ? formatCurrency(directCostRate) : 'Not calculated'],
@@ -176,7 +174,7 @@ export default function EquipmentDetailPanel({
                     <div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600"><h2 className="font-semibold text-gray-900 dark:text-brand-50">{group.name}</h2></div>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[620px] text-sm">
-                        <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Budget</th><th className="px-4 py-3 font-medium">Months Used</th><th className="px-4 py-3 text-right font-medium">Annual Allocation</th><th className="px-4 py-3 text-right font-medium">Cost / hr</th></tr></thead>
+                        <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Budget</th><th className="px-4 py-3 font-medium">Annual Cost Allocation</th><th className="px-4 py-3 text-right font-medium">Annual Allocation</th><th className="px-4 py-3 text-right font-medium">Cost / hr</th></tr></thead>
                         <tbody className="divide-y divide-gray-100">
                           {groupRows.map(({ allocation, budget, budgetItem, costRate }) => (
                             <tr key={allocation.id}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{budget?.name ?? 'Unavailable budget'}</td><td className="px-4 py-3 text-gray-600 dark:text-brand-100">{allocation.monthsAllocated} months</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{formatCurrency(budgetItem?.budgeted ?? 0)}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{costRate !== null ? `${formatCurrency(costRate)}/hr` : 'Not calculated'}</td></tr>

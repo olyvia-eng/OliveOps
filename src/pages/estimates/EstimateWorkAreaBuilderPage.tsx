@@ -212,6 +212,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     for (const asset of equipmentAssets) {
       const matchedRate = findMatchingRate('equipment', [asset.name, asset.type]);
       if (matchedRate) matchedEquipmentRateIds.add(matchedRate.id);
+      if (asset.equipmentClassification === 'overhead') continue;
       const approvedChargeOutRate = Math.max(0, Number(asset.chargeOutRate ?? 0));
       const hasCatalogPricing = approvedChargeOutRate > 0;
 

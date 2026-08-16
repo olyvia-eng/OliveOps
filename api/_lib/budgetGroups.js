@@ -134,7 +134,7 @@ export async function saveEquipmentBudgetAllocationForItem({
   monthsAllocated,
 }) {
   if (!Number.isFinite(monthsAllocated) || monthsAllocated <= 0 || monthsAllocated > 12) {
-    return { ok: false, error: 'Allocated months must be greater than 0 and no more than 12.' };
+    return { ok: false, error: 'Annual cost allocation must be greater than 0 and no more than 12 months.' };
   }
   const context = await findBudgetGroupContext({ businessId, budgetId, equipmentId });
   if (!context || !context.group.budgetIds.includes(budgetId)) {
@@ -145,7 +145,7 @@ export async function saveEquipmentBudgetAllocationForItem({
     .filter((allocation) => allocation.id !== existing?.id)
     .reduce((sum, allocation) => sum + allocation.monthsAllocated, 0);
   if (allocatedElsewhere + monthsAllocated > 12) {
-    return { ok: false, error: `Only ${Math.max(0, 12 - allocatedElsewhere)} months remain available in this Budget Group.` };
+    return { ok: false, error: `Only ${Math.max(0, 12 - allocatedElsewhere)} months of annual cost responsibility remain in this Budget Group.` };
   }
   const allocation = await putEquipmentBudgetAllocation({
     businessId,

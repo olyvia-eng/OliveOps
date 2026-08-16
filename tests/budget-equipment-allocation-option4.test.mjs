@@ -12,16 +12,18 @@ test('budget equipment calculations use shared helper and defer sell-rate approv
   assert.match(source, /defaultSellPrice: chargeOutRate,/);
 });
 
-test('months used per year remains separate from grouped equipment allocation', () => {
+test('annual cost allocation remains separate from utilization assumptions', () => {
   const source = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
   const sharedFormSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
 
   assert.match(source, /<EquipmentInfoForm/);
-  assert.match(sharedFormSource, /Months Used Per Year/);
+  assert.doesNotMatch(sharedFormSource, /Months Used Per Year/);
+  assert.match(sharedFormSource, /Expected Operating Hours \/ Year/);
   assert.doesNotMatch(source, /Planning Months \(not used in allocation formula\)/);
   assert.doesNotMatch(source, /monthsUsedPerYear\s*\/\s*12/);
   assert.doesNotMatch(source, /normalizedMonthsUsedPerYear\s*\/\s*12/);
-  assert.match(source, /Months allocated/);
+  assert.match(source, /Annual Cost Allocation \(Months\)/);
+  assert.match(source, /cost recovery responsibility, not months of physical equipment use/);
   assert.match(source, /calculateAllocatedEquipmentCost/);
 });
 

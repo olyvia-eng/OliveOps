@@ -747,6 +747,9 @@ function validateEquipmentAssetRecord(record) {
   if (record.purchasePrice !== undefined && record.purchasePrice !== null && (!isFiniteNumber(record.purchasePrice) || record.purchasePrice < 0)) {
     return 'Equipment purchase price must be zero or greater.';
   }
+  if (record.equipmentClassification !== undefined && record.equipmentClassification !== null && !['billable', 'overhead'].includes(record.equipmentClassification)) {
+    return 'Equipment classification must be billable or overhead.';
+  }
   if (record.equipmentPayment !== undefined && record.equipmentPayment !== null && (!isFiniteNumber(record.equipmentPayment) || record.equipmentPayment < 0)) {
     return 'Equipment payment must be zero or greater.';
   }
@@ -762,6 +765,9 @@ function validateEquipmentAssetRecord(record) {
   }
   if (record.averageFuelPrice !== undefined && record.averageFuelPrice !== null && (!isFiniteNumber(record.averageFuelPrice) || record.averageFuelPrice < 0)) {
     return 'Average fuel price must be zero or greater.';
+  }
+  if (record.yearlyFuelCost !== undefined && record.yearlyFuelCost !== null && (!isFiniteNumber(record.yearlyFuelCost) || record.yearlyFuelCost < 0)) {
+    return 'Yearly fuel cost must be zero or greater.';
   }
   if (
     record.averageFuelBurnPerHour !== undefined
@@ -842,6 +848,9 @@ function validateBudgetItemRecord(record) {
   if (record.equipmentCostType !== undefined && record.equipmentCostType !== null && !EQUIPMENT_COST_TYPES.has(record.equipmentCostType)) {
     return 'Budget item equipment cost type is invalid.';
   }
+  if (record.equipmentClassification !== undefined && record.equipmentClassification !== null && !['billable', 'overhead'].includes(record.equipmentClassification)) {
+    return 'Equipment classification must be billable or overhead.';
+  }
   if (record.equipmentId !== undefined && record.equipmentId !== null && !isNonEmptyString(record.equipmentId)) {
     return 'Budget item equipment id is invalid.';
   }
@@ -860,6 +869,9 @@ function validateBudgetItemRecord(record) {
   }
   if (record.averageFuelPrice !== undefined && record.averageFuelPrice !== null && (!isFiniteNumber(record.averageFuelPrice) || record.averageFuelPrice < 0)) {
     return 'Average fuel price must be zero or greater.';
+  }
+  if (record.yearlyFuelCost !== undefined && record.yearlyFuelCost !== null && (!isFiniteNumber(record.yearlyFuelCost) || record.yearlyFuelCost < 0)) {
+    return 'Yearly fuel cost must be zero or greater.';
   }
   if (
     record.averageFuelBurnPerHour !== undefined
@@ -901,6 +913,9 @@ function validateBudgetItemRecord(record) {
     && (!isFiniteNumber(record.equipmentCostAllocationPercent) || record.equipmentCostAllocationPercent < 0)
   ) {
     return 'Equipment cost allocation percent must be zero or greater.';
+  }
+  if (record.sortOrder !== undefined && record.sortOrder !== null && (!Number.isInteger(record.sortOrder) || record.sortOrder < 0)) {
+    return 'Equipment sort order must be a non-negative whole number.';
   }
 
   return null;

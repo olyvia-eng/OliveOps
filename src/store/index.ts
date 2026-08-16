@@ -203,6 +203,7 @@ interface AppState {
   addBudgetItem: (item: Omit<BudgetItem, 'id'>, allocationMonths?: number) => void;
   updateBudgetItem: (id: ID, data: Partial<BudgetItem>, allocationMonths?: number) => void;
   deleteBudgetItem: (id: ID) => void;
+  reorderBudgetEquipment: (budgetId: ID, orderedIds: ID[]) => Promise<boolean>;
   addBudgetRate: (rate: Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateBudgetRate: (id: ID, data: Partial<BudgetRate>) => void;
   deleteBudgetRate: (id: ID) => void;
@@ -1751,6 +1752,29 @@ export const useStore = create<AppState>()((set, get) => ({
           set({ budgetItems: previous });
           emitAppToast({ tone: 'error', message: 'Budget item could not be deleted.' });
         });
+      },
+      reorderBudgetEquipment: async (budgetId, orderedIds) => {
+        const previous = get().budgetItems;
+        const sortOrderById = new Map(orderedIds.map((id, sortOrder) => [id, sortOrder]));
+        set((state) => ({
+          budgetItems: state.budgetItems.map((item) => item.budgetId === budgetId && item.category === 'equipment'
+            ? { ...item, sortOrder: sortOrderById.get(item.id) ?? item.sortOrder }
+            : item),
+        }));
+
+        try {
+          await ensureOk(fetch('/api/budget-equipment-order', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ budgetId, orderedIds }),
+          }));
+          return true;
+        } catch {
+          set({ budgetItems: previous });
+          emitAppToast({ tone: 'error', message: 'Equipment order could not be saved.' });
+          return false;
+        }
       },
       addBudgetRate: (rateInput) => {
         const previous = get().budgetRates;

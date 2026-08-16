@@ -233,6 +233,7 @@ export interface Expense {
 // ─── Equipment ──────────────────────────────────────────────────────────────
 
 export type EquipmentStatus = 'available' | 'in_use' | 'maintenance' | 'inactive';
+export type EquipmentClassification = 'billable' | 'overhead';
 
 export interface EquipmentAsset {
   id: ID;
@@ -240,6 +241,7 @@ export interface EquipmentAsset {
   type: string;
   status: EquipmentStatus;
   costType: EquipmentCostType;
+  equipmentClassification?: EquipmentClassification;
   serialNumber: string;
   purchaseDate?: string;
   hourlyCost: number;
@@ -252,6 +254,7 @@ export interface EquipmentAsset {
   fuelPriceUnit?: 'L' | 'gal';
   averageFuelPrice?: number;
   averageFuelBurnPerHour?: number;
+  yearlyFuelCost?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
   currentJobId?: ID;
@@ -816,6 +819,7 @@ export interface BudgetItem {
   budgetId?: ID;
   category: BudgetCategory;
   equipmentCostType?: EquipmentCostType;
+  equipmentClassification?: EquipmentClassification;
   equipmentId?: ID;
   costCode?: string;
   equipmentPayment?: number;
@@ -823,6 +827,7 @@ export interface BudgetItem {
   fuelPriceUnit?: 'L' | 'gal';
   averageFuelPrice?: number;
   averageFuelBurnPerHour?: number;
+  yearlyFuelCost?: number;
   fuelCostPerHour?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
@@ -833,6 +838,7 @@ export interface BudgetItem {
   actualMachineHoursPerYear?: number;
   monthsUsedPerYear?: number;
   equipmentCostAllocationPercent?: number;
+  sortOrder?: number;
   description: string;
   budgeted: number;
   actual: number;

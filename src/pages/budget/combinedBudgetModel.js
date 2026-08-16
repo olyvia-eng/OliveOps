@@ -131,9 +131,11 @@ const groupBudgetItemsByCategory = (items) => {
 };
 
 const buildTotalsByCategory = (grouped) => {
+  const billableEquipment = grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead');
+  const overheadEquipment = grouped.equipment.filter((item) => item.equipmentClassification === 'overhead');
   const sum = (category) => ({
-    budgeted: grouped[category].reduce((value, item) => value + item.budgeted, 0),
-    actual: grouped[category].reduce((value, item) => value + item.actual, 0),
+    budgeted: (category === 'equipment' ? billableEquipment : grouped[category]).reduce((value, item) => value + item.budgeted, 0),
+    actual: (category === 'equipment' ? billableEquipment : grouped[category]).reduce((value, item) => value + item.actual, 0),
   });
 
   return {
@@ -146,18 +148,24 @@ const buildTotalsByCategory = (grouped) => {
       budgeted: grouped.overhead.reduce((value, item) => value + item.budgeted, 0)
         + grouped.marketing.reduce((value, item) => value + item.budgeted, 0)
         + grouped.insurance.reduce((value, item) => value + item.budgeted, 0)
-        + grouped.other.reduce((value, item) => value + item.budgeted, 0),
+        + grouped.other.reduce((value, item) => value + item.budgeted, 0)
+        + overheadEquipment.reduce((value, item) => value + item.budgeted, 0),
       actual: grouped.overhead.reduce((value, item) => value + item.actual, 0)
         + grouped.marketing.reduce((value, item) => value + item.actual, 0)
         + grouped.insurance.reduce((value, item) => value + item.actual, 0)
-        + grouped.other.reduce((value, item) => value + item.actual, 0),
+        + grouped.other.reduce((value, item) => value + item.actual, 0)
+        + overheadEquipment.reduce((value, item) => value + item.actual, 0),
     },
   };
 };
 
 const buildCategoryRows = (grouped) => {
   return BUDGET_CATEGORIES.map((category) => {
-    const catItems = grouped[category];
+    const catItems = category === 'equipment'
+      ? grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead')
+      : category === 'overhead'
+        ? [...grouped.overhead, ...grouped.equipment.filter((item) => item.equipmentClassification === 'overhead')]
+        : grouped[category];
     const budgeted = catItems.reduce((sum, item) => sum + item.budgeted, 0);
     const actual = catItems.reduce((sum, item) => sum + item.actual, 0);
     const variance = category === 'revenue' ? actual - budgeted : budgeted - actual;
@@ -311,7 +319,7 @@ export function buildCombinedBudgetViewModel({ budgetIds, budgets, budgetItems, 
   const grouped = groupBudgetItemsByCategory(combinedItems);
   const totalsByCategory = buildTotalsByCategory(grouped);
   const categoryRows = buildCategoryRows(grouped);
-  const equipmentByCostType = buildEquipmentByCostType(grouped.equipment);
+  const equipmentByCostType = buildEquipmentByCostType(grouped.equipment.filter((item) => item.equipmentClassification !== 'overhead'));
 
   const labourPlannerRows = budgetContexts.flatMap(({ budget, scopedLabourPlans }) => buildLabourPlannerRowsForBudget({
     budget,

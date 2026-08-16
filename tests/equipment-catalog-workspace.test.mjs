@@ -57,7 +57,7 @@ test('allocation and pricing detail stays inside workspace tabs', () => {
   assert.match(detailSource, /Target Margin/);
   assert.match(detailSource, /Recommended Charge-Out/);
   assert.match(detailSource, /Approved Charge-Out/);
-  assert.match(detailSource, /Months Used/);
+  assert.match(detailSource, /Annual Cost Allocation/);
   assert.match(detailSource, /Annual Allocation/);
   assert.match(detailSource, /Recommended pricing has not been calculated yet/);
 });

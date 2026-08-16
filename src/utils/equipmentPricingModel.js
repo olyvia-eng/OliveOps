@@ -20,8 +20,9 @@ export function calculateEquipmentCostBreakdownModel(input) {
   const sellableHoursPerYear = normalizeNonNegative(input.sellableHoursPerYear);
   const equipmentHoursPerDay = normalizeNonNegative(input.equipmentHoursPerDay);
   const operatingDaysPerYear = equipmentHoursPerDay > 0 ? sellableHoursPerYear / equipmentHoursPerDay : 0;
-  const monthsUsedPerYear = Math.max(1, Math.min(12, Math.round(normalizeNonNegative(input.monthsUsedPerYear) || 1)));
-  const annualFuelCost = fuelCostPerHour * sellableHoursPerYear;
+  const annualFuelCost = input.yearlyFuelCost == null
+    ? fuelCostPerHour * sellableHoursPerYear
+    : normalizeNonNegative(input.yearlyFuelCost);
   const totalEquipmentCostPerYear = annualPayments + annualFuelCost + annualInsuranceCost + annualMaintenanceCost;
   const totalCostPerHour = sellableHoursPerYear > 0 ? totalEquipmentCostPerYear / sellableHoursPerYear : 0;
   const totalCostPerDay = totalCostPerHour * equipmentHoursPerDay;
@@ -39,7 +40,6 @@ export function calculateEquipmentCostBreakdownModel(input) {
     sellableHoursPerYear,
     equipmentHoursPerDay,
     operatingDaysPerYear,
-    monthsUsedPerYear,
     totalEquipmentCostPerYear,
     totalCostPerHour,
     totalCostPerDay,

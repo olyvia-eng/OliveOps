@@ -1,27 +1,24 @@
 import { Input, Select } from '../ui';
-import type { EquipmentCostType } from '../../types';
+import type { EquipmentClassification, EquipmentCostType } from '../../types';
 import { formatCurrency } from '../../utils';
 
 export interface EquipmentInfoFormValue {
   description: string;
   costCode: string;
   equipmentCostType: EquipmentCostType;
+  equipmentClassification: EquipmentClassification;
   equipmentPayment: number;
   equipmentPaymentFrequencyPerYear: number;
-  fuelPriceUnit: 'L' | 'gal';
-  averageFuelPrice: number;
-  averageFuelBurnPerHour: number;
+  yearlyFuelCost: number;
   yearlyInsuranceCost: number;
   yearlyMaintenanceCost: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
-  monthsUsedPerYear: number;
 }
 
 interface EquipmentInfoFormProps {
   value: EquipmentInfoFormValue;
   onChange: (next: EquipmentInfoFormValue) => void;
-  fuelCostPerHour: number;
   totalEquipmentCostPerYear: number;
   totalCostPerHour: number;
   totalCostPerDay: number;
@@ -33,22 +30,19 @@ export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
   description: '',
   costCode: '',
   equipmentCostType: 'financed',
+  equipmentClassification: 'billable',
   equipmentPayment: 0,
   equipmentPaymentFrequencyPerYear: 12,
-  fuelPriceUnit: 'L',
-  averageFuelPrice: 0,
-  averageFuelBurnPerHour: 0,
+  yearlyFuelCost: 0,
   yearlyInsuranceCost: 0,
   yearlyMaintenanceCost: 0,
   sellableHoursPerYear: 0,
   equipmentHoursPerDay: 8,
-  monthsUsedPerYear: 12,
 });
 
 export default function EquipmentInfoForm({
   value,
   onChange,
-  fuelCostPerHour,
   totalEquipmentCostPerYear,
   totalCostPerHour,
   totalCostPerDay,
@@ -60,32 +54,27 @@ export default function EquipmentInfoForm({
   };
 
   return (
-    <div className="space-y-4">
-      <Input
-        label="Description *"
-        required
-        value={value.description}
-        onChange={(event) => set('description', event.target.value)}
-      />
-      <Input
-        label="Cost Code"
-        value={value.costCode}
-        onChange={(event) => set('costCode', event.target.value)}
-        placeholder="e.g. 06-200"
-      />
-      <Select
-        label="Equipment Cost Type"
-        value={value.equipmentCostType}
-        onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}
-      >
-        <option value="financed">Financed</option>
-        <option value="leased">Leased</option>
-        <option value="owned">Owned</option>
-      </Select>
+    <div className="space-y-6">
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900">Equipment Details</h3>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Input label="Name / Equipment *" required value={value.description} onChange={(event) => set('description', event.target.value)} />
+          <Input label="Cost Code" value={value.costCode} onChange={(event) => set('costCode', event.target.value)} placeholder="e.g. 06-200" />
+          <Select label="Classification" value={value.equipmentClassification} onChange={(event) => set('equipmentClassification', event.target.value as EquipmentClassification)}>
+            <option value="billable">Billable Equipment</option>
+            <option value="overhead">Overhead Equipment</option>
+          </Select>
+          <Select label="Ownership" value={value.equipmentCostType} onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}>
+            <option value="financed">Financed</option>
+            <option value="leased">Leased</option>
+            <option value="owned">Owned</option>
+          </Select>
+        </div>
+      </section>
 
-      <fieldset className="border border-gray-200 rounded-lg p-3">
-        <legend className="text-sm font-medium text-gray-700 px-1">Equipment Info</legend>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900">Annual Costs</h3>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {value.equipmentCostType !== 'owned' && (
             <>
               <div className="flex flex-col gap-1.5">
@@ -113,63 +102,20 @@ export default function EquipmentInfoForm({
             </>
           )}
 
-          <div className="space-y-2 sm:col-span-2">
-            <p className="text-sm font-medium text-gray-700">Fuel Price Unit</p>
-            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-white">
-              {(['L', 'gal'] as const).map((unit) => (
-                <button
-                  key={unit}
-                  type="button"
-                  onClick={() => set('fuelPriceUnit', unit)}
-                  className={`px-3 py-1 text-xs rounded ${
-                    value.fuelPriceUnit === unit
-                      ? 'bg-brand-600 text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  {unit}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Fuel Price (/{value.fuelPriceUnit})</label>
+            <label className="text-sm font-medium text-gray-700">Yearly Fuel Cost</label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
               <Input
                 type="number"
                 min={0}
                 step={0.01}
-                value={value.averageFuelPrice}
+                value={value.yearlyFuelCost}
                 className="pl-7"
-                onChange={(event) => set('averageFuelPrice', Number(event.target.value || 0))}
+                onChange={(event) => set('yearlyFuelCost', Number(event.target.value || 0))}
               />
             </div>
-          </div>
-
-          <Input
-            label={`Fuel Burned per Hour (${value.fuelPriceUnit}/hr)`}
-            type="number"
-            min={0}
-            step={0.01}
-            value={value.averageFuelBurnPerHour}
-            onChange={(event) => set('averageFuelBurnPerHour', Number(event.target.value || 0))}
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Fuel Cost per Hour</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={fuelCostPerHour}
-                className="pl-7"
-                disabled
-              />
-            </div>
+            <p className="text-xs text-gray-500">Estimated total fuel cost for this equipment for the year.</p>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -202,8 +148,15 @@ export default function EquipmentInfoForm({
             </div>
           </div>
 
+        </div>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-semibold text-gray-900">Utilization / Cost Calculation</h3>
+        <p className="mt-1 text-xs text-gray-500">Utilization determines operating cost rates. It does not change the 12-month annual cost allocation.</p>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           <Input
-            label="Billable Hours per Year"
+            label="Expected Operating Hours / Year"
             type="number"
             min={0}
             step={1}
@@ -212,7 +165,7 @@ export default function EquipmentInfoForm({
           />
 
           <Input
-            label="Hours per Day"
+            label="Expected Operating Hours / Day"
             type="number"
             min={0}
             step={0.25}
@@ -220,19 +173,13 @@ export default function EquipmentInfoForm({
             onChange={(event) => set('equipmentHoursPerDay', Number(event.target.value || 0))}
           />
 
-          <Input
-            label="Months Used Per Year"
-            type="number"
-            min={1}
-            max={12}
-            step={1}
-            value={value.monthsUsedPerYear}
-            onChange={(event) => set('monthsUsedPerYear', Number(event.target.value || 0))}
-          />
+          <Input label="Calculated Operating Days / Year" value={value.equipmentHoursPerDay > 0 ? (value.sellableHoursPerYear / value.equipmentHoursPerDay).toFixed(1) : '0'} disabled />
         </div>
-      </fieldset>
+      </section>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section>
+      <h3 className="text-sm font-semibold text-gray-900">Calculated Results</h3>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           ['Annual Equipment Cost', totalEquipmentCostPerYear],
           ['Cost per Operating Day', totalCostPerDay],
@@ -244,6 +191,7 @@ export default function EquipmentInfoForm({
           </div>
         ))}
       </div>
+      </section>
 
       <div className="mt-1">
         <button
@@ -260,7 +208,7 @@ export default function EquipmentInfoForm({
           <h3 className="font-semibold text-gray-900">Equipment Cost Calculation</h3>
           <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">
             <dt>Annual Payments</dt><dd>{formatCurrency(value.equipmentCostType === 'owned' ? 0 : Number(value.equipmentPayment || 0) * Number(value.equipmentPaymentFrequencyPerYear || 0))}</dd>
-            <dt>Fuel / Operating Cost</dt><dd>{formatCurrency(Number(fuelCostPerHour || 0) * Number(value.sellableHoursPerYear || 0))}</dd>
+            <dt>Yearly Fuel Cost</dt><dd>{formatCurrency(Number(value.yearlyFuelCost || 0))}</dd>
             <dt>Insurance</dt><dd>{formatCurrency(Number(value.yearlyInsuranceCost || 0))}</dd>
             <dt>Maintenance</dt><dd>{formatCurrency(Number(value.yearlyMaintenanceCost || 0))}</dd>
             <dt className="border-t border-gray-200 pt-2 font-semibold text-gray-900">Annual Equipment Cost</dt><dd className="border-t border-gray-200 pt-2 font-semibold text-gray-900">{formatCurrency(totalEquipmentCostPerYear)}</dd>
