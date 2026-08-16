@@ -1,5 +1,6 @@
 import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
+import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } from './estimateWorkAreaIdentity.js';
 
 const DEFAULT_AREA_NAME = 'General';
 
@@ -142,8 +143,13 @@ function fromLegacyLineItem(lineItem: LineItem): EstimateLineItem {
   });
 }
 
-export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'workAreas' | 'lineItems'>): EstimateWorkArea[] {
+function legacyWorkAreaId(estimateId: string | undefined, identity: string): string {
+  return legacyEstimateWorkAreaIdModel(estimateId, identity, generateId);
+}
+
+export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'id' | 'workAreas' | 'lineItems'> | Pick<Estimate, 'workAreas' | 'lineItems'>): EstimateWorkArea[] {
   const rawWorkAreas = estimate.workAreas;
+  const estimateId = 'id' in estimate ? estimate.id : undefined;
   if (
     Array.isArray(rawWorkAreas)
     && rawWorkAreas.length > 0
@@ -151,7 +157,14 @@ export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'workAreas' 
     && rawWorkAreas[0] !== null
   ) {
     return (rawWorkAreas as EstimateWorkArea[]).map((area, index) => ({
-      id: typeof area.id === 'string' && area.id ? area.id : generateId(),
+      id: typeof area.id === 'string' && area.id
+        ? area.id
+        : legacyWorkAreaId(estimateId, JSON.stringify({
+          name: area.name,
+          description: area.description,
+          sortOrder: area.sortOrder,
+          lineItemIds: Array.isArray(area.lineItems) ? area.lineItems.map((item) => item.id) : [],
+        })),
       name: typeof area.name === 'string' && area.name.trim() ? area.name : `${DEFAULT_AREA_NAME} ${index + 1}`,
       description: typeof area.description === 'string' ? area.description : '',
       sortOrder: asNumber(area.sortOrder, index),
@@ -174,13 +187,19 @@ export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'workAreas' 
     ? rawWorkAreas.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     : [];
 
+  if (legacyAreaNames.length === 0 && legacyLineItems.length === 0) return [];
+
   return [{
-    id: generateId(),
+    id: legacyWorkAreaId(estimateId, JSON.stringify({ names: legacyAreaNames, lineItemIds: legacyLineItems.map((item) => item.id) })),
     name: legacyAreaNames[0] ?? DEFAULT_AREA_NAME,
     description: '',
     sortOrder: 0,
     lineItems: legacyLineItems,
   }];
+}
+
+export function createDefaultEstimateWorkArea(): EstimateWorkArea {
+  return createDefaultEstimateWorkAreaModel(generateId);
 }
 
 export function flattenWorkAreaLineItems(workAreas: EstimateWorkArea[]): EstimateLineItem[] {

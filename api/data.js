@@ -69,6 +69,7 @@ import {
   getTemplateForBusiness,
   getTimeEntryForBusiness,
   getTaskForBusiness,
+  generateId,
   listBudgetsForBusiness,
   listBudgetItemsForBusiness,
   listBudgetRatesForBusiness,
@@ -119,6 +120,7 @@ import {
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
+import { ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
 import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness } from './_lib/schedulingConfig.js';
@@ -1115,6 +1117,10 @@ function validateEstimateRecord(record) {
   return null;
 }
 
+function ensureDefaultEstimateWorkArea(record) {
+  return ensureDefaultEstimateWorkAreaModel(record, generateId);
+}
+
 function validateBudgetRateRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Budget rate id is required.';
   if (!isNonEmptyString(record.budgetId)) return 'Budget rate budget id is required.';
@@ -1419,6 +1425,7 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'estimates') {
+      record = ensureDefaultEstimateWorkArea(record);
       const validationError = validateEstimateRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
@@ -1592,7 +1599,7 @@ export default async function handler(req, res) {
       if (entity === 'jobs') {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: record });
       }
-      return res.status(200).json({ ok: true });
+      return res.status(200).json(entity === 'estimates' ? { ok: true, estimate: record } : { ok: true });
     } catch {
       return res.status(500).json({ ok: false, error: `Could not create ${entity}` });
     }

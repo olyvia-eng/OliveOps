@@ -12,6 +12,7 @@ import {
   computeEstimateTax,
   computeEstimateTotal,
   computeWorkAreaSubtotal,
+  createDefaultEstimateWorkArea,
   flattenWorkAreaLineItems,
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
@@ -206,6 +207,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<EstimateStatus | 'all'>('all');
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [creatingEstimate, setCreatingEstimate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateEstimateFormState>(defaultCreateForm());
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmConvert, setConfirmConvert] = useState<string | null>(null);
@@ -305,7 +307,8 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     setCreateModalOpen(true);
   };
 
-  const createEstimate = () => {
+  const createEstimate = async () => {
+    if (creatingEstimate) return;
     if (!createForm.customerId || !createForm.pricingBudgetId) {
       emitAppToast({ tone: 'error', message: 'Customer and pricing budget are required to start an estimate.' });
       return;
@@ -317,7 +320,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     const propertyIndex = parsePropertyRef(createForm.propertyRef);
     const selectedProperty = propertyIndex !== null ? customerProperties[propertyIndex] : undefined;
 
-    const estimateId = addEstimate({
+    const generalWorkArea = createDefaultEstimateWorkArea();
+    setCreatingEstimate(true);
+    const estimateId = await addEstimate({
       customerId: createForm.customerId,
       pricingBudgetId: createForm.pricingBudgetId,
       propertyLabel: selectedProperty?.nickname?.trim() || '',
@@ -325,7 +330,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       proposalNumber,
       title: draftTitle,
       description: '',
-      workAreas: [],
+      workAreas: [generalWorkArea],
       lineItems: [],
       status: 'draft',
       taxRate: 13,
@@ -333,7 +338,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       validUntil: defaultValidUntil(),
       templateId: undefined,
     });
+    setCreatingEstimate(false);
 
+    if (!estimateId) return;
     setCreateModalOpen(false);
     navigate(`/estimates/${estimateId}`);
   };
@@ -586,8 +593,8 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
         title="New Estimate Setup"
         footer={(
           <>
-            <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>Cancel</Button>
-            <Button onClick={createEstimate}>Create Estimate</Button>
+            <Button variant="secondary" onClick={() => setCreateModalOpen(false)} disabled={creatingEstimate}>Cancel</Button>
+            <Button onClick={() => void createEstimate()} disabled={creatingEstimate}>{creatingEstimate ? 'Creating...' : 'Create Estimate'}</Button>
           </>
         )}
       >

@@ -116,7 +116,7 @@ interface AppState {
   deleteCustomer: (id: ID) => void;
 
   // Estimates
-  addEstimate: (e: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'>) => ID;
+  addEstimate: (e: Omit<Estimate, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ID | null>;
   updateEstimate: (id: ID, data: Partial<Estimate>) => Promise<boolean>;
   deleteEstimate: (id: ID) => void;
   sendEstimate: (id: ID) => void;
@@ -310,24 +310,24 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Estimates ─────────────────────────────────────────────────────────
-      addEstimate: (e) => {
-        const previous = get().estimates;
+      addEstimate: async (e) => {
         const estimate = { ...e, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
-        set((s) => ({ estimates: [...s.estimates, estimate] }));
 
-        void ensureOk(fetch(dataUrl('estimates'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: estimate }),
-        })).catch((error: unknown) => {
-          set({ estimates: previous });
+        try {
+          await ensureOk(fetch(dataUrl('estimates'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: estimate }),
+          }));
+          set((s) => ({ estimates: [...s.estimates, estimate] }));
+          return estimate.id;
+        } catch (error: unknown) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate could not be saved.') });
-        });
-
-        return estimate.id;
+          return null;
+        }
       },
       updateEstimate: async (id, data) => {
         const previous = get().estimates;

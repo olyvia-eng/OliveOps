@@ -6,7 +6,7 @@ const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.
 const builderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const modelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
 
-test('new estimates stay empty until a real work area is persisted', () => {
+test('new and additional work areas are persisted before becoming actionable', () => {
   assert.match(workspaceSource, /No work areas yet/);
   assert.match(workspaceSource, /form\.workAreas\.length === 0/);
   assert.match(workspaceSource, /createNewEstimateWorkArea/);
@@ -26,8 +26,11 @@ test('builder waits for persistence before save and delete navigation', () => {
   assert.match(builderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
 });
 
-test('work-area normalization still supports legacy records without inventing a fake new estimate placeholder', () => {
+test('work-area normalization uses stable legacy IDs and does not invent a placeholder for empty estimates', () => {
   assert.match(modelSource, /export function normalizeEstimateWorkAreas/);
-  assert.match(modelSource, /return \[\{\s*id: generateId\(\),\s*name: legacyAreaNames\[0\] \?\? DEFAULT_AREA_NAME/);
+  assert.match(modelSource, /if \(legacyAreaNames\.length === 0 && legacyLineItems\.length === 0\) return \[\]/);
+  assert.match(modelSource, /id: legacyWorkAreaId\(estimateId, JSON\.stringify\(/);
+  assert.doesNotMatch(modelSource, /id: generateId\(\),\s*name: legacyAreaNames/);
+  assert.match(modelSource, /export function createDefaultEstimateWorkArea/);
   assert.match(modelSource, /export function createNewEstimateWorkArea/);
 });

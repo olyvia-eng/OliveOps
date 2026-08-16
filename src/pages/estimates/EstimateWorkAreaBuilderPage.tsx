@@ -317,7 +317,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         </Button>
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Work area not found</h2>
-          <p className="mt-2 text-sm text-gray-500 dark:text-brand-200">This work area may have been removed or is still syncing.</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-brand-200">This work area was deleted, does not belong to this estimate, or is not available to your account.</p>
         </Card>
       </div>
     );

@@ -22,9 +22,10 @@ test('estimate and job workspaces are wired with the current user role', () => {
 });
 
 test('lightweight estimate creation returns an id and opens the workspace', () => {
-  assert.match(storeSource, /addEstimate: \(e: Omit<Estimate,[^\n]+\) => ID;/);
-  assert.match(estimatesSource, /const estimateId = addEstimate\(\{/);
-  assert.match(estimatesSource, /workAreas: \[\],\s+lineItems: \[\],/);
+  assert.match(storeSource, /addEstimate: \(e: Omit<Estimate,[^\n]+\) => Promise<ID \| null>;/);
+  assert.match(estimatesSource, /const estimateId = await addEstimate\(\{/);
+  assert.match(estimatesSource, /workAreas: \[generalWorkArea\]/);
+  assert.match(estimatesSource, /if \(!estimateId\) return;/);
   assert.match(estimatesSource, /navigate\(`\/estimates\/\$\{estimateId\}`\);/);
   assert.match(estimatesSource, /Customer and pricing budget are required to start an estimate\./);
 });
