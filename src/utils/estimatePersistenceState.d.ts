@@ -3,7 +3,7 @@ import type { Estimate } from '../types';
 export function mergeEstimateSnapshotsModel(
   current: Estimate[],
   incoming: Estimate[],
-  requestStartedAt: number,
+  estimateIdsAtRequestStart: ReadonlySet<string>,
 ): Estimate[];
 
 export function shouldApplySequencedResponseModel(

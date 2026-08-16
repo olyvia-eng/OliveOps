@@ -123,13 +123,13 @@ test('stale bootstrap snapshots cannot replace a newer persisted title', () => {
   const merged = mergeEstimateSnapshotsModel(
     [saved],
     [stale],
-    Date.parse('2026-08-16T12:01:00.000Z'),
+    new Set([stale.id]),
   );
   assert.equal(merged[0].title, 'Smith Backyard Patio');
   assert.strictEqual(merged[0], saved);
 });
 
-test('bootstrap retains estimates created after its request started and drops ordinary removals', () => {
+test('bootstrap retains estimates added during its request and drops ordinary removals', () => {
   const existing = estimateRecord('Existing Estimate');
   const createdDuringRequest = {
     ...estimateRecord('New Estimate'),
@@ -137,11 +137,31 @@ test('bootstrap retains estimates created after its request started and drops or
     createdAt: '2026-08-16T12:03:00.000Z',
     updatedAt: '2026-08-16T12:03:00.000Z',
   };
-  const requestStartedAt = Date.parse('2026-08-16T12:02:00.000Z');
+  const estimateIdsAtRequestStart = new Set([existing.id]);
 
   assert.deepEqual(
-    mergeEstimateSnapshotsModel([existing, createdDuringRequest], [], requestStartedAt).map((item) => item.id),
+    mergeEstimateSnapshotsModel([existing, createdDuringRequest], [], estimateIdsAtRequestStart).map((item) => item.id),
     ['estimate-title-2'],
+  );
+});
+
+test('bootstrap retains an estimate inserted while its stale request was in flight', () => {
+  const existing = estimateRecord('Existing Estimate');
+  const createdWhileRequestWasInFlight = {
+    ...estimateRecord('New Estimate'),
+    id: 'estimate-title-2',
+    createdAt: '2026-08-16T12:01:59.999Z',
+    updatedAt: '2026-08-16T12:01:59.999Z',
+  };
+  const estimateIdsAtRequestStart = new Set([existing.id]);
+
+  assert.deepEqual(
+    mergeEstimateSnapshotsModel(
+      [existing, createdWhileRequestWasInFlight],
+      [existing],
+      estimateIdsAtRequestStart,
+    ).map((item) => item.id),
+    [existing.id, createdWhileRequestWasInFlight.id],
   );
 });
 
@@ -151,7 +171,7 @@ test('only the latest sequenced bootstrap or mutation response may update local 
   assert.match(storeSource, /baseUpdatedAt/);
   assert.match(storeSource, /estimateMutationSequences/);
   assert.match(appSource, /businessDataRequestSequence/);
-  assert.match(appSource, /mergeEstimateSnapshotsModel\(state\.estimates, payload\.estimates \?\? \[\], requestStartedAt\)/);
+  assert.match(appSource, /mergeEstimateSnapshotsModel\(state\.estimates, payload\.estimates \?\? \[\], estimateIdsAtRequestStart\)/);
 });
 
 test('Estimate update versions advance even within the same millisecond', () => {

@@ -86,7 +86,7 @@ export default function App() {
 
     const requestSequence = businessDataRequestSequence.current + 1;
     businessDataRequestSequence.current = requestSequence;
-    const requestStartedAt = Date.now();
+    const estimateIdsAtRequestStart = new Set(useStore.getState().estimates.map((estimate) => estimate.id));
     setLoadingBusinessData(true);
     setBusinessDataError('');
 
@@ -151,7 +151,7 @@ export default function App() {
         divisions: payload.divisions ?? [],
         customers: payload.customers ?? [],
         jobs: payload.jobs ?? [],
-        estimates: mergeEstimateSnapshotsModel(state.estimates, payload.estimates ?? [], requestStartedAt),
+        estimates: mergeEstimateSnapshotsModel(state.estimates, payload.estimates ?? [], estimateIdsAtRequestStart),
         invoices: payload.invoices ?? [],
         expenses: payload.expenses ?? [],
         equipmentAssets: payload.equipmentAssets ?? [],

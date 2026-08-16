@@ -3,7 +3,7 @@ function timestamp(value) {
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
 
-export function mergeEstimateSnapshotsModel(current, incoming, requestStartedAt) {
+export function mergeEstimateSnapshotsModel(current, incoming, estimateIdsAtRequestStart) {
   const currentById = new Map(current.map((estimate) => [estimate.id, estimate]));
   const incomingIds = new Set(incoming.map((estimate) => estimate.id));
   const merged = incoming.map((estimate) => {
@@ -14,7 +14,7 @@ export function mergeEstimateSnapshotsModel(current, incoming, requestStartedAt)
 
   for (const local of current) {
     if (incomingIds.has(local.id)) continue;
-    if (timestamp(local.createdAt) >= requestStartedAt) {
+    if (!estimateIdsAtRequestStart.has(local.id)) {
       merged.push(local);
     }
   }
