@@ -80,6 +80,7 @@ export default function EquipmentCatalogPage() {
   const [materialForm, setMaterialForm] = useState<MaterialFormState>(emptyMaterialForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [equipmentModalOpen, setEquipmentModalOpen] = useState(false);
+  const [equipmentFormError, setEquipmentFormError] = useState('');
   const [showEquipmentCalcDetails, setShowEquipmentCalcDetails] = useState(false);
   const [equipmentQuery, setEquipmentQuery] = useState('');
   const [equipmentTypeFilter, setEquipmentTypeFilter] = useState('all');
@@ -266,6 +267,7 @@ export default function EquipmentCatalogPage() {
     setForm(emptyEquipmentInfoFormValue());
     setEditingId(null);
     setShowEquipmentCalcDetails(false);
+    setEquipmentFormError('');
   };
 
   const openAddEquipment = () => {
@@ -290,7 +292,11 @@ export default function EquipmentCatalogPage() {
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (validateEquipmentInfoForm(form)) return;
+    const validationError = validateEquipmentInfoForm(form);
+    if (validationError) {
+      setEquipmentFormError(validationError);
+      return;
+    }
     const normalizedForm = normalizeEquipmentInfoForm(form);
 
     const existingAsset = editingId ? equipmentAssets.find((asset) => asset.id === editingId) : undefined;
@@ -603,6 +609,7 @@ export default function EquipmentCatalogPage() {
 
       <Modal
         open={equipmentModalOpen}
+        size="large"
         onClose={() => {
           setEquipmentModalOpen(false);
           resetForm();
@@ -628,6 +635,7 @@ export default function EquipmentCatalogPage() {
             showCalculationDetails={showEquipmentCalcDetails}
             onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)}
           />
+          {equipmentFormError ? <p className="text-sm text-accent-700">{equipmentFormError}</p> : null}
         </form>
       </Modal>
     </div>

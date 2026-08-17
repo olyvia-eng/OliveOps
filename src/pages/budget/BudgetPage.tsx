@@ -2677,14 +2677,14 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       ))}
 
       {/* Form modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Budget Item' : 'New Budget Item'}
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={form.category === 'equipment' ? (editing ? 'Edit Equipment' : form.equipmentId ? 'Add Equipment to Budget' : 'New Equipment') : editing ? 'Edit Budget Item' : 'New Budget Item'}
         size={form.category === 'equipment' ? 'large' : 'default'}
         footer={<>
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
           <Button
             disabled={Boolean(editing && activeBudgetGroup && groupedEquipmentAllocationRows.length > 0 && (groupedAllocationOverMonths > 0 || groupedAllocationHasInvalidRow))}
             onClick={() => void handleSave()}
-          >Save</Button>
+          >{form.category === 'equipment' ? (editing ? 'Save Changes' : form.equipmentId ? 'Add to Budget' : 'Save Equipment') : 'Save'}</Button>
         </>}
       >
         <div className="space-y-4">

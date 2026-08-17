@@ -28,9 +28,21 @@ export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
   equipmentHoursPerDay: 8,
 });
 
-export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => (
-  value.description.trim() ? null : 'Equipment name is required.'
-);
+export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => {
+  if (!value.description.trim()) return 'Equipment name is required.';
+  if (!['billable', 'overhead'].includes(value.equipmentClassification)) return 'Select a valid equipment classification.';
+  if (!['owned', 'financed', 'leased'].includes(value.equipmentCostType)) return 'Select a valid ownership type.';
+
+  const numericFields = [
+    ['Payment', value.equipmentPayment],
+    ['Payment frequency', value.equipmentPaymentFrequencyPerYear],
+    ['Yearly fuel cost', value.yearlyFuelCost],
+    ['Yearly insurance cost', value.yearlyInsuranceCost],
+    ['Yearly maintenance cost', value.yearlyMaintenanceCost],
+  ] as const;
+  const invalidField = numericFields.find(([, fieldValue]) => !Number.isFinite(fieldValue) || fieldValue < 0);
+  return invalidField ? `${invalidField[0]} must be zero or greater.` : null;
+};
 
 export const normalizeEquipmentInfoForm = (value: EquipmentInfoFormValue): EquipmentInfoFormValue => ({
   ...value,

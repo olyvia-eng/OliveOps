@@ -22,7 +22,8 @@ test('catalog and budget both use shared equipment fields with context-specific 
 
   assert.match(equipmentFormSource, /Equipment Details/);
   assert.match(equipmentFormSource, /export function EquipmentFormFields/);
-  assert.match(equipmentFormSource, /Budget Annual Cost Assumptions/);
+  assert.match(equipmentFormSource, />Annual Costs</);
+  assert.match(equipmentFormSource, /Budget Planning/);
   assert.match(equipmentFormSource, /Catalog identity is read-only here/);
   assert.match(equipmentFormSource, /Payment Frequency \(# per year\)/);
   assert.match(equipmentFormSource, /Yearly Fuel Cost/);
@@ -44,12 +45,16 @@ test('catalog and budget both use shared equipment fields with context-specific 
   assert.match(equipmentFormModelSource, /EquipmentInfoFormValue/);
 });
 
-test('catalog stays compact while budget equipment keeps the large modal and allocations', () => {
+test('catalog and budget equipment use the same wide modal while allocations remain Budget-only', () => {
   const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
   const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+  const modalSource = readFileSync('src/components/ui/index.tsx', 'utf8');
 
-  assert.doesNotMatch(catalogSource, /size="large"/);
+  assert.match(catalogSource, /size="large"/);
   assert.match(budgetSource, /size=\{form\.category === 'equipment' \? 'large' : 'default'\}/);
+  assert.match(modalSource, /size === 'large' \? 'max-w-5xl'/);
+  assert.match(modalSource, /max-h-\[90vh\] flex flex-col/);
+  assert.match(modalSource, /overflow-y-auto flex-1/);
   assert.match(budgetSource, /Allocate Annual Equipment Cost/);
   assert.doesNotMatch(catalogSource, /Allocate Annual Equipment Cost/);
 });
@@ -61,10 +66,41 @@ test('shared equipment validation and normalization are used by both save paths'
 
   assert.match(equipmentFormSource, /validateEquipmentInfoForm/);
   assert.match(equipmentFormSource, /normalizeEquipmentInfoForm/);
+  assert.match(equipmentFormSource, /Select a valid equipment classification/);
+  assert.match(equipmentFormSource, /Select a valid ownership type/);
+  assert.match(equipmentFormSource, /must be zero or greater/);
   assert.match(catalogSource, /validateEquipmentInfoForm\(form\)/);
   assert.match(catalogSource, /normalizeEquipmentInfoForm\(form\)/);
   assert.match(budgetSource, /validateEquipmentInfoForm\(equipmentInfoForm\)/);
   assert.match(budgetSource, /normalizeEquipmentInfoForm\(equipmentInfoForm\)/);
+});
+
+test('equipment modal actions describe catalog, existing Budget, and new Budget saves', () => {
+  const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
+  const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
+
+  assert.match(catalogSource, /Add to Catalog/);
+  assert.match(catalogSource, /Save Changes/);
+  assert.match(budgetSource, /Add to Budget/);
+  assert.match(budgetSource, /Save Equipment/);
+  assert.match(budgetSource, /Edit Equipment/);
+});
+
+test('one active shared component owns equipment core and annual cost inputs', () => {
+  const formSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
+
+  assert.match(formSource, /Name \/ Equipment \*/);
+  assert.match(formSource, /Cost Code/);
+  assert.match(formSource, /Billable Equipment/);
+  assert.match(formSource, /Overhead Equipment/);
+  assert.match(formSource, /Owned/);
+  assert.match(formSource, /Financed/);
+  assert.match(formSource, /Leased/);
+  assert.match(formSource, />Payment</);
+  assert.match(formSource, /Payment Frequency \(# per year\)/);
+  assert.match(formSource, /Yearly Fuel Cost/);
+  assert.match(formSource, /Yearly Insurance Cost/);
+  assert.match(formSource, /Yearly Maintenance Cost/);
 });
 
 test('equipment asset type includes permanent economics fields', () => {

@@ -17,9 +17,10 @@ test('all four Division planning tabs provide intentional Add and Import empty s
   assert.match(planner, /Import from Previous Budget/);
 });
 
-test('planning tabs retain Add and Import actions after items exist and support independent ordering', () => {
+test('planning tabs retain Add and Import actions after items exist and keep ordering local', () => {
   assert.match(planner, /items\.length === 0[\s\S]*actions[\s\S]*items\.length/);
-  assert.match(planner, /draggable=\{canEdit\}/);
+  assert.match(planner, /draggable=\{canEdit && category !== 'equipment'\}/);
+  assert.match(planner, /category !== 'equipment' \? <th[\s\S]*Order/);
   assert.match(planner, /onDragStart/);
   assert.match(planner, /reorderBudgetDivisionPlanningItems/);
   assert.match(planner, /Move \$\{item\.name \?\? item\.description\} earlier/);
@@ -69,4 +70,32 @@ test('Labour plan table stays compact while showing recovery and allocation summ
   assert.match(planner, /allocationNames/);
   assert.match(planner, /overhead pool/);
   assert.doesNotMatch(planner, /overhead recovery|target margin|sell rate/i);
+});
+
+test('active Division equipment editor uses the shared wide equipment form and Budget-only allocation', () => {
+  const sharedForm = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
+  const equipmentBranch = planner.slice(planner.indexOf("{category === 'equipment' ?"), planner.indexOf("{category === 'materials' ?"));
+
+  assert.match(planner, /EquipmentInfoForm/);
+  assert.match(planner, /context="budget"/);
+  assert.match(planner, /size=\{category === 'equipment' \? 'large' : 'wide'\}/);
+  assert.match(planner, /Allocate Annual Equipment Cost/);
+  assert.match(planner, /equipmentDivisionAllocations/);
+  assert.match(planner, /allocation\.divisionId === division\.id && allocation\.months > 0/);
+  assert.match(planner, /equipmentMonthsForDivision/);
+  assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\) \/ 12/);
+  assert.match(planner, /addEquipmentAsset/);
+  assert.match(planner, /Add to Budget/);
+  assert.match(planner, /Save Equipment/);
+  assert.match(sharedForm, /Payment Frequency \(# per year\)/);
+  assert.doesNotMatch(equipmentBranch, /label="Annual payment"|label="Utilization hours"|label="Planned amount"/);
+  assert.doesNotMatch(sharedForm, /Fuel Price Unit|Fuel Burned per Hour|Months Used Per Year|Budget Sell Rate/);
+});
+
+test('active equipment planning uses payment times frequency once with legacy fallbacks', () => {
+  assert.match(planner, /item\.equipmentPaymentFrequencyPerYear \?\? item\.paymentFrequencyPerYear \?\? 1/);
+  assert.match(planner, /draft\.sellableHoursPerYear \?\? draft\.utilizationHours \?\? 0/);
+  assert.match(planner, /plannedAmount: equipmentCostBreakdown\.totalEquipmentCostPerYear/);
+  assert.match(planner, /paymentFrequencyPerYear: undefined/);
+  assert.match(planner, /utilizationHours: undefined/);
 });

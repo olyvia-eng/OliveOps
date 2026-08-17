@@ -59,6 +59,10 @@ function seedDivision(store, businessId, budgetId, id, name = 'Landscaping') {
   store.set(key(`BUSINESS#${businessId}`, `BUDGET_DIVISION#${budgetId}#DIVISION#${id}`), { PK: `BUSINESS#${businessId}`, SK: `BUDGET_DIVISION#${budgetId}#DIVISION#${id}`, entityType: 'BUDGET_DIVISION', businessId, budgetId, divisionId: id, name, revenueTarget: 0, status: 'active', sortOrder: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
 }
 
+function seedEquipment(store, businessId, id) {
+  store.set(key(`BUSINESS#${businessId}`, `EQUIPMENT#${id}`), { PK: `BUSINESS#${businessId}`, SK: `EQUIPMENT#${id}`, entityType: 'EQUIPMENT', businessId, equipmentId: id, name: 'Bobcat E50', type: 'Excavator', status: 'available', costType: 'financed', equipmentClassification: 'billable', serialNumber: '', hourlyCost: 0, notes: '', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+}
+
 test('Division planner imports selected source items with new ids and blocks repeated duplicates', async (t) => {
   const store = installDdb(t);
   await seedTenant(store);
@@ -164,4 +168,31 @@ test('non-financial roles cannot retrieve Labour planning costs from endpoint or
   assert.equal(getRes.statusCode, 403);
   const bootstrapSource = readFileSync('api/bootstrap.js', 'utf8');
   assert.match(bootstrapSource, /session\.role === 'owner' \|\| session\.role === 'admin' \? budgetDivisionPlanningItems : \[\]/);
+});
+
+test('Equipment planning validates one same-Budget asset allocation across Divisions', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape', 'Hardscaping');
+  seedDivision(store, 'biz-a', 'budget-a', 'snow', 'Snow Removal');
+  seedBudget(store, 'biz-a', 'budget-other', '2027');
+  seedDivision(store, 'biz-a', 'budget-other', 'foreign', 'Foreign');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+
+  const valid = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Bobcat E50', equipmentId: 'equipment-1', costType: 'financed', classification: 'billable', equipmentPayment: 2000, equipmentPaymentFrequencyPerYear: 12, yearlyFuelCost: 10000, yearlyInsuranceCost: 3000, yearlyMaintenanceCost: 4000, sellableHoursPerYear: 1200, equipmentHoursPerDay: 8, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'snow', months: 5 }] } } }, valid);
+  assert.equal(valid.statusCode, 200);
+  assert.deepEqual(valid.body.item.equipmentDivisionAllocations, [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'snow', months: 5 }]);
+  assert.equal(valid.body.item.equipmentPaymentFrequencyPerYear, 12);
+
+  const incomplete = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Bobcat E50', equipmentId: 'equipment-1', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }] } } }, incomplete);
+  assert.equal(incomplete.statusCode, 400);
+  assert.match(incomplete.body.error, /total 12 months/);
+
+  const foreign = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Bobcat E50', equipmentId: 'equipment-1', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'foreign', months: 5 }] } } }, foreign);
+  assert.equal(foreign.statusCode, 400);
+  assert.match(foreign.body.error, /belong to this Budget/);
 });

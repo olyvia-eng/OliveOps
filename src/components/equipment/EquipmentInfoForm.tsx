@@ -47,7 +47,8 @@ export function EquipmentFormFields({ value, onChange, context = 'catalog', iden
     </section>
 
     <section>
-      <h3 className="text-sm font-semibold text-gray-900">{context === 'budget' ? 'Budget Annual Cost Assumptions' : 'Annual Costs'}</h3>
+      <h3 className="text-sm font-semibold text-gray-900">Annual Costs</h3>
+      {context === 'budget' && identityReadOnly ? <p className="mt-1 text-xs text-gray-500">These annual costs and utilization assumptions apply to this Budget year only.</p> : null}
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {value.equipmentCostType !== 'owned' && <>
           <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Payment</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.equipmentPayment} className="pl-7" onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))} /></div></div>
@@ -81,6 +82,11 @@ export default function EquipmentInfoForm({
       <EquipmentFormFields value={value} onChange={onChange} context={context} identityReadOnly={identityReadOnly} />
 
       {context === 'budget' ? <>
+
+      <div className="border-t border-gray-200 pt-5">
+        <h3 className="text-sm font-semibold text-gray-900">Budget Planning</h3>
+        <p className="mt-1 text-xs text-gray-500">Set year-specific utilization and review the resulting true operating cost.</p>
+      </div>
 
       <section>
         <h3 className="text-sm font-semibold text-gray-900">Utilization / Cost Calculation</h3>

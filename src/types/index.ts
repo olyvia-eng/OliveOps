@@ -826,6 +826,11 @@ export interface LabourDivisionAllocation {
   percentage: number;
 }
 
+export interface EquipmentDivisionAllocation {
+  divisionId: ID;
+  months: number;
+}
+
 export interface BudgetDivisionPlanningItem {
   id: ID;
   budgetId: ID;
@@ -854,14 +859,18 @@ export interface BudgetDivisionPlanningItem {
   equipmentId?: ID;
   costType?: EquipmentCostType;
   classification?: EquipmentClassification;
+  costCode?: string;
   equipmentPayment?: number;
+  equipmentPaymentFrequencyPerYear?: number;
   paymentFrequencyPerYear?: number;
   yearlyFuelCost?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
   sellableHoursPerYear?: number;
+  equipmentHoursPerDay?: number;
   utilizationHours?: number;
   allocationMonths?: number;
+  equipmentDivisionAllocations?: EquipmentDivisionAllocation[];
   allocationPercent?: number;
   materialCatalogItemId?: ID;
   unit?: string;

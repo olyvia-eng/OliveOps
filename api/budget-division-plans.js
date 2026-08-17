@@ -16,7 +16,7 @@ function validate(item) {
   if (!DIVISION_PLAN_CATEGORIES.includes(item.category)) return 'Planning category is invalid.';
   if (!isText(item.name) && !isText(item.description)) return 'A planning item name or description is required.';
   if (!divisionPlanIdentity(item)) return 'A planning item identity is required.';
-  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate']) {
+  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate']) {
     if (!isNonNegative(item[field])) return `${field} must be zero or greater.`;
   }
   if (item.category === 'equipment' && !isText(item.equipmentId)) return 'Equipment must reference a catalog asset.';
@@ -32,6 +32,13 @@ function validate(item) {
     const allocationTotal = item.divisionAllocations.reduce((sum, allocation) => sum + allocation.percentage, 0);
     if (Math.abs(allocationTotal - 100) > 0.001) return 'Division allocation must total 100%.';
   }
+  if (item.category === 'equipment' && item.equipmentDivisionAllocations !== undefined) {
+    if (!Array.isArray(item.equipmentDivisionAllocations) || item.equipmentDivisionAllocations.length === 0) return 'Equipment must be allocated across Divisions.';
+    if (new Set(item.equipmentDivisionAllocations.map((allocation) => allocation.divisionId)).size !== item.equipmentDivisionAllocations.length) return 'Each Division can appear only once in Equipment allocation.';
+    if (item.equipmentDivisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(allocation.months) || allocation.months > 12)) return 'Equipment allocation months must be between 0 and 12.';
+    const allocationTotal = item.equipmentDivisionAllocations.reduce((sum, allocation) => sum + allocation.months, 0);
+    if (Math.abs(allocationTotal - 12) > 0.001) return 'Equipment allocation must total 12 months.';
+  }
   return null;
 }
 
@@ -42,6 +49,10 @@ async function validateReferences(businessId, item) {
   if (item.category === 'labour') {
     const divisions = await Promise.all(item.divisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
     if (divisions.some((division) => !division)) return 'Every Labour allocation Division must belong to this Budget.';
+  }
+  if (item.category === 'equipment' && Array.isArray(item.equipmentDivisionAllocations)) {
+    const divisions = await Promise.all(item.equipmentDivisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
+    if (divisions.some((division) => !division)) return 'Every Equipment allocation Division must belong to this Budget.';
   }
   return null;
 }
