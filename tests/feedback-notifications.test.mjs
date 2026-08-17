@@ -112,3 +112,24 @@ test('invalid trusted user email omits replyTo', async () => {
   assert.equal(result.ok, true);
   assert.equal('replyTo' in sentPayload, false);
 });
+
+test('uploaded screenshot is attached to the support email', async () => {
+  let sentPayload;
+  const notify = createResendFeedbackNotifier({
+    resendClient: { emails: { send: async (payload) => { sentPayload = payload; return { id: 'mail-3' }; } } },
+    env: {
+      RESEND_API_KEY: 're_test_key',
+      FEEDBACK_NOTIFICATION_EMAIL: 'support@oliveops.ca',
+      FEEDBACK_FROM_EMAIL: 'OliveOps Feedback <notifications@oliveops.ca>',
+    },
+  });
+
+  const result = await notify({
+    ...buildSamplePayload({ feedback: { screenshotFileId: 'file-1' } }),
+    attachment: { filename: 'bug.png', path: 'https://signed.example/bug.png', contentType: 'image/png' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(sentPayload.attachments, [{ filename: 'bug.png', path: 'https://signed.example/bug.png', contentType: 'image/png' }]);
+  assert.match(sentPayload.text, /Screenshot Attached: Yes/);
+});

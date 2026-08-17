@@ -1,10 +1,12 @@
 import {
   createFeedbackForBusiness,
   generateId,
+  getFileForBusiness,
   getFeedbackForBusiness,
 } from './_lib/authRepo.js';
 import { notifySupportFeedbackWithResend } from './_lib/feedbackNotifications.js';
 import { requireSession } from './_lib/session.js';
+import { createPresignedDownloadUrl } from './_lib/storage.js';
 
 const ALLOWED_FEEDBACK_TYPES = new Set(['bug', 'feature_request', 'usability', 'general']);
 const ALLOWED_DEVICE_CATEGORIES = new Set(['mobile', 'tablet', 'desktop', 'unknown']);
@@ -66,6 +68,8 @@ const defaultDeps = {
   requireSession,
   createFeedbackForBusiness,
   getFeedbackForBusiness,
+  getFileForBusiness,
+  createPresignedDownloadUrl,
   generateId,
   nowIso,
   notifySupportFeedback: notifySupportFeedbackWithResend,
@@ -109,6 +113,47 @@ export function createFeedbackHandler(overrides = {}) {
     const body = parseJsonBody(req);
     if (!body) {
       return res.status(400).json({ ok: false, error: 'Invalid JSON request body.' });
+    }
+
+    if (body.action === 'notify') {
+      const feedbackId = sanitizeOptionalString(body.feedbackId, 100);
+      if (!feedbackId) return res.status(400).json({ ok: false, error: 'Feedback ID is required.' });
+
+      try {
+        const feedback = await deps.getFeedbackForBusiness(session.businessId, feedbackId);
+        if (!feedback) return res.status(404).json({ ok: false, error: 'Feedback not found.' });
+        if (feedback.submittedByUserId !== session.id) return res.status(403).json({ ok: false, error: 'Forbidden' });
+
+        let attachment;
+        if (feedback.screenshotFileId) {
+          const file = await deps.getFileForBusiness(session.businessId, feedback.screenshotFileId);
+          if (file?.uploadStatus === 'uploaded'
+            && file.entityType === 'feedback'
+            && file.entityId === feedback.id
+            && file.category === 'screenshot') {
+            const download = await deps.createPresignedDownloadUrl({
+              businessId: session.businessId,
+              key: file.objectKey ?? file.key,
+            });
+            if (download.ok && download.downloadUrl) {
+              attachment = {
+                filename: file.originalFileName ?? file.fileName ?? 'feedback-screenshot',
+                path: download.downloadUrl,
+                contentType: file.mimeType,
+              };
+            }
+          }
+        }
+
+        const result = await deps.notifySupportFeedback({ feedback, session, attachment });
+        return res.status(result?.ok ? 200 : 502).json({
+          ok: Boolean(result?.ok),
+          notificationSent: Boolean(result?.ok),
+          error: result?.ok ? undefined : 'Feedback was saved, but the support email could not be sent.',
+        });
+      } catch {
+        return res.status(500).json({ ok: false, error: 'Feedback was saved, but the support email could not be sent.' });
+      }
     }
 
     const type = sanitizeOptionalString(body.type, 40);
@@ -169,9 +214,11 @@ export function createFeedbackHandler(overrides = {}) {
       let notificationSent = false;
 
       try {
-        const notifyResult = await deps.notifySupportFeedback({ feedback, session });
+        const notifyResult = body.deferNotification === true
+          ? { ok: false, reason: 'deferred' }
+          : await deps.notifySupportFeedback({ feedback, session });
         notificationSent = Boolean(notifyResult?.ok);
-        if (!notifyResult?.ok) {
+        if (!notifyResult?.ok && notifyResult?.reason !== 'deferred') {
           console.warn('[feedback:notify]', {
             feedbackId,
             reason: notifyResult?.reason ?? notifyResult?.error ?? 'notification_failed',

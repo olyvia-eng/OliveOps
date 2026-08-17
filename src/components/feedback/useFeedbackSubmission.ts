@@ -79,6 +79,7 @@ export function useFeedbackSubmission() {
           viewport,
           deviceCategory: deriveDeviceCategory(viewport?.width),
           appVersion: getAppVersion(),
+          deferNotification: Boolean(input.screenshotFile),
         }),
       });
 
@@ -94,6 +95,14 @@ export function useFeedbackSubmission() {
           entityId: payload.feedbackId,
           category: 'screenshot',
         });
+
+        const notifyResponse = await fetch(FEEDBACK_ENDPOINT, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'notify', feedbackId: payload.feedbackId }),
+        });
+        await parseApiResponse(notifyResponse);
       }
 
       setLastFeedbackId(payload.feedbackId);

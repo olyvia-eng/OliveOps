@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ImagePlus, X } from 'lucide-react';
 import type { FeedbackType } from '../../types';
+import { validateUploadPayload } from '../../utils/fileUpload';
 import { Button, Input, Modal, Select, TextArea } from '../ui';
 import { useFeedbackSubmission } from './useFeedbackSubmission';
 
@@ -25,7 +27,9 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
   const [contactPreference, setContactPreference] = useState(true);
   const [contactEmail, setContactEmail] = useState('');
   const [screenshotFile, setScreenshotFile] = useState<File | undefined>();
+  const [isDraggingScreenshot, setIsDraggingScreenshot] = useState(false);
   const [localError, setLocalError] = useState('');
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const {
     isSubmitting,
@@ -60,6 +64,18 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
   const closeAndReset = () => {
     resetForm();
     onClose();
+  };
+
+  const selectScreenshot = (file?: File) => {
+    if (!file) return;
+    const validation = validateUploadPayload({ fileName: file.name, mimeType: file.type, sizeBytes: file.size });
+    if (!validation.valid) {
+      setScreenshotFile(undefined);
+      setLocalError(validation.error);
+      return;
+    }
+    setScreenshotFile(file);
+    setLocalError('');
   };
 
   const handleSubmit = async () => {
@@ -141,18 +157,39 @@ export default function FeedbackModal({ open, onClose }: FeedbackModalProps) {
           placeholder="Tell us what you were trying to do and what result you expected."
         />
 
-        <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/60 dark:bg-brand-800/50 px-3 py-3">
-          <label className="text-sm font-medium text-brand-800 dark:text-brand-100">Screenshot (optional)</label>
+        <div
+          className={`rounded-lg border-2 border-dashed px-4 py-5 text-center transition-colors ${isDraggingScreenshot ? 'border-accent-500 bg-accent-50 dark:bg-accent-950/30' : 'border-brand-200 bg-brand-50/60 dark:border-brand-600 dark:bg-brand-800/50'}`}
+          onDragEnter={(event) => { event.preventDefault(); setIsDraggingScreenshot(true); }}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setIsDraggingScreenshot(true); }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsDraggingScreenshot(false); }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsDraggingScreenshot(false);
+            selectScreenshot(event.dataTransfer.files?.[0]);
+          }}
+        >
           <input
+            ref={screenshotInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp,application/pdf"
-            className="mt-2 block w-full text-sm text-brand-700 dark:text-brand-100 file:mr-3 file:rounded-lg file:border-0 file:bg-white dark:file:bg-brand-700 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-brand-700 dark:file:text-brand-100"
+            className="sr-only"
             onChange={(event) => {
-              const selectedFile = event.target.files?.[0];
-              setScreenshotFile(selectedFile);
+              selectScreenshot(event.target.files?.[0]);
+              event.target.value = '';
             }}
           />
-          <p className="mt-1 text-xs text-brand-500 dark:text-brand-300">{screenshotLabel}</p>
+          <ImagePlus className="mx-auto text-brand-500 dark:text-brand-300" size={24} aria-hidden="true" />
+          <p className="mt-2 text-sm font-medium text-brand-800 dark:text-brand-100">Drag and drop a screenshot here</p>
+          <p className="mt-1 text-xs text-brand-500 dark:text-brand-300">PNG, JPG, WebP, or PDF up to 25 MB</p>
+          <Button className="mt-3" type="button" variant="secondary" size="sm" onClick={() => screenshotInputRef.current?.click()}>
+            {screenshotFile ? 'Replace File' : 'Choose File'}
+          </Button>
+          {screenshotFile ? (
+            <div className="mx-auto mt-3 flex max-w-sm items-center justify-center gap-2 text-xs text-brand-600 dark:text-brand-200">
+              <span className="truncate">{screenshotLabel}</span>
+              <button type="button" className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-brand-100 dark:hover:bg-brand-700" aria-label="Remove screenshot" onClick={() => setScreenshotFile(undefined)}><X size={14} /></button>
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-2">

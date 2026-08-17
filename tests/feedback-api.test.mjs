@@ -34,6 +34,8 @@ function baseDeps(overrides = {}) {
     }),
     createFeedbackForBusiness: async () => ({ ok: true }),
     getFeedbackForBusiness: async () => null,
+    getFileForBusiness: async () => null,
+    createPresignedDownloadUrl: async () => ({ ok: false }),
     generateId: () => 'feedback-1',
     nowIso: () => '2026-08-06T12:00:00.000Z',
     notifySupportFeedback: async () => ({ ok: false, reason: 'not_configured' }),
@@ -198,6 +200,58 @@ test('POST /api/feedback persists before email notification attempt', async () =
 
   assert.equal(res.statusCode, 200);
   assert.deepEqual(callOrder, ['save', 'notify']);
+});
+
+test('POST /api/feedback defers notification until a screenshot upload is complete', async () => {
+  let notifyCount = 0;
+  const handler = createFeedbackHandler(baseDeps({
+    notifySupportFeedback: async () => { notifyCount += 1; return { ok: true }; },
+  }));
+  const res = createMockRes();
+
+  await handler({ method: 'POST', headers: {}, body: { type: 'bug', message: 'See screenshot.', deferNotification: true } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.notificationSent, false);
+  assert.equal(notifyCount, 0);
+});
+
+test('POST /api/feedback notify reloads the owned screenshot and sends a signed attachment', async () => {
+  let notifyArgs;
+  const handler = createFeedbackHandler(baseDeps({
+    getFeedbackForBusiness: async () => ({
+      id: 'feedback-1', businessId: 'biz-1', submittedByUserId: 'user-1', type: 'bug', message: 'See screenshot.', screenshotFileId: 'file-1',
+    }),
+    getFileForBusiness: async () => ({
+      id: 'file-1', entityType: 'feedback', entityId: 'feedback-1', category: 'screenshot', uploadStatus: 'uploaded', objectKey: 'biz-1/file-1/screenshot.png', originalFileName: 'screenshot.png', mimeType: 'image/png',
+    }),
+    createPresignedDownloadUrl: async ({ businessId, key }) => ({ ok: businessId === 'biz-1' && key.startsWith('biz-1/'), downloadUrl: 'https://signed.example/screenshot.png' }),
+    notifySupportFeedback: async (args) => { notifyArgs = args; return { ok: true }; },
+  }));
+  const res = createMockRes();
+
+  await handler({ method: 'POST', headers: {}, body: { action: 'notify', feedbackId: 'feedback-1' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(notifyArgs.attachment, {
+    filename: 'screenshot.png',
+    path: 'https://signed.example/screenshot.png',
+    contentType: 'image/png',
+  });
+});
+
+test('POST /api/feedback notify rejects another user feedback record', async () => {
+  let notified = false;
+  const handler = createFeedbackHandler(baseDeps({
+    getFeedbackForBusiness: async () => ({ id: 'feedback-2', businessId: 'biz-1', submittedByUserId: 'user-2' }),
+    notifySupportFeedback: async () => { notified = true; return { ok: true }; },
+  }));
+  const res = createMockRes();
+
+  await handler({ method: 'POST', headers: {}, body: { action: 'notify', feedbackId: 'feedback-2' } }, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(notified, false);
 });
 
 test('POST /api/feedback client cannot override notification sender or recipient', async () => {

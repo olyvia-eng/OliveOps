@@ -40,7 +40,7 @@ export function createResendFeedbackNotifier(options = {}) {
     env = process.env,
   } = options;
 
-  return async function notifySupportFeedback({ feedback, session }) {
+  return async function notifySupportFeedback({ feedback, session, attachment }) {
     const apiKey = env.RESEND_API_KEY;
     const notificationEmail = env.FEEDBACK_NOTIFICATION_EMAIL;
     const fromEmail = env.FEEDBACK_FROM_EMAIL;
@@ -63,6 +63,9 @@ export function createResendFeedbackNotifier(options = {}) {
 
       if (isValidEmail(session?.email)) {
         payload.replyTo = session.email;
+      }
+      if (attachment?.filename && attachment?.path) {
+        payload.attachments = [attachment];
       }
 
       const result = await resend.emails.send(payload);
