@@ -1,15 +1,14 @@
 import { Outlet, useLocation } from 'react-router-dom';
-import { Menu, Pin } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Pin } from 'lucide-react';
 import Sidebar from './Sidebar';
 import type { BusinessUserRole } from '../../auth/types';
 import { PinnedPagesProvider, usePinnedPages } from '../../navigation/PinnedPagesContext';
 import { Button } from '../ui';
 import NotificationBell from '../notifications/NotificationBell';
-
-const DESKTOP_SIDEBAR_COLLAPSED_KEY = 'oliveops.sidebar.desktop-collapsed.v1';
+import useUiPreferences from './useUiPreferences';
 
 interface AppLayoutProps {
+  userId: string;
   userName: string;
   userFirstName?: string;
   userLastName?: string;
@@ -37,22 +36,10 @@ function PinPageButton() {
   );
 }
 
-export default function AppLayout({ userName, userFirstName, userLastName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
+export default function AppLayout({ userId, userName, userFirstName, userLastName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
   const location = useLocation();
   const isHome = location.pathname === '/home';
-  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(DESKTOP_SIDEBAR_COLLAPSED_KEY) === 'true';
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(DESKTOP_SIDEBAR_COLLAPSED_KEY, String(isDesktopSidebarCollapsed));
-  }, [isDesktopSidebarCollapsed]);
-
-  const toggleDesktopSidebarCollapsed = () => {
-    setIsDesktopSidebarCollapsed((current) => !current);
-  };
+  const { appearanceStyle, sidebarCollapsed, setAppearanceStyle, setSidebarCollapsed } = useUiPreferences(userId);
 
   return (
     <PinnedPagesProvider userRole={userRole}>
@@ -65,30 +52,17 @@ export default function AppLayout({ userName, userFirstName, userLastName, userE
           businessName={businessName}
           userRole={userRole}
           onLogout={onLogout}
-          isDesktopCollapsed={isDesktopSidebarCollapsed}
-          onToggleDesktopCollapsed={toggleDesktopSidebarCollapsed}
+          appearanceStyle={appearanceStyle}
+          onAppearanceStyleChange={setAppearanceStyle}
+          isDesktopCollapsed={sidebarCollapsed}
+          onToggleDesktopCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
         {/* Content area shifts right on desktop, down on mobile */}
-        <main className={`pt-14 lg:pt-0 min-h-screen transition-[margin] duration-200 ${isDesktopSidebarCollapsed ? 'lg:ml-0' : 'lg:ml-72'}`}>
-          <div className="border-b border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800">
+        <main className={`pt-14 lg:pt-0 min-h-screen transition-[margin] duration-200 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-72'}`}>
+          <div className="app-header-surface border-b">
             <div className="p-3 sm:px-6 sm:py-3 max-w-7xl mx-auto">
               <div className="flex items-center justify-between gap-3">
-                <div className="hidden lg:block">
-                  {isDesktopSidebarCollapsed ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleDesktopSidebarCollapsed}
-                      className="text-brand-700 dark:text-brand-100"
-                      title="Expand sidebar"
-                      aria-label="Expand sidebar"
-                    >
-                      <Menu size={14} />
-                      Menu
-                    </Button>
-                  ) : <span />}
-                </div>
+                <div className="hidden lg:block" />
                 <div className="flex items-center gap-2">
                   <NotificationBell />
                   <PinPageButton />

@@ -228,7 +228,7 @@ export function Modal({ open, onClose, title, children, footer, wide = false, si
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className={`relative bg-white dark:bg-brand-700 rounded-2xl shadow-2xl w-full ${maxWidth} max-h-[90vh] flex flex-col border border-brand-100 dark:border-brand-600`}>
+      <div className={`modal-surface relative rounded-2xl w-full ${maxWidth} max-h-[90vh] flex flex-col border`}>
         <div className="flex items-center justify-between p-5 border-b border-brand-100 dark:border-brand-600">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">{title}</h2>
           <button onClick={onClose} className="text-gray-400 dark:text-brand-300 hover:text-brand-700 dark:hover:text-brand-100 text-xl leading-none h-8 w-8 rounded-lg hover:bg-brand-100 dark:hover:bg-brand-700">&times;</button>

@@ -8,6 +8,7 @@ interface SidebarItemProps {
   item: SidebarNavItem;
   level?: number;
   compact?: boolean;
+  iconOnly?: boolean;
   onNavigate?: () => void;
   onAction?: (actionId: string) => void;
 }
@@ -28,6 +29,7 @@ export default function SidebarItem({
   item,
   level = 0,
   compact = false,
+  iconOnly = false,
   onNavigate,
   onAction,
 }: SidebarItemProps) {
@@ -49,12 +51,14 @@ export default function SidebarItem({
     return (
       <button
         type="button"
+        aria-label={item.label}
+        title={iconOnly ? item.label : undefined}
         onClick={() => onAction?.(item.actionId)}
         style={indentStyle}
-        className={`w-full flex items-center gap-2 ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} rounded-lg text-sm font-medium text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50`}
+        className={`w-full flex items-center gap-2 ${iconOnly ? 'h-10 justify-center px-0' : compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} rounded-lg text-sm font-medium text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50`}
       >
         {Icon ? <Icon size={compact ? 14 : 15} /> : null}
-        <span className="truncate">{item.label}</span>
+        {!iconOnly ? <span className="truncate">{item.label}</span> : null}
       </button>
     );
   }
@@ -68,8 +72,10 @@ export default function SidebarItem({
         <NavLink
           to={item.to}
           end={item.end}
+          aria-label={item.label}
+          title={iconOnly ? item.label : undefined}
           className={({ isActive }) =>
-            `group relative flex min-w-0 flex-1 items-center gap-2 ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} pl-3 rounded-lg text-sm font-medium transition-colors ${
+            `group relative flex min-w-0 flex-1 items-center gap-2 ${iconOnly ? 'h-10 justify-center px-0' : compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${iconOnly ? '' : 'pl-3'} rounded-lg text-sm font-medium transition-colors ${
               isActive
                 ? 'bg-accent-100 dark:bg-brand-600 text-brand-900 dark:text-brand-50 border border-accent-200 dark:border-brand-500 shadow-sm'
                 : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50 border border-transparent'
@@ -84,11 +90,11 @@ export default function SidebarItem({
                 }`}
               />
               {Icon ? <Icon size={compact ? 14 : 15} /> : null}
-              <span className="truncate text-left">{item.label}</span>
+              {!iconOnly ? <span className="truncate text-left">{item.label}</span> : null}
             </>
           )}
         </NavLink>
-        <button
+        {!iconOnly ? <button
           type="button"
           aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
           title={pinned ? 'Unpin page' : 'Pin page'}
@@ -109,7 +115,7 @@ export default function SidebarItem({
           }}
         >
           <Pin size={14} className={pinned ? 'fill-current' : ''} />
-        </button>
+        </button> : null}
       </div>
     );
   }
@@ -121,7 +127,9 @@ export default function SidebarItem({
     <div style={indentStyle} className="relative">
       <button
         type="button"
-        className={`w-full flex items-center justify-between ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} rounded-lg text-sm font-medium transition-colors ${
+        aria-label={item.label}
+        title={iconOnly ? item.label : undefined}
+        className={`w-full flex items-center ${iconOnly ? 'h-10 justify-center px-0' : `justify-between ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'}`} rounded-lg text-sm font-medium transition-colors ${
           isBranchActive
             ? 'text-brand-900 dark:text-brand-50 bg-accent-100 dark:bg-brand-600 border border-accent-200 dark:border-brand-500 shadow-sm'
             : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50 border border-transparent'
@@ -133,14 +141,14 @@ export default function SidebarItem({
       >
         <span className="flex items-center gap-2 min-w-0">
           {GroupIcon ? <GroupIcon size={compact ? 14 : 15} /> : null}
-          <span className="truncate">{item.label}</span>
+          {!iconOnly ? <span className="truncate">{item.label}</span> : null}
         </span>
-        {isCollapsible ? (
+        {isCollapsible && !iconOnly ? (
           <ChevronDown size={13} className={`transition-transform ${expanded ? 'rotate-180' : 'rotate-0'}`} />
         ) : null}
       </button>
 
-      {expanded && (
+      {expanded && !iconOnly && (
         <div className="mt-1 ml-2 pl-2 border-l border-brand-100 dark:border-brand-600 space-y-0.5" role="menu" aria-label={`${item.label} submenu`}>
           {item.children.map((child) => (
             <SidebarItem
@@ -148,6 +156,7 @@ export default function SidebarItem({
               item={child}
               level={level + 1}
               compact={compact}
+              iconOnly={iconOnly}
               onNavigate={onNavigate}
               onAction={onAction}
             />

@@ -523,6 +523,7 @@ export default function App() {
               path="/"
               element={
                 <AppLayout
+                  userId={sessionUser.id}
                   userName={sessionDisplayName}
                   userFirstName={sessionUser.firstName}
                   userLastName={sessionUser.lastName}

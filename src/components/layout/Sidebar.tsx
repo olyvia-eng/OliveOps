@@ -9,6 +9,7 @@ import {
   Moon,
   Sun,
   ChevronsLeft,
+  ChevronsRight,
   Settings,
   MessageSquare,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import SidebarItem from './SidebarItem';
 import SidebarSection from './SidebarSection';
 import { usePinnedPages } from '../../navigation/PinnedPagesContext';
 import FeedbackModal from '../feedback/FeedbackModal';
+import type { AppearanceStyle } from './useUiPreferences';
 
 const EXPANDED_SECTIONS_STORAGE_KEY = 'oliveops.sidebar.expanded-sections.v1';
 const THEME_STORAGE_KEY = 'oliveops.theme.v1';
@@ -47,6 +49,8 @@ interface SidebarProps {
   businessName: string;
   userRole: BusinessUserRole;
   onLogout: () => void | Promise<void>;
+  appearanceStyle: AppearanceStyle;
+  onAppearanceStyleChange: (style: AppearanceStyle) => void;
   isDesktopCollapsed: boolean;
   onToggleDesktopCollapsed: () => void;
 }
@@ -59,6 +63,8 @@ export default function Sidebar({
   businessName,
   userRole,
   onLogout,
+  appearanceStyle,
+  onAppearanceStyleChange,
   isDesktopCollapsed,
   onToggleDesktopCollapsed,
 }: SidebarProps) {
@@ -78,12 +84,36 @@ export default function Sidebar({
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [isDesktopHoverExpanded, setIsDesktopHoverExpanded] = useState(false);
+  const hoverTimerRef = useRef<number | null>(null);
   const [displayName, setDisplayName] = useState(userName);
   const [displayEmail, setDisplayEmail] = useState(userEmail);
   const navigation = useMemo(() => getSidebarConfig(userRole), [userRole]);
   const linkCandidates = useMemo(() => getSidebarLinkItems(userRole), [userRole]);
   const { pinnedPages, reorderPinnedPages } = usePinnedPages();
   const previousPinnedCountRef = useRef(pinnedPages.length);
+  const isDesktopVisuallyExpanded = !isDesktopCollapsed || isDesktopHoverExpanded;
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current === null) return;
+    window.clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  };
+
+  const scheduleHoverExpansion = () => {
+    if (!isDesktopCollapsed) return;
+    clearHoverTimer();
+    hoverTimerRef.current = window.setTimeout(() => setIsDesktopHoverExpanded(true), 190);
+  };
+
+  const scheduleHoverCollapse = () => {
+    if (!isDesktopCollapsed) return;
+    clearHoverTimer();
+    hoverTimerRef.current = window.setTimeout(() => setIsDesktopHoverExpanded(false), 140);
+  };
+
+  useEffect(() => () => clearHoverTimer(), []);
+  useEffect(() => { if (!isDesktopCollapsed) setIsDesktopHoverExpanded(false); }, [isDesktopCollapsed]);
 
   const allSectionIds = useMemo(() => {
     return ['pinned', ...navigation.sections.map((section) => section.id)];
@@ -332,7 +362,7 @@ export default function Sidebar({
   return (
     <>
       {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-brand-800 border-b border-brand-100 dark:border-brand-600 flex items-center justify-between px-4 h-14">
+      <div className="app-header-surface lg:hidden fixed top-0 left-0 right-0 z-30 border-b flex items-center justify-between px-4 h-14">
         <button
           type="button"
           onClick={() => navigate('/home')}
@@ -359,7 +389,7 @@ export default function Sidebar({
 
       {/* Mobile drawer */}
       <aside
-        className={`lg:hidden fixed top-14 left-0 bottom-0 z-20 w-72 bg-white dark:bg-brand-800 border-r border-brand-100 dark:border-brand-600 p-4 flex flex-col transform transition-transform ${
+        className={`sidebar-surface lg:hidden fixed top-14 left-0 bottom-0 z-20 w-72 border-r p-4 flex flex-col transform transition-transform ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -462,44 +492,48 @@ export default function Sidebar({
 
       {/* Desktop sidebar */}
       <aside
-        className={`hidden lg:flex flex-col w-72 min-h-screen bg-white dark:bg-brand-800 border-r border-brand-100 dark:border-brand-600 p-4 fixed top-0 left-0 bottom-0 transition-transform duration-200 ${
-          isDesktopCollapsed ? '-translate-x-full' : 'translate-x-0'
-        }`}
+        data-sidebar-state={isDesktopCollapsed ? isDesktopHoverExpanded ? 'hover-expanded' : 'collapsed' : 'expanded'}
+        onMouseEnter={scheduleHoverExpansion}
+        onMouseLeave={scheduleHoverCollapse}
+        className={`sidebar-surface hidden lg:flex flex-col min-h-screen border-r fixed top-0 left-0 bottom-0 overflow-hidden transition-[width,box-shadow] duration-200 ${isDesktopVisuallyExpanded ? 'w-72 p-4' : 'w-16 p-3'} ${isDesktopHoverExpanded ? 'z-40 shadow-2xl' : 'z-30'}`}
       >
-        <div className="flex items-center justify-between gap-2 font-semibold text-brand-800 dark:text-brand-100 text-[28px] mb-4 px-1">
+        <div className={`flex h-10 shrink-0 items-center font-semibold text-brand-800 dark:text-brand-100 mb-4 ${isDesktopVisuallyExpanded ? 'justify-between gap-2 px-1' : 'justify-center'}`}>
           <button
             type="button"
             onClick={() => navigate('/home')}
-            className="flex items-center gap-2 min-w-0"
+            aria-label="OliveOps Home"
+            title={!isDesktopVisuallyExpanded ? 'OliveOps Home' : undefined}
+            className="flex items-center gap-2 min-w-0 shrink-0"
           >
             <Leaf size={24} />
-            <span className="text-2xl truncate">OliveOps</span>
+            {isDesktopVisuallyExpanded ? <span className="text-2xl truncate">OliveOps</span> : null}
           </button>
-          <button
+          {isDesktopVisuallyExpanded ? <button
             type="button"
-            onClick={onToggleDesktopCollapsed}
-            aria-label="Collapse sidebar"
-            title="Collapse sidebar"
+            onClick={() => { clearHoverTimer(); onToggleDesktopCollapsed(); }}
+            aria-label={isDesktopCollapsed ? 'Keep sidebar expanded' : 'Collapse sidebar'}
+            title={isDesktopCollapsed ? 'Keep expanded' : 'Collapse sidebar'}
             className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-brand-600 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600"
           >
-            <ChevronsLeft size={16} />
-          </button>
+            {isDesktopCollapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+          </button> : null}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-1">
-          <div className="mb-3 space-y-0.5">
+        <div className={`flex-1 overflow-y-auto ${isDesktopVisuallyExpanded ? 'pr-1' : ''}`}>
+          <div className={isDesktopVisuallyExpanded ? 'mb-3 space-y-0.5' : 'mb-2 space-y-1'}>
             {navigation.topLevel.map((item) => (
               <SidebarItem
                 key={`desktop-${item.id}`}
                 item={item}
                 compact
+                iconOnly={!isDesktopVisuallyExpanded}
                 onNavigate={handleNavigate}
                 onAction={handleAction}
               />
             ))}
           </div>
 
-          <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 p-3 mb-4">
+          {isDesktopVisuallyExpanded ? <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 p-3 mb-4">
             <button
               type="button"
               className="w-full text-left px-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300 mb-1"
@@ -512,13 +546,14 @@ export default function Sidebar({
                 {pinnedItems.map((item, index) => renderPinnedItem(item, index))}
               </div>
             )}
-          </div>
+          </div> : null}
 
           {navigation.sections.map((section) => (
             <SidebarSection
               key={section.id}
               section={section}
               compact
+              iconOnly={!isDesktopVisuallyExpanded}
               collapsed={!isExpanded(section.id)}
               onToggle={toggleSection}
               onNavigate={handleNavigate}
@@ -531,15 +566,18 @@ export default function Sidebar({
           <button
             type="button"
             onClick={openProfileModal}
-            className="w-full flex items-center gap-3 px-1 mb-2 text-left rounded-lg hover:bg-accent-50 dark:hover:bg-brand-600"
+            aria-label="Profile and appearance settings"
+            title={!isDesktopVisuallyExpanded ? 'Profile and appearance settings' : undefined}
+            className={`w-full flex items-center mb-2 text-left rounded-lg hover:bg-accent-50 dark:hover:bg-brand-600 ${isDesktopVisuallyExpanded ? 'gap-3 px-1' : 'h-10 justify-center'}`}
           >
             <div className="h-8 w-8 rounded-full bg-accent-100 dark:bg-brand-600 text-accent-600 dark:text-accent-400 flex items-center justify-center text-xs font-semibold">{userInitials}</div>
-            <div className="min-w-0">
+            {isDesktopVisuallyExpanded ? <div className="min-w-0">
               <p className="text-xs font-semibold text-brand-900 dark:text-brand-100 truncate">{displayName}</p>
               <p className="text-[11px] text-brand-600 dark:text-brand-300 truncate">{displayEmail}</p>
-            </div>
-            <Edit3 size={14} className="ml-auto text-brand-400 dark:text-brand-300" />
+            </div> : null}
+            {isDesktopVisuallyExpanded ? <Edit3 size={14} className="ml-auto text-brand-400 dark:text-brand-300" /> : null}
           </button>
+          {isDesktopVisuallyExpanded ? <>
           <button
             onClick={() => setCompanySetupExpanded((current) => !current)}
             className="w-full mb-1 flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
@@ -578,13 +616,18 @@ export default function Sidebar({
           >
             <LogOut size={16} /> Log Out
           </button>
+          </> : <div className="space-y-1">
+            <button type="button" onClick={openFeedbackModal} aria-label="Send Feedback" title="Send Feedback" className="grid h-10 w-full place-items-center rounded-lg text-brand-700 hover:bg-accent-50 dark:text-brand-100 dark:hover:bg-brand-600"><MessageSquare size={17} /></button>
+            <button type="button" onClick={toggleTheme} aria-label={isDarkMode ? 'Use Light Mode' : 'Use Dark Mode'} title={isDarkMode ? 'Light Mode' : 'Dark Mode'} className="grid h-10 w-full place-items-center rounded-lg text-brand-700 hover:bg-accent-50 dark:text-brand-100 dark:hover:bg-brand-600">{isDarkMode ? <Sun size={17} /> : <Moon size={17} />}</button>
+            <button type="button" onClick={onLogout} aria-label="Log Out" title="Log Out" className="grid h-10 w-full place-items-center rounded-lg text-accent-600 hover:bg-accent-50 dark:text-accent-400 dark:hover:bg-brand-600"><LogOut size={17} /></button>
+          </div>}
         </div>
       </aside>
 
       <Modal
         open={profileModalOpen}
         onClose={() => setProfileModalOpen(false)}
-        title="Edit Profile"
+        title="Profile & Appearance"
         footer={(
           <>
             <Button variant="secondary" onClick={() => setProfileModalOpen(false)} disabled={profileSaving}>Cancel</Button>
@@ -601,6 +644,22 @@ export default function Sidebar({
           <Input label="Email" type="email" value={profileEmail} onChange={(event) => setProfileEmail(event.target.value)} />
           <Input label="New Password (optional)" type="password" value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} />
           <Input label="Confirm New Password" type="password" value={profilePasswordConfirm} onChange={(event) => setProfilePasswordConfirm(event.target.value)} />
+          <section className="border-t border-brand-100 pt-4 dark:border-brand-600">
+            <div><h3 className="text-sm font-semibold">Appearance Style</h3><p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Changes preview and save immediately.</p></div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {([
+                ['standard', 'Standard', 'Current OliveOps surfaces.'],
+                ['tinted-glass', 'Tinted Glass', 'Frosted surfaces with an OliveOps tint.'],
+                ['clear-glass', 'Clear Glass', 'Lighter neutral frosted surfaces.'],
+              ] as const).map(([value, label, description]) => (
+                <label key={value} className={`cursor-pointer rounded-lg border p-3 ${appearanceStyle === value ? 'border-accent-500 bg-accent-50 dark:bg-brand-600' : 'border-brand-100 bg-white dark:border-brand-600 dark:bg-brand-700'}`}>
+                  <span className="flex items-center gap-2 text-sm font-semibold"><input type="radio" name="appearance-style" value={value} checked={appearanceStyle === value} onChange={() => onAppearanceStyleChange(value)} />{label}</span>
+                  <span className="mt-1 block text-xs leading-5 text-brand-400 dark:text-brand-300">{description}</span>
+                  <span className={`appearance-preview appearance-preview-${value} mt-3 block h-9 rounded-md border`} aria-hidden="true" />
+                </label>
+              ))}
+            </div>
+          </section>
           {profileError && <p className="text-sm text-accent-700">{profileError}</p>}
         </div>
       </Modal>

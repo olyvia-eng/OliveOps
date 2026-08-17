@@ -26,7 +26,7 @@ export default function DetailWorkspace({ open, expanded, list, detail, detailKe
         aria-label="Record details"
         className={expanded
           ? 'min-w-0 animate-[fadeIn_160ms_ease-out]'
-          : 'min-w-0 overflow-hidden rounded-lg border border-brand-100 bg-white shadow-sm dark:border-brand-600 dark:bg-brand-700 lg:sticky lg:top-4 lg:h-[calc(100vh-8rem)]'}
+          : 'detail-panel-surface min-w-0 overflow-hidden rounded-lg border shadow-sm lg:sticky lg:top-4 lg:h-[calc(100vh-8rem)]'}
       >
         <div className={expanded ? 'min-w-0' : 'h-full min-w-0 overflow-y-auto overscroll-contain'}>
           {detail}
