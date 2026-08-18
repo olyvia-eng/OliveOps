@@ -15,6 +15,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { checkRateLimit } from './_lib/rateLimit.js';
 import { createPasswordReset, resetPasswordWithToken } from './_lib/passwordResetRepo.js';
 import { authMailer } from './_lib/authEmails.js';
+import { isValidTimeZone } from './_lib/businessTime.js';
 
 function createMobileAccessToken() {
   return `oliveops_mobile_${randomBytes(32).toString('base64url')}`;
@@ -313,7 +314,7 @@ export function createAuthHandler(overrides = {}) {
         return res.status(405).json({ ok: false, error: 'Method not allowed' });
       }
 
-      const { businessName, ownerName, firstName, lastName, email, password } = req.body ?? {};
+      const { businessName, ownerName, firstName, lastName, email, password, timezone } = req.body ?? {};
       const hasStructuredName = firstName !== undefined || lastName !== undefined;
       if (
         typeof businessName !== 'string' ||
@@ -334,6 +335,9 @@ export function createAuthHandler(overrides = {}) {
       ) {
         return res.status(400).json({ ok: false, error: 'Invalid signup fields' });
       }
+      if (timezone !== undefined && !isValidTimeZone(timezone)) {
+        return res.status(400).json({ ok: false, error: 'Invalid business timezone' });
+      }
 
       const limited = await enforceRateLimit({
         req,
@@ -349,7 +353,7 @@ export function createAuthHandler(overrides = {}) {
       }
 
       try {
-        const result = await deps.createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password });
+        const result = await deps.createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password, ...(timezone ? { timezone } : {}) });
         if (!result.ok) {
           return res.status(409).json({ ok: false, error: 'Unable to create account with those details.' });
         }

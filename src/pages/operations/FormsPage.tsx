@@ -331,6 +331,7 @@ export default function FormsPage() {
     jobs,
     customers,
     equipmentAssets,
+    divisions,
     addForm,
     updateForm,
     deleteForm,
@@ -338,6 +339,7 @@ export default function FormsPage() {
     updateFormField,
     deleteFormField,
     addFormSubmission,
+    updateFormSubmission,
     upsertFormResponse,
   } = useStore();
 
@@ -670,12 +672,16 @@ export default function FormsPage() {
 
     if (selectedForm.assignedTo === 'division') {
       return (
-        <Input
+        <Select
           label="Division"
           value={selectedForm.assignmentValue ?? ''}
           onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
-          placeholder="e.g. Earthworks"
-        />
+        >
+          <option value="">Select division</option>
+          {divisions.filter((division) => division.active).map((division) => (
+            <option key={division.id} value={division.id}>{division.name}</option>
+          ))}
+        </Select>
       );
     }
 
@@ -1062,6 +1068,7 @@ export default function FormsPage() {
                         <th className="px-4 py-3 font-medium">Time</th>
                         <th className="px-4 py-3 font-medium">Status</th>
                         <th className="px-4 py-3 font-medium">Job</th>
+                        <th className="px-4 py-3 font-medium">Equipment</th>
                         <th className="px-4 py-3 font-medium">Submitted By</th>
                         <th className="px-4 py-3 font-medium">Actions</th>
                       </tr>
@@ -1070,6 +1077,7 @@ export default function FormsPage() {
                       {filteredSubmissions.map((submission) => {
                         const employeeName = employees.find((employee) => employee.id === submission.employeeId)?.name ?? 'Unknown';
                         const jobTitle = jobs.find((job) => job.id === submission.jobId)?.title ?? '—';
+                        const equipmentName = equipmentAssets.find((equipment) => equipment.id === submission.equipmentId)?.name ?? '—';
                         const submitted = new Date(submission.submittedAt);
                         return (
                           <tr key={submission.id} className="hover:bg-gray-50">
@@ -1078,6 +1086,7 @@ export default function FormsPage() {
                             <td className="px-4 py-3 text-gray-700">{submitted.toLocaleTimeString()}</td>
                             <td className="px-4 py-3 text-gray-700 capitalize">{submission.status}</td>
                             <td className="px-4 py-3 text-gray-700">{jobTitle}</td>
+                            <td className="px-4 py-3 text-gray-700">{equipmentName}</td>
                             <td className="px-4 py-3 text-gray-700">{submission.submittedBy ?? employeeName}</td>
                             <td className="px-4 py-3">
                               <Button size="sm" variant="ghost" onClick={() => setViewSubmissionId(submission.id)}>View Submission</Button>
@@ -1376,7 +1385,17 @@ export default function FormsPage() {
         open={Boolean(activeSubmission)}
         onClose={() => setViewSubmissionId(null)}
         title="Submission Details"
-        footer={<Button variant="secondary" onClick={() => setViewSubmissionId(null)}>Close</Button>}
+        footer={(
+          <div className="flex items-center justify-end gap-2">
+            {activeSubmission?.status === 'submitted' && (
+              <>
+                <Button variant="secondary" onClick={() => updateFormSubmission(activeSubmission.id, { status: 'rejected' })}>Reject</Button>
+                <Button onClick={() => updateFormSubmission(activeSubmission.id, { status: 'approved' })}>Approve</Button>
+              </>
+            )}
+            <Button variant="secondary" onClick={() => setViewSubmissionId(null)}>Close</Button>
+          </div>
+        )}
         wide
       >
         {!activeSubmission ? null : (
@@ -1385,6 +1404,9 @@ export default function FormsPage() {
               <div><span className="text-gray-500">Submitted:</span> <span className="text-gray-900 font-medium">{formatDateTime(activeSubmission.submittedAt)}</span></div>
               <div><span className="text-gray-500">Status:</span> <span className="text-gray-900 font-medium capitalize">{activeSubmission.status}</span></div>
               <div><span className="text-gray-500">Submitted By:</span> <span className="text-gray-900 font-medium">{activeSubmission.submittedBy ?? '—'}</span></div>
+              <div><span className="text-gray-500">Job:</span> <span className="text-gray-900 font-medium">{jobs.find((job) => job.id === activeSubmission.jobId)?.title ?? '—'}</span></div>
+              <div><span className="text-gray-500">Equipment:</span> <span className="text-gray-900 font-medium">{equipmentAssets.find((equipment) => equipment.id === activeSubmission.equipmentId)?.name ?? '—'}</span></div>
+              <div><span className="text-gray-500">Trigger:</span> <span className="text-gray-900 font-medium">{activeSubmission.trigger ? toLabel(activeSubmission.trigger) : 'Legacy submission'}</span></div>
             </div>
             <Card className="overflow-hidden">
               <table className="w-full text-sm">
@@ -1396,11 +1418,19 @@ export default function FormsPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {activeSubmissionResponses.map((response) => {
-                    const fieldLabel = formFields.find((field) => field.id === response.fieldId)?.label ?? response.fieldId;
+                    const field = formFields.find((candidate) => candidate.id === response.fieldId);
+                    const fieldLabel = field?.label ?? response.fieldId;
+                    const displayValue = field?.type === 'employee_selector'
+                      ? employees.find((employee) => employee.id === response.value)?.name ?? response.value
+                      : field?.type === 'job_selector'
+                        ? jobs.find((job) => job.id === response.value)?.title ?? response.value
+                        : field?.type === 'customer_selector'
+                          ? customers.find((customer) => customer.id === response.value)?.name ?? response.value
+                          : response.value;
                     return (
                       <tr key={response.id}>
                         <td className="px-4 py-3 text-gray-700">{fieldLabel}</td>
-                        <td className="px-4 py-3 text-gray-900">{response.value || '—'}</td>
+                        <td className="px-4 py-3 text-gray-900">{displayValue || response.fileIds?.join(', ') || '—'}</td>
                       </tr>
                     );
                   })}

@@ -1544,13 +1544,13 @@ export const useStore = create<AppState>()((set, get) => ({
           formSubmissions: state.formSubmissions.map((submission) => (submission.id === id ? { ...submission, ...data } : submission)),
         }));
 
-        void ensureOk(fetch(dataUrl('form-submissions', id), {
+        void ensureOk(fetch(`/api/forms-review?id=${encodeURIComponent(id)}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: JSON.stringify({ data }),
+          body: JSON.stringify({ status: data.status }),
         })).catch((error: unknown) => {
           set({ formSubmissions: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form submission could not be updated.') });

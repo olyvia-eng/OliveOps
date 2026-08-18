@@ -317,13 +317,26 @@ test('POST /api/auth?action=signup trims and forwards structured names', async (
   });
   const req = {
     method: 'POST', query: { action: 'signup' }, headers: {},
-    body: { businessName: 'OliveOps Demo', firstName: ' Ada ', lastName: ' Lovelace ', email: 'ada@example.com', password: 'password1234' },
+    body: { businessName: 'OliveOps Demo', firstName: ' Ada ', lastName: ' Lovelace ', email: 'ada@example.com', password: 'password1234', timezone: 'America/Vancouver' },
   };
   const res = createMockRes();
   await handler(req, res);
   assert.equal(res.statusCode, 200);
   assert.equal(received.firstName, ' Ada ');
   assert.equal(received.lastName, ' Lovelace ');
+  assert.equal(received.timezone, 'America/Vancouver');
+});
+
+test('POST /api/auth?action=signup rejects an invalid business timezone', async () => {
+  const handler = createHandler();
+  const req = {
+    method: 'POST', query: { action: 'signup' }, headers: {},
+    body: { businessName: 'OliveOps Demo', firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', password: 'password1234', timezone: 'Local/Browser' },
+  };
+  const res = createMockRes();
+  await handler(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { ok: false, error: 'Invalid business timezone' });
 });
 
 test('POST /api/auth?action=login returns 429 when rate limited', async () => {

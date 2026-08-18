@@ -758,9 +758,14 @@ export interface FormSubmission {
   formId: ID;
   employeeId: ID;
   jobId?: ID;
+  equipmentId?: ID;
+  divisionId?: ID;
+  trigger?: FormTrigger;
+  periodKey?: string;
   submittedAt: string;
   status: FormSubmissionStatus;
   submittedBy?: string;
+  submittedByUserId?: ID;
 }
 
 export interface FormResponse {
@@ -768,6 +773,8 @@ export interface FormResponse {
   submissionId: ID;
   fieldId: ID;
   value: string;
+  fileIds?: ID[];
+  employeeId?: ID;
 }
 
 // ─── Budget ──────────────────────────────────────────────────────────────────

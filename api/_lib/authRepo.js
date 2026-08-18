@@ -10,6 +10,7 @@ import {
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { DEFAULT_BUSINESS_TIME_ZONE, normalizeBusinessTimeZone } from './businessTime.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -461,7 +462,7 @@ export async function createUserEmployeePair({
   };
 }
 
-export async function createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password }) {
+export async function createBusinessWithOwner({ businessName, ownerName, firstName, lastName, email, password, timezone }) {
   const businessId = generateId();
   const userId = generateId();
   const createdAt = nowIso();
@@ -477,7 +478,9 @@ export async function createBusinessWithOwner({ businessName, ownerName, firstNa
     entityType: 'BUSINESS',
     businessId,
     name: businessName.trim(),
+    timezone: normalizeBusinessTimeZone(timezone),
     createdAt,
+    updatedAt: createdAt,
   };
 
   const userItem = {
@@ -542,6 +545,37 @@ export async function createBusinessWithOwner({ businessName, ownerName, firstNa
   }
 
   return { ok: true, user: mapSessionUser(userItem, businessItem) };
+}
+
+export async function getBusinessProfile(businessId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: 'PROFILE' },
+  }));
+  if (!result.Item) return null;
+  return {
+    id: result.Item.businessId,
+    name: result.Item.name,
+    timezone: normalizeBusinessTimeZone(result.Item.timezone),
+    createdAt: result.Item.createdAt,
+    updatedAt: result.Item.updatedAt ?? result.Item.createdAt,
+  };
+}
+
+export async function updateBusinessProfile({ businessId, profile }) {
+  const updatedAt = nowIso();
+  await ddb.send(new UpdateCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: 'PROFILE' },
+    UpdateExpression: 'SET #timezone = :timezone, updatedAt = :updatedAt',
+    ExpressionAttributeNames: { '#timezone': 'timezone' },
+    ExpressionAttributeValues: {
+      ':timezone': normalizeBusinessTimeZone(profile.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
+      ':updatedAt': updatedAt,
+    },
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+  }));
+  return getBusinessProfile(businessId);
 }
 
 async function findEmployeeForEmail(businessId, email) {
@@ -2311,9 +2345,14 @@ export async function listFormSubmissionsForBusiness(businessId) {
     formId: item.formId,
     employeeId: item.employeeId,
     jobId: item.jobId,
+    equipmentId: item.equipmentId,
+    divisionId: item.divisionId,
+    trigger: item.trigger,
+    periodKey: item.periodKey,
     submittedAt: item.submittedAt,
     status: item.status,
     submittedBy: item.submittedBy,
+    submittedByUserId: item.submittedByUserId,
   }));
 }
 
@@ -2353,9 +2392,14 @@ export async function getFormSubmissionForBusiness(businessId, formSubmissionId)
         formId: result.Item.formId,
         employeeId: result.Item.employeeId,
         jobId: result.Item.jobId,
+        equipmentId: result.Item.equipmentId,
+        divisionId: result.Item.divisionId,
+        trigger: result.Item.trigger,
+        periodKey: result.Item.periodKey,
         submittedAt: result.Item.submittedAt,
         status: result.Item.status,
         submittedBy: result.Item.submittedBy,
+        submittedByUserId: result.Item.submittedByUserId,
       }
     : null;
 }
@@ -2380,16 +2424,57 @@ export async function updateFormSubmissionForBusiness({ businessId, formSubmissi
 }
 
 export async function deleteFormSubmissionForBusiness(businessId, formSubmissionId) {
-  await ddb.send(
+  const responses = await listFormResponsesForBusiness(businessId);
+  const responseIds = responses.filter((response) => response.submissionId === formSubmissionId).map((response) => response.id);
+  await Promise.all([formSubmissionId, ...responseIds].map((id, index) => ddb.send(
     new DeleteCommand({
       TableName: tableName,
       Key: {
         PK: businessPk(businessId),
-        SK: formSubmissionSk(formSubmissionId),
+        SK: index === 0 ? formSubmissionSk(id) : formResponseSk(id),
       },
     })
-  );
+  )));
 
+  return { ok: true };
+}
+
+export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses }) {
+  if (!Array.isArray(responses) || responses.length > 99) {
+    throw new RangeError('A form submission can contain at most 99 answers.');
+  }
+  const transactionItems = [
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formSubmissionSk(submission.id),
+          entityType: 'FORM_SUBMISSION',
+          businessId,
+          formSubmissionId: submission.id,
+          ...submission,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+    ...responses.map((response) => ({
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formResponseSk(response.id),
+          entityType: 'FORM_RESPONSE',
+          businessId,
+          formResponseId: response.id,
+          employeeId: submission.employeeId,
+          ...response,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    })),
+  ];
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
   return { ok: true };
 }
 
@@ -2410,6 +2495,8 @@ export async function listFormResponsesForBusiness(businessId) {
     submissionId: item.submissionId,
     fieldId: item.fieldId,
     value: typeof item.value === 'string' ? item.value : JSON.stringify(item.value ?? ''),
+    fileIds: Array.isArray(item.fileIds) ? item.fileIds : undefined,
+    employeeId: item.employeeId,
   }));
 }
 
@@ -2449,6 +2536,8 @@ export async function getFormResponseForBusiness(businessId, formResponseId) {
         submissionId: result.Item.submissionId,
         fieldId: result.Item.fieldId,
         value: typeof result.Item.value === 'string' ? result.Item.value : JSON.stringify(result.Item.value ?? ''),
+        fileIds: Array.isArray(result.Item.fileIds) ? result.Item.fileIds : undefined,
+        employeeId: result.Item.employeeId,
       }
     : null;
 }

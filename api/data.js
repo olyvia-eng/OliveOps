@@ -123,7 +123,7 @@ import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/uti
 import { ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
-import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness } from './_lib/schedulingConfig.js';
+import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
   deleteEquipmentBudgetAllocationForItem,
   repairBudgetGroupMembershipForDeletion,
@@ -553,136 +553,6 @@ function isValidDateOnly(value) {
   if (typeof value !== 'string' || !DATE_ONLY_REGEX.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-function isoDateOnly(value) {
-  if (typeof value !== 'string' || value.length < 10) return '';
-  return value.slice(0, 10);
-}
-
-function normalizeLower(value) {
-  return typeof value === 'string' ? value.trim().toLowerCase() : '';
-}
-
-function sessionCanBypassFormGuard(session) {
-  return session.role === 'owner' || session.role === 'admin';
-}
-
-function pickEntryJobIds(entry) {
-  if (Array.isArray(entry?.jobIds) && entry.jobIds.length > 0) {
-    return entry.jobIds.filter((value) => typeof value === 'string' && value.length > 0);
-  }
-  if (typeof entry?.jobId === 'string' && entry.jobId.length > 0) {
-    return [entry.jobId];
-  }
-  return [];
-}
-
-function isFormAssignedToEmployee({ form, employee, contextJobIds }) {
-  if (form.assignedTo === 'everyone') return true;
-  if (form.assignedTo === 'role') return form.assignmentValue === employee.role;
-  if (form.assignedTo === 'employee') return form.assignmentValue === employee.id;
-  if (form.assignedTo === 'job') {
-    if (!isNonEmptyString(form.assignmentValue)) return false;
-    return contextJobIds.includes(form.assignmentValue);
-  }
-  if (form.assignedTo === 'division') {
-    // TODO: Enforce division-scoped assignments when employee-division mapping is available in backend data.
-    return true;
-  }
-  if (form.assignedTo === 'equipment') {
-    // TODO: Enforce equipment-scoped assignments when equipment context is attached to transitions.
-    return true;
-  }
-  return false;
-}
-
-function isSubmissionSatisfiedForForm({ submission, form, employeeId, dateKey, contextJobIds }) {
-  if (submission.formId !== form.id) return false;
-  if (submission.employeeId !== employeeId) return false;
-  if (submission.status !== 'submitted') return false;
-  if (isoDateOnly(submission.submittedAt) !== dateKey) return false;
-
-  if (form.assignedTo === 'job' && contextJobIds.length > 0) {
-    return contextJobIds.includes(submission.jobId ?? '');
-  }
-
-  return true;
-}
-
-async function getEmployeeByIdOrNull(businessId, employeeId) {
-  const employee = await getEmployeeForBusiness(businessId, employeeId);
-  return employee ?? null;
-}
-
-async function getSessionEmployeeOrNull(businessId, sessionEmail) {
-  const employees = await listEmployeesForBusiness(businessId);
-  const email = normalizeLower(sessionEmail);
-  return employees.find((employee) => normalizeLower(employee.email) === email && employee.active) ?? null;
-}
-
-async function getMissingRequiredFormsForTrigger({ businessId, trigger, employee, contextJobIds }) {
-  const [forms, submissions] = await Promise.all([
-    listFormsForBusiness(businessId),
-    listFormSubmissionsForBusiness(businessId),
-  ]);
-
-  const dateKey = new Date().toISOString().slice(0, 10);
-  return forms.filter((form) => {
-    if (form.status !== 'active') return false;
-    if (!Array.isArray(form.trigger) || !form.trigger.includes(trigger)) return false;
-    if (!isFormAssignedToEmployee({ form, employee, contextJobIds })) return false;
-
-    const submitted = submissions.some((submission) => isSubmissionSatisfiedForForm({
-      submission,
-      form,
-      employeeId: employee.id,
-      dateKey,
-      contextJobIds,
-    }));
-
-    return !submitted;
-  });
-}
-
-async function enforceRequiredForms({
-  session,
-  res,
-  trigger,
-  targetEmployeeId,
-  contextJobIds,
-}) {
-  if (sessionCanBypassFormGuard(session)) return { ok: true };
-
-  const sessionEmployee = await getSessionEmployeeOrNull(session.businessId, session.email);
-  if (!sessionEmployee) {
-    res.status(403).json({ ok: false, error: 'Your user is not linked to an active employee profile.' });
-    return { ok: false };
-  }
-
-  if (sessionEmployee.id !== targetEmployeeId) {
-    res.status(403).json({ ok: false, error: 'You can only perform this action for your own employee profile.' });
-    return { ok: false };
-  }
-
-  const missing = await getMissingRequiredFormsForTrigger({
-    businessId: session.businessId,
-    trigger,
-    employee: sessionEmployee,
-    contextJobIds,
-  });
-
-  if (missing.length > 0) {
-    const names = missing.slice(0, 3).map((form) => form.name).join(', ');
-    const suffix = missing.length > 3 ? ` and ${missing.length - 3} more` : '';
-    res.status(409).json({
-      ok: false,
-      error: `Required forms are incomplete before continuing: ${names}${suffix}.`,
-    });
-    return { ok: false };
-  }
-
-  return { ok: true };
 }
 
 function validateInvoiceRecord(record) {
@@ -1306,6 +1176,46 @@ function validateFormResponseRecord(record) {
   return null;
 }
 
+async function validateFormRelationships({ businessId, record }) {
+  if (record.assignedTo === 'everyone') return null;
+  if (!isNonEmptyString(record.assignmentValue || record.division)) return 'Form assignment target is required.';
+  if (record.assignedTo === 'role') return ['admin', 'foreman', 'crew_member'].includes(record.assignmentValue) ? null : 'Form role assignment is invalid.';
+  if (record.assignedTo === 'employee') return await getEmployeeForBusiness(businessId, record.assignmentValue) ? null : 'Form employee assignment must belong to this business.';
+  if (record.assignedTo === 'job') return await getJobForBusiness(businessId, record.assignmentValue) ? null : 'Form job assignment must belong to this business.';
+  if (record.assignedTo === 'equipment') return await getEquipmentAssetForBusiness(businessId, record.assignmentValue) ? null : 'Form equipment assignment must belong to this business.';
+  if (record.assignedTo === 'division') {
+    const target = String(record.assignmentValue || record.division).trim().toLowerCase().replace(/\s+/g, ' ');
+    const divisions = await listDivisionsForBusiness(businessId);
+    return divisions.some((division) => division.id === record.assignmentValue || division.name?.trim().toLowerCase().replace(/\s+/g, ' ') === target || division.normalizedName?.trim().toLowerCase().replace(/_/g, ' ') === target)
+      ? null
+      : 'Form division assignment must belong to this business.';
+  }
+  return 'Form assignment is invalid.';
+}
+
+async function validateFormFieldRelationships({ businessId, record }) {
+  return await getFormForBusiness(businessId, record.formId) ? null : 'Form field must belong to a form in this business.';
+}
+
+async function validateFormSubmissionRelationships({ businessId, record }) {
+  if (!await getFormForBusiness(businessId, record.formId)) return 'Form submission form must belong to this business.';
+  if (!await getEmployeeForBusiness(businessId, record.employeeId)) return 'Form submission employee must belong to this business.';
+  if (record.jobId && !await getJobForBusiness(businessId, record.jobId)) return 'Form submission job must belong to this business.';
+  if (record.equipmentId && !await getEquipmentAssetForBusiness(businessId, record.equipmentId)) return 'Form submission equipment must belong to this business.';
+  if (record.divisionId && !await getDivisionForBusiness(businessId, record.divisionId)) return 'Form submission division must belong to this business.';
+  return null;
+}
+
+async function validateFormResponseRelationships({ businessId, record }) {
+  const [submission, field] = await Promise.all([
+    getFormSubmissionForBusiness(businessId, record.submissionId),
+    getFormFieldForBusiness(businessId, record.fieldId),
+  ]);
+  if (!submission) return 'Form response submission must belong to this business.';
+  if (!field || field.formId !== submission.formId) return 'Form response field must belong to the submitted form.';
+  return null;
+}
+
 function validateTaskRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Task id is required.';
   if (record.parentTaskId !== undefined && record.parentTaskId !== null && record.parentTaskId !== '' && !isNonEmptyString(record.parentTaskId)) {
@@ -1579,28 +1489,28 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'forms') {
-      const validationError = validateFormRecord(record);
+      const validationError = validateFormRecord(record) ?? await validateFormRelationships({ businessId: session.businessId, record });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
     }
 
     if (entity === 'form-fields') {
-      const validationError = validateFormFieldRecord(record);
+      const validationError = validateFormFieldRecord(record) ?? await validateFormFieldRelationships({ businessId: session.businessId, record });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
     }
 
     if (entity === 'form-submissions') {
-      const validationError = validateFormSubmissionRecord(record);
+      const validationError = validateFormSubmissionRecord(record) ?? await validateFormSubmissionRelationships({ businessId: session.businessId, record });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
     }
 
     if (entity === 'form-responses') {
-      const validationError = validateFormResponseRecord(record);
+      const validationError = validateFormResponseRecord(record) ?? await validateFormResponseRelationships({ businessId: session.businessId, record });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
@@ -1840,28 +1750,28 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'forms') {
-        const validationError = validateFormRecord(next);
+        const validationError = validateFormRecord(next) ?? await validateFormRelationships({ businessId: session.businessId, record: next });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
       }
 
       if (entity === 'form-fields') {
-        const validationError = validateFormFieldRecord(next);
+        const validationError = validateFormFieldRecord(next) ?? await validateFormFieldRelationships({ businessId: session.businessId, record: next });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
       }
 
       if (entity === 'form-submissions') {
-        const validationError = validateFormSubmissionRecord(next);
+        const validationError = validateFormSubmissionRecord(next) ?? await validateFormSubmissionRelationships({ businessId: session.businessId, record: next });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
       }
 
       if (entity === 'form-responses') {
-        const validationError = validateFormResponseRecord(next);
+        const validationError = validateFormResponseRecord(next) ?? await validateFormResponseRelationships({ businessId: session.businessId, record: next });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
@@ -1872,62 +1782,6 @@ export default async function handler(req, res) {
         && (existing.status === 'clocked_in' || next.status === 'clocked_in')
       ) {
         return res.status(409).json({ ok: false, error: 'Use clocking actions for active shift changes.' });
-      }
-
-      if (
-        entity === 'time-entries'
-        && existing.status !== 'clocked_out'
-        && (next.status === 'clocked_out' || isNonEmptyString(next.clockOut))
-      ) {
-        const targetEmployee = await getEmployeeByIdOrNull(session.businessId, existing.employeeId);
-        if (!targetEmployee) {
-          return res.status(400).json({ ok: false, error: 'Time entry employee is invalid.' });
-        }
-
-        const guard = await enforceRequiredForms({
-          session,
-          res,
-          trigger: 'after_clock_out',
-          targetEmployeeId: targetEmployee.id,
-          contextJobIds: pickEntryJobIds(existing),
-        });
-        if (!guard.ok) return;
-      }
-
-      if (
-        entity === 'jobs'
-        && existing.status !== 'in_progress'
-        && next.status === 'in_progress'
-      ) {
-        const sessionEmployee = await getSessionEmployeeOrNull(session.businessId, session.email);
-        if (sessionEmployee) {
-          const guard = await enforceRequiredForms({
-            session,
-            res,
-            trigger: 'before_starting_job',
-            targetEmployeeId: sessionEmployee.id,
-            contextJobIds: [existing.id],
-          });
-          if (!guard.ok) return;
-        }
-      }
-
-      if (
-        entity === 'jobs'
-        && existing.status !== 'completed'
-        && next.status === 'completed'
-      ) {
-        const sessionEmployee = await getSessionEmployeeOrNull(session.businessId, session.email);
-        if (sessionEmployee) {
-          const guard = await enforceRequiredForms({
-            session,
-            res,
-            trigger: 'after_completing_job',
-            targetEmployeeId: sessionEmployee.id,
-            contextJobIds: [existing.id],
-          });
-          if (!guard.ok) return;
-        }
       }
 
       const updateResult = await config.update({

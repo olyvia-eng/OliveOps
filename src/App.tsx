@@ -45,6 +45,7 @@ const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
 const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
+const CompanySettingsPage = lazy(() => import('./pages/settings/CompanySettingsPage'));
 const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
@@ -326,6 +327,7 @@ export default function App() {
     lastName: string;
     email: string;
     password: string;
+    timezone: string;
   }) => {
     const response = await fetch('/api/auth?action=signup', {
       method: 'POST',
@@ -721,6 +723,10 @@ export default function App() {
               <Route
                 path="settings/scheduling"
                 element={canManageUsers ? <SchedulingSetupPage /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="settings/company"
+                element={canManageUsers ? <CompanySettingsPage /> : <Navigate to="/" replace />}
               />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

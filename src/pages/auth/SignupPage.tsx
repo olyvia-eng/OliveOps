@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Leaf, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Button, Card, Input } from '../../components/ui';
+import { Button, Card, Input, Select } from '../../components/ui';
+
+const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Toronto';
+const commonTimezones = ['America/St_Johns', 'America/Halifax', 'America/Toronto', 'America/Winnipeg', 'America/Edmonton', 'America/Vancouver', 'America/Whitehorse', 'UTC'];
 
 interface SignupPageProps {
   onSignup: (payload: {
@@ -10,6 +13,7 @@ interface SignupPageProps {
     lastName: string;
     email: string;
     password: string;
+    timezone: string;
   }) => Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -20,6 +24,7 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [timezone, setTimezone] = useState(defaultTimezone);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,6 +54,7 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
       lastName: lastName.trim(),
       email: email.trim(),
       password,
+      timezone,
     });
     setSubmitting(false);
 
@@ -87,6 +93,10 @@ export default function SignupPage({ onSignup }: SignupPageProps) {
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
           />
+          <Select label="Business Timezone *" required value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+            {!commonTimezones.includes(timezone) ? <option value={timezone}>{timezone}</option> : null}
+            {commonTimezones.map((zone) => <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>)}
+          </Select>
           <Input
             label="Password *"
             type="password"

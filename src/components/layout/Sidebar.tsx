@@ -221,6 +221,7 @@ export default function Sidebar({
     return [
       { label: 'Catalog', path: '/materials/catalog', visible: true },
       { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
+      { label: 'Company Settings', path: '/settings/company', visible: canManageCompanySetup },
       { label: 'Scheduling', path: '/settings/scheduling', visible: canManageCompanySetup },
       { label: 'Users & Access', path: '/user-access', visible: canManageCompanySetup },
       { label: 'Integrations', path: '/settings/integrations', visible: canManageCompanySetup },
