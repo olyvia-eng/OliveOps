@@ -93,6 +93,7 @@ Content-Type: application/json
 ```json
 {
   "formId": "form-id",
+  "clientSubmissionId": "018f47ac-7c42-7b35-9c79-0f4e871ca202",
   "trigger": "daily",
   "jobId": "job-id",
   "equipmentId": "equipment-id",
@@ -120,12 +121,33 @@ The server validates all answers, creates the submission and responses in one Dy
     "status": "submitted",
     "submittedBy": "Alex Smith",
     "submittedByUserId": "user-id",
+    "clientSubmissionId": "018f47ac-7c42-7b35-9c79-0f4e871ca202",
     "responsesCreated": 1
   }
 }
 ```
 
-Clients may send `{ "data": { ... } }` around the request body for compatibility. A submission may contain at most 99 answer-bearing responses. Required and recurring submissions use deterministic IDs to protect against retries; on-demand submissions receive a new ID.
+`clientSubmissionId` is an opaque, stable ID for one logical submission. It must be 8–128 characters, start with an alphanumeric character, and contain only alphanumeric characters, `.`, `_`, `:`, or `-`. Mobile must generate it when the employee starts a submission and reuse it unchanged for every retry. The authenticated business and employee scope the key; request-body ownership fields are ignored.
+
+The key claim, submission header, and answers are written in one DynamoDB transaction. An equivalent retry returns the original successful result with `200`:
+
+```json
+{
+  "ok": true,
+  "replayed": true,
+  "submission": {
+    "id": "form-generated-id",
+    "formId": "form-id",
+    "employeeId": "employee-id",
+    "clientSubmissionId": "018f47ac-7c42-7b35-9c79-0f4e871ca202",
+    "responsesCreated": 1
+  }
+}
+```
+
+The server fingerprints the validated `formId`, trigger, authorized job/equipment/division context, and normalized responses sorted by field ID. Reusing the same scoped key with a different logical payload returns `409` with `submission_idempotency_conflict` and creates nothing. Recurring Forms retain deterministic submission IDs as a second uniqueness guard, so a different client key cannot create a second completion for the same period and context.
+
+Idempotency claims expire after 30 days through DynamoDB TTL; submission and response records do not expire. The claim stores only the fingerprint and safe submission response, never raw answers. Requests without a key retain the legacy behavior during mobile rollout, while an explicitly supplied empty or invalid key is rejected. Clients may send `{ "data": { ... } }` around the request body for compatibility. A keyed submission may contain at most 98 answer-bearing responses because its claim shares DynamoDB's 100-action transaction; a legacy keyless submission may contain at most 99.
 
 ## Get a completed submission
 
@@ -145,6 +167,7 @@ Employees can retrieve only their own submissions. The response includes summary
     "submittedAt": "2026-03-20T14:35:00.000Z",
     "status": "submitted",
     "trigger": "daily",
+    "clientSubmissionId": "018f47ac-7c42-7b35-9c79-0f4e871ca202",
     "context": { "jobId": "job-id", "jobName": "Main Street" }
   },
   "form": {
@@ -218,14 +241,14 @@ Errors use `{ "ok": false, "error": "..." }`; field validation may also include 
 
 | Status | Meaning |
 | --- | --- |
-| `400` | Invalid trigger, answer, field, option, date/time, or request shape |
+| `400` | Invalid client submission ID, trigger, answer, field, option, date/time, or request shape |
 | `401` | Missing, invalid, or expired session |
 | `403` | Context unavailable or Form not assigned to this employee |
 | `404` | Active employee profile, Form, or owned submission not found |
-| `409` | Inactive Form, completed recurring instance, or retry conflict |
+| `409` | Inactive Form, completed recurring instance, or `submission_idempotency_conflict` |
 | `405` | Unsupported HTTP method |
 
-After a `409`, refresh `action=forms` before offering another attempt. Network failures can be retried with the same payload; recurring deterministic IDs prevent duplicate completion records.
+After a recurrence `409`, refresh `action=forms` before offering another attempt. A `submission_idempotency_conflict` means the client reused one logical submission ID for different content and must not automatically retry it. Network failures should be retried with the same `clientSubmissionId` and equivalent payload; the server returns the original result if the first request committed.
 
 ## Web review
 

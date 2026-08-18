@@ -766,6 +766,7 @@ export interface FormSubmission {
   status: FormSubmissionStatus;
   submittedBy?: string;
   submittedByUserId?: ID;
+  clientSubmissionId?: string;
 }
 
 export interface FormResponse {

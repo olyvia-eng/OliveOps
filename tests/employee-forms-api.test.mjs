@@ -24,6 +24,10 @@ function installDdb(t) {
       return { Items: [...store.values()].filter((item) => item.PK === pk && item.SK.startsWith(prefix)) };
     }
     if (type === 'TransactWriteCommand') {
+      if (store.failNextTransaction) {
+        store.failNextTransaction = false;
+        throw new Error('forced transaction failure');
+      }
       for (const item of input.TransactItems) {
         const put = item.Put;
         if (put?.ConditionExpression?.includes('attribute_not_exists') && store.has(key(put.Item.PK, put.Item.SK))) throw Object.assign(new Error('conflict'), { name: 'TransactionCanceledException' });
@@ -44,9 +48,10 @@ async function seedIdentity(store, { businessId = 'biz-a', userId, employeeId, t
   await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role, businessName: 'Olive Test', employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
-function seedForm(store, { id, assignedTo = 'everyone', assignmentValue, trigger = ['on_demand'], status = 'active' }) {
-  store.set(key('BUSINESS#biz-a', `FORM#${id}`), { PK: 'BUSINESS#biz-a', SK: `FORM#${id}`, entityType: 'FORM', businessId: 'biz-a', formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
-  store.set(key('BUSINESS#biz-a', `FORM_FIELD#${id}-notes`), { PK: 'BUSINESS#biz-a', SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId: 'biz-a', formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0 });
+function seedForm(store, { id, businessId = 'biz-a', assignedTo = 'everyone', assignmentValue, trigger = ['on_demand'], status = 'active' }) {
+  const pk = `BUSINESS#${businessId}`;
+  store.set(key(pk, `FORM#${id}`), { PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+  store.set(key(pk, `FORM_FIELD#${id}-notes`), { PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId, formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0 });
 }
 
 async function request(token, { method = 'GET', action, query = {}, body }) {
@@ -171,4 +176,128 @@ test('employee required endpoint surfaces every advisory workflow and recurrence
     assert.equal(required.statusCode, 200, trigger);
     assert.deepEqual(required.body.forms.map((item) => item.id), [`form-${trigger}`], trigger);
   }
+});
+
+test('new clientSubmissionId is stored atomically, echoed, and replayed without duplicate answers', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'incident' });
+  const payload = { formId: 'incident', trigger: 'on_demand', clientSubmissionId: '018f47ac-7c42-7b35-9c79-0f4e871ca202', responses: [{ value: ' Same answer ', fieldId: 'incident-notes' }] };
+
+  const first = await request('token-a', { method: 'POST', action: 'submit', body: payload });
+  const retry = await request('token-a', { method: 'POST', action: 'submit', body: { ...payload, responses: [{ fieldId: 'incident-notes', value: 'Same answer' }] } });
+
+  assert.equal(first.statusCode, 201);
+  assert.equal(first.body.submission.clientSubmissionId, payload.clientSubmissionId);
+  assert.equal(retry.statusCode, 200);
+  assert.equal(retry.body.replayed, true);
+  assert.deepEqual(retry.body.submission, first.body.submission);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
+  const claim = [...store.values()].find((item) => item.entityType === 'FORM_SUBMISSION_IDEMPOTENCY');
+  assert.equal(claim.clientSubmissionId, payload.clientSubmissionId);
+  assert.equal(claim.employeeId, 'employee-a');
+  assert.equal(typeof claim.payloadFingerprint, 'string');
+  assert.equal(typeof claim.ttl, 'number');
+  assert.equal('responses' in claim, false);
+
+  const completed = await request('token-a', { action: 'forms' });
+  assert.equal(completed.body.completed[0].clientSubmissionId, payload.clientSubmissionId);
+  const detail = await request('token-a', { action: 'submission', query: { id: first.body.submission.id } });
+  assert.equal(detail.body.submission.clientSubmissionId, payload.clientSubmissionId);
+});
+
+test('concurrent identical client submissions both resolve to one original submission', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'incident' });
+  const call = { method: 'POST', action: 'submit', body: { formId: 'incident', clientSubmissionId: 'submission-concurrent-001', responses: [{ fieldId: 'incident-notes', value: 'One incident' }] } };
+
+  const results = await Promise.all([request('token-a', call), request('token-a', call)]);
+  assert.deepEqual(results.map((item) => item.statusCode).sort(), [200, 201]);
+  assert.equal(results[0].body.submission.id, results[1].body.submission.id);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
+});
+
+test('same scoped key with changed answer or authorized context returns stable conflict without mutation', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  store.set(key('BUSINESS#biz-a', 'JOB#job-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-a', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-a', title: 'A', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: [] });
+  store.set(key('BUSINESS#biz-a', 'JOB#job-b'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-b', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-b', title: 'B', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: [] });
+  seedForm(store, { id: 'incident' });
+  const clientSubmissionId = 'submission-conflict-001';
+  const first = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'incident', jobId: 'job-a', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Original' }] } });
+  const changedAnswer = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'incident', jobId: 'job-a', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Changed' }] } });
+  const changedContext = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'incident', jobId: 'job-b', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Original' }] } });
+
+  assert.equal(first.statusCode, 201);
+  assert.deepEqual([changedAnswer.statusCode, changedContext.statusCode], [409, 409]);
+  assert.equal(changedAnswer.body.error, 'submission_idempotency_conflict');
+  assert.equal(changedContext.body.error, 'submission_idempotency_conflict');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+  assert.equal([...store.values()].find((item) => item.entityType === 'FORM_RESPONSE').value, 'Original');
+});
+
+test('raw clientSubmissionId is independently scoped across employees and businesses', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  await seedIdentity(store, { userId: 'user-b', employeeId: 'employee-b', token: 'token-b' });
+  await seedIdentity(store, { businessId: 'biz-b', userId: 'user-c', employeeId: 'employee-c', token: 'token-c' });
+  seedForm(store, { id: 'incident' });
+  seedForm(store, { id: 'incident', businessId: 'biz-b' });
+  const clientSubmissionId = 'shared-client-key-001';
+  const body = { formId: 'incident', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Scoped' }] };
+
+  const results = await Promise.all([
+    request('token-a', { method: 'POST', action: 'submit', body }),
+    request('token-b', { method: 'POST', action: 'submit', body }),
+    request('token-c', { method: 'POST', action: 'submit', body }),
+  ]);
+  assert.deepEqual(results.map((item) => item.statusCode), [201, 201, 201]);
+  assert.equal(new Set(results.map((item) => item.body.submission.id)).size, 3);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION_IDEMPOTENCY').length, 3);
+  const foreignDetail = await request('token-a', { action: 'submission', query: { id: results[1].body.submission.id } });
+  assert.equal(foreignDetail.statusCode, 404);
+});
+
+test('different client keys create separate on-demand submissions while recurring completion remains unique', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'incident' });
+  seedForm(store, { id: 'daily', trigger: ['daily'] });
+  const submit = (formId, clientSubmissionId) => request('token-a', { method: 'POST', action: 'submit', body: { formId, clientSubmissionId, responses: [{ fieldId: `${formId}-notes`, value: 'Done' }] } });
+
+  const incidentA = await submit('incident', 'incident-logical-key-a');
+  const incidentB = await submit('incident', 'incident-logical-key-b');
+  assert.equal(incidentA.statusCode, 201);
+  assert.equal(incidentB.statusCode, 201);
+  assert.notEqual(incidentA.body.submission.id, incidentB.body.submission.id);
+
+  const dailyA = await submit('daily', 'daily-logical-key-a001');
+  const dailyB = await submit('daily', 'daily-logical-key-b001');
+  assert.equal(dailyA.statusCode, 201);
+  assert.equal(dailyB.statusCode, 409);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION' && item.formId === 'daily').length, 1);
+});
+
+test('invalid client keys are rejected, legacy submissions serialize null, and failed transactions do not poison a key', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'incident' });
+  const submit = (clientSubmissionId) => request('token-a', { method: 'POST', action: 'submit', body: { formId: 'incident', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Retryable' }] } });
+
+  assert.equal((await submit('short')).statusCode, 400);
+  assert.equal((await submit(`bad key ${'x'.repeat(8)}`)).body.error, 'invalid_client_submission_id');
+  assert.equal((await submit(`x${'a'.repeat(128)}`)).statusCode, 400);
+
+  store.set(key('BUSINESS#biz-a', 'FORM_SUBMISSION#legacy'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#legacy', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'legacy', formId: 'incident', employeeId: 'employee-a', submittedAt: '2026-08-18T12:00:00.000Z', status: 'submitted' });
+  const completed = await request('token-a', { action: 'forms' });
+  assert.equal(completed.body.completed.find((item) => item.submissionId === 'legacy').clientSubmissionId, null);
+
+  store.failNextTransaction = true;
+  await assert.rejects(() => submit('transaction-retry-key-001'), /forced transaction failure/);
+  assert.equal([...store.values()].some((item) => item.entityType === 'FORM_SUBMISSION_IDEMPOTENCY' && item.clientSubmissionId === 'transaction-retry-key-001'), false);
+  const retry = await submit('transaction-retry-key-001');
+  assert.equal(retry.statusCode, 201);
 });

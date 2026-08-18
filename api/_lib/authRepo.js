@@ -114,6 +114,11 @@ function formResponseSk(responseId) {
   return `FORM_RESPONSE#${responseId}`;
 }
 
+function formSubmissionIdempotencySk(employeeId, clientSubmissionId) {
+  const scopedHash = createHash('sha256').update(`${employeeId}\0${clientSubmissionId}`).digest('hex');
+  return `FORM_SUBMISSION_IDEMPOTENCY#${scopedHash}`;
+}
+
 function templateSk(templateId) {
   return `TEMPLATE#${templateId}`;
 }
@@ -2353,6 +2358,7 @@ export async function listFormSubmissionsForBusiness(businessId) {
     status: item.status,
     submittedBy: item.submittedBy,
     submittedByUserId: item.submittedByUserId,
+    clientSubmissionId: item.clientSubmissionId,
   }));
 }
 
@@ -2400,6 +2406,7 @@ export async function getFormSubmissionForBusiness(businessId, formSubmissionId)
         status: result.Item.status,
         submittedBy: result.Item.submittedBy,
         submittedByUserId: result.Item.submittedByUserId,
+        clientSubmissionId: result.Item.clientSubmissionId,
       }
     : null;
 }
@@ -2451,11 +2458,49 @@ export async function deleteFormSubmissionForBusiness(businessId, formSubmission
   return { ok: true };
 }
 
-export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses }) {
-  if (!Array.isArray(responses) || responses.length > 99) {
-    throw new RangeError('A form submission can contain at most 99 answers.');
+export async function getEmployeeFormSubmissionIdempotency({ businessId, employeeId, clientSubmissionId }) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: {
+      PK: businessPk(businessId),
+      SK: formSubmissionIdempotencySk(employeeId, clientSubmissionId),
+    },
+    ConsistentRead: true,
+  }));
+  return result.Item ? {
+    employeeId: result.Item.employeeId,
+    clientSubmissionId: result.Item.clientSubmissionId,
+    payloadFingerprint: result.Item.payloadFingerprint,
+    submission: result.Item.submission,
+    expiresAt: result.Item.expiresAt,
+  } : null;
+}
+
+export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency }) {
+  const maximumResponses = idempotency ? 98 : 99;
+  if (!Array.isArray(responses) || responses.length > maximumResponses) {
+    throw new RangeError(`A form submission can contain at most ${maximumResponses} answers.`);
   }
   const transactionItems = [
+    ...(idempotency ? [{
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formSubmissionIdempotencySk(submission.employeeId, idempotency.clientSubmissionId),
+          entityType: 'FORM_SUBMISSION_IDEMPOTENCY',
+          businessId,
+          employeeId: submission.employeeId,
+          clientSubmissionId: idempotency.clientSubmissionId,
+          payloadFingerprint: idempotency.payloadFingerprint,
+          submission: idempotency.submission,
+          createdAt: submission.submittedAt,
+          expiresAt: idempotency.expiresAt,
+          ttl: Math.floor(Date.parse(idempotency.expiresAt) / 1000),
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    }] : []),
     {
       Put: {
         TableName: tableName,

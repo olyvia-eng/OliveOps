@@ -3,6 +3,7 @@ import {
   createEmployeeFormSubmissionForBusiness,
   generateId,
   getBusinessProfile,
+  getEmployeeFormSubmissionIdempotency,
   listCustomersForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
@@ -27,6 +28,8 @@ import {
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
 
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'daily', 'weekly', 'monthly', 'on_demand']);
+const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
+const FORM_IDEMPOTENCY_RETENTION_DAYS = 30;
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -176,7 +179,7 @@ function completedSubmissions(data) {
   return data.submissions.filter((submission) => submission.employeeId === data.employee.id && submission.status !== 'draft')
     .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt)).slice(0, 50).map((submission) => ({
       submissionId: submission.id, formId: submission.formId, formName: formsById.get(submission.formId)?.name ?? 'Archived form',
-      submittedAt: submission.submittedAt, status: submission.status, trigger: submission.trigger,
+      clientSubmissionId: submission.clientSubmissionId ?? null, submittedAt: submission.submittedAt, status: submission.status, trigger: submission.trigger,
       context: { jobId: submission.jobId, jobName: jobsById.get(submission.jobId)?.title, equipmentId: submission.equipmentId, equipmentName: equipmentById.get(submission.equipmentId)?.name, divisionId: submission.divisionId },
     }));
 }
@@ -198,6 +201,26 @@ function requestedContext(req, data) {
 function deterministicSubmissionId({ employeeId, scope }) {
   const key = [employeeId, scope.formId, scope.trigger, scope.periodKey, scope.jobId, scope.equipmentId, scope.divisionId].filter(Boolean).join('|');
   return `form-${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
+}
+
+function submissionPayloadFingerprint({ formId, trigger, scope, responses }) {
+  const canonical = {
+    formId,
+    trigger,
+    context: {
+      jobId: scope.jobId ?? null,
+      equipmentId: scope.equipmentId ?? null,
+      divisionId: scope.divisionId ?? null,
+    },
+    responses: responses
+      .map((response) => ({ fieldId: response.fieldId, value: response.value }))
+      .sort((left, right) => left.fieldId.localeCompare(right.fieldId)),
+  };
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+function idempotencyConflict(res) {
+  return res.status(409).json({ ok: false, error: 'submission_idempotency_conflict' });
 }
 
 export default async function handler(req, res) {
@@ -246,6 +269,11 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST' && req.query.action === 'submit') {
     const payload = req.body?.data ?? req.body;
+    const hasClientSubmissionId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'clientSubmissionId');
+    const clientSubmissionId = text(payload?.clientSubmissionId);
+    if (hasClientSubmissionId && !CLIENT_SUBMISSION_ID_PATTERN.test(clientSubmissionId)) {
+      return res.status(400).json({ ok: false, error: 'invalid_client_submission_id' });
+    }
     const formId = text(payload?.formId ?? req.query.formId);
     const form = data.forms.find((candidate) => candidate.id === formId);
     if (!form) return res.status(404).json({ ok: false, error: 'Form not found.' });
@@ -261,20 +289,47 @@ export default async function handler(req, res) {
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.error, fieldId: validation.fieldId });
     const submittedAt = new Date().toISOString();
     const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
+    const payloadFingerprint = clientSubmissionId
+      ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses })
+      : undefined;
+    if (clientSubmissionId) {
+      const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
+      if (existing) {
+        if (existing.payloadFingerprint !== payloadFingerprint) return idempotencyConflict(res);
+        return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
+      }
+    }
     if (trigger !== 'on_demand' && data.submissions.some((submission) => isSubmissionSatisfiedForScope({ submission, employeeId: data.employee.id, scope, timeZone: data.timeZone }))) return res.status(409).json({ ok: false, error: 'This required form has already been completed for the current period and context.' });
     const submission = {
       id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
       trigger, periodKey: scope.periodKey, submittedAt, status: 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
+      clientSubmissionId: clientSubmissionId || undefined,
     };
     const responses = validation.responses.map((response) => ({ id: generateId(), submissionId: submission.id, ...response }));
+    const submissionResponse = { ...submission, responsesCreated: responses.length };
     try {
-      await createEmployeeFormSubmissionForBusiness({ businessId: session.businessId, submission, responses });
+      await createEmployeeFormSubmissionForBusiness({
+        businessId: session.businessId,
+        submission,
+        responses,
+        idempotency: clientSubmissionId ? {
+          clientSubmissionId,
+          payloadFingerprint,
+          submission: submissionResponse,
+          expiresAt: new Date(Date.parse(submittedAt) + FORM_IDEMPOTENCY_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+        } : undefined,
+      });
     } catch (error) {
+      if (error?.name === 'TransactionCanceledException' && clientSubmissionId) {
+        const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
+        if (existing?.payloadFingerprint === payloadFingerprint) return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
+        if (existing) return idempotencyConflict(res);
+      }
       if (error?.name === 'TransactionCanceledException') return res.status(409).json({ ok: false, error: 'This form was already submitted. Refresh Forms and try again.' });
       throw error;
     }
-    return res.status(201).json({ ok: true, submission: { ...submission, responsesCreated: responses.length } });
+    return res.status(201).json({ ok: true, submission: submissionResponse });
   }
 
   res.setHeader('Allow', 'GET, POST');
