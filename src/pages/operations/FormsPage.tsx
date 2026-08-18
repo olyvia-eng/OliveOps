@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
+  Check,
   Copy,
+  Eye,
   FilePlus2,
   GripVertical,
+  Pencil,
   Plus,
+  Save,
   Trash2,
 } from 'lucide-react';
 import {
@@ -18,6 +23,7 @@ import {
 } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatDateTime } from '../../utils';
+import { createFormBuilderDraft, isFormBuilderDirty, moveFormField } from './formsBuilderModel.js';
 import type {
   FormAssignmentType,
   FormCategory,
@@ -28,6 +34,8 @@ import type {
   FormSubmissionStatus,
   FormTrigger,
 } from '../../types';
+
+type FormBuilderDraft = ReturnType<typeof createFormBuilderDraft>;
 
 const FORM_CATEGORIES: Array<{ value: FormCategory; label: string }> = [
   { value: 'safety', label: 'Safety' },
@@ -87,7 +95,7 @@ const FIELD_TYPES: Array<{ value: FormFieldType; label: string }> = [
   { value: 'customer_selector', label: 'Customer Selector' },
 ];
 
-type FormsTab = 'dashboard' | 'builder' | 'submissions' | 'templates';
+type FormsTab = 'overview' | 'forms' | 'builder' | 'submissions' | 'templates';
 
 type FormTemplate = {
   name: string;
@@ -343,7 +351,7 @@ export default function FormsPage() {
     upsertFormResponse,
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<FormsTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<FormsTab>('overview');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | FormCategory>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | FormStatus>('all');
@@ -351,7 +359,11 @@ export default function FormsPage() {
   const [newFormDraft, setNewFormDraft] = useState(emptyFormDraft());
   const [newFormError, setNewFormError] = useState('');
   const [selectedFormId, setSelectedFormId] = useState('');
-  const [builderFieldType, setBuilderFieldType] = useState<FormFieldType>('single_line_text');
+  const [builderDraft, setBuilderDraft] = useState<FormBuilderDraft | null>(null);
+  const [builderBaseline, setBuilderBaseline] = useState<FormBuilderDraft | null>(null);
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [fieldPickerOpen, setFieldPickerOpen] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | FormSubmissionStatus>('all');
@@ -375,6 +387,28 @@ export default function FormsPage() {
   }, [selectedFormId, sortedForms]);
 
   const selectedForm = selectedFormId ? (forms.find((form) => form.id === selectedFormId) ?? null) : null;
+
+  const isBuilderDirty = isFormBuilderDirty(builderBaseline, builderDraft);
+
+  useEffect(() => {
+    if (!selectedForm || activeTab !== 'builder' || builderDraft?.form.id === selectedForm.id) return;
+    const fields = formFields.filter((field) => field.formId === selectedForm.id);
+    const next = createFormBuilderDraft(selectedForm, fields);
+    setBuilderDraft(next);
+    setBuilderBaseline(next);
+    setEditingFieldId(null);
+    setLastSavedAt(selectedForm.updatedAt);
+  }, [activeTab, builderDraft?.form.id, formFields, selectedForm]);
+
+  useEffect(() => {
+    if (!isBuilderDirty) return undefined;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isBuilderDirty]);
 
   const filteredForms = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -461,36 +495,34 @@ export default function FormsPage() {
     setNewFormModalOpen(false);
   };
 
-  const updateSelectedForm = (patch: Partial<FormRecord>) => {
-    if (!selectedForm) return;
-    updateForm(selectedForm.id, patch);
+  const updateBuilderForm = (patch: Partial<FormRecord>) => {
+    setBuilderDraft((current) => current ? { ...current, form: { ...current.form, ...patch } } : current);
   };
 
-  const nextFieldOrder = fieldsForSelectedForm.length > 0
-    ? Math.max(...fieldsForSelectedForm.map((field) => field.order)) + 1
-    : 0;
-
-  const addFieldToSelectedForm = () => {
-    if (!selectedForm) return;
-    addFormField({
-      formId: selectedForm.id,
-      type: builderFieldType,
-      label: FIELD_TYPES.find((fieldType) => fieldType.value === builderFieldType)?.label ?? 'New Field',
+  const addFieldToDraft = (fieldType: FormFieldType) => {
+    if (!builderDraft) return;
+    const field: FormField = {
+      id: crypto.randomUUID(),
+      formId: builderDraft.form.id,
+      type: fieldType,
+      label: FIELD_TYPES.find((item) => item.value === fieldType)?.label ?? 'New Field',
       helpText: '',
       required: false,
       defaultValue: '',
       placeholder: '',
-      options: FIELD_TYPES_WITH_OPTIONS.has(builderFieldType) ? ['Option 1', 'Option 2'] : [],
-      order: nextFieldOrder,
-    });
+      options: FIELD_TYPES_WITH_OPTIONS.has(fieldType) ? ['Option 1', 'Option 2'] : [],
+      order: builderDraft.fields.length,
+    };
+    setBuilderDraft({ ...builderDraft, fields: [...builderDraft.fields, field] });
+    setEditingFieldId(field.id);
+    setFieldPickerOpen(false);
   };
 
-  const reorderFields = (ordered: FormField[]) => {
-    ordered.forEach((field, index) => {
-      if (field.order !== index) {
-        updateFormField(field.id, { order: index });
-      }
-    });
+  const updateDraftField = (fieldId: string, patch: Partial<FormField>) => {
+    setBuilderDraft((current) => current ? {
+      ...current,
+      fields: current.fields.map((field) => field.id === fieldId ? { ...field, ...patch } : field),
+    } : current);
   };
 
   const handleFieldDrop = (targetFieldId: string) => {
@@ -499,32 +531,60 @@ export default function FormsPage() {
       return;
     }
 
-    const current = [...fieldsForSelectedForm];
-    const draggingIndex = current.findIndex((field) => field.id === draggingFieldId);
-    const targetIndex = current.findIndex((field) => field.id === targetFieldId);
-    if (draggingIndex < 0 || targetIndex < 0) {
-      setDraggingFieldId(null);
-      return;
-    }
-
-    const [dragged] = current.splice(draggingIndex, 1);
-    current.splice(targetIndex, 0, dragged);
-    reorderFields(current);
+    setBuilderDraft((current) => current ? { ...current, fields: moveFormField(current.fields, draggingFieldId, targetFieldId) } : current);
     setDraggingFieldId(null);
   };
 
   const duplicateField = (field: FormField) => {
-    addFormField({
-      formId: field.formId,
-      type: field.type,
+    if (!builderDraft) return;
+    const duplicate: FormField = {
+      ...field,
+      id: crypto.randomUUID(),
       label: `${field.label} (Copy)`,
-      helpText: field.helpText ?? '',
-      required: field.required,
-      defaultValue: field.defaultValue ?? '',
-      placeholder: field.placeholder ?? '',
-      options: field.options ?? [],
-      order: nextFieldOrder,
-    });
+      options: [...(field.options ?? [])],
+      order: builderDraft.fields.length,
+    };
+    setBuilderDraft({ ...builderDraft, fields: [...builderDraft.fields, duplicate] });
+    setEditingFieldId(duplicate.id);
+  };
+
+  const removeDraftField = (fieldId: string) => {
+    setBuilderDraft((current) => current ? {
+      ...current,
+      fields: current.fields.filter((field) => field.id !== fieldId).map((field, order) => ({ ...field, order })),
+    } : current);
+    if (editingFieldId === fieldId) setEditingFieldId(null);
+  };
+
+  const saveBuilderChanges = () => {
+    if (!builderDraft || !builderBaseline || !isBuilderDirty) return;
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...formPatch } = builderDraft.form;
+    updateForm(builderDraft.form.id, formPatch);
+
+    const baselineById = new Map(builderBaseline.fields.map((field) => [field.id, field]));
+    const draftIds = new Set(builderDraft.fields.map((field) => field.id));
+    for (const field of builderBaseline.fields) {
+      if (!draftIds.has(field.id)) deleteFormField(field.id);
+    }
+    for (const field of builderDraft.fields) {
+      const normalized = { ...field, order: builderDraft.fields.indexOf(field) };
+      if (!baselineById.has(field.id)) {
+        addFormField(normalized);
+      } else if (JSON.stringify(baselineById.get(field.id)) !== JSON.stringify(normalized)) {
+        const { id: _fieldId, ...fieldPatch } = normalized;
+        updateFormField(field.id, fieldPatch);
+      }
+    }
+    const savedAt = new Date().toISOString();
+    setBuilderBaseline(createFormBuilderDraft({ ...builderDraft.form, updatedAt: savedAt }, builderDraft.fields));
+    setLastSavedAt(savedAt);
+  };
+
+  const canLeaveBuilder = () => !isBuilderDirty || window.confirm('You have unsaved changes. Leave without saving?');
+
+  const navigateToTab = (tab: FormsTab) => {
+    if (activeTab === 'builder' && tab !== 'builder' && !canLeaveBuilder()) return;
+    setActiveTab(tab);
   };
 
   const deleteSelectedForm = () => {
@@ -609,13 +669,16 @@ export default function FormsPage() {
     return formResponses.filter((response) => response.submissionId === activeSubmission.id);
   }, [activeSubmission, formResponses]);
 
-  const assignmentValueControl = selectedForm ? (() => {
-    if (selectedForm.assignedTo === 'role') {
+  const builderForm = builderDraft?.form ?? null;
+  const builderFields = builderDraft?.fields ?? [];
+
+  const assignmentValueControl = builderForm ? (() => {
+    if (builderForm.assignedTo === 'role') {
       return (
         <Select
           label="Role"
-          value={selectedForm.assignmentValue ?? ''}
-          onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
+          value={builderForm.assignmentValue ?? ''}
+          onChange={(event) => updateBuilderForm({ assignmentValue: event.target.value })}
         >
           <option value="">Select role</option>
           <option value="admin">Admin</option>
@@ -625,12 +688,12 @@ export default function FormsPage() {
       );
     }
 
-    if (selectedForm.assignedTo === 'employee') {
+    if (builderForm.assignedTo === 'employee') {
       return (
         <Select
           label="Employee"
-          value={selectedForm.assignmentValue ?? ''}
-          onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
+          value={builderForm.assignmentValue ?? ''}
+          onChange={(event) => updateBuilderForm({ assignmentValue: event.target.value })}
         >
           <option value="">Select employee</option>
           {employees.map((employee) => (
@@ -640,12 +703,12 @@ export default function FormsPage() {
       );
     }
 
-    if (selectedForm.assignedTo === 'job') {
+    if (builderForm.assignedTo === 'job') {
       return (
         <Select
           label="Job"
-          value={selectedForm.assignmentValue ?? ''}
-          onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
+          value={builderForm.assignmentValue ?? ''}
+          onChange={(event) => updateBuilderForm({ assignmentValue: event.target.value })}
         >
           <option value="">Select job</option>
           {jobs.map((job) => (
@@ -655,12 +718,12 @@ export default function FormsPage() {
       );
     }
 
-    if (selectedForm.assignedTo === 'equipment') {
+    if (builderForm.assignedTo === 'equipment') {
       return (
         <Select
           label="Equipment"
-          value={selectedForm.assignmentValue ?? ''}
-          onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
+          value={builderForm.assignmentValue ?? ''}
+          onChange={(event) => updateBuilderForm({ assignmentValue: event.target.value })}
         >
           <option value="">Select equipment</option>
           {equipmentAssets.map((equipment) => (
@@ -670,12 +733,12 @@ export default function FormsPage() {
       );
     }
 
-    if (selectedForm.assignedTo === 'division') {
+    if (builderForm.assignedTo === 'division') {
       return (
         <Select
           label="Division"
-          value={selectedForm.assignmentValue ?? ''}
-          onChange={(event) => updateSelectedForm({ assignmentValue: event.target.value })}
+          value={builderForm.assignmentValue ?? ''}
+          onChange={(event) => updateBuilderForm({ assignmentValue: event.target.value })}
         >
           <option value="">Select division</option>
           {divisions.filter((division) => division.active).map((division) => (
@@ -690,16 +753,17 @@ export default function FormsPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Forms"
-        subtitle="Create, manage, assign, and review contractor-friendly digital forms for field operations."
-        action={<Button onClick={openNewForm}><Plus size={16} /> New Form</Button>}
-      />
+      {activeTab !== 'builder' && <>
+        <PageHeader
+          title="Forms"
+          subtitle="Create, manage, assign, and review contractor-friendly digital forms for field operations."
+          action={<Button onClick={openNewForm}><Plus size={16} /> New Form</Button>}
+        />
 
-      <div className="mb-6 inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+        <div className="mb-6 inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
         {([
-          { key: 'dashboard', label: 'Dashboard' },
-          { key: 'builder', label: 'Builder' },
+          { key: 'overview', label: 'Overview' },
+          { key: 'forms', label: 'Forms' },
           { key: 'submissions', label: 'Submissions' },
           { key: 'templates', label: 'Templates' },
         ] as Array<{ key: FormsTab; label: string }>).map((tab) => (
@@ -707,14 +771,58 @@ export default function FormsPage() {
             key={tab.key}
             type="button"
             className={`rounded px-3 py-1 text-sm ${activeTab === tab.key ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => navigateToTab(tab.key)}
           >
             {tab.label}
           </button>
         ))}
-      </div>
+        </div>
+      </>}
 
-      {activeTab === 'dashboard' && (
+      {activeTab === 'overview' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Card className="p-4">
+              <p className="text-sm text-gray-500">Active forms</p>
+              <p className="mt-1 text-2xl font-semibold text-gray-950">{forms.filter((form) => form.status === 'active').length}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-sm text-gray-500">Drafts</p>
+              <p className="mt-1 text-2xl font-semibold text-gray-950">{forms.filter((form) => form.status === 'draft').length}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-sm text-gray-500">Submissions</p>
+              <p className="mt-1 text-2xl font-semibold text-gray-950">{formSubmissions.length}</p>
+            </Card>
+          </div>
+          <div className="border-t border-gray-200 pt-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Recently updated</h2>
+                <p className="mt-0.5 text-sm text-gray-500">Continue building the forms your team is working on.</p>
+              </div>
+              <Button variant="secondary" onClick={() => navigateToTab('forms')}>View all forms</Button>
+            </div>
+            {sortedForms.length === 0 ? (
+              <EmptyState title="No forms yet" description="Create the first form for your field team." action={<Button onClick={openNewForm}><Plus size={16} /> New Form</Button>} />
+            ) : (
+              <div className="divide-y divide-gray-200 border-y border-gray-200">
+                {sortedForms.slice(0, 5).map((form) => (
+                  <div key={form.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900">{form.name}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{toLabel(form.category)} • {toLabel(form.status)} • Updated {new Date(form.updatedAt).toLocaleDateString()}</p>
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => { setSelectedFormId(form.id); navigateToTab('builder'); }}>Open</Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'forms' && (
         <>
           <Card className="p-4 mb-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -788,7 +896,7 @@ export default function FormsPage() {
                       variant="secondary"
                       onClick={() => {
                         setSelectedFormId(form.id);
-                        setActiveTab('builder');
+                        navigateToTab('builder');
                       }}
                     >
                       Open Builder
@@ -798,7 +906,7 @@ export default function FormsPage() {
                       variant="secondary"
                       onClick={() => {
                         setSelectedFormId(form.id);
-                        setActiveTab('submissions');
+                        navigateToTab('submissions');
                       }}
                     >
                       View Submissions
@@ -812,46 +920,62 @@ export default function FormsPage() {
       )}
 
       {activeTab === 'builder' && (
-        selectedForm ? (
-          <div className="space-y-6">
-            <Card className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Select
-                  label="Active Form"
-                  value={selectedForm.id}
-                  onChange={(event) => setSelectedFormId(event.target.value)}
-                >
-                  {sortedForms.map((form) => (
-                    <option key={form.id} value={form.id}>{form.name}</option>
-                  ))}
-                </Select>
+        builderForm ? (
+          <div className="space-y-5">
+            <div className="sticky top-0 z-10 -mx-2 border-b border-gray-200 bg-gray-50/95 px-2 py-3 backdrop-blur">
+              <button type="button" className="mb-2 inline-flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-900" onClick={() => navigateToTab('forms')}>
+                <ArrowLeft size={15} /> Back to Forms
+              </button>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <h1 className="truncate text-2xl font-semibold text-gray-950">{builderForm.name || 'Untitled Form'}</h1>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                    <span>{toLabel(builderForm.category)}</span><span>•</span><span>{toLabel(builderForm.status)}</span><span>•</span>
+                    <span className={isBuilderDirty ? 'font-medium text-amber-700' : 'inline-flex items-center gap-1 text-brand-700'}>
+                      {!isBuilderDirty && <Check size={14} />}
+                      {isBuilderDirty ? 'Unsaved changes' : lastSavedAt ? `Last saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Saved'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="secondary" onClick={openSubmissionScreen}><Eye size={16} /> Preview</Button>
+                  <Button onClick={saveBuilderChanges} disabled={!isBuilderDirty}><Save size={16} /> Save Changes</Button>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+            <Card className="order-3 p-4 xl:order-none xl:col-start-2 xl:row-span-3 xl:row-start-1 xl:sticky xl:top-32">
+              <div className="mb-4">
+                <h2 className="text-base font-semibold text-gray-900">Form Settings</h2>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
                 <Input
                   label="Form Name"
-                  value={selectedForm.name}
-                  onChange={(event) => updateSelectedForm({ name: event.target.value })}
+                  value={builderForm.name}
+                  onChange={(event) => updateBuilderForm({ name: event.target.value })}
                 />
                 <Select
                   label="Status"
-                  value={selectedForm.status}
-                  onChange={(event) => updateSelectedForm({ status: event.target.value as FormStatus })}
+                  value={builderForm.status}
+                  onChange={(event) => updateBuilderForm({ status: event.target.value as FormStatus })}
                 >
                   {FORM_STATUSES.map((status) => (
                     <option key={status.value} value={status.value}>{status.label}</option>
                   ))}
                 </Select>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 max-w-3xl">
                 <TextArea
                   label="Description"
-                  value={selectedForm.description}
-                  onChange={(event) => updateSelectedForm({ description: event.target.value })}
+                  value={builderForm.description}
+                  onChange={(event) => updateBuilderForm({ description: event.target.value })}
                 />
               </div>
               <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Select
                   label="Category"
-                  value={selectedForm.category}
-                  onChange={(event) => updateSelectedForm({ category: event.target.value as FormCategory })}
+                  value={builderForm.category}
+                  onChange={(event) => updateBuilderForm({ category: event.target.value as FormCategory })}
                 >
                   {FORM_CATEGORIES.map((category) => (
                     <option key={category.value} value={category.value}>{category.label}</option>
@@ -859,8 +983,8 @@ export default function FormsPage() {
                 </Select>
                 <Select
                   label="Assigned To"
-                  value={selectedForm.assignedTo}
-                  onChange={(event) => updateSelectedForm({ assignedTo: event.target.value as FormAssignmentType, assignmentValue: '' })}
+                  value={builderForm.assignedTo}
+                  onChange={(event) => updateBuilderForm({ assignedTo: event.target.value as FormAssignmentType, assignmentValue: '' })}
                 >
                   {ASSIGNMENT_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
@@ -869,101 +993,96 @@ export default function FormsPage() {
                 {assignmentValueControl}
               </div>
 
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                Trigger Rules (Clock In/Out, Job Start/Completion) are configured here.
-                {/* TODO: Enforce trigger completion through backend action guards and policy checks before mutating clock/job state. */}
-              </div>
-              <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                {TRIGGER_OPTIONS.map((trigger) => {
-                  const checked = selectedForm.trigger.includes(trigger.value);
-                  return (
-                    <label key={trigger.value} className="flex items-center gap-2 rounded border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const nextTrigger = checked
-                            ? selectedForm.trigger.filter((value) => value !== trigger.value)
-                            : [...selectedForm.trigger, trigger.value];
-                          updateSelectedForm({ trigger: nextTrigger });
-                        }}
-                      />
-                      <span>{trigger.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="mt-4 flex gap-2">
-                <Button variant="danger" size="sm" onClick={deleteSelectedForm}><Trash2 size={14} /> Delete Form</Button>
-                <Button variant="secondary" size="sm" onClick={openSubmissionScreen}>Preview Submission Screen</Button>
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-                <Select
-                  label="Field Type"
-                  value={builderFieldType}
-                  onChange={(event) => setBuilderFieldType(event.target.value as FormFieldType)}
-                  className="sm:w-72"
-                >
-                  {FIELD_TYPES.map((fieldType) => (
-                    <option key={fieldType.value} value={fieldType.value}>{fieldType.label}</option>
+              <div className="mt-5 border-t border-gray-200 pt-4">
+                <h2 className="text-base font-semibold text-gray-900">When should this form appear?</h2>
+                <p className="mt-1 text-sm text-gray-500">Phase 1 conditions present the form at the right moment. They do not block clock or job actions.</p>
+                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  {([
+                    { label: 'Workflow triggers', values: TRIGGER_OPTIONS.slice(0, 4) },
+                    { label: 'Schedule', values: TRIGGER_OPTIONS.slice(4, 7) },
+                    { label: 'Availability', values: TRIGGER_OPTIONS.slice(7) },
+                  ]).map((group) => (
+                    <fieldset key={group.label}>
+                      <legend className="mb-2 text-xs font-semibold uppercase text-gray-500">{group.label}</legend>
+                      <div className="space-y-1.5">
+                        {group.values.map((trigger) => {
+                          const checked = builderForm.trigger.includes(trigger.value);
+                          return (
+                            <label key={trigger.value} className="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => updateBuilderForm({ trigger: checked ? builderForm.trigger.filter((value) => value !== trigger.value) : [...builderForm.trigger, trigger.value] })}
+                              />
+                              <span>{trigger.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
                   ))}
-                </Select>
-                <Button onClick={addFieldToSelectedForm}><Plus size={16} /> Add Field</Button>
+                </div>
               </div>
             </Card>
 
-            {fieldsForSelectedForm.length === 0 ? (
+            <Card className="order-1 p-4 xl:col-start-1 xl:row-start-1">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Fields</h2>
+                  <p className="mt-0.5 text-sm text-gray-500">Drag fields to set the order employees will see.</p>
+                </div>
+                <Button onClick={() => setFieldPickerOpen(true)}><Plus size={16} /> Add Field</Button>
+              </div>
+            </Card>
+
+            {builderFields.length === 0 ? (
               <EmptyState
                 title="No fields yet"
                 description="Add your first field to start building this form."
+                action={<Button onClick={() => setFieldPickerOpen(true)}><Plus size={16} /> Add Field</Button>}
               />
             ) : (
-              <div className="space-y-3">
-                {fieldsForSelectedForm.map((field) => (
-                  <Card key={field.id} className="p-4">
+              <div className="order-2 space-y-3 xl:col-start-1 xl:row-start-2">
+                {builderFields.map((field) => (
+                  <Card key={field.id} className="overflow-hidden">
                     <div
-                      draggable
+                      draggable={editingFieldId !== field.id}
                       onDragStart={() => setDraggingFieldId(field.id)}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={() => handleFieldDrop(field.id)}
                     >
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <GripVertical size={16} />
-                          <span className="text-sm font-semibold">{toLabel(field.type)}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap">
+                        <div className="flex min-w-[180px] flex-1 items-center gap-3 text-gray-700">
+                          <GripVertical size={18} className="shrink-0 cursor-grab text-gray-400" />
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-900">{field.label || 'Untitled field'}</p>
+                            <p className="mt-0.5 text-xs text-gray-500">{toLabel(field.type)}{field.required ? ' • Required' : ''}</p>
+                          </div>
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => duplicateField(field)}><Copy size={13} /></Button>
-                          <Button variant="ghost" size="sm" onClick={() => deleteFormField(field.id)}><Trash2 size={13} className="text-accent-700" /></Button>
+                        <div className="flex w-full shrink-0 justify-end gap-1 sm:w-auto">
+                          <Button variant="ghost" size="sm" onClick={() => setEditingFieldId(editingFieldId === field.id ? null : field.id)}><Pencil size={13} /> {editingFieldId === field.id ? 'Done' : 'Edit'}</Button>
+                          <Button variant="ghost" size="sm" onClick={() => duplicateField(field)}><Copy size={13} /> Duplicate</Button>
+                          <Button variant="ghost" size="sm" onClick={() => removeDraftField(field.id)}><Trash2 size={13} className="text-accent-700" /> Delete</Button>
                         </div>
                       </div>
 
-                      <div className="mt-3">
+                      {editingFieldId === field.id && (
+                      <div className="border-t border-gray-100 bg-gray-50 px-4 py-4 sm:pl-11">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <Input
                             label="Label"
                             value={field.label}
-                            onChange={(event) => updateFormField(field.id, { label: event.target.value })}
+                            onChange={(event) => updateDraftField(field.id, { label: event.target.value })}
                           />
                           <Input
                             label="Placeholder"
                             value={field.placeholder ?? ''}
-                            onChange={(event) => updateFormField(field.id, { placeholder: event.target.value })}
+                            onChange={(event) => updateDraftField(field.id, { placeholder: event.target.value })}
                           />
                           <Input
                             label="Default Value"
                             value={field.defaultValue ?? ''}
-                            onChange={(event) => updateFormField(field.id, { defaultValue: event.target.value })}
-                          />
-                          <Input
-                            label="Order"
-                            type="number"
-                            min={0}
-                            value={field.order}
-                            onChange={(event) => updateFormField(field.id, { order: Number(event.target.value) })}
+                            onChange={(event) => updateDraftField(field.id, { defaultValue: event.target.value })}
                           />
                         </div>
 
@@ -971,7 +1090,7 @@ export default function FormsPage() {
                           <TextArea
                             label="Help Text"
                             value={field.helpText ?? ''}
-                            onChange={(event) => updateFormField(field.id, { helpText: event.target.value })}
+                            onChange={(event) => updateDraftField(field.id, { helpText: event.target.value })}
                           />
                         </div>
 
@@ -980,7 +1099,7 @@ export default function FormsPage() {
                             <TextArea
                               label="Options (comma-separated)"
                               value={(field.options ?? []).join(', ')}
-                              onChange={(event) => updateFormField(field.id, {
+                              onChange={(event) => updateDraftField(field.id, {
                                 options: event.target.value
                                   .split(',')
                                   .map((value) => value.trim())
@@ -995,16 +1114,21 @@ export default function FormsPage() {
                             id={`required-${field.id}`}
                             type="checkbox"
                             checked={field.required}
-                            onChange={(event) => updateFormField(field.id, { required: event.target.checked })}
+                            onChange={(event) => updateDraftField(field.id, { required: event.target.checked })}
                           />
                           <label htmlFor={`required-${field.id}`} className="text-gray-700">Required field</label>
                         </div>
                       </div>
+                      )}
                     </div>
                   </Card>
                 ))}
               </div>
             )}
+            <div className="order-4 flex justify-end xl:col-start-2">
+              <Button variant="danger" size="sm" onClick={deleteSelectedForm}><Trash2 size={14} /> Delete Form</Button>
+            </div>
+            </div>
           </div>
         ) : (
           <EmptyState
@@ -1132,6 +1256,21 @@ export default function FormsPage() {
         </div>
       )}
 
+      <Modal open={fieldPickerOpen} onClose={() => setFieldPickerOpen(false)} title="Add Field">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {FIELD_TYPES.map((fieldType) => (
+            <button
+              key={fieldType.value}
+              type="button"
+              className="rounded border border-gray-200 px-3 py-2.5 text-left text-sm font-medium text-gray-800 hover:border-brand-400 hover:bg-brand-50"
+              onClick={() => addFieldToDraft(fieldType.value)}
+            >
+              {fieldType.label}
+            </button>
+          ))}
+        </div>
+      </Modal>
+
       <Modal
         open={newFormModalOpen}
         onClose={() => setNewFormModalOpen(false)}
@@ -1171,19 +1310,19 @@ export default function FormsPage() {
       <Modal
         open={submitModalOpen}
         onClose={() => setSubmitModalOpen(false)}
-        title={selectedForm ? `Submit: ${selectedForm.name}` : 'Submit Form'}
+        title={builderForm ? `Preview: ${builderForm.name}` : selectedForm ? `Submit: ${selectedForm.name}` : 'Submit Form'}
         footer={(
           <>
-            <Button variant="secondary" onClick={() => setSubmitModalOpen(false)}>Cancel</Button>
-            <Button onClick={submitFormResponse}>Submit</Button>
+            <Button variant="secondary" onClick={() => setSubmitModalOpen(false)}>{activeTab === 'builder' ? 'Close Preview' : 'Cancel'}</Button>
+            {activeTab !== 'builder' && <Button onClick={submitFormResponse}>Submit</Button>}
           </>
         )}
       >
         {!selectedForm ? null : (
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="text-sm font-semibold text-gray-900">{selectedForm.name}</p>
-              <p className="text-sm text-gray-600 mt-1">{selectedForm.description}</p>
+              <p className="text-sm font-semibold text-gray-900">{builderForm?.name ?? selectedForm.name}</p>
+              <p className="text-sm text-gray-600 mt-1">{builderForm?.description ?? selectedForm.description}</p>
               <p className="text-xs text-gray-500 mt-2">Mobile-friendly field layout with camera/signature support.</p>
               {/* TODO: Add robust offline-first local draft persistence for field users. */}
               {/* TODO: Add periodic auto-save draft sync workflow for poor connectivity environments. */}
@@ -1201,7 +1340,7 @@ export default function FormsPage() {
             </Select>
 
             <div className="space-y-3">
-              {fieldsForSelectedForm.map((field) => {
+              {(builderForm?.id === selectedForm.id ? builderFields : fieldsForSelectedForm).map((field) => {
                 const value = submitResponses[field.id] ?? '';
 
                 if (field.type === 'section_header') {

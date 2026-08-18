@@ -238,7 +238,7 @@ interface AppState {
   addForm: (form: Omit<FormRecord, 'id' | 'createdAt' | 'updatedAt'>) => FormRecord;
   updateForm: (id: ID, data: Partial<FormRecord>) => void;
   deleteForm: (id: ID) => void;
-  addFormField: (field: Omit<FormField, 'id'>) => FormField;
+  addFormField: (field: Omit<FormField, 'id'> & { id?: ID }) => FormField;
   updateFormField: (id: ID, data: Partial<FormField>) => void;
   deleteFormField: (id: ID) => void;
   addFormSubmission: (submission: Omit<FormSubmission, 'id'>) => FormSubmission;
@@ -1468,7 +1468,7 @@ export const useStore = create<AppState>()((set, get) => ({
         const previous = get().formFields;
         const field = {
           ...fieldInput,
-          id: generateId(),
+          id: fieldInput.id ?? generateId(),
         };
         set((state) => ({ formFields: [...state.formFields, field] }));
 
