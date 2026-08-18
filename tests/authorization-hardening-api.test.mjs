@@ -485,6 +485,8 @@ test('crew_member /api/data list endpoints are entity and record authorized', as
     { entity: 'employees', expectedStatus: 200, expectedCount: 1 },
     { entity: 'tasks', expectedStatus: 200, expectedCount: 1 },
     { entity: 'time-entries', expectedStatus: 200, expectedCount: 1 },
+    { entity: 'forms', expectedStatus: 403 },
+    { entity: 'form-fields', expectedStatus: 403 },
     { entity: 'form-submissions', expectedStatus: 403 },
     { entity: 'form-responses', expectedStatus: 403 },
   ];

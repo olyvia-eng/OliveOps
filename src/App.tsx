@@ -50,6 +50,16 @@ const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/Persona
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
+function clearBusinessDataStore() {
+  useStore.setState({
+    forms: [], formFields: [], formSubmissions: [], formResponses: [], budgets: [], budgetDivisions: [],
+    budgetDivisionPlanningItems: [], budgetGroups: [], equipmentBudgetAllocations: [], crews: [], divisions: [],
+    budgetRates: [], customers: [], estimates: [], expenses: [], equipmentAssets: [], unbillableTimeCategories: [],
+    materialCatalogItems: [], invoices: [], templates: [], jobs: [], employees: [], tasks: [], timeEntries: [],
+    timeCorrections: [], budgetItems: [], labourBudgetPlans: [], labourHoursSalesGoals: [], revenueSalesGoals: [],
+  });
+}
+
 function LegacyCalendarRedirect() {
   const location = useLocation();
   return <Navigate to={`/schedule${location.search}`} replace />;
@@ -251,6 +261,8 @@ export default function App() {
 
   useEffect(() => {
     if (!sessionUser) {
+      businessDataRequestSequence.current += 1;
+      clearBusinessDataStore();
       setUsers([]);
       setHasLoadedBusinessData(false);
       return;
@@ -267,36 +279,7 @@ export default function App() {
     const previousOwner = localStorage.getItem(STORE_OWNER_KEY);
     if (previousOwner === sessionUser.businessId) return;
 
-    useStore.setState({
-      forms: [],
-      formFields: [],
-      formSubmissions: [],
-      formResponses: [],
-      budgets: [],
-      budgetDivisions: [],
-      budgetGroups: [],
-      equipmentBudgetAllocations: [],
-      crews: [],
-      divisions: [],
-      budgetRates: [],
-      customers: [],
-      estimates: [],
-      expenses: [],
-      equipmentAssets: [],
-      unbillableTimeCategories: [],
-      materialCatalogItems: [],
-      invoices: [],
-      templates: [],
-      jobs: [],
-      employees: [],
-      tasks: [],
-      timeEntries: [],
-      timeCorrections: [],
-      budgetItems: [],
-      labourBudgetPlans: [],
-      labourHoursSalesGoals: [],
-      revenueSalesGoals: [],
-    });
+    clearBusinessDataStore();
     localStorage.setItem(STORE_OWNER_KEY, sessionUser.businessId);
   }, [sessionUser]);
 

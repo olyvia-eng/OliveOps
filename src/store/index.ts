@@ -236,11 +236,11 @@ interface AppState {
 
   // Forms
   addForm: (form: Omit<FormRecord, 'id' | 'createdAt' | 'updatedAt'>) => FormRecord;
-  updateForm: (id: ID, data: Partial<FormRecord>) => void;
+  updateForm: (id: ID, data: Partial<FormRecord>) => Promise<boolean>;
   deleteForm: (id: ID) => void;
-  addFormField: (field: Omit<FormField, 'id'> & { id?: ID }) => FormField;
-  updateFormField: (id: ID, data: Partial<FormField>) => void;
-  deleteFormField: (id: ID) => void;
+  addFormField: (field: Omit<FormField, 'id'> & { id?: ID }) => Promise<FormField | null>;
+  updateFormField: (id: ID, data: Partial<FormField>) => Promise<boolean>;
+  deleteFormField: (id: ID) => Promise<boolean>;
   addFormSubmission: (submission: Omit<FormSubmission, 'id'>) => FormSubmission;
   updateFormSubmission: (id: ID, data: Partial<FormSubmission>) => void;
   deleteFormSubmission: (id: ID) => void;
@@ -1418,24 +1418,24 @@ export const useStore = create<AppState>()((set, get) => ({
 
         return form;
       },
-      updateForm: (id, data) => {
+      updateForm: async (id, data) => {
         const previous = get().forms;
         const updatedAt = nowISO();
         set((state) => ({
           forms: state.forms.map((form) => (form.id === id ? { ...form, ...data, updatedAt } : form)),
         }));
 
-        void ensureOk(fetch(dataUrl('forms', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('forms', id), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt } }),
+          }));
+          return true;
+        } catch (error: unknown) {
           set({ forms: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form changes could not be saved.') });
-        });
+          return false;
+        }
       },
       deleteForm: (id) => {
         const previousForms = get().forms;
@@ -1464,7 +1464,7 @@ export const useStore = create<AppState>()((set, get) => ({
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form could not be deleted.') });
         });
       },
-      addFormField: (fieldInput) => {
+      addFormField: async (fieldInput) => {
         const previous = get().formFields;
         const field = {
           ...fieldInput,
@@ -1472,49 +1472,48 @@ export const useStore = create<AppState>()((set, get) => ({
         };
         set((state) => ({ formFields: [...state.formFields, field] }));
 
-        void ensureOk(fetch(dataUrl('form-fields'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: field }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('form-fields'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ data: field }),
+          }));
+          return field;
+        } catch (error: unknown) {
           set({ formFields: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form field could not be saved.') });
-        });
-
-        return field;
+          return null;
+        }
       },
-      updateFormField: (id, data) => {
+      updateFormField: async (id, data) => {
         const previous = get().formFields;
         set((state) => ({
           formFields: state.formFields.map((field) => (field.id === id ? { ...field, ...data } : field)),
         }));
 
-        void ensureOk(fetch(dataUrl('form-fields', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('form-fields', id), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ data }),
+          }));
+          return true;
+        } catch (error: unknown) {
           set({ formFields: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form field could not be updated.') });
-        });
+          return false;
+        }
       },
-      deleteFormField: (id) => {
+      deleteFormField: async (id) => {
         const previous = get().formFields;
         set((state) => ({ formFields: state.formFields.filter((field) => field.id !== id) }));
 
-        void ensureOk(fetch(dataUrl('form-fields', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('form-fields', id), { method: 'DELETE', credentials: 'include' }));
+          return true;
+        } catch (error: unknown) {
           set({ formFields: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form field could not be deleted.') });
-        });
+          return false;
+        }
       },
       addFormSubmission: (submissionInput) => {
         const previous = get().formSubmissions;

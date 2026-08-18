@@ -29,3 +29,12 @@ test('invalid or missing zones use the legacy business fallback', () => {
   assert.equal(isValidTimeZone('Not/AZone'), false);
   assert.equal(normalizeBusinessTimeZone('Not/AZone'), DEFAULT_BUSINESS_TIME_ZONE);
 });
+
+test('daily, weekly, and monthly keys advance only at local period boundaries', () => {
+  assert.equal(getPeriodKeyForTrigger('daily', '2026-08-18T03:59:59.999Z', 'America/Toronto'), '2026-08-17');
+  assert.equal(getPeriodKeyForTrigger('daily', '2026-08-18T04:00:00.000Z', 'America/Toronto'), '2026-08-18');
+  assert.equal(getPeriodKeyForTrigger('weekly', '2026-08-17T03:59:59.999Z', 'America/Toronto'), '2026-08-10');
+  assert.equal(getPeriodKeyForTrigger('weekly', '2026-08-17T04:00:00.000Z', 'America/Toronto'), '2026-08-17');
+  assert.equal(getPeriodKeyForTrigger('monthly', '2026-09-01T03:59:59.999Z', 'America/Toronto'), '2026-08');
+  assert.equal(getPeriodKeyForTrigger('monthly', '2026-09-01T04:00:00.000Z', 'America/Toronto'), '2026-09');
+});

@@ -1,4 +1,4 @@
-import { getFormSubmissionForBusiness, updateFormSubmissionForBusiness } from './_lib/authRepo.js';
+import { getFormSubmissionForBusiness, reviewFormSubmissionForBusiness } from './_lib/authRepo.js';
 import { requireSession } from './_lib/session.js';
 
 const REVIEW_STATUSES = new Set(['approved', 'rejected']);
@@ -25,6 +25,13 @@ export default async function handler(req, res) {
   }
 
   const reviewed = { ...submission, status };
-  await updateFormSubmissionForBusiness({ businessId: session.businessId, formSubmission: reviewed });
+  try {
+    await reviewFormSubmissionForBusiness({ businessId: session.businessId, formSubmissionId: submission.id, status });
+  } catch (error) {
+    if (error?.name === 'ConditionalCheckFailedException') {
+      return res.status(409).json({ ok: false, error: 'This Form submission has already been reviewed.' });
+    }
+    throw error;
+  }
   return res.status(200).json({ ok: true, submission: reviewed });
 }

@@ -117,8 +117,8 @@ function choicesForField(field, data) {
 
 function safeFields(formId, data) {
   return data.fields.filter((field) => field.formId === formId).sort((left, right) => left.order - right.order).map((field) => ({
-    id: field.id, type: field.type, label: field.label, helpText: field.helpText, required: field.required,
-    defaultValue: field.defaultValue, placeholder: field.placeholder, options: field.options ?? [], order: field.order,
+    id: field.id, type: field.type, label: field.label, helpText: field.helpText ?? '', required: field.required,
+    defaultValue: field.defaultValue ?? '', placeholder: field.placeholder ?? '', options: field.options ?? [], order: field.order,
     choices: choicesForField(field, data),
   }));
 }

@@ -60,3 +60,15 @@ test('Forms editor exposes explicit save lifecycle and compact builder navigatio
   assert.doesNotMatch(source, /label="Order"/);
   assert.doesNotMatch(source, /Trigger Rules \(Clock In\/Out/);
 });
+
+test('Forms save waits for persistence and session loss clears cached business data', async () => {
+  const formsSource = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
+  const storeSource = await readFile(new URL('../src/store/index.ts', import.meta.url), 'utf8');
+  const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(formsSource, /await Promise\.all\(writes\)/);
+  assert.match(formsSource, /savingBuilder \? 'Saving\.\.\.' : 'Save Changes'/);
+  assert.match(storeSource, /updateForm: async/);
+  assert.match(storeSource, /addFormField: async/);
+  assert.match(appSource, /if \(!sessionUser\) \{[\s\S]*clearBusinessDataStore\(\)/);
+});

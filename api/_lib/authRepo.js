@@ -2423,6 +2423,18 @@ export async function updateFormSubmissionForBusiness({ businessId, formSubmissi
   return { ok: true };
 }
 
+export async function reviewFormSubmissionForBusiness({ businessId, formSubmissionId, status }) {
+  await ddb.send(new UpdateCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: formSubmissionSk(formSubmissionId) },
+    UpdateExpression: 'SET #status = :status',
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :submitted',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: { ':status': status, ':submitted': 'submitted' },
+  }));
+  return { ok: true };
+}
+
 export async function deleteFormSubmissionForBusiness(businessId, formSubmissionId) {
   const responses = await listFormResponsesForBusiness(businessId);
   const responseIds = responses.filter((response) => response.submissionId === formSubmissionId).map((response) => response.id);

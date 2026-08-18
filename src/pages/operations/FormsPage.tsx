@@ -364,6 +364,7 @@ export default function FormsPage() {
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [fieldPickerOpen, setFieldPickerOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [savingBuilder, setSavingBuilder] = useState(false);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | FormSubmissionStatus>('all');
@@ -556,25 +557,29 @@ export default function FormsPage() {
     if (editingFieldId === fieldId) setEditingFieldId(null);
   };
 
-  const saveBuilderChanges = () => {
-    if (!builderDraft || !builderBaseline || !isBuilderDirty) return;
+  const saveBuilderChanges = async () => {
+    if (!builderDraft || !builderBaseline || !isBuilderDirty || savingBuilder) return;
+    setSavingBuilder(true);
     const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...formPatch } = builderDraft.form;
-    updateForm(builderDraft.form.id, formPatch);
+    const writes: Array<Promise<unknown>> = [updateForm(builderDraft.form.id, formPatch)];
 
     const baselineById = new Map(builderBaseline.fields.map((field) => [field.id, field]));
     const draftIds = new Set(builderDraft.fields.map((field) => field.id));
     for (const field of builderBaseline.fields) {
-      if (!draftIds.has(field.id)) deleteFormField(field.id);
+      if (!draftIds.has(field.id)) writes.push(deleteFormField(field.id));
     }
     for (const field of builderDraft.fields) {
       const normalized = { ...field, order: builderDraft.fields.indexOf(field) };
       if (!baselineById.has(field.id)) {
-        addFormField(normalized);
+        writes.push(addFormField(normalized));
       } else if (JSON.stringify(baselineById.get(field.id)) !== JSON.stringify(normalized)) {
         const { id: _fieldId, ...fieldPatch } = normalized;
-        updateFormField(field.id, fieldPatch);
+        writes.push(updateFormField(field.id, fieldPatch));
       }
     }
+    const results = await Promise.all(writes);
+    setSavingBuilder(false);
+    if (results.some((result) => result === false || result === null)) return;
     const savedAt = new Date().toISOString();
     setBuilderBaseline(createFormBuilderDraft({ ...builderDraft.form, updatedAt: savedAt }, builderDraft.fields));
     setLastSavedAt(savedAt);
@@ -939,7 +944,7 @@ export default function FormsPage() {
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <Button variant="secondary" onClick={openSubmissionScreen}><Eye size={16} /> Preview</Button>
-                  <Button onClick={saveBuilderChanges} disabled={!isBuilderDirty}><Save size={16} /> Save Changes</Button>
+                  <Button onClick={() => void saveBuilderChanges()} disabled={!isBuilderDirty || savingBuilder}><Save size={16} /> {savingBuilder ? 'Saving...' : 'Save Changes'}</Button>
                 </div>
               </div>
             </div>
@@ -1192,6 +1197,7 @@ export default function FormsPage() {
                         <th className="px-4 py-3 font-medium">Time</th>
                         <th className="px-4 py-3 font-medium">Status</th>
                         <th className="px-4 py-3 font-medium">Job</th>
+                        <th className="px-4 py-3 font-medium">Division</th>
                         <th className="px-4 py-3 font-medium">Equipment</th>
                         <th className="px-4 py-3 font-medium">Submitted By</th>
                         <th className="px-4 py-3 font-medium">Actions</th>
@@ -1201,6 +1207,7 @@ export default function FormsPage() {
                       {filteredSubmissions.map((submission) => {
                         const employeeName = employees.find((employee) => employee.id === submission.employeeId)?.name ?? 'Unknown';
                         const jobTitle = jobs.find((job) => job.id === submission.jobId)?.title ?? '—';
+                        const divisionName = divisions.find((division) => division.id === submission.divisionId)?.name ?? '—';
                         const equipmentName = equipmentAssets.find((equipment) => equipment.id === submission.equipmentId)?.name ?? '—';
                         const submitted = new Date(submission.submittedAt);
                         return (
@@ -1210,6 +1217,7 @@ export default function FormsPage() {
                             <td className="px-4 py-3 text-gray-700">{submitted.toLocaleTimeString()}</td>
                             <td className="px-4 py-3 text-gray-700 capitalize">{submission.status}</td>
                             <td className="px-4 py-3 text-gray-700">{jobTitle}</td>
+                            <td className="px-4 py-3 text-gray-700">{divisionName}</td>
                             <td className="px-4 py-3 text-gray-700">{equipmentName}</td>
                             <td className="px-4 py-3 text-gray-700">{submission.submittedBy ?? employeeName}</td>
                             <td className="px-4 py-3">
@@ -1541,9 +1549,11 @@ export default function FormsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
               <div><span className="text-gray-500">Submitted:</span> <span className="text-gray-900 font-medium">{formatDateTime(activeSubmission.submittedAt)}</span></div>
+              <div><span className="text-gray-500">Form:</span> <span className="text-gray-900 font-medium">{forms.find((form) => form.id === activeSubmission.formId)?.name ?? 'Archived form'}</span></div>
               <div><span className="text-gray-500">Status:</span> <span className="text-gray-900 font-medium capitalize">{activeSubmission.status}</span></div>
               <div><span className="text-gray-500">Submitted By:</span> <span className="text-gray-900 font-medium">{activeSubmission.submittedBy ?? '—'}</span></div>
               <div><span className="text-gray-500">Job:</span> <span className="text-gray-900 font-medium">{jobs.find((job) => job.id === activeSubmission.jobId)?.title ?? '—'}</span></div>
+              <div><span className="text-gray-500">Division:</span> <span className="text-gray-900 font-medium">{divisions.find((division) => division.id === activeSubmission.divisionId)?.name ?? '—'}</span></div>
               <div><span className="text-gray-500">Equipment:</span> <span className="text-gray-900 font-medium">{equipmentAssets.find((equipment) => equipment.id === activeSubmission.equipmentId)?.name ?? '—'}</span></div>
               <div><span className="text-gray-500">Trigger:</span> <span className="text-gray-900 font-medium">{activeSubmission.trigger ? toLabel(activeSubmission.trigger) : 'Legacy submission'}</span></div>
             </div>

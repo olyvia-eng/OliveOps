@@ -85,3 +85,27 @@ test('response validation rejects base64 media rather than storing it in DynamoD
   assert.equal(result.ok, false);
   assert.match(result.error, /base64/);
 });
+
+test('response validation accepts every supported answer-bearing field type', () => {
+  const fields = [
+    ['single', 'single_line_text', 'text'], ['multi', 'multi_line_text', 'long text'],
+    ['number', 'number', '-2.5'], ['currency', 'currency', '19.99'], ['date', 'date', '2026-08-18'],
+    ['time', 'time', '23:59'], ['yes-no', 'yes_no', 'yes'], ['checkbox', 'checkbox', 'checked'],
+    ['multiple', 'multiple_choice', 'A'], ['dropdown', 'dropdown', 'B'], ['signature', 'signature', 'Alex'],
+    ['employee', 'employee_selector', 'employee-1'], ['job', 'job_selector', 'job-1'], ['customer', 'customer_selector', 'customer-1'],
+  ].map(([id, type, value]) => ({ id, type, label: id, required: true, value, options: ['checked', 'A', 'B'] }));
+  const choicesByFieldId = {
+    employee: [{ value: 'employee-1', label: 'Alex' }],
+    job: [{ value: 'job-1', label: 'Job' }],
+    customer: [{ value: 'customer-1', label: 'Customer' }],
+  };
+  const result = validateEmployeeFormResponses({ fields, responses: fields.map(({ id, value }) => ({ fieldId: id, value })), choicesByFieldId });
+  assert.equal(result.ok, true);
+  assert.equal(result.responses.length, fields.length);
+
+  const presentation = validateEmployeeFormResponses({
+    fields: [{ id: 'section', type: 'section_header', label: 'Section' }, { id: 'paragraph', type: 'paragraph_text', label: 'Read this' }, { id: 'photo', type: 'photo_upload', label: 'Photo' }, { id: 'file', type: 'file_upload', label: 'File' }],
+    responses: [],
+  });
+  assert.equal(presentation.ok, true);
+});

@@ -135,3 +135,40 @@ test('employee submission rejects unassigned forms, foreign fields, and another 
   const detail = await request('token-a', { action: 'submission', query: { id: 'owned-by-b' } });
   assert.equal(detail.statusCode, 404);
 });
+
+test('employee Forms API rejects invalid sessions and inactive form submissions', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'inactive', status: 'draft' });
+
+  assert.equal((await request('invalid-token', { action: 'forms' })).statusCode, 401);
+  const inactive = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'inactive', responses: [{ fieldId: 'inactive-notes', value: 'x' }] } });
+  assert.equal(inactive.statusCode, 409);
+});
+
+test('simultaneous recurring submissions create only one completion record', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'daily', trigger: ['daily'] });
+  const payload = { method: 'POST', action: 'submit', body: { formId: 'daily', trigger: 'daily', responses: [{ fieldId: 'daily-notes', value: 'Done' }] } };
+
+  const results = await Promise.all([request('token-a', payload), request('token-a', payload)]);
+  assert.deepEqual(results.map((item) => item.statusCode).sort(), [201, 409]);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
+});
+
+test('employee required endpoint surfaces every advisory workflow and recurrence trigger', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  store.set(key('BUSINESS#biz-a', 'JOB#job-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-a', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-a', title: 'Main Street', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: [] });
+  const triggers = ['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'daily', 'weekly', 'monthly'];
+  for (const trigger of triggers) seedForm(store, { id: `form-${trigger}`, trigger: [trigger] });
+
+  for (const trigger of triggers) {
+    const query = trigger === 'before_starting_job' || trigger === 'after_completing_job' ? { trigger, jobId: 'job-a' } : { trigger };
+    const required = await request('token-a', { action: 'required', query });
+    assert.equal(required.statusCode, 200, trigger);
+    assert.deepEqual(required.body.forms.map((item) => item.id), [`form-${trigger}`], trigger);
+  }
+});
