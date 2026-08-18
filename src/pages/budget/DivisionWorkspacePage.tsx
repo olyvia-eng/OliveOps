@@ -4,6 +4,7 @@ import { Badge, Button, Card, EmptyState, PageHeader } from '../../components/ui
 import { useStore } from '../../store';
 import { formatCurrency, formatDate } from '../../utils';
 import DivisionPlanningTab from '../../components/budget/DivisionPlanningTab';
+import { calculateDivisionLabourShare } from './divisionLabourPlanningModel';
 
 type DivisionTab = 'overview' | 'labour' | 'equipment' | 'materials' | 'subcontractors' | 'other-costs';
 
@@ -20,7 +21,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   const { budgetId, divisionId } = useParams<{ budgetId: string; divisionId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { budgets, budgetDivisions } = useStore();
+  const { budgets, budgetDivisions, budgetDivisionPlanningItems } = useStore();
   const budget = budgets.find((item) => item.id === budgetId);
   const division = budgetDivisions.find((item) => item.id === divisionId && item.budgetId === budgetId);
   const activeTab = (searchParams.get('tab') ?? 'overview') as DivisionTab;
@@ -32,6 +33,12 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   }
 
   const dateRange = `${formatDate(budget.startDate ?? `${budget.fiscalYear}-01-01`)} – ${formatDate(budget.endDate ?? `${budget.fiscalYear}-12-31`)}`;
+  const labourTotals = budgetDivisionPlanningItems
+    .filter((item) => item.budgetId === budget.id && item.category === 'labour')
+    .reduce((totals, item) => {
+      const share = calculateDivisionLabourShare(item, division.id);
+      return { direct: totals.direct + share.directLabourCost, overhead: totals.overhead + share.overheadLabourCost };
+    }, { direct: 0, overhead: 0 });
 
   return (
     <div>
@@ -42,7 +49,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
       <div className="mb-4 flex items-center gap-2"><Badge label="Division" className="bg-brand-100 text-brand-700" /><Badge label={division.status} className={division.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} /></div>
       <div className="mb-6 overflow-x-auto"><div className="inline-flex min-w-max rounded-xl border border-brand-100 bg-white p-1 dark:border-brand-600 dark:bg-brand-700" role="tablist">{tabs.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={activeTab === tab.key} onClick={() => setTab(tab.key)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${activeTab === tab.key ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-800'}`}>{tab.label}</button>)}</div></div>
 
-      {activeTab === 'overview' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Revenue Target" value={formatCurrency(division.revenueTarget)} /><Metric label="Direct Cost" value="—" sub="Not calculated yet" /><Metric label="Gross Profit" value="—" sub="Not calculated yet" /><Metric label="Gross Margin" value="—" sub="Not calculated yet" /></div><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Cost Breakdown</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Detailed cost planning will be connected to this Division in a later phase.</p><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <button key={tab.key} type="button" onClick={() => setTab(tab.key)} className="border-y border-brand-100 px-3 py-3 text-left text-sm font-medium text-gray-700 hover:bg-brand-50 dark:border-brand-600 dark:text-brand-100 dark:hover:bg-brand-800">{tab.label}<span className="mt-1 block text-xs font-normal text-gray-400">Not connected yet</span></button>)}</div></Card><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Quick Actions</h2><div className="mt-3 flex flex-wrap gap-2">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <Button key={tab.key} variant="secondary" onClick={() => setTab(tab.key)}><Plus size={14} /> Add {tab.label === 'Other Costs' ? 'Other Cost' : tab.label.replace(/s$/, '')}</Button>)}</div></Card></div> : null}
+      {activeTab === 'overview' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Revenue Target" value={formatCurrency(division.revenueTarget)} /><Metric label="Direct Cost" value={formatCurrency(labourTotals.direct)} sub="Allocated billable Labour" /><Metric label="Overhead Labour" value={formatCurrency(labourTotals.overhead)} sub="Allocated to this Division" /><Metric label="Gross Margin" value="—" sub="Other costs not connected yet" /></div><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Cost Breakdown</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Labour uses this Division's allocation share. Other cost categories are not included yet.</p><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <button key={tab.key} type="button" onClick={() => setTab(tab.key)} className="border-y border-brand-100 px-3 py-3 text-left text-sm font-medium text-gray-700 hover:bg-brand-50 dark:border-brand-600 dark:text-brand-100 dark:hover:bg-brand-800">{tab.label}<span className="mt-1 block text-xs font-normal text-gray-400">{tab.key === 'labour' ? `${formatCurrency(labourTotals.direct)} direct · ${formatCurrency(labourTotals.overhead)} overhead` : 'Not connected yet'}</span></button>)}</div></Card><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Quick Actions</h2><div className="mt-3 flex flex-wrap gap-2">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <Button key={tab.key} variant="secondary" onClick={() => setTab(tab.key)}><Plus size={14} /> Add {tab.label === 'Other Costs' ? 'Other Cost' : tab.label.replace(/s$/, '')}</Button>)}</div></Card></div> : null}
 
       {activeTab === 'labour' || activeTab === 'equipment' || activeTab === 'materials' || activeTab === 'subcontractors' ? <DivisionPlanningTab budget={budget} division={division} category={activeTab} canEdit={canEdit} /> : null}
       {activeTab === 'other-costs' ? <Card><EmptyState icon={<BriefcaseBusiness />} title="Other costs planning is coming next" description={`${division.name} will receive its own other-costs workspace in a later phase.`} action={<Button variant="secondary" onClick={() => setTab('overview')}>Return to Overview</Button>} /></Card> : null}

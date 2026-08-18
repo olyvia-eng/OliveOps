@@ -54,3 +54,14 @@ test('Labour import copies reusable assumptions and remaps Division allocations 
   assert.deepEqual(copied.divisionAllocations, [{ divisionId: 'new-land', percentage: 60 }, { divisionId: 'new-snow', percentage: 40 }]);
   assert.deepEqual(source.divisionAllocations, [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }]);
 });
+
+test('Labour import rejects every positive allocation without an explicit destination mapping', () => {
+  const source = {
+    id: 'source-labour', budgetId: 'old', divisionId: 'old-land', category: 'labour', employeeId: 'employee-1',
+    divisionAllocations: [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }],
+  };
+  assert.throws(
+    () => copyDivisionPlanAssumptions(source, { budgetId: 'new', divisionId: 'new-land', divisionIdMap: new Map([['old-land', 'new-land']]) }, () => 'new-item'),
+    /requires a mapped destination Division/,
+  );
+});

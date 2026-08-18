@@ -28,7 +28,9 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
   if (category === 'labour' && Array.isArray(copied.divisionAllocations) && destination.divisionIdMap) {
     const percentages = new Map();
     for (const allocation of copied.divisionAllocations) {
-      const divisionId = destination.divisionIdMap.get(allocation.divisionId) ?? destination.divisionId;
+      if (!(allocation.percentage > 0)) continue;
+      const divisionId = destination.divisionIdMap.get(allocation.divisionId);
+      if (!divisionId) throw new Error('Every positive Labour allocation requires a mapped destination Division.');
       percentages.set(divisionId, (percentages.get(divisionId) ?? 0) + allocation.percentage);
     }
     copied.divisionAllocations = [...percentages].map(([divisionId, percentage]) => ({ divisionId, percentage }));

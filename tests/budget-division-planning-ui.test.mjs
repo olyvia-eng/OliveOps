@@ -19,8 +19,8 @@ test('all four Division planning tabs provide intentional Add and Import empty s
 
 test('planning tabs retain Add and Import actions after items exist and keep ordering local', () => {
   assert.match(planner, /items\.length === 0[\s\S]*actions[\s\S]*items\.length/);
-  assert.match(planner, /draggable=\{canEdit && category !== 'equipment'\}/);
-  assert.match(planner, /category !== 'equipment' \? <th[\s\S]*Order/);
+  assert.match(planner, /draggable=\{canEdit && category !== 'equipment' && category !== 'labour'\}/);
+  assert.match(planner, /category !== 'equipment' && category !== 'labour' \? <th[\s\S]*Order/);
   assert.match(planner, /onDragStart/);
   assert.match(planner, /reorderBudgetDivisionPlanningItems/);
   assert.match(planner, /Move \$\{item\.name \?\? item\.description\} earlier/);
@@ -59,15 +59,22 @@ test('Labour form separates classification, billable capacity, overtime, and Div
   assert.match(planner, /Included in overhead pool; no billable charge-out rate/);
   assert.match(planner, /activeDivisions\.map/);
   assert.match(planner, /Allocate Employee Cost Across Divisions/);
+  assert.match(planner, /Split Evenly/);
+  assert.match(planner, /step=\{0\.01\}/);
+  assert.match(planner, /Current Division/);
   assert.match(planner, /Remaining:/);
   assert.match(planner, /over allocation/);
   assert.match(planner, /!labourAllocationValid \|\| !labourInputsValid/);
 });
 
-test('Labour plan table stays compact while showing recovery and allocation summaries', () => {
+test('Labour plan table shows only the selected Division share and prevents duplicate employees', () => {
   assert.match(planner, /Annual Cost/);
   assert.match(planner, /directCostPerBillableHour/);
-  assert.match(planner, /allocationNames/);
+  assert.match(planner, /isLabourAllocatedToDivision\(item, division\.id\)/);
+  assert.match(planner, /calculateDivisionLabourShare\(item, division\.id\)/);
+  assert.match(planner, /Allocation: \{labourShare\.percentage\}% to \{division\.name\}/);
+  assert.match(planner, /Already in Budget/);
+  assert.match(planner, /Edit Allocation/);
   assert.match(planner, /overhead pool/);
   assert.doesNotMatch(planner, /overhead recovery|target margin|sell rate/i);
 });

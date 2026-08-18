@@ -3,6 +3,7 @@ import { generateId, getBudgetDivisionForBusiness, getBudgetForBusiness, getEmpl
 import {
   createDivisionPlanningItem,
   deleteDivisionPlanningItem,
+  listBudgetPlanningItems,
   listDivisionPlanningItems,
   reorderDivisionPlanningItems,
   updateDivisionPlanningItem,
@@ -80,9 +81,15 @@ export default async function handler(req, res) {
   }
   try {
     if (!await resolveDestination(session, budgetId, divisionId)) return res.status(404).json({ ok: false, error: 'Budget Division not found.' });
-    const items = await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
+    const budgetItems = category === 'labour'
+      ? await listBudgetPlanningItems({ businessId: session.businessId, budgetId, category })
+      : await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
+    const items = category === 'labour'
+      ? budgetItems.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0))
+      : budgetItems;
     if (req.method === 'GET') return res.status(200).json({ ok: true, items: items.sort((a, b) => a.sortOrder - b.sortOrder) });
     if (req.method === 'PUT') {
+      if (category === 'labour') return res.status(400).json({ ok: false, error: 'Shared Labour items cannot be reordered within one Division.' });
       const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
       if (orderedIds.length !== items.length || new Set(orderedIds).size !== items.length || orderedIds.some((id) => !items.some((item) => item.id === id))) {
         return res.status(400).json({ ok: false, error: 'Planning order must include every item exactly once.' });
@@ -93,7 +100,7 @@ export default async function handler(req, res) {
     const itemId = req.query?.id;
     if (req.method === 'POST') {
       const now = new Date().toISOString();
-      const item = normalizeLabourPlanAssumptions({ ...req.body?.data, id: generateId(), budgetId, divisionId, category, sortOrder: items.length, createdAt: now, updatedAt: now });
+      const item = normalizeLabourPlanAssumptions({ ...req.body?.data, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
       const error = validate(item);
       if (error) return res.status(400).json({ ok: false, error });
       const referenceError = await validateReferences(session.businessId, item);
@@ -101,13 +108,13 @@ export default async function handler(req, res) {
       const saved = await createDivisionPlanningItem({ businessId: session.businessId, item });
       return res.status(200).json({ ok: true, item: saved });
     }
-    const existing = items.find((item) => item.id === itemId);
+    const existing = budgetItems.find((item) => item.id === itemId);
     if (!existing) return res.status(404).json({ ok: false, error: 'Planning item not found.' });
     if (req.method === 'DELETE') {
       await deleteDivisionPlanningItem({ businessId: session.businessId, item: existing });
       return res.status(200).json({ ok: true });
     }
-    const next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId, category, updatedAt: new Date().toISOString() });
+    const next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId: existing.divisionId, category, updatedAt: new Date().toISOString() });
     const error = validate(next);
     if (error) return res.status(400).json({ ok: false, error });
     const referenceError = await validateReferences(session.businessId, next);
@@ -116,6 +123,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, item: saved });
   } catch (error) {
     const duplicate = error?.name === 'TransactionCanceledException' || error?.name === 'ConditionalCheckFailedException';
-    return res.status(duplicate ? 409 : 500).json({ ok: false, error: duplicate ? 'This planning item is already added to the Division.' : 'Could not save Division planning.' });
+    return res.status(duplicate ? 409 : 500).json({ ok: false, error: duplicate ? (category === 'labour' ? 'This employee is already in the Budget.' : 'This planning item is already added to the Division.') : 'Could not save Division planning.' });
   }
 }

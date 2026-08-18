@@ -4,8 +4,15 @@ import { divisionPlanIdentity, normalizeLabourPlanAssumptions } from './budgetDi
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLAN#${budgetId}#DIVISION#${divisionId}#${category ? `CATEGORY#${category}#` : ''}`;
-const planSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
-const identitySk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`;
+const budgetCategoryPrefix = (budgetId, category) => `BUDGET_DIVISION_PLAN#${budgetId}#CATEGORY#${category}#`;
+const legacyPlanSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
+const legacyIdentitySk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`;
+const planSk = (item) => item.category === 'labour'
+  ? `${budgetCategoryPrefix(item.budgetId, item.category)}ITEM#${item.id}`
+  : legacyPlanSk(item);
+const identitySk = (item) => item.category === 'labour'
+  ? `${budgetCategoryPrefix(item.budgetId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`
+  : legacyIdentitySk(item);
 
 const mapItem = (item) => {
   const record = { ...item, id: item.planningItemId };
@@ -27,7 +34,23 @@ export async function listDivisionPlanningItemsForBusiness(businessId) {
   return (result.Items ?? []).filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN').map(mapItem);
 }
 
+export async function listBudgetPlanningItems({ businessId, budgetId, category }) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': `BUDGET_DIVISION_PLAN#${budgetId}#` },
+  }));
+  const items = (result.Items ?? [])
+    .filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === category)
+    .map(mapItem);
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
 export async function listDivisionPlanningItems({ businessId, budgetId, divisionId, category }) {
+  if (category === 'labour') {
+    const items = await listBudgetPlanningItems({ businessId, budgetId, category });
+    return items.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0));
+  }
   const result = await ddb.send(new QueryCommand({
     TableName: tableName,
     KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
@@ -67,6 +90,25 @@ export async function createDivisionPlanningItems({ businessId, items }) {
 }
 
 export async function updateDivisionPlanningItem({ businessId, previous, item }) {
+  if (item.category === 'labour') {
+    const previousIdentityChanged = divisionPlanIdentity(previous) !== divisionPlanIdentity(item);
+    const transaction = [
+      { Put: { TableName: tableName, Item: storedItem(businessId, item) } },
+      { Put: {
+        TableName: tableName,
+        Item: identityItem(businessId, item),
+        ConditionExpression: 'attribute_not_exists(PK) OR planningItemId = :planningItemId',
+        ExpressionAttributeValues: { ':planningItemId': item.id },
+      } },
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyPlanSk(previous) } } },
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyIdentitySk(previous) } } },
+    ];
+    if (previousIdentityChanged) {
+      transaction.push({ Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: identitySk(previous) } } });
+    }
+    await ddb.send(new TransactWriteCommand({ TransactItems: transaction }));
+    return item;
+  }
   const transaction = [
     { Put: { TableName: tableName, Item: storedItem(businessId, item), ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)' } },
   ];
@@ -81,10 +123,17 @@ export async function updateDivisionPlanningItem({ businessId, previous, item })
 }
 
 export async function deleteDivisionPlanningItem({ businessId, item }) {
-  await ddb.send(new TransactWriteCommand({ TransactItems: [
+  const transaction = [
     { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: planSk(item) } } },
     { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: identitySk(item) } } },
-  ] }));
+  ];
+  if (item.category === 'labour') {
+    transaction.push(
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyPlanSk(item) } } },
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyIdentitySk(item) } } },
+    );
+  }
+  await ddb.send(new TransactWriteCommand({ TransactItems: transaction }));
   return { ok: true };
 }
 

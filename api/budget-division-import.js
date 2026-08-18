@@ -12,12 +12,31 @@ import {
   listLabourBudgetPlansForBusiness,
   listMaterialCatalogItemsForBusiness,
 } from './_lib/authRepo.js';
-import { createDivisionPlanningItems, listDivisionPlanningItems } from './_lib/budgetDivisionPlanning.js';
+import { createDivisionPlanningItems, listBudgetPlanningItems, listDivisionPlanningItems } from './_lib/budgetDivisionPlanning.js';
 import { appendImportedSortOrders, copyDivisionPlanAssumptions, DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, normalizeLabourPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
 
 const LEGACY_DIVISION_ID = '__legacy_budget_wide__';
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
 const normalized = (value) => typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
+
+function buildLabourDivisionMap({ sourceDivisionId, destinationDivisionId, sourceDivisions, destinationDivisions }) {
+  const divisionIdMap = new Map([[sourceDivisionId, destinationDivisionId]]);
+  const ambiguousSourceIds = new Set();
+  for (const sourceDivision of sourceDivisions) {
+    if (sourceDivision.id === sourceDivisionId) continue;
+    const matches = destinationDivisions.filter((item) => normalized(item.name) === normalized(sourceDivision.name));
+    if (matches.length === 1) divisionIdMap.set(sourceDivision.id, matches[0].id);
+    else if (matches.length > 1) ambiguousSourceIds.add(sourceDivision.id);
+  }
+  return { divisionIdMap, ambiguousSourceIds };
+}
+
+function labourMappingError(item, divisionIdMap, ambiguousSourceIds) {
+  const positiveAllocations = Array.isArray(item.divisionAllocations) ? item.divisionAllocations.filter((allocation) => allocation.percentage > 0) : [];
+  if (positiveAllocations.some((allocation) => ambiguousSourceIds.has(allocation.divisionId))) return 'A source Labour allocation matches more than one destination Division name. Review the destination Divisions before importing.';
+  if (positiveAllocations.some((allocation) => !divisionIdMap.has(allocation.divisionId))) return 'A source Labour allocation has no matching active destination Division. Create or rename the matching Division before importing.';
+  return null;
+}
 
 function legacyItemsForCategory({ category, budget, budgetItems, budgetRates, labourPlans, equipmentAssets, employees, materials }) {
   if (category === 'labour') {
@@ -147,13 +166,22 @@ export default async function handler(req, res) {
     const equipmentIds = new Set(currentEquipment.map((item) => item.id));
     const employeeIds = new Set(currentEmployees.map((item) => item.id));
     const materialIds = new Set(currentMaterials.map((item) => item.id));
+    const sourceDivisions = divisions.filter((item) => item.budgetId === sourceBudget.id && item.status === 'active');
+    const destinationDivisions = divisions.filter((item) => item.budgetId === budgetId && item.status === 'active');
+    const labourMapping = buildLabourDivisionMap({ sourceDivisionId: selectedSourceDivisionId, destinationDivisionId: divisionId, sourceDivisions, destinationDivisions });
     preview.items = preview.items.map((item) => {
       if (item.equipmentId && !equipmentIds.has(item.equipmentId)) return { ...item, unavailable: true, unavailableReason: 'Equipment Catalog asset is no longer available.' };
       if (item.employeeId && !employeeIds.has(item.employeeId)) return { ...item, unavailable: true, unavailableReason: 'Employee is no longer available.' };
       if (item.materialCatalogItemId && !materialIds.has(item.materialCatalogItemId)) return { ...item, materialCatalogItemId: undefined };
+      if (category === 'labour') {
+        const unavailableReason = labourMappingError(item, labourMapping.divisionIdMap, labourMapping.ambiguousSourceIds);
+        if (unavailableReason) return { ...item, unavailable: true, unavailableReason };
+      }
       return item;
     });
-    const existing = await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
+    const existing = category === 'labour'
+      ? await listBudgetPlanningItems({ businessId: session.businessId, budgetId, category })
+      : await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
     const existingIdentities = new Set(existing.map(divisionPlanIdentity));
     const previewItems = preview.items.map((item) => ({ ...item, alreadyAdded: existingIdentities.has(divisionPlanIdentity(item)) }));
     if (req.method === 'GET') return res.status(200).json({ ok: true, source: { budget: sourceBudget, division: preview.sourceDivision }, destination: { budget: destinationBudget, division: destinationDivision }, items: previewItems });
@@ -168,14 +196,7 @@ export default async function handler(req, res) {
       return true;
     });
     if (!selected.length) return res.status(400).json({ ok: false, error: 'Select at least one available item to import.' });
-    const sourceDivisionById = new Map(divisions.filter((item) => item.budgetId === sourceBudget.id).map((item) => [item.id, item]));
-    const destinationDivisions = divisions.filter((item) => item.budgetId === budgetId && item.status !== 'archived');
-    const divisionIdMap = new Map([[selectedSourceDivisionId, divisionId]]);
-    for (const [sourceId, sourceDivision] of sourceDivisionById) {
-      const match = destinationDivisions.find((item) => normalized(item.name) === normalized(sourceDivision.name));
-      if (match) divisionIdMap.set(sourceId, match.id);
-    }
-    const copied = appendImportedSortOrders(existing, selected.map((item) => normalizeLabourPlanAssumptions(copyDivisionPlanAssumptions(item, { budgetId, divisionId, divisionIdMap }, generateId))));
+    const copied = appendImportedSortOrders(existing, selected.map((item) => normalizeLabourPlanAssumptions(copyDivisionPlanAssumptions(item, { budgetId, divisionId, divisionIdMap: labourMapping.divisionIdMap }, generateId))));
     const imported = await createDivisionPlanningItems({ businessId: session.businessId, items: copied });
     const skipped = selectedIds.size - imported.length;
     return res.status(200).json({ ok: true, items: imported, importedCount: imported.length, skippedCount: skipped, source: { budget: sourceBudget, division: preview.sourceDivision }, destination: { budget: destinationBudget, division: destinationDivision } });
