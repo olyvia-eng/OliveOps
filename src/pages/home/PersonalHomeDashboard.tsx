@@ -18,6 +18,7 @@ import {
   getJobsThisWeek,
   getPersonalJobs,
   getPersonalTasks,
+  getRootTasks,
   getTaskSummary,
   resolveSessionEmployee,
   type HomeTaskFilter,
@@ -60,21 +61,22 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const employee = useMemo(() => resolveSessionEmployee({ employees, userId: currentUserId, email: currentUserEmail }), [currentUserEmail, currentUserId, employees]);
   const personalJobs = useMemo(() => getPersonalJobs({ jobs, crews, employeeId: employee?.id }), [crews, employee?.id, jobs]);
   const personalTasks = useMemo(() => getPersonalTasks(tasks, currentUserId), [currentUserId, tasks]);
+  const rootTasks = useMemo(() => getRootTasks(personalTasks), [personalTasks]);
   const taskFilterValue = searchParams.get('taskFilter');
   const validTaskFilterIds = [...taskFilters, ...dashboardPreferences.customTaskTabs.map((tab) => tab.id)];
   const taskFilter = taskFilterValue && validTaskFilterIds.includes(taskFilterValue) ? taskFilterValue : 'all';
   const tasksExpanded = searchParams.get('tasks') === 'all';
-  const filteredTasks = useMemo(() => filterTasksByRange(personalTasks, taskFilter, now).filter((task) => taskFilter !== 'today' || !dashboardPreferences.dismissedTodayTaskIds.includes(task.id)).slice().sort((left, right) => {
+  const filteredTasks = useMemo(() => filterTasksByRange(rootTasks, taskFilter, now).filter((task) => taskFilter !== 'today' || !dashboardPreferences.dismissedTodayTaskIds.includes(task.id)).slice().sort((left, right) => {
     if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate);
     if (left.dueDate && !right.dueDate) return -1;
     if (!left.dueDate && right.dueDate) return 1;
     return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
-  }), [dashboardPreferences.dismissedTodayTaskIds, personalTasks, taskFilter]);
-  const summary = useMemo(() => getTaskSummary(personalTasks, now), [personalTasks]);
+  }), [dashboardPreferences.dismissedTodayTaskIds, rootTasks, taskFilter]);
+  const summary = useMemo(() => getTaskSummary(rootTasks, now), [rootTasks]);
   const weekJobs = useMemo(() => getJobsThisWeek(personalJobs, now), [personalJobs]);
   const hoursToday = useMemo(() => getHoursLoggedToday(timeEntries, employee?.id, now), [employee?.id, timeEntries]);
-  const upcoming = useMemo(() => buildUpcomingItems({ jobs: personalJobs, tasks: personalTasks, externalEvents, customers, now, limit: 5 }), [customers, externalEvents, personalJobs, personalTasks]);
-  const activity = useMemo(() => buildRecentActivity({ jobs: personalJobs, tasks: personalTasks, timeEntries, corrections: timeCorrections, employeeId: employee?.id, limit: 5 }), [employee?.id, personalJobs, personalTasks, timeCorrections, timeEntries]);
+  const upcoming = useMemo(() => buildUpcomingItems({ jobs: personalJobs, tasks: rootTasks, externalEvents, customers, now, limit: 5 }), [customers, externalEvents, personalJobs, rootTasks]);
+  const activity = useMemo(() => buildRecentActivity({ jobs: personalJobs, tasks: rootTasks, timeEntries, corrections: timeCorrections, employeeId: employee?.id, limit: 5 }), [employee?.id, personalJobs, rootTasks, timeCorrections, timeEntries]);
 
   const selectedJobId = searchParams.get('homeJob');
   const selectedJob = personalJobs.find((job) => job.id === selectedJobId) ?? null;
@@ -103,7 +105,7 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     window.setTimeout(() => document.getElementById('outstanding-tasks')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
   };
 
-  const createTask = async (input: { title: string; dueDate?: string; priority: TaskPriority; taskTabId?: string }) => {
+  const createTask = async (input: { title: string; dueDate?: string; priority: TaskPriority; taskTabId?: string; parentTaskId?: string }) => {
     const result = await addTask({ ...input, description: '', assignedUserId: currentUserId, status: 'open', createdByUserId: currentUserId });
     if (result.ok) emitAppToast({ tone: 'success', message: 'Task added.' });
     return result.ok;
@@ -114,6 +116,10 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     return result.ok;
   };
   const toggleTask = async (task: Task) => {
+    if (!task.parentTaskId && task.status === 'open' && personalTasks.some((item) => item.parentTaskId === task.id && item.status !== 'completed')) {
+      emitAppToast({ tone: 'error', message: 'Complete all subtasks before completing this task.' });
+      return;
+    }
     if (task.status === 'completed') {
       dashboardPreferences.restoreTodayTask(task.id);
       await updateTask(task.id, { status: 'open', completedAt: undefined });
@@ -140,9 +146,9 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     { id: 'overdue', title: 'Overdue Tasks', description: 'Personal tasks that have passed their due date.', size: 'small', category: 'Personal', content: <StatCard label="Overdue" value={summary.overdue} sub={summary.overdue ? 'Needs attention' : 'You are caught up'} icon={<CalendarCheck2 />} color={summary.overdue ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },
     { id: 'jobs-week', title: 'Jobs This Week', description: 'Jobs assigned directly or through your crew.', size: 'small', category: 'Personal', content: <StatCard label="Jobs This Week" value={weekJobs.length} sub="Assigned to you or your crew" icon={<BriefcaseBusiness />} color="text-brand-700 dark:text-brand-100" /> },
     { id: 'hours-today', title: 'Hours Today', description: 'Your recorded work hours today.', size: 'small', category: 'Personal', content: <StatCard label="Hours Today" value={hoursToday.toFixed(1)} sub="Recorded work hours" icon={<Clock3 />} color="text-brand-700 dark:text-brand-100" /> },
-    { id: 'calendar', title: 'My Calendar', description: 'Assigned work, tasks, and private calendar events.', size: 'large', category: 'Personal', content: <Card className="overflow-hidden rounded-lg"><PersonalCalendar jobs={personalJobs} tasks={personalTasks} customers={customers} externalEvents={externalEvents} selectedDate={selectedDate} onDateChange={setSelectedDate} onRangeChange={setCalendarRange} onOpenJob={openJob} onSelectTask={openTasks} /></Card> },
+    { id: 'calendar', title: 'My Calendar', description: 'Assigned work, tasks, and private calendar events.', size: 'large', category: 'Personal', content: <Card className="overflow-hidden rounded-lg"><PersonalCalendar jobs={personalJobs} tasks={rootTasks} customers={customers} externalEvents={externalEvents} selectedDate={selectedDate} onDateChange={setSelectedDate} onRangeChange={setCalendarRange} onOpenJob={openJob} onSelectTask={openTasks} /></Card> },
     { id: 'mini-calendar', title: 'Mini Calendar', description: 'Jump the main calendar to another day.', size: 'small', category: 'Personal', content: <MiniCalendarWidget selectedDate={selectedDate} onSelectDate={setSelectedDate} /> },
-    { id: 'tasks', title: 'Tasks', description: 'Create, filter, and complete personal tasks.', size: 'large', category: 'Personal', content: <OutstandingTasks tasks={filteredTasks} filter={taskFilter} customTaskTabs={dashboardPreferences.customTaskTabs} filterOrder={dashboardPreferences.taskFilterOrder} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onFilterOrderChange={dashboardPreferences.saveTaskFilterOrder} onCreateCustomTab={dashboardPreferences.createCustomTaskTab} onRenameCustomTab={dashboardPreferences.renameCustomTaskTab} onDeleteCustomTab={dashboardPreferences.deleteCustomTaskTab} onViewAll={openTasks} onAdd={createTask} onUpdate={editTask} onToggle={toggleTask} onDelete={removeTask} onDismissCompletedToday={dashboardPreferences.dismissTodayTask} /> },
+    { id: 'tasks', title: 'Tasks', description: 'Create, filter, and complete personal tasks.', size: 'large', category: 'Personal', content: <OutstandingTasks tasks={filteredTasks} allTasks={personalTasks} filter={taskFilter} customTaskTabs={dashboardPreferences.customTaskTabs} filterOrder={dashboardPreferences.taskFilterOrder} expanded={tasksExpanded} addRequest={addRequest} onFilterChange={(filter) => updateQuery({ taskFilter: filter, tasks: filter === 'all' ? searchParams.get('tasks') : 'all' })} onFilterOrderChange={dashboardPreferences.saveTaskFilterOrder} onCreateCustomTab={dashboardPreferences.createCustomTaskTab} onRenameCustomTab={dashboardPreferences.renameCustomTaskTab} onDeleteCustomTab={dashboardPreferences.deleteCustomTaskTab} onViewAll={openTasks} onAdd={createTask} onUpdate={editTask} onToggle={toggleTask} onDelete={removeTask} onDismissCompletedToday={dashboardPreferences.dismissTodayTask} /> },
     { id: 'upcoming', title: 'Upcoming Schedule', description: 'Your next jobs, tasks, and private events.', size: 'small', category: 'Personal', content: <UpcomingScheduleWidget upcoming={upcoming} onOpenJob={openJob} onOpenTask={openTasks} /> },
     { id: 'activity', title: 'Recent Activity', description: 'Recent changes to your work and time.', size: 'medium', category: 'Personal', content: <RecentActivityWidget activity={activity} /> },
     { id: 'quick-actions', title: 'Quick Actions', description: 'Shortcuts to common personal workflows.', size: 'medium', category: 'Personal', content: <QuickActionsWidget showTimeClock={Boolean(onOpenTimeClock)} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} /> },

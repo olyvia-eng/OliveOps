@@ -10,6 +10,7 @@ export function getLocalWeekRange(now?: Date): { start: Date; end: Date };
 export function resolveSessionEmployee(input: { employees?: Employee[]; userId: string; email?: string }): Employee | null;
 export function getPersonalJobs(input: { jobs?: Job[]; crews?: Crew[]; employeeId?: string }): Job[];
 export function getPersonalTasks(tasks: Task[], userId: string): Task[];
+export function getRootTasks(tasks: Task[]): Task[];
 export function filterTasksByRange(tasks: Task[], filter: string, now?: Date): Task[];
 export function taskCreationDefaults(viewId: string, customTabs?: TaskTab[], now?: Date): { dueDate: string; taskTabId: string; status: 'open' };
 export function getTaskSummary(tasks: Task[], now?: Date): { dueToday: number; highPriorityDueToday: number; overdue: number };

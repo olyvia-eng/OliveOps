@@ -313,6 +313,7 @@ export interface TaskTab {
 
 export interface Task {
   id: ID;
+  parentTaskId?: ID;
   title: string;
   description?: string;
   dueDate?: string;

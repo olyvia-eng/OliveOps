@@ -43,6 +43,10 @@ export function getPersonalTasks(tasks = [], userId) {
   return tasks.filter((task) => task.assignedUserId === userId);
 }
 
+export function getRootTasks(tasks = []) {
+  return tasks.filter((task) => !task.parentTaskId);
+}
+
 export function filterTasksByRange(tasks, filter, now = new Date()) {
   const todayKey = localDateKey(now);
   const { start: weekStart, end: weekEnd } = getLocalWeekRange(now);

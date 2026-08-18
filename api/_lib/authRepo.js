@@ -2839,6 +2839,7 @@ export async function listTasksForBusiness(businessId) {
   return (result.Items ?? [])
     .map((item) => ({
       id: item.taskId,
+      parentTaskId: item.parentTaskId,
       title: item.title,
       description: item.description,
       dueDate: item.dueDate,
@@ -2889,6 +2890,7 @@ export async function getTaskForBusiness(businessId, taskId) {
   return result.Item
     ? {
         id: result.Item.taskId,
+        parentTaskId: result.Item.parentTaskId,
         title: result.Item.title,
         description: result.Item.description,
         dueDate: result.Item.dueDate,
@@ -2926,15 +2928,17 @@ export async function updateTaskForBusiness({ businessId, task }) {
 }
 
 export async function deleteTaskForBusiness(businessId, taskId) {
-  await ddb.send(
+  const tasks = await listTasksForBusiness(businessId);
+  const taskIds = [taskId, ...tasks.filter((task) => task.parentTaskId === taskId).map((task) => task.id)];
+  await Promise.all(taskIds.map((id) => ddb.send(
     new DeleteCommand({
       TableName: tableName,
       Key: {
         PK: businessPk(businessId),
-        SK: taskSk(taskId),
+        SK: taskSk(id),
       },
     })
-  );
+  )));
 
   return { ok: true };
 }

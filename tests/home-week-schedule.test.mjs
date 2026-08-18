@@ -12,7 +12,7 @@ test('Home answers what this user needs to do with a personal command center', (
   assert.match(source, /Due Today/);
   assert.match(source, /Jobs This Week/);
   assert.match(source, /Hours Today/);
-  assert.match(source, /<PersonalCalendar jobs=\{personalJobs\} tasks=\{personalTasks\}/);
+  assert.match(source, /<PersonalCalendar jobs=\{personalJobs\} tasks=\{rootTasks\}/);
   assert.match(personalCalendarSource, /initialView="timeGridWeek"/);
   assert.match(personalCalendarSource, /\['month', 'week', 'day'\]|VIEW_MAP/);
   assert.match(tasksSource, />Tasks</);
@@ -25,6 +25,8 @@ test('Home answers what this user needs to do with a personal command center', (
   assert.match(tasksSource, /Tasks in this tab will not be deleted/);
   assert.match(tasksSource, /Task Tab \/ Category/);
   assert.match(tasksSource, /openEditTask/);
+  assert.match(tasksSource, /Add subtask/);
+  assert.match(tasksSource, /subtasks complete/);
   assert.match(sidebarSource, /Upcoming Schedule/);
 });
 

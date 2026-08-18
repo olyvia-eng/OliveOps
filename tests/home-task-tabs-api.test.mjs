@@ -28,6 +28,10 @@ function installDdb(t) {
       const prefix = input.ExpressionAttributeValues[':prefix'];
       return { Items: [...store.values()].filter((item) => item.PK === pk && item.SK.startsWith(prefix)) };
     }
+    if (type === 'DeleteCommand') {
+      store.delete(key(input.Key.PK, input.Key.SK));
+      return {};
+    }
     return original(command);
   };
   t.after(() => { ddb.send = original; });
@@ -45,6 +49,18 @@ const task = (id, userId, taskTabId) => ({ id, title: id, description: '', assig
 async function postTask(token, record) {
   const res = response();
   await dataHandler({ method: 'POST', query: { entity: 'tasks' }, headers: { authorization: `Bearer ${token}` }, body: { data: record } }, res);
+  return res;
+}
+
+async function patchTask(token, id, data) {
+  const res = response();
+  await dataHandler({ method: 'PATCH', query: { entity: 'tasks', id }, headers: { authorization: `Bearer ${token}` }, body: { data } }, res);
+  return res;
+}
+
+async function deleteTask(token, id) {
+  const res = response();
+  await dataHandler({ method: 'DELETE', query: { entity: 'tasks', id }, headers: { authorization: `Bearer ${token}` } }, res);
   return res;
 }
 
@@ -116,4 +132,54 @@ test('deleting a task category clears only the signed-in user relationships and 
   assert.equal(store.get(key('BUSINESS#biz-a', 'TASK#task-owned-match')).taskTabId, undefined);
   assert.equal(store.get(key('BUSINESS#biz-a', 'TASK#task-other-user-match')).taskTabId, deletedTab.id);
   assert.equal(store.get(key('BUSINESS#biz-a', 'TASK#task-owned-other-tab')).taskTabId, 'task-tab-still-exists');
+});
+
+test('subtasks persist as tasks with a validated one-level parent relationship', async (t) => {
+  const store = installDdb(t);
+  await seedUser(store, { businessId: 'biz-a', userId: 'user-a', token: 'token-a' });
+  await seedUser(store, { businessId: 'biz-a', userId: 'user-b', token: 'token-b' });
+
+  const parent = task('task-parent', 'user-a');
+  assert.equal((await postTask('token-a', parent)).statusCode, 200);
+
+  const child = { ...task('task-child', 'user-a'), parentTaskId: parent.id };
+  assert.equal((await postTask('token-a', child)).statusCode, 200);
+
+  const listRes = response();
+  await dataHandler({ method: 'GET', query: { entity: 'tasks' }, headers: { authorization: 'Bearer token-a' } }, listRes);
+  assert.equal(listRes.body.items.find((item) => item.id === child.id).parentTaskId, parent.id);
+
+  const nested = await postTask('token-a', { ...task('task-grandchild', 'user-a'), parentTaskId: child.id });
+  assert.equal(nested.statusCode, 400);
+  assert.match(nested.body.error, /another level/);
+
+  const selfParent = await postTask('token-a', { ...task('task-self', 'user-a'), parentTaskId: 'task-self' });
+  assert.equal(selfParent.statusCode, 400);
+  assert.match(selfParent.body.error, /own parent/);
+
+  const otherUserParent = task('task-other-user-parent', 'user-b');
+  store.set(key('BUSINESS#biz-a', `TASK#${otherUserParent.id}`), { PK: 'BUSINESS#biz-a', SK: `TASK#${otherUserParent.id}`, entityType: 'TASK', businessId: 'biz-a', taskId: otherUserParent.id, ...otherUserParent });
+  const crossUser = await postTask('token-a', { ...task('task-cross-user-child', 'user-a'), parentTaskId: otherUserParent.id });
+  assert.equal(crossUser.statusCode, 400);
+  assert.match(crossUser.body.error, /same assignee/);
+});
+
+test('parent completion requires complete subtasks and parent deletion removes its children', async (t) => {
+  const store = installDdb(t);
+  await seedUser(store, { businessId: 'biz-a', userId: 'user-a', token: 'token-a' });
+  const parent = task('task-parent', 'user-a');
+  const child = { ...task('task-child', 'user-a'), parentTaskId: parent.id };
+  assert.equal((await postTask('token-a', parent)).statusCode, 200);
+  assert.equal((await postTask('token-a', child)).statusCode, 200);
+
+  const blocked = await patchTask('token-a', parent.id, { status: 'completed', completedAt: '2026-08-17T12:00:00.000Z' });
+  assert.equal(blocked.statusCode, 400);
+  assert.match(blocked.body.error, /Complete all subtasks/);
+
+  assert.equal((await patchTask('token-a', child.id, { status: 'completed', completedAt: '2026-08-17T12:00:00.000Z' })).statusCode, 200);
+  assert.equal((await patchTask('token-a', parent.id, { status: 'completed', completedAt: '2026-08-17T12:00:00.000Z' })).statusCode, 200);
+
+  assert.equal((await deleteTask('token-a', parent.id)).statusCode, 200);
+  assert.equal(store.has(key('BUSINESS#biz-a', 'TASK#task-parent')), false);
+  assert.equal(store.has(key('BUSINESS#biz-a', 'TASK#task-child')), false);
 });

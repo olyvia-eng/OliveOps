@@ -1308,6 +1308,10 @@ function validateFormResponseRecord(record) {
 
 function validateTaskRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Task id is required.';
+  if (record.parentTaskId !== undefined && record.parentTaskId !== null && record.parentTaskId !== '' && !isNonEmptyString(record.parentTaskId)) {
+    return 'Parent task id is invalid.';
+  }
+  if (record.parentTaskId === record.id) return 'A task cannot be its own parent.';
   if (!isNonEmptyString(record.title)) return 'Task title is required.';
   if (!isNonEmptyString(record.assignedUserId)) return 'Task assignee is required.';
   if (!TASK_STATUSES.has(record.status)) return 'Task status is invalid.';
@@ -1346,6 +1350,16 @@ async function validateTaskRelationships({ businessId, record, session }) {
     if (record.assignedUserId !== session.id) return 'Personal task tabs can only be assigned to your own tasks.';
     const preferences = await getHomeDashboardPreferencesForUser(businessId, session.id, session.role);
     if (!preferences.customTaskTabs?.some((tab) => tab.id === record.taskTabId)) return 'Task tab must belong to the signed-in user.';
+  }
+  const tasks = await listTasksForBusiness(businessId);
+  if (isNonEmptyString(record.parentTaskId)) {
+    const parent = tasks.find((task) => task.id === record.parentTaskId);
+    if (!parent) return 'Parent task must belong to this business.';
+    if (parent.parentTaskId) return 'Subtasks cannot contain another level of subtasks.';
+    if (parent.assignedUserId !== record.assignedUserId) return 'Subtask and parent task must have the same assignee.';
+    if (parent.status === 'completed' && record.status !== 'completed') return 'Reopen the parent task before adding or reopening a subtask.';
+  } else if (record.status === 'completed' && tasks.some((task) => task.parentTaskId === record.id && task.status !== 'completed')) {
+    return 'Complete all subtasks before completing the parent task.';
   }
   if (!isNonEmptyString(record.relatedEntityType) || !isNonEmptyString(record.relatedEntityId)) {
     return null;

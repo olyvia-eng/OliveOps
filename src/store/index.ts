@@ -1377,7 +1377,7 @@ export const useStore = create<AppState>()((set, get) => ({
       },
       deleteTask: async (id) => {
         const previous = get().tasks;
-        set((s) => ({ tasks: s.tasks.filter((task) => task.id !== id) }));
+        set((s) => ({ tasks: s.tasks.filter((task) => task.id !== id && task.parentTaskId !== id) }));
 
         try {
           await ensureOk(fetch(dataUrl('tasks', id), {

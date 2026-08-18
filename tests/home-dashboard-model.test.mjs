@@ -8,6 +8,7 @@ import {
   getJobsThisWeek,
   getPersonalJobs,
   getTaskSummary,
+  getRootTasks,
   resolveSessionEmployee,
   taskCreationDefaults,
 } from '../src/pages/home/homeDashboardModel.js';
@@ -22,6 +23,13 @@ test('dashboard task summaries and tabs use local due-date boundaries', () => {
   assert.deepEqual(filterTasksByRange(tasks, 'overdue', now).map((item) => item.id), ['overdue']);
   assert.deepEqual(filterTasksByRange(tasks, 'week', now).map((item) => item.id), ['today-high', 'today-low', 'overdue', 'week']);
   assert.deepEqual(filterTasksByRange(tasks, 'completed', now).map((item) => item.id), ['done']);
+});
+
+test('root tasks keep subtasks out of top-level dashboard counts and schedules', () => {
+  const parent = task('parent', '2026-08-12');
+  const child = { ...task('child', '2026-08-11'), parentTaskId: parent.id };
+  assert.deepEqual(getRootTasks([parent, child]).map((item) => item.id), ['parent']);
+  assert.deepEqual(getTaskSummary(getRootTasks([parent, child]), now), { dueToday: 1, highPriorityDueToday: 0, overdue: 0 });
 });
 
 test('custom task tabs are additive categories while system views stay computed', () => {
