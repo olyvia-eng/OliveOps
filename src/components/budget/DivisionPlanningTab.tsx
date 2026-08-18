@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, Download, GripVertical, HardHat, Package, Pencil, Plus, Trash2, Truck, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, GripVertical, HardHat, Package, Pencil, Plus, ReceiptText, Trash2, Truck, Users } from 'lucide-react';
 import { Button, Card, EmptyState, Input, Modal, Select, TextArea } from '../ui';
 import type { Budget, BudgetDivision, BudgetDivisionPlanCategory, BudgetDivisionPlanningItem } from '../../types';
 import { useStore } from '../../store';
@@ -15,6 +15,7 @@ const config = {
   equipment: { label: 'Equipment', singular: 'Equipment', icon: Truck, title: 'No equipment planned yet', description: 'Add equipment from the Equipment Catalog, or bring forward equipment and cost assumptions from a previous Budget.' },
   materials: { label: 'Materials', singular: 'Material', icon: Package, title: 'No materials planned yet', description: 'Add materials manually or import commonly used materials from a previous Budget.' },
   subcontractors: { label: 'Subcontractors', singular: 'Subcontractor', icon: HardHat, title: 'No subcontractors planned yet', description: 'Add subcontractors manually or bring forward subcontractor planning items from a previous Budget.' },
+  overhead: { label: 'Overhead', singular: 'Overhead Cost', icon: ReceiptText, title: 'No Division overhead planned yet', description: 'Add costs that belong specifically to this Division, such as shop, software, phones, training, or office costs.' },
 } as const;
 
 interface Props { budget: Budget; division: BudgetDivision; category: BudgetDivisionPlanCategory; canEdit: boolean }
@@ -214,6 +215,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
           <Input type="number" label="Planned quantity" value={draft.plannedQuantity ?? 1} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
           <Input type="number" label="Planned amount" value={draft.plannedAmount ?? 0} onChange={(event) => setNumber('plannedAmount', event.target.value)} />
           <div className="sm:col-span-2"><TextArea label="Description" value={draft.description ?? ''} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></div>
+        </> : null}
+        {category === 'overhead' ? <>
+          <Input label="Overhead cost" value={draft.name ?? draft.description ?? ''} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value, description: event.target.value }))} required />
+          <Input label="Cost code" value={draft.costCode ?? ''} onChange={(event) => setDraft((current) => ({ ...current, costCode: event.target.value }))} />
+          <Input type="number" min={0} label="Annual amount" value={draft.plannedAmount ?? 0} onChange={(event) => setNumber('plannedAmount', event.target.value)} />
         </> : null}
       </div>
     </Modal>

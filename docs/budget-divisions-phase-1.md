@@ -29,7 +29,9 @@ Opening the new workspace performs no migration. Budgets without `planningModel 
 
 ## Deferred Migration
 
-Labour, Equipment, Materials, Subcontractors, Other Costs, Company Overhead recovery, and consolidated financial formulas remain on their existing Budget IDs. A later controlled migration can add `divisionId` to each category-specific relationship after its mapping and rollback behavior are approved. Until then, only Division revenue targets are aggregated; unavailable direct-cost and profit metrics are displayed as unavailable rather than estimated.
+Labour, Equipment, Materials, Subcontractors, and Division Overhead use Division planning records. The former `other-costs` tab name remains a URL compatibility alias for Overhead; persisted expense terminology remains `overhead`, so no records are renamed or migrated. Company Overhead remains on existing Budget-level overhead items and is consolidated only at the overall Budget level because no Division allocation policy has been approved.
+
+Profit & Loss is a read-only projection from revenue targets and these planning records. `calculateDivisionFinancials` and `calculateBudgetFinancials` provide the shared calculation boundary for Division Overview, Division summaries, P&L, and Analysis. Incomplete direct-cost planning produces unavailable profit and margin values rather than implied profit. Division operating profit is explicitly reported before Company Overhead until an allocation mechanism is implemented.
 
 ## Division Planning
 

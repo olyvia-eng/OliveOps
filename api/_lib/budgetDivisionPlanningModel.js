@@ -1,4 +1,4 @@
-export const DIVISION_PLAN_CATEGORIES = ['labour', 'equipment', 'materials', 'subcontractors'];
+export const DIVISION_PLAN_CATEGORIES = ['labour', 'equipment', 'materials', 'subcontractors', 'overhead'];
 
 const normalizeText = (value) => typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
 
@@ -7,6 +7,7 @@ export function divisionPlanIdentity(item) {
   if (item.category === 'equipment') return item.equipmentId ? `equipment:${item.equipmentId}` : `custom:${normalizeText(item.description)}`;
   if (item.category === 'materials') return item.materialCatalogItemId ? `material:${item.materialCatalogItemId}` : `custom:${normalizeText(item.description)}:${normalizeText(item.unit)}`;
   if (item.category === 'subcontractors') return item.vendorId ? `vendor:${item.vendorId}` : `custom:${normalizeText(item.name || item.description)}`;
+  if (item.category === 'overhead') return `custom:${normalizeText(item.name || item.description)}`;
   return '';
 }
 
@@ -16,6 +17,7 @@ const CATEGORY_FIELDS = {
   equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
   subcontractors: ['vendorId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
+  overhead: ['costCode', 'plannedAmount'],
 };
 
 export function copyDivisionPlanAssumptions(source, destination, createId, now = new Date().toISOString()) {

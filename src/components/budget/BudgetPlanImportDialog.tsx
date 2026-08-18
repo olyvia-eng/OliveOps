@@ -28,7 +28,7 @@ interface Props {
   category: BudgetDivisionPlanCategory;
 }
 
-const labelByCategory = { labour: 'Labour', equipment: 'Equipment', materials: 'Materials', subcontractors: 'Subcontractors' };
+const labelByCategory = { labour: 'Labour', equipment: 'Equipment', materials: 'Materials', subcontractors: 'Subcontractors', overhead: 'Overhead' };
 
 export default function BudgetPlanImportDialog({ open, onClose, budget, division, category }: Props) {
   const importItems = useStore((state) => state.importBudgetDivisionPlanningItems);

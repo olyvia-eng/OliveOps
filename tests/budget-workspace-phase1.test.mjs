@@ -33,15 +33,18 @@ test('parent and Division routes preserve Budget context without legacy routes',
   assert.match(appSource, /path="budgets\/:budgetId" element=\{<BudgetWorkspacePage/);
   assert.doesNotMatch(appSource, /budgets\/:budgetId\/legacy|budgets\/combined|budgets\/groups\/:groupId/);
   assert.match(divisionSource, /navigate\(`\/budgets\/\$\{budget\.id\}\?tab=divisions`\)/);
-  assert.match(divisionSource, /Overview[\s\S]*Labour[\s\S]*Equipment[\s\S]*Materials[\s\S]*Subcontractors[\s\S]*Other Costs/);
+  assert.match(divisionSource, /Overview[\s\S]*Labour[\s\S]*Equipment[\s\S]*Materials[\s\S]*Subcontractors[\s\S]*Overhead[\s\S]*Profit & Loss/);
+  assert.match(divisionSource, /requestedTab === 'other-costs' \? 'overhead'/);
 });
 
-test('Division roll-ups use stored revenue targets and do not fabricate direct costs', () => {
+test('Division roll-ups use stored revenue targets and centralized financial calculations', () => {
   const divisions = [{ revenueTarget: 500000 }, { revenueTarget: 700000 }];
   assert.equal(divisions.reduce((sum, item) => sum + item.revenueTarget, 0), 1200000);
   assert.match(workspaceSource, /activeDivisions\.reduce\(\(sum, item\) => sum \+ item\.revenueTarget, 0\)/);
-  assert.match(workspaceSource, /Total Direct Cost[\s\S]*Not calculated yet/);
-  assert.match(workspaceSource, /Overhead Allocation[\s\S]*Net Contribution/);
+  assert.match(workspaceSource, /calculateBudgetFinancials/);
+  assert.match(workspaceSource, /Total Direct Cost[\s\S]*financials\.totalDirectCosts/);
+  assert.match(workspaceSource, /Gross Profit[\s\S]*result\.grossProfit/);
+  assert.match(workspaceSource, /Contribution before Company/);
 });
 
 test('legacy Budgets and group controls are absent from the Budget overview', () => {

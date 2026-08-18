@@ -294,3 +294,22 @@ test('legacy Division-scoped Labour migrates on edit, rejects local reorder, and
   assert.equal(store.has(key('BUSINESS#biz-a', canonicalIdentitySk)), false);
   assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'labour').length, 0);
 });
+
+test('Division Overhead uses existing planning persistence and remains readable', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape', 'Hardscaping');
+
+  const created = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'overhead' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Shop / Yard', description: 'Shop / Yard', costCode: 'OH-100', plannedAmount: 18000 } } }, created);
+  assert.equal(created.statusCode, 200);
+  assert.equal(created.body.item.category, 'overhead');
+  assert.ok(store.has(key('BUSINESS#biz-a', `BUDGET_DIVISION_PLAN#budget-a#DIVISION#hardscape#CATEGORY#overhead#ITEM#${created.body.item.id}`)));
+
+  const listed = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'overhead' }, headers: { authorization: 'Bearer token-a' } }, listed);
+  assert.equal(listed.statusCode, 200);
+  assert.equal(listed.body.items[0].description, 'Shop / Yard');
+  assert.equal(listed.body.items[0].plannedAmount, 18000);
+});

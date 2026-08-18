@@ -817,7 +817,7 @@ export interface BudgetDivision {
   updatedAt: string;
 }
 
-export type BudgetDivisionPlanCategory = 'labour' | 'equipment' | 'materials' | 'subcontractors';
+export type BudgetDivisionPlanCategory = 'labour' | 'equipment' | 'materials' | 'subcontractors' | 'overhead';
 
 export type LabourClassification = 'billable' | 'overhead';
 
