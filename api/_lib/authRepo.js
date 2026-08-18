@@ -3188,6 +3188,7 @@ function mapBudgetDivision(item) {
     id: item.divisionId,
     budgetId: item.budgetId,
     name: item.name,
+    costCode: typeof item.costCode === 'string' ? item.costCode : '',
     description: item.description,
     revenueTarget: Number(item.revenueTarget ?? 0),
     status: item.status === 'archived' ? 'archived' : 'active',

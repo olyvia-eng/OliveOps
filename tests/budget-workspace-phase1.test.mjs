@@ -52,3 +52,10 @@ test('legacy Budgets and group controls are absent from the Budget overview', ()
   assert.doesNotMatch(overviewSource, /Legacy budget roll-ups|Legacy planning|FolderArchive/);
   assert.doesNotMatch(overviewSource, /New Group|Group Selected|saveBudgetGroup|dissolveBudgetGroup/);
 });
+
+test('Budget Division add and edit forms persist a Division cost code', () => {
+  assert.match(workspaceSource, /division\?\.costCode \?\? ''/);
+  assert.match(workspaceSource, /costCode: divisionForm\.costCode\.trim\(\)/);
+  assert.match(workspaceSource, /label="Cost Code"/);
+  assert.match(workspaceSource, /division\.costCode \|\| '—'/);
+});

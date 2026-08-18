@@ -19,6 +19,7 @@ function validateDivision(division) {
   if (!nonEmptyString(division.id)) return 'Division id is required.';
   if (!nonEmptyString(division.budgetId)) return 'Budget id is required.';
   if (!nonEmptyString(division.name)) return 'Division name is required.';
+  if (division.costCode !== undefined && typeof division.costCode !== 'string') return 'Division cost code is invalid.';
   if (division.description !== undefined && typeof division.description !== 'string') return 'Division description is invalid.';
   if (typeof division.revenueTarget !== 'number' || !Number.isFinite(division.revenueTarget) || division.revenueTarget < 0) {
     return 'Revenue target must be zero or greater.';
@@ -81,6 +82,7 @@ export default async function handler(req, res) {
       id: divisionId,
       budgetId,
       name: typeof data.name === 'string' ? data.name.trim() : existing?.name,
+      costCode: typeof data.costCode === 'string' ? data.costCode.trim() : existing?.costCode ?? '',
       description: typeof data.description === 'string' ? data.description.trim() : existing?.description ?? '',
       revenueTarget: data.revenueTarget ?? existing?.revenueTarget ?? 0,
       status: data.status ?? existing?.status ?? 'active',

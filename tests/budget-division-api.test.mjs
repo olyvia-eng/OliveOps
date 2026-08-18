@@ -298,14 +298,16 @@ test('Budget Divisions are isolated by parent Budget and business', async (t) =>
     method: 'POST',
     query: { budgetId: 'budget-1' },
     headers: { authorization: 'Bearer budget-token-a' },
-    body: { data: { id: 'division-snow', budgetId: 'budget-1', name: 'Snow Removal', description: '', revenueTarget: 500000, status: 'active', sortOrder: 0 } },
+    body: { data: { id: 'division-snow', budgetId: 'budget-1', name: 'Snow Removal', costCode: ' DIV-SNOW ', description: '', revenueTarget: 500000, status: 'active', sortOrder: 0 } },
   }, createRes);
   assert.equal(createRes.statusCode, 200);
   assert.equal(createRes.body.division.revenueTarget, 500000);
+  assert.equal(createRes.body.division.costCode, 'DIV-SNOW');
 
   const listRes = createMockRes();
   await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1' }, headers: { authorization: 'Bearer budget-token-a' } }, listRes);
   assert.deepEqual(listRes.body.divisions.map((division) => division.name), ['Snow Removal']);
+  assert.equal(listRes.body.divisions[0].costCode, 'DIV-SNOW');
 
   const wrongParentRes = createMockRes();
   await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-2', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-a' } }, wrongParentRes);

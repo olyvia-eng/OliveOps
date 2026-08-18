@@ -809,6 +809,7 @@ export interface BudgetDivision {
   id: ID;
   budgetId: ID;
   name: string;
+  costCode?: string;
   description?: string;
   revenueTarget: number;
   status: BudgetDivisionStatus;
