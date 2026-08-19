@@ -13,6 +13,7 @@ function comparableDraft(draft) {
       assignedTo: draft.form.assignedTo,
       assignmentValue: draft.form.assignmentValue ?? '',
       trigger: [...draft.form.trigger].sort(),
+      completionRequirement: draft.form.completionRequirement ?? 'reminder',
     },
     fields: draft.fields.map((field, order) => ({
       id: field.id,
@@ -31,7 +32,7 @@ function comparableDraft(draft) {
 /** @param {FormRecord} form @param {FormField[]} fields @returns {FormBuilderDraft} */
 export function createFormBuilderDraft(form, fields) {
   return {
-    form: { ...form, trigger: [...form.trigger] },
+    form: { ...form, trigger: [...form.trigger], completionRequirement: form.completionRequirement ?? 'reminder' },
     fields: fields
       .slice()
       .sort((left, right) => left.order - right.order)
@@ -45,8 +46,47 @@ export function isFormBuilderDirty(baseline, draft) {
   return JSON.stringify(comparableDraft(baseline)) !== JSON.stringify(comparableDraft(draft));
 }
 
-const WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job']);
+const WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
 const SCHEDULE_TRIGGERS = new Set(['daily', 'weekly', 'monthly']);
+
+const WORKFLOW_LABELS = {
+  before_clock_in: 'before clocking in',
+  after_clock_out: 'after clocking out',
+  before_starting_job: 'before starting a job',
+  after_completing_job: 'at the legacy after-completing-job event',
+  after_leaving_job: 'after leaving a job',
+  job_completed: 'when a job is marked completed',
+};
+
+/** @param {string[]} triggers */
+export function getWorkflowTriggers(triggers) {
+  return triggers.filter((trigger) => WORKFLOW_TRIGGERS.has(trigger));
+}
+
+/** @param {string[]} triggers */
+export function getScheduleTriggers(triggers) {
+  return triggers.filter((trigger) => SCHEDULE_TRIGGERS.has(trigger));
+}
+
+/** @param {string[]} triggers @param {string} schedule */
+export function setFormSchedule(triggers, schedule) {
+  return [...triggers.filter((trigger) => !SCHEDULE_TRIGGERS.has(trigger)), ...(schedule ? [schedule] : [])];
+}
+
+/** @param {string[]} triggers @param {boolean} enabled */
+export function setFormOnDemand(triggers, enabled) {
+  const withoutOnDemand = triggers.filter((trigger) => trigger !== 'on_demand');
+  return enabled ? [...withoutOnDemand, 'on_demand'] : withoutOnDemand;
+}
+
+/** @param {string[]} triggers @param {number} index @param {string} nextTrigger */
+export function setFormWorkflowTrigger(triggers, index, nextTrigger) {
+  const workflow = getWorkflowTriggers(triggers);
+  const other = triggers.filter((trigger) => !WORKFLOW_TRIGGERS.has(trigger));
+  if (nextTrigger) workflow[index] = nextTrigger;
+  else workflow.splice(index, 1);
+  return [...workflow.filter((trigger, triggerIndex) => workflow.indexOf(trigger) === triggerIndex), ...other];
+}
 
 /** @param {string[]} triggers */
 export function hasMultipleFormRequirements(triggers) {
@@ -64,4 +104,44 @@ export function moveFormField(fields, fieldId, targetFieldId) {
   const [field] = next.splice(sourceIndex, 1);
   next.splice(targetIndex, 0, field);
   return next.map((item, order) => ({ ...item, order }));
+}
+
+/** @param {import('../../types').FormRecord} form */
+export function getFormConfigurationWarnings(form) {
+  const warnings = [];
+  if (!form.trigger.some((trigger) => WORKFLOW_TRIGGERS.has(trigger) || SCHEDULE_TRIGGERS.has(trigger) || trigger === 'on_demand')) {
+    warnings.push('This form has no workflow trigger, schedule, or employee access. Employees will have no way to access it.');
+  }
+  if (form.assignedTo !== 'everyone' && !String(form.assignmentValue ?? '').trim()) {
+    warnings.push(`This form is assigned to ${form.assignedTo} but no ${form.assignedTo} has been selected.`);
+  }
+  if (getScheduleTriggers(form.trigger).length > 1) {
+    warnings.push('This legacy form has multiple recurring schedules. Choose one schedule to simplify it, or leave it unchanged to preserve the existing configuration.');
+  }
+  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).length > 0) {
+    warnings.push('Required workflow enforcement is not yet available for this trigger. Employees are still allowed to continue.');
+  }
+  if (form.trigger.includes('after_completing_job')) {
+    warnings.push('This form uses the legacy After Completing Job trigger. Its existing mobile behavior is preserved until you choose an explicit job event.');
+  }
+  return warnings;
+}
+
+/** @param {import('../../types').FormRecord} form @param {{ assignmentLabel?: string }} [labels] */
+export function describeFormConfiguration(form, labels = {}) {
+  const name = form.name.trim() || 'This form';
+  const assignment = form.assignedTo === 'everyone'
+    ? 'all employees'
+    : `${form.assignedTo === 'role' ? 'employees with the' : 'employees assigned to the'} ${labels.assignmentLabel || `selected ${form.assignedTo}`}`;
+  const workflow = getWorkflowTriggers(form.trigger).map((trigger) => WORKFLOW_LABELS[trigger]).filter(Boolean);
+  const schedules = getScheduleTriggers(form.trigger);
+  const access = [];
+  if (workflow.length) access.push(workflow.join(' and '));
+  if (schedules.length) access.push(schedules.length === 1 ? `on a ${schedules[0]} schedule` : `on ${schedules.join(' and ')} schedules`);
+  const availability = access.length ? `will be shown to ${assignment} ${access.join(' and ')}` : `is not currently presented automatically to ${assignment}`;
+  const requirement = (form.completionRequirement ?? 'reminder') === 'required'
+    ? 'It is configured as required, but workflow enforcement remains advisory until the employee workflow supports blocking.'
+    : 'It is a reminder, so employees may continue and complete it later.';
+  const onDemand = form.trigger.includes('on_demand') ? ' Employees can also open it manually from Forms.' : '';
+  return `${name} ${availability}. ${requirement}${onDemand}`;
 }

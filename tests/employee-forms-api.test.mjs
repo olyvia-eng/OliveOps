@@ -167,14 +167,16 @@ test('employee required endpoint surfaces every advisory workflow and recurrence
   const store = installDdb(t);
   await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
   store.set(key('BUSINESS#biz-a', 'JOB#job-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-a', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-a', title: 'Main Street', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: [] });
-  const triggers = ['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'daily', 'weekly', 'monthly'];
+  const triggers = ['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly'];
   for (const trigger of triggers) seedForm(store, { id: `form-${trigger}`, trigger: [trigger] });
 
   for (const trigger of triggers) {
-    const query = trigger === 'before_starting_job' || trigger === 'after_completing_job' ? { trigger, jobId: 'job-a' } : { trigger };
+    const query = ['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed'].includes(trigger) ? { trigger, jobId: 'job-a' } : { trigger };
     const required = await request('token-a', { action: 'required', query });
     assert.equal(required.statusCode, 200, trigger);
     assert.deepEqual(required.body.forms.map((item) => item.id), [`form-${trigger}`], trigger);
+    assert.equal(required.body.forms[0].completionRequirement, 'reminder');
+    assert.equal(required.body.forms[0].enforcement, 'advisory');
   }
 });
 

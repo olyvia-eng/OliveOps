@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createFormBuilderDraft, hasMultipleFormRequirements, isFormBuilderDirty, moveFormField } from '../src/pages/operations/formsBuilderModel.js';
+import {
+  createFormBuilderDraft,
+  describeFormConfiguration,
+  getFormConfigurationWarnings,
+  getScheduleTriggers,
+  getWorkflowTriggers,
+  hasMultipleFormRequirements,
+  isFormBuilderDirty,
+  moveFormField,
+  setFormOnDemand,
+  setFormSchedule,
+  setFormWorkflowTrigger,
+} from '../src/pages/operations/formsBuilderModel.js';
 
 const form = {
   id: 'form-a',
@@ -53,7 +65,7 @@ test('drag ordering moves the selected field and normalizes persisted order valu
   assert.deepEqual(fields.map((field) => field.id), ['field-a', 'field-b']);
 });
 
-test('Forms editor exposes explicit save lifecycle and compact builder navigation', async () => {
+test('Forms editor exposes full-width setup, explicit automation concepts, and save lifecycle', async () => {
   const source = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
   assert.match(source, /Save Changes/);
   assert.match(source, /Unsaved changes/);
@@ -63,16 +75,24 @@ test('Forms editor exposes explicit save lifecycle and compact builder navigatio
   assert.match(source, /activeTab === 'forms'/);
   assert.match(source, /Recently updated/);
   assert.match(source, /View all forms/);
-  assert.match(source, /When should this form appear\?/);
-  assert.match(source, /Choose one or more ways employees can access this form\. Each enabled option creates a separate reason for the form to appear\./);
-  assert.match(source, /Workflow Triggers/);
-  assert.match(source, /Show this form when an employee performs a specific action\./);
-  assert.match(source, /Require this form on a recurring schedule\./);
-  assert.match(source, /Allow employees to open this form whenever they need it\./);
-  assert.match(source, /Available On Demand/);
+  assert.match(source, /Form Setup/);
+  assert.match(source, /Form Details/);
+  assert.match(source, /Who Should Complete This Form\?/);
+  assert.match(source, /Availability &amp; Automation/);
+  assert.match(source, /Workflow Trigger/);
+  assert.match(source, /After Leaving Job/);
+  assert.match(source, /When Job Is Completed/);
+  assert.match(source, /Add another trigger/);
+  assert.match(source, /No recurring schedule/);
+  assert.match(source, /Completion Requirement/);
+  assert.match(source, /Reminder Only/);
+  assert.match(source, /Allow employees to open this form anytime/);
+  assert.match(source, /How This Form Works/);
   assert.match(source, /Multiple requirements enabled/);
   assert.match(source, /Daily \+ After Clock Out/);
   assert.match(source, /setFieldPickerOpen\(true\)/);
+  assert.doesNotMatch(source, /xl:grid-cols-\[minmax\(0,1fr\)_380px\]/);
+  assert.doesNotMatch(source, /When should this form appear\?/);
   assert.doesNotMatch(source, /label="Active Form"/);
   assert.doesNotMatch(source, /label="Order"/);
   assert.doesNotMatch(source, /Trigger Rules \(Clock In\/Out/);
@@ -90,4 +110,38 @@ test('Forms save waits for persistence and session loss clears cached business d
   assert.match(storeSource, /updateForm: async/);
   assert.match(storeSource, /addFormField: async/);
   assert.match(appSource, /if \(!sessionUser\) \{[\s\S]*clearBusinessDataStore\(\)/);
+});
+
+test('builder automation helpers preserve legacy values until the admin changes that concept', () => {
+  const legacy = ['after_completing_job', 'daily', 'weekly', 'on_demand'];
+  assert.deepEqual(getWorkflowTriggers(legacy), ['after_completing_job']);
+  assert.deepEqual(getScheduleTriggers(legacy), ['daily', 'weekly']);
+  assert.deepEqual(setFormOnDemand(legacy, false), ['after_completing_job', 'daily', 'weekly']);
+  assert.deepEqual(setFormSchedule(legacy, 'monthly'), ['after_completing_job', 'on_demand', 'monthly']);
+  assert.deepEqual(setFormWorkflowTrigger(legacy, 0, 'after_leaving_job'), ['after_leaving_job', 'daily', 'weekly', 'on_demand']);
+});
+
+test('legacy forms default to reminder and generated guidance reflects draft configuration', () => {
+  const legacy = createFormBuilderDraft({ ...form, completionRequirement: undefined }, fields);
+  assert.equal(legacy.form.completionRequirement, 'reminder');
+  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /after clocking out/);
+  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /daily schedule/);
+  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /open it manually/);
+
+  const inaccessible = { ...legacy.form, trigger: [], assignedTo: 'division', assignmentValue: '', completionRequirement: 'required' };
+  assert.equal(getFormConfigurationWarnings(inaccessible).length, 2);
+  assert.match(getFormConfigurationWarnings({ ...inaccessible, trigger: ['before_clock_in'] }).join(' '), /enforcement is not yet available/);
+});
+
+test('field configuration is contextual and option editing is structured', async () => {
+  const source = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /title=\{editingField \? `Edit Field/);
+  assert.match(source, /open=\{editingField !== null\}/);
+  assert.match(source, /label="Field Type"/);
+  assert.match(source, /Add Option/);
+  assert.match(source, /moveFieldOption/);
+  assert.match(source, /removeFieldOption/);
+  assert.doesNotMatch(source, /Options \(comma-separated\)/);
+  assert.match(source, /activeTab !== 'builder' &&/);
+  assert.match(source, /field\.type === 'date' && field\.defaultValue\?\.toLowerCase\(\) === 'today'/);
 });

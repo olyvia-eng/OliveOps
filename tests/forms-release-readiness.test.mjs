@@ -82,19 +82,25 @@ test('connected Form lifecycle persists builder changes, employee answers, and r
   const form = { id: 'daily-report', name: 'Draft report', description: '', category: 'operations', status: 'draft', assignedTo: 'everyone', assignmentValue: '', trigger: ['on_demand'], createdAt, updatedAt: createdAt };
   await createFormForBusiness({ businessId, form });
   await createFormFieldForBusiness({ businessId, formField: { id: 'notes', formId: form.id, type: 'single_line_text', label: 'Old label', helpText: '', required: true, placeholder: '', options: [], order: 0 } });
+  assert.equal((await listFormsForBusiness(businessId))[0].completionRequirement, 'reminder');
 
-  const savedForm = { ...form, name: 'Daily Field Report', description: 'Record progress.', category: 'job_site', status: 'active', trigger: ['daily', 'on_demand'], updatedAt: '2026-08-18T10:05:00.000Z' };
+  const savedForm = { ...form, name: 'Daily Field Report', description: 'Record progress.', category: 'job_site', status: 'active', trigger: ['after_leaving_job', 'daily', 'on_demand'], completionRequirement: 'required', updatedAt: '2026-08-18T10:05:00.000Z' };
   await updateFormForBusiness({ businessId, form: savedForm });
   await updateFormFieldForBusiness({ businessId, formField: { id: 'notes', formId: form.id, type: 'single_line_text', label: 'Work completed', helpText: 'Be specific', required: true, placeholder: 'Summary', options: [], order: 1 } });
   await createFormFieldForBusiness({ businessId, formField: { id: 'notes-copy', formId: form.id, type: 'single_line_text', label: 'Work completed (Copy)', helpText: '', required: false, placeholder: '', options: [], order: 0 } });
 
-  assert.deepEqual((await listFormsForBusiness(businessId)).map((item) => item.name), ['Daily Field Report']);
+  const reloadedForms = await listFormsForBusiness(businessId);
+  assert.deepEqual(reloadedForms.map((item) => item.name), ['Daily Field Report']);
+  assert.deepEqual(reloadedForms[0].trigger, ['after_leaving_job', 'daily', 'on_demand']);
+  assert.equal(reloadedForms[0].completionRequirement, 'required');
   assert.deepEqual((await listFormFieldsForBusiness(businessId)).sort((a, b) => a.order - b.order).map((item) => item.id), ['notes-copy', 'notes']);
 
   const workspace = await call(employeeHandler, 'employee-token', { query: { action: 'forms' } });
   assert.equal(workspace.statusCode, 200);
   const available = workspace.body.available.find((item) => item.id === form.id);
   assert.equal(available.name, 'Daily Field Report');
+  assert.equal(available.completionRequirement, 'required');
+  assert.equal(available.enforcement, 'advisory');
   assert.deepEqual(available.fields.map((field) => field.id), ['notes-copy', 'notes']);
   assert.deepEqual(Object.keys(available.fields[1]).filter((key) => available.fields[1][key] !== undefined).sort(), ['defaultValue', 'helpText', 'id', 'label', 'options', 'order', 'placeholder', 'required', 'type'].sort());
 

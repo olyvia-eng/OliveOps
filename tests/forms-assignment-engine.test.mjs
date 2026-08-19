@@ -58,6 +58,16 @@ test('completion scopes separate recurring periods and job trigger contexts', ()
   assert.equal(isSubmissionSatisfiedForScope({ submission: { formId: jobForm.id, employeeId: employee.id, jobId: 'job-2', status: 'submitted', submittedAt: '2026-08-01T00:00:00.000Z' }, employeeId: employee.id, scope: jobScope, timeZone: 'America/Toronto' }), false);
 });
 
+test('leaving a job and completing a job are distinct completion scopes', () => {
+  const jobForm = form('job', job.id, ['after_leaving_job', 'job_completed']);
+  const leavingScope = buildFormCompletionScope({ form: jobForm, trigger: 'after_leaving_job', job });
+  const completedScope = buildFormCompletionScope({ form: jobForm, trigger: 'job_completed', job });
+  const leavingSubmission = { formId: jobForm.id, employeeId: employee.id, jobId: job.id, trigger: 'after_leaving_job', status: 'submitted' };
+
+  assert.equal(isSubmissionSatisfiedForScope({ submission: leavingSubmission, employeeId: employee.id, scope: leavingScope, timeZone: 'America/Toronto' }), true);
+  assert.equal(isSubmissionSatisfiedForScope({ submission: leavingSubmission, employeeId: employee.id, scope: completedScope, timeZone: 'America/Toronto' }), false);
+});
+
 test('response validation enforces field ownership, required values, types, and options', () => {
   const fields = [
     { id: 'name', type: 'single_line_text', label: 'Name', required: true },

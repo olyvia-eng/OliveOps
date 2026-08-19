@@ -44,6 +44,8 @@ A renderable Form instance has this shape:
   "category": "operations",
   "trigger": "daily",
   "required": true,
+  "completionRequirement": "required",
+  "enforcement": "advisory",
   "periodKey": "2026-03-20",
   "context": {
     "jobId": "job-id",
@@ -62,15 +64,19 @@ A renderable Form instance has this shape:
 
 Missing context values and incomplete submission-state metadata are omitted from JSON.
 
+`required` is the existing trigger-derived workspace flag: it is `false` only for `on_demand`. `completionRequirement` is the builder policy (`reminder` or `required`) and defaults to `reminder` for legacy records. `enforcement` is currently always `advisory`; neither flag authorizes mobile to block a workflow.
+
 ## Check a required trigger
 
 ```http
 GET /api/employee?action=required&trigger=before_clock_in
 GET /api/employee?action=required&trigger=before_starting_job&jobId=<id>
 GET /api/employee?action=required&trigger=after_completing_job&jobId=<id>&equipmentId=<id>
+GET /api/employee?action=required&trigger=after_leaving_job&jobId=<id>
+GET /api/employee?action=required&trigger=job_completed&jobId=<id>
 ```
 
-Valid required triggers are `before_clock_in`, `after_clock_out`, `before_starting_job`, `after_completing_job`, `daily`, `weekly`, and `monthly`. The response contains only active, assigned Forms not already satisfied for the period and context:
+Valid workflow triggers are `before_clock_in`, `after_clock_out`, `before_starting_job`, `after_leaving_job`, and `job_completed`. `after_completing_job` remains valid for backward compatibility and is not reinterpreted as either new event. Valid schedule triggers are `daily`, `weekly`, and `monthly`. The response contains only active, assigned Forms not already satisfied for the period and context:
 
 ```json
 {
@@ -81,7 +87,7 @@ Valid required triggers are `before_clock_in`, `after_clock_out`, `before_starti
 }
 ```
 
-Phase 1 checks are advisory. Clock-in, clock-out, starting work, and completing work continue even when `forms` is non-empty. The mobile app should surface the missing Forms without turning them into a workflow blocker.
+All checks remain advisory. Clock-in, clock-out, starting work, leaving a job, and completing a job continue even when `forms` is non-empty, including Forms whose `completionRequirement` is `required`. The mobile app should surface missing Forms without turning them into workflow blockers. Authoritative blocking requires a future server-owned workflow transition contract.
 
 ## Submit a Form
 
@@ -231,7 +237,7 @@ Timestamps are stored in UTC. Period keys are calculated in the configured IANA 
 - Daily: local calendar date, for example `2026-03-20`.
 - Weekly: Monday-start local business week, represented by its Monday date.
 - Monthly: local calendar month, for example `2026-03`.
-- Job start/completion: completion is scoped to the authorized job context.
+- Job start/leaving/completion: completion is scoped to the authorized job context and exact trigger. `after_leaving_job`, `job_completed`, and legacy `after_completing_job` do not satisfy one another.
 
 A `submitted` or `approved` submission satisfies a required instance. A `draft` or `rejected` submission does not.
 

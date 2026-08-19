@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Check,
   Copy,
   Eye,
@@ -11,6 +13,7 @@ import {
   Plus,
   Save,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   Button,
@@ -24,7 +27,19 @@ import {
 } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatDateTime } from '../../utils';
-import { createFormBuilderDraft, hasMultipleFormRequirements, isFormBuilderDirty, moveFormField } from './formsBuilderModel.js';
+import {
+  createFormBuilderDraft,
+  describeFormConfiguration,
+  getFormConfigurationWarnings,
+  getScheduleTriggers,
+  getWorkflowTriggers,
+  hasMultipleFormRequirements,
+  isFormBuilderDirty,
+  moveFormField,
+  setFormOnDemand,
+  setFormSchedule,
+  setFormWorkflowTrigger,
+} from './formsBuilderModel.js';
 import type {
   FormAssignmentType,
   FormCategory,
@@ -64,35 +79,21 @@ const ASSIGNMENT_OPTIONS: Array<{ value: FormAssignmentType; label: string }> = 
   { value: 'equipment', label: 'Specific Equipment' },
 ];
 
-const TRIGGER_GROUPS: Array<{
-  label: string;
-  description: string;
-  options: Array<{ value: FormTrigger; label: string }>;
-}> = [
-  {
-    label: 'Workflow Triggers',
-    description: 'Show this form when an employee performs a specific action.',
-    options: [
-      { value: 'before_clock_in', label: 'Before Clock In' },
-      { value: 'after_clock_out', label: 'After Clock Out' },
-      { value: 'before_starting_job', label: 'Before Starting Job' },
-      { value: 'after_completing_job', label: 'After Completing Job' },
-    ],
-  },
-  {
-    label: 'Schedule',
-    description: 'Require this form on a recurring schedule.',
-    options: [
-      { value: 'daily', label: 'Daily' },
-      { value: 'weekly', label: 'Weekly' },
-      { value: 'monthly', label: 'Monthly' },
-    ],
-  },
-  {
-    label: 'On Demand',
-    description: 'Allow employees to open this form whenever they need it.',
-    options: [{ value: 'on_demand', label: 'Available On Demand' }],
-  },
+const WORKFLOW_OPTIONS: Array<{ value: FormTrigger; label: string }> = [
+  { value: 'before_clock_in', label: 'Before Clock In' },
+  { value: 'after_clock_out', label: 'After Clock Out' },
+  { value: 'before_starting_job', label: 'Before Starting Job' },
+  { value: 'after_leaving_job', label: 'After Leaving Job' },
+  { value: 'job_completed', label: 'When Job Is Completed' },
+];
+
+const LEGACY_WORKFLOW_OPTION = { value: 'after_completing_job' as FormTrigger, label: 'Legacy: After Completing Job' };
+
+const SCHEDULE_OPTIONS: Array<{ value: FormTrigger | ''; label: string }> = [
+  { value: '', label: 'No recurring schedule' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
 ];
 
 const FIELD_TYPES: Array<{ value: FormFieldType; label: string }> = [
@@ -509,6 +510,7 @@ export default function FormsPage() {
       assignedTo: 'everyone',
       assignmentValue: '',
       trigger: ['on_demand'],
+      completionRequirement: 'reminder',
       division: '',
     });
 
@@ -545,6 +547,36 @@ export default function FormsPage() {
       ...current,
       fields: current.fields.map((field) => field.id === fieldId ? { ...field, ...patch } : field),
     } : current);
+  };
+
+  const updateFieldOption = (fieldId: string, optionIndex: number, value: string) => {
+    const field = builderDraft?.fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    const options = [...(field.options ?? [])];
+    options[optionIndex] = value;
+    updateDraftField(fieldId, { options });
+  };
+
+  const addFieldOption = (fieldId: string) => {
+    const field = builderDraft?.fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    updateDraftField(fieldId, { options: [...(field.options ?? []), `Option ${(field.options?.length ?? 0) + 1}`] });
+  };
+
+  const moveFieldOption = (fieldId: string, optionIndex: number, direction: -1 | 1) => {
+    const field = builderDraft?.fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    const options = [...(field.options ?? [])];
+    const targetIndex = optionIndex + direction;
+    if (targetIndex < 0 || targetIndex >= options.length) return;
+    [options[optionIndex], options[targetIndex]] = [options[targetIndex], options[optionIndex]];
+    updateDraftField(fieldId, { options });
+  };
+
+  const removeFieldOption = (fieldId: string, optionIndex: number) => {
+    const field = builderDraft?.fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    updateDraftField(fieldId, { options: (field.options ?? []).filter((_, index) => index !== optionIndex) });
   };
 
   const handleFieldDrop = (targetFieldId: string) => {
@@ -632,6 +664,7 @@ export default function FormsPage() {
       assignedTo: 'everyone',
       assignmentValue: '',
       trigger: ['on_demand'],
+      completionRequirement: 'reminder',
       division: '',
     });
 
@@ -656,7 +689,12 @@ export default function FormsPage() {
   const openSubmissionScreen = () => {
     if (!selectedForm) return;
     setSubmitAsEmployeeId(employees[0]?.id ?? '');
-    setSubmitResponses({});
+    const previewFields = activeTab === 'builder' ? builderDraft?.fields ?? [] : fieldsForSelectedForm;
+    const today = new Date().toISOString().slice(0, 10);
+    setSubmitResponses(Object.fromEntries(previewFields.map((field) => [
+      field.id,
+      field.type === 'date' && field.defaultValue?.toLowerCase() === 'today' ? today : field.defaultValue ?? '',
+    ])));
     setSubmitModalOpen(true);
   };
 
@@ -697,6 +735,23 @@ export default function FormsPage() {
 
   const builderForm = builderDraft?.form ?? null;
   const builderFields = builderDraft?.fields ?? [];
+  const editingField = editingFieldId ? builderFields.find((field) => field.id === editingFieldId) ?? null : null;
+  const workflowTriggers = builderForm ? getWorkflowTriggers(builderForm.trigger) : [];
+  const scheduleTriggers = builderForm ? getScheduleTriggers(builderForm.trigger) : [];
+
+  const assignmentLabel = builderForm ? (() => {
+    const value = builderForm.assignmentValue;
+    if (!value) return '';
+    if (builderForm.assignedTo === 'role') return value === 'crew_member' ? 'Crew Member role' : `${toLabel(value)} role`;
+    if (builderForm.assignedTo === 'employee') return employees.find((employee) => employee.id === value)?.name ?? value;
+    if (builderForm.assignedTo === 'job') return jobs.find((job) => job.id === value)?.title ?? value;
+    if (builderForm.assignedTo === 'equipment') return equipmentAssets.find((equipment) => equipment.id === value)?.name ?? value;
+    if (builderForm.assignedTo === 'division') return divisions.find((division) => division.id === value)?.name ?? value;
+    return value;
+  })() : '';
+
+  const configurationWarnings = builderForm ? getFormConfigurationWarnings(builderForm) : [];
+  const configurationSummary = builderForm ? describeFormConfiguration(builderForm, { assignmentLabel }) : '';
 
   const assignmentValueControl = builderForm ? (() => {
     if (builderForm.assignedTo === 'role') {
@@ -969,198 +1024,141 @@ export default function FormsPage() {
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
-            <Card className="order-3 p-4 xl:order-none xl:col-start-2 xl:row-span-3 xl:row-start-1 xl:sticky xl:top-32">
-              <div className="mb-4">
-                <h2 className="text-base font-semibold text-gray-900">Form Settings</h2>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-                <Input
-                  label="Form Name"
-                  value={builderForm.name}
-                  onChange={(event) => updateBuilderForm({ name: event.target.value })}
-                />
-                <Select
-                  label="Status"
-                  value={builderForm.status}
-                  onChange={(event) => updateBuilderForm({ status: event.target.value as FormStatus })}
-                >
-                  {FORM_STATUSES.map((status) => (
-                    <option key={status.value} value={status.value}>{status.label}</option>
-                  ))}
-                </Select>
-              </div>
-              <div className="mt-3 max-w-3xl">
-                <TextArea
-                  label="Description"
-                  value={builderForm.description}
-                  onChange={(event) => updateBuilderForm({ description: event.target.value })}
-                />
-              </div>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Select
-                  label="Category"
-                  value={builderForm.category}
-                  onChange={(event) => updateBuilderForm({ category: event.target.value as FormCategory })}
-                >
-                  {FORM_CATEGORIES.map((category) => (
-                    <option key={category.value} value={category.value}>{category.label}</option>
-                  ))}
-                </Select>
-                <Select
-                  label="Assigned To"
-                  value={builderForm.assignedTo}
-                  onChange={(event) => updateBuilderForm({ assignedTo: event.target.value as FormAssignmentType, assignmentValue: '' })}
-                >
-                  {ASSIGNMENT_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </Select>
-                {assignmentValueControl}
+            <Card className="p-5 sm:p-6">
+              <div>
+                <p className="text-xs font-semibold uppercase text-brand-600">Form Setup</p>
+                <h2 className="mt-1 text-lg font-semibold text-gray-950">Configure how this form reaches employees</h2>
               </div>
 
-              <div className="mt-5 border-t border-gray-200 pt-4">
-                <h2 className="text-base font-semibold text-gray-900">When should this form appear?</h2>
-                <p className="mt-1 text-sm text-gray-600">Choose one or more ways employees can access this form. Each enabled option creates a separate reason for the form to appear.</p>
-                <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3 xl:grid-cols-1">
-                  {TRIGGER_GROUPS.map((group) => (
-                    <fieldset key={group.label}>
-                      <legend className="text-xs font-semibold uppercase text-gray-600">{group.label}</legend>
-                      <p className="mt-1 text-xs leading-5 text-gray-500 lg:min-h-10 xl:min-h-0">{group.description}</p>
-                      <div className="mt-2 space-y-1.5">
-                        {group.options.map((trigger) => {
-                          const checked = builderForm.trigger.includes(trigger.value);
-                          return (
-                            <label key={trigger.value} className="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => updateBuilderForm({ trigger: checked ? builderForm.trigger.filter((value) => value !== trigger.value) : [...builderForm.trigger, trigger.value] })}
-                              />
-                              <span>{trigger.label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </fieldset>
-                  ))}
+              <section className="mt-6 border-t border-gray-200 pt-5">
+                <h3 className="text-sm font-semibold text-gray-900">Form Details</h3>
+                <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <Input label="Form Name" value={builderForm.name} onChange={(event) => updateBuilderForm({ name: event.target.value })} />
+                  <Select label="Category" value={builderForm.category} onChange={(event) => updateBuilderForm({ category: event.target.value as FormCategory })}>
+                    {FORM_CATEGORIES.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+                  </Select>
+                  <Select label="Status" value={builderForm.status} onChange={(event) => updateBuilderForm({ status: event.target.value as FormStatus })}>
+                    {FORM_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+                  </Select>
+                  <div className="md:col-span-2 lg:col-span-3"><TextArea label="Description" value={builderForm.description} onChange={(event) => updateBuilderForm({ description: event.target.value })} /></div>
                 </div>
-                {hasMultipleFormRequirements(builderForm.trigger) && (
-                  <div className="mt-4 flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2.5 text-sm text-amber-950" role="status">
-                    <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
-                    <div>
-                      <p className="font-semibold">Multiple requirements enabled</p>
-                      <p className="mt-0.5 text-xs leading-5 text-amber-900">An employee may see this form more than once when both requirements apply. For example, a Daily + After Clock Out form can require one daily submission and another after clock out.</p>
+              </section>
+
+              <section className="mt-6 border-t border-gray-200 pt-5">
+                <h3 className="text-sm font-semibold text-gray-900">Who Should Complete This Form?</h3>
+                <p className="mt-1 text-xs text-gray-500">The server verifies assignment and business ownership before showing or accepting this form.</p>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <Select label="Who should complete this?" value={builderForm.assignedTo} onChange={(event) => updateBuilderForm({ assignedTo: event.target.value as FormAssignmentType, assignmentValue: '' })}>
+                    {ASSIGNMENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </Select>
+                  {assignmentValueControl}
+                </div>
+              </section>
+
+              <section className="mt-6 border-t border-gray-200 pt-5">
+                <h3 className="text-sm font-semibold text-gray-900">Availability &amp; Automation</h3>
+                <div className="mt-4 grid gap-6 lg:grid-cols-2">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Workflow Trigger</h4>
+                    <p className="mt-1 text-xs text-gray-500">Present this form when a specific employee or job event occurs.</p>
+                    <div className="mt-3 space-y-2">
+                      {workflowTriggers.length === 0 ? (
+                        <Select label="Event" value="" onChange={(event) => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, 0, event.target.value as FormTrigger) })}>
+                          <option value="">Select an event...</option>
+                          {WORKFLOW_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </Select>
+                      ) : workflowTriggers.map((trigger, index) => {
+                        const options = trigger === 'after_completing_job' ? [...WORKFLOW_OPTIONS, LEGACY_WORKFLOW_OPTION] : WORKFLOW_OPTIONS;
+                        return (
+                          <div key={`${trigger}-${index}`} className="flex items-end gap-2">
+                            <div className="min-w-0 flex-1">
+                              <Select label={index === 0 ? 'Event' : `Event ${index + 1}`} value={trigger} onChange={(event) => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, index, event.target.value as FormTrigger) })}>
+                                {options.map((option) => <option key={option.value} value={option.value} disabled={workflowTriggers.includes(option.value) && option.value !== trigger}>{option.label}</option>)}
+                              </Select>
+                            </div>
+                            <Button type="button" variant="ghost" onClick={() => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, index, '') })} aria-label={`Remove workflow event ${index + 1}`}><X size={16} /></Button>
+                          </div>
+                        );
+                      })}
                     </div>
+                    {workflowTriggers.length > 0 && workflowTriggers.filter((trigger) => trigger !== 'after_completing_job').length < WORKFLOW_OPTIONS.length && (
+                      <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => {
+                        const next = WORKFLOW_OPTIONS.find((option) => !workflowTriggers.includes(option.value));
+                        if (next) updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, workflowTriggers.length, next.value) });
+                      }}><Plus size={14} /> Add another trigger</Button>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Schedule</h4>
+                    <p className="mt-1 text-xs text-gray-500">Create one recurring reason for this form to be due using the business timezone.</p>
+                    <div className="mt-3"><Select label="Recurring schedule" value={scheduleTriggers[0] ?? ''} onChange={(event) => updateBuilderForm({ trigger: setFormSchedule(builderForm.trigger, event.target.value as FormTrigger | '') })}>
+                      {SCHEDULE_OPTIONS.map((option) => <option key={option.value || 'none'} value={option.value}>{option.label}</option>)}
+                    </Select></div>
+                    {scheduleTriggers[0] === 'weekly' && <p className="mt-2 text-xs text-gray-500">Weekly forms reset each Monday in the configured business timezone.</p>}
+                    {scheduleTriggers[0] === 'monthly' && <p className="mt-2 text-xs text-gray-500">Monthly forms reset on the first day of each business month.</p>}
+                  </div>
+
+                  <fieldset>
+                    <legend className="text-sm font-medium text-gray-900">Completion Requirement</legend>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <label className={`cursor-pointer border px-3 py-3 ${builderForm.completionRequirement !== 'required' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
+                        <input className="sr-only" type="radio" name="completion-requirement" checked={builderForm.completionRequirement !== 'required'} onChange={() => updateBuilderForm({ completionRequirement: 'reminder' })} />
+                        <span className="block text-sm font-semibold text-gray-900">Reminder Only</span><span className="mt-1 block text-xs leading-5 text-gray-500">Employees are prompted but may continue and complete it later.</span>
+                      </label>
+                      <label className={`cursor-pointer border px-3 py-3 ${builderForm.completionRequirement === 'required' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
+                        <input className="sr-only" type="radio" name="completion-requirement" checked={builderForm.completionRequirement === 'required'} onChange={() => updateBuilderForm({ completionRequirement: 'required' })} />
+                        <span className="block text-sm font-semibold text-gray-900">Required</span><span className="mt-1 block text-xs leading-5 text-gray-500">Marks the intended policy. Workflow blocking is not yet enforced.</span>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">Employee Access</h4>
+                    <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
+                      <input type="checkbox" className="mt-0.5" checked={builderForm.trigger.includes('on_demand')} onChange={(event) => updateBuilderForm({ trigger: setFormOnDemand(builderForm.trigger, event.target.checked) })} />
+                      <span><span className="block text-sm font-semibold text-gray-900">Allow employees to open this form anytime</span><span className="mt-1 block text-xs leading-5 text-gray-500">Employees can find and complete this form from Forms without waiting for a workflow event or scheduled requirement.</span></span>
+                    </label>
+                  </div>
+                </div>
+
+                {hasMultipleFormRequirements(builderForm.trigger) && (
+                  <div className="mt-5 flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2.5 text-sm text-amber-950" role="status">
+                    <Info size={16} className="mt-0.5 shrink-0 text-amber-700" /><div><p className="font-semibold">Multiple requirements enabled</p><p className="mt-0.5 text-xs leading-5 text-amber-900">An employee may see this form more than once when both requirements apply. For example, a Daily + After Clock Out form can require one daily submission and another after clock out.</p></div>
                   </div>
                 )}
-              </div>
+              </section>
+
+              <section className="mt-6 border-t border-gray-200 pt-5">
+                <h3 className="text-sm font-semibold uppercase text-gray-500">How This Form Works</h3>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-700">{configurationSummary}</p>
+                {configurationWarnings.length > 0 && <div className="mt-4 space-y-2">{configurationWarnings.map((warning) => <div key={warning} className="flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"><Info size={15} className="mt-0.5 shrink-0" /><span>{warning}</span></div>)}</div>}
+              </section>
             </Card>
 
-            <Card className="order-1 p-4 xl:col-start-1 xl:row-start-1">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Fields</h2>
-                  <p className="mt-0.5 text-sm text-gray-500">Drag fields to set the order employees will see.</p>
-                </div>
+            <section>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div><p className="text-xs font-semibold uppercase text-brand-600">Form Fields</p><h2 className="mt-1 text-lg font-semibold text-gray-950">Fields</h2><p className="mt-1 text-sm text-gray-500">Drag fields to set the order employees will see.</p></div>
                 <Button onClick={() => setFieldPickerOpen(true)}><Plus size={16} /> Add Field</Button>
               </div>
-            </Card>
 
-            {builderFields.length === 0 ? (
-              <EmptyState
-                title="No fields yet"
-                description="Add your first field to start building this form."
-                action={<Button onClick={() => setFieldPickerOpen(true)}><Plus size={16} /> Add Field</Button>}
-              />
-            ) : (
-              <div className="order-2 space-y-3 xl:col-start-1 xl:row-start-2">
-                {builderFields.map((field) => (
-                  <Card key={field.id} className="overflow-hidden">
-                    <div
-                      draggable={editingFieldId !== field.id}
-                      onDragStart={() => setDraggingFieldId(field.id)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => handleFieldDrop(field.id)}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap">
-                        <div className="flex min-w-[180px] flex-1 items-center gap-3 text-gray-700">
-                          <GripVertical size={18} className="shrink-0 cursor-grab text-gray-400" />
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-gray-900">{field.label || 'Untitled field'}</p>
-                            <p className="mt-0.5 text-xs text-gray-500">{toLabel(field.type)}{field.required ? ' • Required' : ''}</p>
-                          </div>
-                        </div>
-                        <div className="flex w-full shrink-0 justify-end gap-1 sm:w-auto">
-                          <Button variant="ghost" size="sm" onClick={() => setEditingFieldId(editingFieldId === field.id ? null : field.id)}><Pencil size={13} /> {editingFieldId === field.id ? 'Done' : 'Edit'}</Button>
-                          <Button variant="ghost" size="sm" onClick={() => duplicateField(field)}><Copy size={13} /> Duplicate</Button>
-                          <Button variant="ghost" size="sm" onClick={() => removeDraftField(field.id)}><Trash2 size={13} className="text-accent-700" /> Delete</Button>
-                        </div>
+              {builderFields.length === 0 ? (
+                <Card className="mt-4"><EmptyState title="No fields yet" description="Add your first field to start building this form." action={<Button onClick={() => setFieldPickerOpen(true)}><Plus size={16} /> Add Field</Button>} /></Card>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {builderFields.map((field) => (
+                    <Card key={field.id} className="overflow-hidden">
+                      <div draggable onDragStart={() => setDraggingFieldId(field.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleFieldDrop(field.id)} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap">
+                        <div className="flex min-w-[180px] flex-1 items-center gap-3 text-gray-700"><GripVertical size={18} className="shrink-0 cursor-grab text-gray-400" /><div className="min-w-0"><p className="truncate text-sm font-semibold text-gray-900">{field.label || 'Untitled field'}</p><p className="mt-0.5 text-xs text-gray-500">{toLabel(field.type)}{field.required ? ' • Required' : ''}</p></div></div>
+                        <div className="flex w-full shrink-0 justify-end gap-1 sm:w-auto"><Button variant="ghost" size="sm" onClick={() => setEditingFieldId(field.id)}><Pencil size={13} /> Edit</Button><Button variant="ghost" size="sm" onClick={() => duplicateField(field)}><Copy size={13} /> Duplicate</Button><Button variant="ghost" size="sm" onClick={() => removeDraftField(field.id)}><Trash2 size={13} className="text-accent-700" /> Delete</Button></div>
                       </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </section>
 
-                      {editingFieldId === field.id && (
-                      <div className="border-t border-gray-100 bg-gray-50 px-4 py-4 sm:pl-11">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <Input
-                            label="Label"
-                            value={field.label}
-                            onChange={(event) => updateDraftField(field.id, { label: event.target.value })}
-                          />
-                          <Input
-                            label="Placeholder"
-                            value={field.placeholder ?? ''}
-                            onChange={(event) => updateDraftField(field.id, { placeholder: event.target.value })}
-                          />
-                          <Input
-                            label="Default Value"
-                            value={field.defaultValue ?? ''}
-                            onChange={(event) => updateDraftField(field.id, { defaultValue: event.target.value })}
-                          />
-                        </div>
-
-                        <div className="mt-3">
-                          <TextArea
-                            label="Help Text"
-                            value={field.helpText ?? ''}
-                            onChange={(event) => updateDraftField(field.id, { helpText: event.target.value })}
-                          />
-                        </div>
-
-                        {FIELD_TYPES_WITH_OPTIONS.has(field.type) && (
-                          <div className="mt-3">
-                            <TextArea
-                              label="Options (comma-separated)"
-                              value={(field.options ?? []).join(', ')}
-                              onChange={(event) => updateDraftField(field.id, {
-                                options: event.target.value
-                                  .split(',')
-                                  .map((value) => value.trim())
-                                  .filter(Boolean),
-                              })}
-                            />
-                          </div>
-                        )}
-
-                        <div className="mt-3 flex items-center gap-2 text-sm">
-                          <input
-                            id={`required-${field.id}`}
-                            type="checkbox"
-                            checked={field.required}
-                            onChange={(event) => updateDraftField(field.id, { required: event.target.checked })}
-                          />
-                          <label htmlFor={`required-${field.id}`} className="text-gray-700">Required field</label>
-                        </div>
-                      </div>
-                      )}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-            <div className="order-4 flex justify-end xl:col-start-2">
-              <Button variant="danger" size="sm" onClick={deleteSelectedForm}><Trash2 size={14} /> Delete Form</Button>
-            </div>
-            </div>
+            <div className="flex justify-end"><Button variant="danger" size="sm" onClick={deleteSelectedForm}><Trash2 size={14} /> Delete Form</Button></div>
           </div>
         ) : (
           <EmptyState
@@ -1307,6 +1305,48 @@ export default function FormsPage() {
       </Modal>
 
       <Modal
+        open={editingField !== null}
+        onClose={() => setEditingFieldId(null)}
+        title={editingField ? `Edit Field - ${editingField.label || 'Untitled Field'}` : 'Edit Field'}
+        size="wide"
+        footer={<Button onClick={() => setEditingFieldId(null)}>Done</Button>}
+      >
+        {editingField && (
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Select label="Field Type" value={editingField.type} disabled>
+                {FIELD_TYPES.map((fieldType) => <option key={fieldType.value} value={fieldType.value}>{fieldType.label}</option>)}
+              </Select>
+              <Input label="Label" value={editingField.label} onChange={(event) => updateDraftField(editingField.id, { label: event.target.value })} />
+              <Input label="Placeholder" value={editingField.placeholder ?? ''} onChange={(event) => updateDraftField(editingField.id, { placeholder: event.target.value })} />
+              <div>
+                <Input label="Default Value" value={editingField.defaultValue ?? ''} onChange={(event) => updateDraftField(editingField.id, { defaultValue: event.target.value })} />
+                {editingField.type === 'date' && <p className="mt-1 text-xs text-gray-500">Use “today” to prefill the employee's current date. Employees can still choose another date.</p>}
+              </div>
+              <div className="md:col-span-2"><TextArea label="Help Text" value={editingField.helpText ?? ''} onChange={(event) => updateDraftField(editingField.id, { helpText: event.target.value })} /></div>
+            </div>
+
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={editingField.required} onChange={(event) => updateDraftField(editingField.id, { required: event.target.checked })} /> Required field</label>
+
+            {FIELD_TYPES_WITH_OPTIONS.has(editingField.type) && (
+              <section className="border-t border-gray-200 pt-5">
+                <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-gray-900">Options</h3><p className="mt-1 text-xs text-gray-500">Add and arrange the choices employees can select.</p></div><Button type="button" variant="secondary" size="sm" onClick={() => addFieldOption(editingField.id)}><Plus size={14} /> Add Option</Button></div>
+                <div className="mt-3 space-y-2">
+                  {(editingField.options ?? []).map((option, optionIndex) => (
+                    <div key={optionIndex} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+                      <span className="text-xs font-medium text-gray-400">{optionIndex + 1}</span>
+                      <Input aria-label={`Option ${optionIndex + 1}`} value={option} onChange={(event) => updateFieldOption(editingField.id, optionIndex, event.target.value)} />
+                      <div className="flex"><Button type="button" variant="ghost" size="sm" disabled={optionIndex === 0} onClick={() => moveFieldOption(editingField.id, optionIndex, -1)} aria-label={`Move option ${optionIndex + 1} up`}><ArrowUp size={14} /></Button><Button type="button" variant="ghost" size="sm" disabled={optionIndex === (editingField.options?.length ?? 0) - 1} onClick={() => moveFieldOption(editingField.id, optionIndex, 1)} aria-label={`Move option ${optionIndex + 1} down`}><ArrowDown size={14} /></Button><Button type="button" variant="ghost" size="sm" onClick={() => removeFieldOption(editingField.id, optionIndex)} aria-label={`Remove option ${optionIndex + 1}`}><Trash2 size={14} className="text-accent-700" /></Button></div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
         open={newFormModalOpen}
         onClose={() => setNewFormModalOpen(false)}
         title="New Form"
@@ -1363,16 +1403,12 @@ export default function FormsPage() {
               {/* TODO: Add periodic auto-save draft sync workflow for poor connectivity environments. */}
             </div>
 
-            <Select
-              label="Submit As Employee"
-              value={submitAsEmployeeId}
-              onChange={(event) => setSubmitAsEmployeeId(event.target.value)}
-            >
-              <option value="">Select employee</option>
-              {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>{employee.name}</option>
-              ))}
-            </Select>
+            {activeTab !== 'builder' && (
+              <Select label="Submit As Employee" value={submitAsEmployeeId} onChange={(event) => setSubmitAsEmployeeId(event.target.value)}>
+                <option value="">Select employee</option>
+                {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
+              </Select>
+            )}
 
             <div className="space-y-3">
               {(builderForm?.id === selectedForm.id ? builderFields : fieldsForSelectedForm).map((field) => {

@@ -617,3 +617,52 @@ test('cross-tenant id probes on mutating endpoints do not disclose or mutate rec
   const foreignTask = store.get(mapKey('BUSINESS#biz-2', 'TASK#task-foreign'));
   assert.equal(foreignTask.title, 'Foreign Task');
 });
+test('Form configuration persists supported assignments and rejects foreign targets', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-1', userId: 'admin-forms', role: 'admin', email: 'forms@example.com' });
+  await createBearerSession({ businessId: 'biz-1', userId: 'admin-forms', role: 'admin', email: 'forms@example.com', token: 'token-admin-forms' });
+
+  const localRecords = [
+    ['EMPLOYEE#employee-local', { employeeId: 'employee-local', name: 'Local Employee', active: true }],
+    ['JOB#job-local', { jobId: 'job-local', title: 'Local Job' }],
+    ['EQUIPMENT#equipment-local', { equipmentId: 'equipment-local', name: 'Local Equipment' }],
+    ['DIVISION#division-local', { divisionId: 'division-local', name: 'Local Division', normalizedName: 'local division', active: true }],
+  ];
+  for (const [sk, record] of localRecords) store.set(mapKey('BUSINESS#biz-1', sk), { PK: 'BUSINESS#biz-1', SK: sk, businessId: 'biz-1', ...record });
+  for (const [sk, record] of localRecords) store.set(mapKey('BUSINESS#biz-2', sk.replace('-local', '-foreign')), { PK: 'BUSINESS#biz-2', SK: sk.replace('-local', '-foreign'), businessId: 'biz-2', ...Object.fromEntries(Object.entries(record).map(([key, value]) => [key, typeof value === 'string' ? value.replace('local', 'foreign').replace('Local', 'Foreign') : value])) });
+
+  const assignments = [
+    ['everyone', ''], ['role', 'crew_member'], ['employee', 'employee-local'], ['division', 'division-local'], ['job', 'job-local'], ['equipment', 'equipment-local'],
+  ];
+  for (const [assignedTo, assignmentValue] of assignments) {
+    const id = `form-${assignedTo}`;
+    const res = createMockRes();
+    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id, name: id, description: '', category: 'operations', status: 'active', assignedTo, assignmentValue, trigger: ['after_leaving_job', 'daily', 'on_demand'], completionRequirement: 'required', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), res);
+    assert.equal(res.statusCode, 200, assignedTo);
+  }
+
+  const listRes = createMockRes();
+  await dataHandler(requestWithToken('token-admin-forms', 'GET', 'forms'), listRes);
+  assert.equal(listRes.statusCode, 200);
+  assert.equal(listRes.body.items.length, assignments.length);
+  assert.equal(listRes.body.items.every((item) => item.completionRequirement === 'required'), true);
+
+  const patchRes = createMockRes();
+  await dataHandler(requestWithToken('token-admin-forms', 'PATCH', 'forms', { data: { trigger: ['job_completed', 'monthly'], completionRequirement: 'reminder' } }, 'form-everyone'), patchRes);
+  assert.equal(patchRes.statusCode, 200);
+  const updated = store.get(mapKey('BUSINESS#biz-1', 'FORM#form-everyone'));
+  assert.deepEqual(updated.trigger, ['job_completed', 'monthly']);
+  assert.equal(updated.completionRequirement, 'reminder');
+
+  const invalidRequirementRes = createMockRes();
+  await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id: 'invalid-requirement', name: 'Invalid requirement', description: '', category: 'operations', status: 'active', assignedTo: 'everyone', assignmentValue: '', trigger: ['on_demand'], completionRequirement: 'blocking', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), invalidRequirementRes);
+  assert.equal(invalidRequirementRes.statusCode, 400);
+  assert.match(invalidRequirementRes.body.error, /completion requirement/i);
+
+  for (const [assignedTo, assignmentValue] of [['employee', 'employee-foreign'], ['division', 'division-foreign'], ['job', 'job-foreign'], ['equipment', 'equipment-foreign']]) {
+    const res = createMockRes();
+    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id: `foreign-${assignedTo}`, name: 'Foreign target', description: '', category: 'operations', status: 'active', assignedTo, assignmentValue, trigger: ['on_demand'], completionRequirement: 'reminder', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), res);
+    assert.equal(res.statusCode, 400, assignedTo);
+    assert.match(res.body.error, /belong to this business/);
+  }
+});

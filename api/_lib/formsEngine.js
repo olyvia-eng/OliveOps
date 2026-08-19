@@ -1,7 +1,7 @@
 import { getPeriodKeyForTrigger, normalizeBusinessTimeZone } from './businessTime.js';
 
 const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'approved']);
-const CONTEXT_TRIGGERS = new Set(['before_starting_job', 'after_completing_job']);
+const CONTEXT_TRIGGERS = new Set(['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
 const DISPLAY_FIELD_TYPES = new Set(['section_header', 'paragraph_text']);
 const OPTION_FIELD_TYPES = new Set(['checkbox', 'multiple_choice', 'dropdown']);
 const SELECTOR_FIELD_TYPES = new Set(['employee_selector', 'job_selector', 'customer_selector']);

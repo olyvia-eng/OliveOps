@@ -699,6 +699,8 @@ export type FormTrigger =
   | 'after_clock_out'
   | 'before_starting_job'
   | 'after_completing_job'
+  | 'after_leaving_job'
+  | 'job_completed'
   | 'daily'
   | 'weekly'
   | 'monthly'
@@ -733,6 +735,7 @@ export interface FormRecord {
   assignedTo: FormAssignmentType;
   assignmentValue?: string;
   trigger: FormTrigger[];
+  completionRequirement?: 'reminder' | 'required';
   division?: string;
   createdAt: string;
   updatedAt: string;

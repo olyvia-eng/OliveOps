@@ -27,7 +27,7 @@ import {
 } from './_lib/formsEngine.js';
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
 
-const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'daily', 'weekly', 'monthly', 'on_demand']);
+const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/;
 const FORM_IDEMPOTENCY_RETENTION_DAYS = 30;
 
@@ -139,7 +139,8 @@ function packageFor({ form, trigger, context, data, instant }) {
   const submission = data.submissions.filter((candidate) => candidate.employeeId === data.employee.id).find((candidate) => isSubmissionSatisfiedForScope({ submission: candidate, employeeId: data.employee.id, scope, timeZone: data.timeZone }));
   return {
     id: form.id, name: form.name, description: form.description, category: form.category, trigger,
-    required: trigger !== 'on_demand', periodKey: scope.periodKey, context: safeContext(context), fields: safeFields(form.id, data),
+    required: trigger !== 'on_demand', completionRequirement: form.completionRequirement ?? 'reminder', enforcement: 'advisory',
+    periodKey: scope.periodKey, context: safeContext(context), fields: safeFields(form.id, data),
     submissionState: { completed: Boolean(submission), submissionId: submission?.id, submittedAt: submission?.submittedAt, status: submission?.status },
   };
 }

@@ -502,6 +502,8 @@ const FORM_TRIGGERS = new Set([
   'after_clock_out',
   'before_starting_job',
   'after_completing_job',
+  'after_leaving_job',
+  'job_completed',
   'daily',
   'weekly',
   'monthly',
@@ -1126,6 +1128,9 @@ function validateFormRecord(record) {
   }
   if (!Array.isArray(record.trigger)) return 'Form trigger must be an array.';
   if (record.trigger.some((value) => !FORM_TRIGGERS.has(value))) return 'Form trigger includes invalid values.';
+  if (record.completionRequirement !== undefined && !['reminder', 'required'].includes(record.completionRequirement)) {
+    return 'Form completion requirement is invalid.';
+  }
   return null;
 }
 
