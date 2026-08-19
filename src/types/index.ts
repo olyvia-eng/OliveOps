@@ -53,7 +53,10 @@ export interface EstimateLineItem {
   id: ID;
   category: LineItemCategory;
   sourceBudgetId?: ID;
+  sourceBudgetItemId?: ID;
+  sourceEntityId?: ID;
   sourceRateId?: ID;
+  pricingRateUpdatedAt?: string;
   sourceCategory?: LineItemCategory;
   equipmentId?: ID;
   equipmentName?: string;
@@ -71,6 +74,33 @@ export interface EstimateLineItem {
   total: number;
   // Legacy compatibility with older estimate records and UI paths.
   markup?: number;
+}
+
+export type EstimatePricingStatus = 'approved' | 'recommended_not_approved' | 'unavailable';
+
+export interface EstimatePricingCatalogItem {
+  type: LineItemCategory;
+  sourceEntityId?: ID;
+  budgetItemId: ID;
+  sourceRateId?: ID;
+  name: string;
+  description: string;
+  costCode?: string;
+  unit: string;
+  classification?: string;
+  costRate: number | null;
+  recommendedRate: number | null;
+  approvedRate: number | null;
+  pricingStatus: EstimatePricingStatus;
+  pricingRateUpdatedAt?: string;
+}
+
+export interface EstimatePricingCatalog {
+  budgetId: ID;
+  labour: EstimatePricingCatalogItem[];
+  equipment: EstimatePricingCatalogItem[];
+  materials: EstimatePricingCatalogItem[];
+  subcontractors: EstimatePricingCatalogItem[];
 }
 
 export interface EstimateWorkArea {
@@ -957,7 +987,11 @@ export interface BudgetRate {
   description: string;
   unit: string;
   unitCost: number;
+  budgetItemId?: ID;
+  employeeId?: ID;
   equipmentId?: ID;
+  materialCatalogItemId?: ID;
+  vendorId?: ID;
   overheadRecoveryPerUnit?: number;
   targetMarginPercent?: number;
   recommendedSellPrice?: number;

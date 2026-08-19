@@ -1,4 +1,4 @@
-import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
+import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimatePricingCatalogItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
 import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } from './estimateWorkAreaIdentity.js';
 
@@ -27,7 +27,10 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     id: item.id ?? generateId(),
     category: normalizeCategory(item.category),
     sourceBudgetId: item.sourceBudgetId,
+    sourceBudgetItemId: item.sourceBudgetItemId,
+    sourceEntityId: item.sourceEntityId,
     sourceRateId: item.sourceRateId,
+    pricingRateUpdatedAt: item.pricingRateUpdatedAt,
     sourceCategory: normalizeCategory(item.sourceCategory ?? item.category),
     equipmentId: item.equipmentId,
     equipmentName: item.equipmentName,
@@ -101,6 +104,34 @@ export function applyBudgetRateToEstimateLineItem(lineItem: EstimateLineItem, ra
     markupPercent: rate.defaultMarkupPercent,
     sellPrice,
     markup: rate.defaultMarkupPercent,
+  });
+}
+
+export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budgetId: string, pricing: EstimatePricingCatalogItem): EstimateLineItem {
+  if (pricing.pricingStatus !== 'approved' || !(pricing.approvedRate && pricing.approvedRate > 0)) return lineItem;
+  const unitCost = Math.max(0, pricing.costRate ?? 0);
+  const sellPrice = pricing.approvedRate;
+  const markupPercent = unitCost > 0 ? Math.max(0, ((sellPrice / unitCost) - 1) * 100) : 0;
+
+  return calculateEstimateLineItem({
+    ...lineItem,
+    category: pricing.type,
+    sourceBudgetId: budgetId,
+    sourceBudgetItemId: pricing.budgetItemId,
+    sourceEntityId: pricing.sourceEntityId,
+    sourceRateId: pricing.sourceRateId,
+    pricingRateUpdatedAt: pricing.pricingRateUpdatedAt,
+    equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
+    equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
+    itemName: pricing.name,
+    description: pricing.description,
+    unit: pricing.unit,
+    unitCost,
+    sellPrice,
+    markupPercent,
+    markup: markupPercent,
+    costRateAtEstimate: pricing.type === 'equipment' ? unitCost : undefined,
+    chargeOutRateAtEstimate: pricing.type === 'equipment' ? sellPrice : undefined,
   });
 }
 

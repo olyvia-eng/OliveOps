@@ -123,6 +123,8 @@ import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/uti
 import { ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
+import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
+import { applyAuthoritativeEstimatePricing, buildEstimatePricingCatalog } from './_lib/estimatePricingCatalog.js';
 import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
   deleteEquipmentBudgetAllocationForItem,
@@ -958,6 +960,13 @@ function validateEstimateLineItem(item) {
   return null;
 }
 
+function estimateLineItems(record) {
+  return [
+    ...(Array.isArray(record?.lineItems) ? record.lineItems : []),
+    ...(Array.isArray(record?.workAreas) ? record.workAreas.flatMap((area) => Array.isArray(area?.lineItems) ? area.lineItems : []) : []),
+  ];
+}
+
 function validateEstimateRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Estimate id is required.';
   if (!isNonEmptyString(record.customerId)) return 'Estimate customer is required.';
@@ -1019,6 +1028,26 @@ function validateEstimateRecord(record) {
   return null;
 }
 
+async function authorizeNewEstimatePricing({ businessId, existing, estimate }) {
+  const hasNewBudgetSources = estimateLineItems(estimate).some((item) => {
+    if (!item?.sourceBudgetItemId) return false;
+    const previous = estimateLineItems(existing).find((value) => value.id === item.id);
+    return previous?.sourceBudgetItemId !== item.sourceBudgetItemId;
+  });
+  if (!hasNewBudgetSources) return { ok: true, estimate };
+  const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
+  if (!budget || budget.planningModel !== 'divisions_v1') return { ok: false, error: 'Estimate Pricing Budget is invalid.' };
+  const [planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
+    listDivisionPlanningItemsForBusiness(businessId),
+    listBudgetRatesForBusiness(businessId),
+    listEmployeesForBusiness(businessId),
+    listEquipmentAssetsForBusiness(businessId),
+    listMaterialCatalogItemsForBusiness(businessId),
+  ]);
+  const catalog = buildEstimatePricingCatalog({ budgetId: budget.id, planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems });
+  return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
+}
+
 function ensureDefaultEstimateWorkArea(record) {
   return ensureDefaultEstimateWorkAreaModel(record, generateId);
 }
@@ -1030,8 +1059,16 @@ function validateBudgetRateRecord(record) {
   if (!isNonEmptyString(record.itemName)) return 'Budget rate item name is required.';
   if (!isNonEmptyString(record.unit)) return 'Budget rate unit is required.';
   if (!isFiniteNumber(record.unitCost) || record.unitCost < 0) return 'Budget rate unit cost must be zero or greater.';
-  if (record.equipmentId !== undefined && record.equipmentId !== null && typeof record.equipmentId !== 'string') {
-    return 'Budget rate equipment id is invalid.';
+  for (const [field, label] of [
+    ['budgetItemId', 'Budget item'],
+    ['employeeId', 'Employee'],
+    ['equipmentId', 'Equipment'],
+    ['materialCatalogItemId', 'Material'],
+    ['vendorId', 'Vendor'],
+  ]) {
+    if (record[field] !== undefined && record[field] !== null && typeof record[field] !== 'string') {
+      return `${label} pricing identity is invalid.`;
+    }
   }
   for (const [field, label] of [
     ['overheadRecoveryPerUnit', 'Budget rate overhead recovery'],
@@ -1057,6 +1094,25 @@ function validateBudgetRateRecord(record) {
   if (record.sortOrder !== undefined && (!isFiniteNumber(record.sortOrder) || record.sortOrder < 0)) {
     return 'Budget rate sort order is invalid.';
   }
+  return null;
+}
+
+async function validateBudgetRateRelationships(businessId, record) {
+  const budget = await getBudgetForBusiness(businessId, record.budgetId);
+  if (!budget) return 'Budget rate Budget must belong to this business.';
+  if (record.employeeId && !await getEmployeeForBusiness(businessId, record.employeeId)) return 'Budget rate Employee must belong to this business.';
+  if (record.equipmentId && !await getEquipmentAssetForBusiness(businessId, record.equipmentId)) return 'Budget rate Equipment must belong to this business.';
+  if (record.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, record.materialCatalogItemId)) return 'Budget rate Material must belong to this business.';
+  if (!record.budgetItemId) return null;
+
+  const categoryMap = { labour: 'labour', equipment: 'equipment', material: 'materials', subcontractor: 'subcontractors' };
+  const planningItems = await listDivisionPlanningItemsForBusiness(businessId);
+  const item = planningItems.find((value) => value.id === record.budgetItemId && value.budgetId === record.budgetId && value.category === categoryMap[record.category]);
+  if (!item) return 'Budget pricing item must belong to the selected Budget.';
+  if (record.employeeId && item.employeeId !== record.employeeId) return 'Budget pricing Employee does not match its Budget item.';
+  if (record.equipmentId && item.equipmentId !== record.equipmentId) return 'Budget pricing Equipment does not match its Budget item.';
+  if (record.materialCatalogItemId && item.materialCatalogItemId !== record.materialCatalogItemId) return 'Budget pricing Material does not match its Budget item.';
+  if (record.vendorId && item.vendorId !== record.vendorId) return 'Budget pricing Vendor does not match its Budget item.';
   return null;
 }
 
@@ -1397,6 +1453,9 @@ export default async function handler(req, res) {
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
+      const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
+      if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+      record = pricingResult.estimate;
 
       const conflict = await findProposalNumberConflict({
         businessId: session.businessId,
@@ -1465,7 +1524,7 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'budget-rates') {
-      const validationError = validateBudgetRateRecord(record);
+      const validationError = validateBudgetRateRecord(record) ?? await validateBudgetRateRelationships(session.businessId, record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
@@ -1657,6 +1716,9 @@ export default async function handler(req, res) {
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
+        const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing, estimate: next });
+        if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+        next = pricingResult.estimate;
 
         const conflict = await findProposalNumberConflict({
           businessId: session.businessId,
@@ -1726,7 +1788,7 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'budget-rates') {
-        const validationError = validateBudgetRateRecord(next);
+        const validationError = validateBudgetRateRecord(next) ?? await validateBudgetRateRelationships(session.businessId, next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }

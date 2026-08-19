@@ -7,6 +7,7 @@ import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
 import {
   applyBudgetRateToEstimateLineItem,
+  applyEstimatePricingToLineItem,
   applyEquipmentAssetToEstimateLineItem,
   calculateEstimateLineItem,
   computeWorkAreaCategoryCostTotals,
@@ -17,7 +18,7 @@ import {
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
-import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, LineItemCategory } from '../../types';
+import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimatePricingCatalog, EstimatePricingCatalogItem, LineItemCategory } from '../../types';
 
 interface Props {
   currentUserRole: string;
@@ -40,9 +41,10 @@ type CatalogCandidate = {
   priceText: string;
   rate?: BudgetRate;
   equipment?: EquipmentAsset;
+  pricingItem?: EstimatePricingCatalogItem;
   disabledReason?: string;
   alreadyAdded: boolean;
-  source: 'rate' | 'equipment' | 'material';
+  source: 'rate' | 'equipment' | 'material' | 'budget';
   searchText: string;
 };
 
@@ -111,6 +113,9 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
   const [showCatalogSheet, setShowCatalogSheet] = useState(false);
   const [addingCandidateKey, setAddingCandidateKey] = useState<string | null>(null);
+  const [estimatePricingCatalog, setEstimatePricingCatalog] = useState<EstimatePricingCatalog | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
   const [savingWorkArea, setSavingWorkArea] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
@@ -136,6 +141,30 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       lineItems: workArea.lineItems,
     });
   }, [workArea]);
+
+  useEffect(() => {
+    if (!estimate || pricingBudget?.planningModel !== 'divisions_v1') {
+      setEstimatePricingCatalog(null);
+      setCatalogError('');
+      return;
+    }
+    const controller = new AbortController();
+    setCatalogLoading(true);
+    setCatalogError('');
+    void fetch(`/api/estimate-pricing-catalog?estimateId=${encodeURIComponent(estimate.id)}`, { credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { ok?: boolean; catalog?: EstimatePricingCatalog; error?: string };
+        if (!response.ok || !payload.ok || !payload.catalog) throw new Error(payload.error || 'Could not load Estimate pricing.');
+        setEstimatePricingCatalog(payload.catalog);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setEstimatePricingCatalog(null);
+        setCatalogError(error instanceof Error ? error.message : 'Could not load Estimate pricing.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
+    return () => controller.abort();
+  }, [estimate, pricingBudget?.planningModel]);
 
   const initialSnapshot = useMemo(() => {
     if (!workArea) return '';
@@ -179,6 +208,34 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
   const catalogCandidates = useMemo(() => {
     const lineItems = form?.lineItems ?? [];
+    if (pricingBudget?.planningModel === 'divisions_v1') {
+      if (!estimatePricingCatalog) return [];
+      const alreadyAddedBudgetItemIds = new Set(lineItems.map((item) => item.sourceBudgetItemId).filter((value): value is string => Boolean(value)));
+      const categoryItems: Array<[LineItemCategory, EstimatePricingCatalogItem[]]> = [
+        ['labour', estimatePricingCatalog.labour],
+        ['equipment', estimatePricingCatalog.equipment],
+        ['material', estimatePricingCatalog.materials],
+        ['subcontractor', estimatePricingCatalog.subcontractors],
+      ];
+      const canonicalCandidates: CatalogCandidate[] = categoryItems.flatMap(([category, items]) => items.map((item) => ({
+        key: `budget:${item.budgetItemId}`,
+        category,
+        displayName: item.name,
+        description: item.description || item.costCode || CATEGORY_LABEL[category],
+        unit: item.unit,
+        priceText: item.pricingStatus === 'approved' && item.approvedRate
+          ? `${formatCurrency(item.approvedRate)}/${item.unit}`
+          : item.pricingStatus === 'recommended_not_approved' && item.recommendedRate
+            ? `${formatCurrency(item.recommendedRate)}/${item.unit} recommended - not approved`
+            : category === 'equipment' ? 'No approved charge-out rate' : `No approved ${CATEGORY_LABEL[category].toLowerCase()} rate`,
+        pricingItem: item,
+        disabledReason: item.pricingStatus === 'approved' ? undefined : 'Approve pricing in the selected Budget Analysis before adding this item.',
+        alreadyAdded: alreadyAddedBudgetItemIds.has(item.budgetItemId),
+        source: 'budget' as const,
+        searchText: `${item.name} ${item.description} ${item.costCode ?? ''} ${category} ${item.unit}`.toLowerCase(),
+      })));
+      return canonicalCandidates;
+    }
     const alreadyAddedRateIds = new Set(lineItems.map((item) => item.sourceRateId).filter((value): value is string => Boolean(value)));
     const alreadyAddedEquipmentIds = new Set(lineItems.map((item) => item.equipmentId).filter((value): value is string => Boolean(value)));
     const candidates: CatalogCandidate[] = [];
@@ -271,7 +328,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     }
 
     return candidates;
-  }, [budgetRatesByCategory, equipmentAssets, form?.lineItems, materialCatalogItems]);
+  }, [budgetRatesByCategory, equipmentAssets, estimatePricingCatalog, form?.lineItems, materialCatalogItems, pricingBudget?.planningModel]);
 
   const visibleCatalogCandidates = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
@@ -351,15 +408,17 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleAddFromCandidate = (candidate: CatalogCandidate) => {
-    if ((!candidate.rate && !candidate.equipment) || addingCandidateKey === candidate.key) return;
+    if ((!candidate.rate && !candidate.equipment && candidate.pricingItem?.pricingStatus !== 'approved') || addingCandidateKey === candidate.key) return;
 
     setAddingCandidateKey(candidate.key);
     setForm((current) => {
       if (!current) return current;
 
-      const applied = candidate.equipment
-        ? applyEquipmentAssetToEstimateLineItem(createEmptyEstimateLineItem('equipment'), candidate.equipment)
-        : applyBudgetRateToEstimateLineItem(createEmptyEstimateLineItem(candidate.category), candidate.rate!);
+      const applied = candidate.pricingItem
+        ? applyEstimatePricingToLineItem(createEmptyEstimateLineItem(candidate.category), estimate.pricingBudgetId, candidate.pricingItem)
+        : candidate.equipment
+          ? applyEquipmentAssetToEstimateLineItem(createEmptyEstimateLineItem('equipment'), candidate.equipment)
+          : applyBudgetRateToEstimateLineItem(createEmptyEstimateLineItem(candidate.category), candidate.rate!);
       const nextItem = calculateEstimateLineItem({
         ...applied,
         itemName: candidate.displayName,
@@ -493,19 +552,29 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         </div>
       </div>
 
-      {visibleCatalogCandidates.length === 0 ? (
+      {catalogLoading ? (
+        <p className="py-6 text-center text-sm text-gray-500 dark:text-brand-300">Loading pricing from {pricingBudget?.name ?? 'the selected Budget'}...</p>
+      ) : catalogError ? (
+        <EmptyState title="Pricing catalog unavailable" description={catalogError} />
+      ) : pricingBudget?.planningModel === 'divisions_v1' && catalogCandidates.length > 0 && catalogCandidates.every((candidate) => candidate.pricingItem?.pricingStatus !== 'approved') ? (
+        <div className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm text-accent-800">Items exist in this Budget, but no pricing has been approved yet.</div>
+      ) : null}
+
+      {!catalogLoading && !catalogError && visibleCatalogCandidates.length === 0 ? (
         <EmptyState
-          title={catalogFilter === 'equipment' ? 'No equipment found' : catalogFilter === 'material' ? 'No materials found' : 'No catalog items found'}
-          description={catalogFilter === 'equipment'
-            ? 'Add equipment to your company catalog or use a custom item.'
-            : catalogFilter === 'material'
-              ? 'Add materials to your company catalog or use a custom item.'
-              : 'Try a different search, switch categories, or use a custom item.'}
+          title={catalogSearch.trim()
+            ? `No ${catalogFilter === 'all' ? 'catalog items' : CATEGORY_LABEL[catalogFilter].toLowerCase()} match your search`
+            : `No ${catalogFilter === 'all' ? 'pricing items' : CATEGORY_LABEL[catalogFilter].toLowerCase()} in this Budget`}
+          description={catalogSearch.trim()
+            ? 'Try a different search.'
+            : `No ${catalogFilter === 'all' ? 'pricing items have' : CATEGORY_LABEL[catalogFilter].toLowerCase() + ' has'} been added to the ${pricingBudget?.name ?? 'selected'} Budget.`}
           action={<Button variant="secondary" onClick={() => openCustomItem(catalogFilter === 'all' ? 'labour' : catalogFilter)}>Custom Item</Button>}
         />
-      ) : (
+      ) : !catalogLoading && !catalogError ? (
         <div className="space-y-3">
-          {visibleCatalogCandidates.map((candidate) => (
+          {visibleCatalogCandidates.map((candidate) => {
+            const canAdd = candidate.pricingItem?.pricingStatus === 'approved' || Boolean(candidate.rate || candidate.equipment);
+            return (
             <div key={candidate.key} className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -520,30 +589,30 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">{candidate.priceText}</p>
                   <Button
                     size="sm"
-                    variant={candidate.rate || candidate.equipment ? 'secondary' : 'ghost'}
+                    variant={canAdd ? 'secondary' : 'ghost'}
                     onClick={() => {
-                      if (candidate.rate || candidate.equipment) {
+                      if (canAdd) {
                         handleAddFromCandidate(candidate);
                         return;
                       }
 
                       if (estimate.pricingBudgetId) {
-                        navigate(`/budgets/${estimate.pricingBudgetId}`);
+                        navigate(`/budgets/${estimate.pricingBudgetId}?tab=analysis&category=${candidate.category}&item=${candidate.pricingItem?.budgetItemId ?? ''}`);
                       }
                     }}
-                    disabled={candidate.rate ? addingCandidateKey === candidate.key : false}
+                    disabled={canAdd && addingCandidateKey === candidate.key}
                     className="mt-2"
                     title={candidate.disabledReason}
                   >
-                    <Plus size={14} /> {candidate.rate ? 'Add' : 'Add Pricing Rate'}
+                    <Plus size={14} /> {canAdd ? 'Add' : 'Add Pricing Rate'}
                   </Button>
                 </div>
               </div>
-              {!candidate.rate && candidate.disabledReason ? <p className="mt-2 text-xs text-accent-700">{candidate.disabledReason}</p> : null}
+              {!canAdd && candidate.disabledReason ? <p className="mt-2 text-xs text-accent-700">{candidate.disabledReason}</p> : null}
             </div>
-          ))}
+          );})}
         </div>
-      )}
+      ) : null}
     </div>
   );
 
