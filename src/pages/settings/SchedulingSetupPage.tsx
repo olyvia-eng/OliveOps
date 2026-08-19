@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pencil, Plus, Users } from 'lucide-react';
-import { Button, Card, Input, PageHeader, Select } from '../../components/ui';
+import { Button, Card, Input, Modal, PageHeader, Select } from '../../components/ui';
 import { SCHEDULE_COLOUR_PALETTE } from '../../config/scheduleColours.js';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
@@ -104,6 +104,26 @@ export default function SchedulingSetupPage() {
     resetCrew();
   };
 
+  const divisionFields = (
+    <>
+      <Input label="Name" required maxLength={80} value={divisionName} onChange={(event) => setDivisionName(event.target.value)} />
+      <Input label="Sort order" type="number" min={0} value={divisionOrder} onChange={(event) => setDivisionOrder(event.target.value)} />
+      <ColourPicker value={divisionColour} onChange={setDivisionColour} />
+      <label className="flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-100"><input type="checkbox" checked={divisionActive} onChange={(event) => setDivisionActive(event.target.checked)} /> Active</label>
+    </>
+  );
+
+  const crewFields = (
+    <>
+      <Input label="Name" required maxLength={80} value={crewName} onChange={(event) => setCrewName(event.target.value)} />
+      <Select label="Crew lead" value={crewLeadId} onChange={(event) => setCrewLeadId(event.target.value)}><option value="">No crew lead</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select>
+      <Select label="Default division" value={crewDivisionId} onChange={(event) => setCrewDivisionId(event.target.value)}><option value="">No default division</option>{sortedDivisions.filter((division) => division.active).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}</Select>
+      <ColourPicker value={crewColour} onChange={setCrewColour} />
+      <div><p className="mb-2 text-sm font-medium text-gray-700 dark:text-brand-200">Members</p><div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-brand-100 p-2 dark:border-brand-600">{employees.length === 0 ? <p className="p-1 text-sm text-brand-500">No employees available.</p> : employees.map((employee) => <label key={employee.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-brand-700 hover:bg-brand-50 dark:text-brand-100 dark:hover:bg-brand-600"><input type="checkbox" checked={crewMemberIds.includes(employee.id)} onChange={() => setCrewMemberIds((current) => current.includes(employee.id) ? current.filter((id) => id !== employee.id) : [...current, employee.id])} />{employee.name}</label>)}</div></div>
+      <label className="flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-100"><input type="checkbox" checked={crewActive} onChange={(event) => setCrewActive(event.target.checked)} /> Active</label>
+    </>
+  );
+
   return (
     <div>
       <PageHeader title="Scheduling Setup" subtitle="Define the divisions and primary crews used to organize company work." />
@@ -116,12 +136,9 @@ export default function SchedulingSetupPage() {
         <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
           <Card className="p-4">
             <form onSubmit={(event) => void submitDivision(event)} className="space-y-4">
-              <h3 className="font-semibold text-brand-900 dark:text-brand-50">{divisionId ? 'Edit division' : 'Add division'}</h3>
-              <Input label="Name" required maxLength={80} value={divisionName} onChange={(event) => setDivisionName(event.target.value)} />
-              <Input label="Sort order" type="number" min={0} value={divisionOrder} onChange={(event) => setDivisionOrder(event.target.value)} />
-              <ColourPicker value={divisionColour} onChange={setDivisionColour} />
-              <label className="flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-100"><input type="checkbox" checked={divisionActive} onChange={(event) => setDivisionActive(event.target.checked)} /> Active</label>
-              <div className="flex gap-2"><Button type="submit" disabled={saving}>{divisionId ? 'Save division' : 'Create division'}</Button>{divisionId ? <Button type="button" variant="secondary" onClick={resetDivision}>Cancel</Button> : null}</div>
+              <h3 className="font-semibold text-brand-900 dark:text-brand-50">Add division</h3>
+              {divisionFields}
+              <Button type="submit" disabled={saving}>Create division</Button>
             </form>
           </Card>
           <Card className="overflow-hidden">
@@ -143,14 +160,9 @@ export default function SchedulingSetupPage() {
         <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
           <Card className="p-4">
             <form onSubmit={(event) => void submitCrew(event)} className="space-y-4">
-              <h3 className="font-semibold text-brand-900 dark:text-brand-50">{crewId ? 'Edit crew' : 'Add crew'}</h3>
-              <Input label="Name" required maxLength={80} value={crewName} onChange={(event) => setCrewName(event.target.value)} />
-              <Select label="Crew lead" value={crewLeadId} onChange={(event) => setCrewLeadId(event.target.value)}><option value="">No crew lead</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select>
-              <Select label="Default division" value={crewDivisionId} onChange={(event) => setCrewDivisionId(event.target.value)}><option value="">No default division</option>{sortedDivisions.filter((division) => division.active).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}</Select>
-              <ColourPicker value={crewColour} onChange={setCrewColour} />
-              <div><p className="mb-2 text-sm font-medium text-gray-700 dark:text-brand-200">Members</p><div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-brand-100 p-2 dark:border-brand-600">{employees.length === 0 ? <p className="p-1 text-sm text-brand-500">No employees available.</p> : employees.map((employee) => <label key={employee.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-brand-700 hover:bg-brand-50 dark:text-brand-100 dark:hover:bg-brand-600"><input type="checkbox" checked={crewMemberIds.includes(employee.id)} onChange={() => setCrewMemberIds((current) => current.includes(employee.id) ? current.filter((id) => id !== employee.id) : [...current, employee.id])} />{employee.name}</label>)}</div></div>
-              <label className="flex items-center gap-2 text-sm font-medium text-brand-700 dark:text-brand-100"><input type="checkbox" checked={crewActive} onChange={(event) => setCrewActive(event.target.checked)} /> Active</label>
-              <div className="flex gap-2"><Button type="submit" disabled={saving}><Plus /> {crewId ? 'Save crew' : 'Create crew'}</Button>{crewId ? <Button type="button" variant="secondary" onClick={resetCrew}>Cancel</Button> : null}</div>
+              <h3 className="font-semibold text-brand-900 dark:text-brand-50">Add crew</h3>
+              {crewFields}
+              <Button type="submit" disabled={saving}><Plus /> Create crew</Button>
             </form>
           </Card>
           <Card className="overflow-hidden">
@@ -163,6 +175,38 @@ export default function SchedulingSetupPage() {
           </Card>
         </div>
       </section>
+
+      <Modal
+        open={divisionId !== null}
+        onClose={() => { if (!saving) resetDivision(); }}
+        title={`Edit Division${divisionName ? ` - ${divisionName}` : ''}`}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={resetDivision} disabled={saving}>Cancel</Button>
+            <Button type="submit" form="edit-division-form" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
+          </>
+        )}
+      >
+        <form id="edit-division-form" onSubmit={(event) => void submitDivision(event)} className="space-y-4">
+          {divisionFields}
+        </form>
+      </Modal>
+
+      <Modal
+        open={crewId !== null}
+        onClose={() => { if (!saving) resetCrew(); }}
+        title={`Edit Crew${crewName ? ` - ${crewName}` : ''}`}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={resetCrew} disabled={saving}>Cancel</Button>
+            <Button type="submit" form="edit-crew-form" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
+          </>
+        )}
+      >
+        <form id="edit-crew-form" onSubmit={(event) => void submitCrew(event)} className="space-y-4">
+          {crewFields}
+        </form>
+      </Modal>
     </div>
   );
 }
