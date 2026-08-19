@@ -6,6 +6,7 @@ import {
   Eye,
   FilePlus2,
   GripVertical,
+  Info,
   Pencil,
   Plus,
   Save,
@@ -23,7 +24,7 @@ import {
 } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatDateTime } from '../../utils';
-import { createFormBuilderDraft, isFormBuilderDirty, moveFormField } from './formsBuilderModel.js';
+import { createFormBuilderDraft, hasMultipleFormRequirements, isFormBuilderDirty, moveFormField } from './formsBuilderModel.js';
 import type {
   FormAssignmentType,
   FormCategory,
@@ -63,15 +64,35 @@ const ASSIGNMENT_OPTIONS: Array<{ value: FormAssignmentType; label: string }> = 
   { value: 'equipment', label: 'Specific Equipment' },
 ];
 
-const TRIGGER_OPTIONS: Array<{ value: FormTrigger; label: string }> = [
-  { value: 'before_clock_in', label: 'Before Clock In' },
-  { value: 'after_clock_out', label: 'After Clock Out' },
-  { value: 'before_starting_job', label: 'Before Starting Job' },
-  { value: 'after_completing_job', label: 'After Completing Job' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'on_demand', label: 'On Demand' },
+const TRIGGER_GROUPS: Array<{
+  label: string;
+  description: string;
+  options: Array<{ value: FormTrigger; label: string }>;
+}> = [
+  {
+    label: 'Workflow Triggers',
+    description: 'Show this form when an employee performs a specific action.',
+    options: [
+      { value: 'before_clock_in', label: 'Before Clock In' },
+      { value: 'after_clock_out', label: 'After Clock Out' },
+      { value: 'before_starting_job', label: 'Before Starting Job' },
+      { value: 'after_completing_job', label: 'After Completing Job' },
+    ],
+  },
+  {
+    label: 'Schedule',
+    description: 'Require this form on a recurring schedule.',
+    options: [
+      { value: 'daily', label: 'Daily' },
+      { value: 'weekly', label: 'Weekly' },
+      { value: 'monthly', label: 'Monthly' },
+    ],
+  },
+  {
+    label: 'On Demand',
+    description: 'Allow employees to open this form whenever they need it.',
+    options: [{ value: 'on_demand', label: 'Available On Demand' }],
+  },
 ];
 
 const FIELD_TYPES: Array<{ value: FormFieldType; label: string }> = [
@@ -1000,17 +1021,14 @@ export default function FormsPage() {
 
               <div className="mt-5 border-t border-gray-200 pt-4">
                 <h2 className="text-base font-semibold text-gray-900">When should this form appear?</h2>
-                <p className="mt-1 text-sm text-gray-500">Phase 1 conditions present the form at the right moment. They do not block clock or job actions.</p>
-                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  {([
-                    { label: 'Workflow triggers', values: TRIGGER_OPTIONS.slice(0, 4) },
-                    { label: 'Schedule', values: TRIGGER_OPTIONS.slice(4, 7) },
-                    { label: 'Availability', values: TRIGGER_OPTIONS.slice(7) },
-                  ]).map((group) => (
+                <p className="mt-1 text-sm text-gray-600">Choose one or more ways employees can access this form. Each enabled option creates a separate reason for the form to appear.</p>
+                <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3 xl:grid-cols-1">
+                  {TRIGGER_GROUPS.map((group) => (
                     <fieldset key={group.label}>
-                      <legend className="mb-2 text-xs font-semibold uppercase text-gray-500">{group.label}</legend>
-                      <div className="space-y-1.5">
-                        {group.values.map((trigger) => {
+                      <legend className="text-xs font-semibold uppercase text-gray-600">{group.label}</legend>
+                      <p className="mt-1 text-xs leading-5 text-gray-500 lg:min-h-10 xl:min-h-0">{group.description}</p>
+                      <div className="mt-2 space-y-1.5">
+                        {group.options.map((trigger) => {
                           const checked = builderForm.trigger.includes(trigger.value);
                           return (
                             <label key={trigger.value} className="flex cursor-pointer items-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
@@ -1027,6 +1045,15 @@ export default function FormsPage() {
                     </fieldset>
                   ))}
                 </div>
+                {hasMultipleFormRequirements(builderForm.trigger) && (
+                  <div className="mt-4 flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2.5 text-sm text-amber-950" role="status">
+                    <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
+                    <div>
+                      <p className="font-semibold">Multiple requirements enabled</p>
+                      <p className="mt-0.5 text-xs leading-5 text-amber-900">An employee may see this form more than once when both requirements apply. For example, a Daily + After Clock Out form can require one daily submission and another after clock out.</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
 

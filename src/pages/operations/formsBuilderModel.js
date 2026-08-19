@@ -45,6 +45,15 @@ export function isFormBuilderDirty(baseline, draft) {
   return JSON.stringify(comparableDraft(baseline)) !== JSON.stringify(comparableDraft(draft));
 }
 
+const WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job']);
+const SCHEDULE_TRIGGERS = new Set(['daily', 'weekly', 'monthly']);
+
+/** @param {string[]} triggers */
+export function hasMultipleFormRequirements(triggers) {
+  return triggers.some((trigger) => WORKFLOW_TRIGGERS.has(trigger))
+    && triggers.some((trigger) => SCHEDULE_TRIGGERS.has(trigger));
+}
+
 /** @param {FormField[]} fields @param {string} fieldId @param {string} targetFieldId */
 export function moveFormField(fields, fieldId, targetFieldId) {
   if (fieldId === targetFieldId) return fields;

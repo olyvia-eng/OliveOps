@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createFormBuilderDraft, isFormBuilderDirty, moveFormField } from '../src/pages/operations/formsBuilderModel.js';
+import { createFormBuilderDraft, hasMultipleFormRequirements, isFormBuilderDirty, moveFormField } from '../src/pages/operations/formsBuilderModel.js';
 
 const form = {
   id: 'form-a',
@@ -33,6 +33,17 @@ test('Forms builder dirty state tracks meaningful form and field changes', () =>
 
   const reorderedTriggers = createFormBuilderDraft({ ...form, trigger: ['on_demand', 'daily'] }, fields);
   assert.equal(isFormBuilderDirty(baseline, reorderedTriggers), false);
+
+  const changedTriggers = createFormBuilderDraft({ ...form, trigger: ['after_clock_out', 'daily'] }, fields);
+  assert.equal(isFormBuilderDirty(baseline, changedTriggers), true);
+});
+
+test('Forms trigger groups warn only when workflow and schedule requirements overlap', () => {
+  assert.equal(hasMultipleFormRequirements(['after_clock_out']), false);
+  assert.equal(hasMultipleFormRequirements(['daily']), false);
+  assert.equal(hasMultipleFormRequirements(['on_demand']), false);
+  assert.equal(hasMultipleFormRequirements(['after_clock_out', 'daily']), true);
+  assert.equal(hasMultipleFormRequirements(['after_clock_out', 'on_demand']), false);
 });
 
 test('drag ordering moves the selected field and normalizes persisted order values', () => {
@@ -53,8 +64,14 @@ test('Forms editor exposes explicit save lifecycle and compact builder navigatio
   assert.match(source, /Recently updated/);
   assert.match(source, /View all forms/);
   assert.match(source, /When should this form appear\?/);
-  assert.match(source, /Workflow triggers/);
-  assert.match(source, /Phase 1 conditions present the form at the right moment\. They do not block clock or job actions\./);
+  assert.match(source, /Choose one or more ways employees can access this form\. Each enabled option creates a separate reason for the form to appear\./);
+  assert.match(source, /Workflow Triggers/);
+  assert.match(source, /Show this form when an employee performs a specific action\./);
+  assert.match(source, /Require this form on a recurring schedule\./);
+  assert.match(source, /Allow employees to open this form whenever they need it\./);
+  assert.match(source, /Available On Demand/);
+  assert.match(source, /Multiple requirements enabled/);
+  assert.match(source, /Daily \+ After Clock Out/);
   assert.match(source, /setFieldPickerOpen\(true\)/);
   assert.doesNotMatch(source, /label="Active Form"/);
   assert.doesNotMatch(source, /label="Order"/);
@@ -68,6 +85,8 @@ test('Forms save waits for persistence and session loss clears cached business d
 
   assert.match(formsSource, /await Promise\.all\(writes\)/);
   assert.match(formsSource, /savingBuilder \? 'Saving\.\.\.' : 'Save Changes'/);
+  assert.match(formsSource, /updateForm\(builderDraft\.form\.id, formPatch\)/);
+  assert.match(formsSource, /setBuilderBaseline\(createFormBuilderDraft/);
   assert.match(storeSource, /updateForm: async/);
   assert.match(storeSource, /addFormField: async/);
   assert.match(appSource, /if \(!sessionUser\) \{[\s\S]*clearBusinessDataStore\(\)/);

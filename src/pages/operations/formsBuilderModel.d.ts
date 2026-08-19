@@ -7,4 +7,5 @@ export type FormBuilderDraft = {
 
 export function createFormBuilderDraft(form: FormRecord, fields: FormField[]): FormBuilderDraft;
 export function isFormBuilderDirty(baseline: FormBuilderDraft | null, draft: FormBuilderDraft | null): boolean;
+export function hasMultipleFormRequirements(triggers: string[]): boolean;
 export function moveFormField(fields: FormField[], fieldId: string, targetFieldId: string): FormField[];
