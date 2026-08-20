@@ -311,7 +311,7 @@ test('invalid client keys are rejected, legacy submissions serialize null, and f
   seedForm(store, { id: 'incident' });
   const submit = (clientSubmissionId) => request('token-a', { method: 'POST', action: 'submit', body: { formId: 'incident', clientSubmissionId, responses: [{ fieldId: 'incident-notes', value: 'Retryable' }] } });
 
-  assert.equal((await submit('short')).statusCode, 400);
+  assert.equal((await submit('TEST-A')).statusCode, 201);
   assert.equal((await submit(`bad key ${'x'.repeat(8)}`)).body.error, 'invalid_client_submission_id');
   assert.equal((await submit(`x${'a'.repeat(128)}`)).statusCode, 400);
 

@@ -18,6 +18,7 @@ import {
   getEmployeeForBusiness,
   getFileForBusiness,
   getJobForBusiness,
+  getTimeEntryForBusiness,
   getUnbillableTimeCategoryForBusiness,
   listTimeEntriesForBusiness,
   listUnbillableTimeCategoriesForBusiness,
@@ -312,22 +313,28 @@ export default async function handler(req, res) {
     };
     const hashedPayload = payloadHash(payload);
 
-    const activeEntries = await listTimeEntriesForBusiness(session.businessId);
-    const activeEntry = activeEntries.find((entry) => entry.id === entryId && entry.status === 'clocked_in');
-    if (!activeEntry) {
+    const requestedEntry = await getTimeEntryForBusiness(session.businessId, entryId);
+    if (!requestedEntry) {
       const response = getClockingErrorResponse({ statusCode: 409, code: 'NO_ACTIVE_SHIFT' });
       return res.status(response.status).json({ ok: false, error: response.error });
     }
 
-    if (!canClockForEmployee(session, activeEntry.employeeId)) {
+    if (!canClockForEmployee(session, requestedEntry.employeeId)) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
     }
 
-    const idempotencyKey = scopedIdempotencyKey(activeEntry.employeeId, clientIdempotencyKey);
+    const idempotencyKey = scopedIdempotencyKey(requestedEntry.employeeId, clientIdempotencyKey);
     const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
     if (existing) {
       return replayClockingRequest(res, existing, hashedPayload);
     }
+
+    if (requestedEntry.status !== 'clocked_in') {
+      const response = getClockingErrorResponse({ statusCode: 409, code: 'NO_ACTIVE_SHIFT' });
+      return res.status(response.status).json({ ok: false, error: response.error });
+    }
+
+    const activeEntry = requestedEntry;
 
     const attachmentValidation = await validateClockOutPhotoAttachment({
       session,
@@ -403,6 +410,10 @@ export default async function handler(req, res) {
       photoAttachmentUrl: req.body?.photoAttachmentUrl ?? undefined,
       unbillableCategoryId: activeEntry.unbillableCategoryId,
       unbillableCategoryName: activeEntry.unbillableCategoryName,
+      jobId: activeEntry.jobId,
+      jobIds: activeEntry.jobIds,
+      workType: activeEntry.workType,
+      clockIn: activeEntry.clockIn,
       employeeName: employee?.name ?? '',
     });
 

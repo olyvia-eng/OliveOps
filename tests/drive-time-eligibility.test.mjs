@@ -835,6 +835,12 @@ test('active drive time can clock out safely after eligibility is disabled', asy
   assert.equal(res.body.ok, true);
   assert.equal(res.body.timeEntry.workType, 'drive_time');
   assert.equal(res.body.timeEntry.status, 'clocked_out');
+
+  const replayRes = createMockRes();
+  await clockingHandler(req, replayRes);
+
+  assert.equal(replayRes.statusCode, 200);
+  assert.deepEqual(replayRes.body.timeEntry, res.body.timeEntry);
 });
 
 test('clock-out checks entry ownership before idempotency replay', async (t) => {

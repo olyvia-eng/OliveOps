@@ -254,6 +254,10 @@ export function buildClockOutTransaction({
   photoAttachmentUrl,
   unbillableCategoryId,
   unbillableCategoryName,
+  jobId,
+  jobIds,
+  workType,
+  clockIn,
   employeeName = '',
 }) {
   const now = clockOutAt ?? nowIso();
@@ -284,6 +288,10 @@ export function buildClockOutTransaction({
     response: {
       id: timeEntryId,
       employeeId,
+      jobId,
+      jobIds,
+      workType,
+      clockIn,
       clockOut: now,
       breakMinutes,
       notes,
