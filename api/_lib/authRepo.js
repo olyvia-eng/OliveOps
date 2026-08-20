@@ -6,7 +6,6 @@ import {
   UpdateCommand,
   QueryCommand,
   DeleteCommand,
-  ScanCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
@@ -683,30 +682,13 @@ export async function authenticateUser(email, password) {
     })
   );
 
-  let lookupItem = lookup.Item ?? null;
-
-  if (!lookupItem) {
-    const legacyLookup = await ddb.send(
-      new ScanCommand({
-        TableName: tableName,
-        FilterExpression: 'entityType = :entityType AND email = :email',
-        ExpressionAttributeValues: {
-          ':entityType': 'USER',
-          ':email': normalizedEmail,
-        },
-      })
-    );
-
-    lookupItem = legacyLookup.Items?.[0] ?? null;
-  }
-
-  if (!lookupItem) {
+  if (!lookup.Item) {
     return { ok: false, error: 'Invalid email or password.' };
   }
 
   const userKey = {
-    PK: businessPk(lookupItem.businessId),
-    SK: userSk(lookupItem.userId),
+    PK: businessPk(lookup.Item.businessId),
+    SK: userSk(lookup.Item.userId),
   };
 
   const userRes = await ddb.send(
@@ -717,6 +699,10 @@ export async function authenticateUser(email, password) {
   );
 
   if (!userRes.Item || userRes.Item.active === false) {
+    return { ok: false, error: 'Invalid email or password.' };
+  }
+
+  if (typeof userRes.Item.passwordHash !== 'string' || !userRes.Item.passwordHash) {
     return { ok: false, error: 'Invalid email or password.' };
   }
 
@@ -736,28 +722,7 @@ export async function authenticateUser(email, password) {
   );
 
   if (!businessRes.Item) {
-    return { ok: false, error: 'Business account not found.' };
-  }
-
-  if (!lookup.Item) {
-    try {
-      await ddb.send(
-        new PutCommand({
-          TableName: tableName,
-          Item: {
-            PK: emailPk(normalizedEmail),
-            SK: 'USER',
-            entityType: 'EMAIL_LOOKUP',
-            businessId: userRes.Item.businessId,
-            userId: userRes.Item.userId,
-            createdAt: nowIso(),
-          },
-          ConditionExpression: 'attribute_not_exists(PK)',
-        })
-      );
-    } catch {
-      // Ignore backfill errors; login already succeeded.
-    }
+    return { ok: false, error: 'Invalid email or password.' };
   }
 
   const linkedEmployee = await findLinkedEmployeeForUser({

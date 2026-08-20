@@ -93,7 +93,7 @@ test('POST /api/auth?action=mobile-login rejects invalid password', async () => 
 
 test('POST /api/auth?action=mobile-login rejects unknown user', async () => {
   const handler = createHandler({
-    authenticateUser: async () => ({ ok: false, error: 'Invalid email or password.' }),
+    authenticateUser: async () => ({ ok: false, error: 'Account does not exist.' }),
   });
 
   const req = {
@@ -107,7 +107,7 @@ test('POST /api/auth?action=mobile-login rejects unknown user', async () => {
   await handler(req, res);
 
   assert.equal(res.statusCode, 401);
-  assert.equal(res.body.ok, false);
+  assert.deepEqual(res.body, { ok: false, error: 'Invalid email or password.' });
 });
 
 test('POST /api/auth?action=mobile-login rejects inactive users', async () => {
@@ -127,6 +127,51 @@ test('POST /api/auth?action=mobile-login rejects inactive users', async () => {
 
   assert.equal(res.statusCode, 401);
   assert.deepEqual(res.body, { ok: false, error: 'Invalid email or password.' });
+});
+
+test('POST /api/auth?action=mobile-login rejects malformed credentials without authenticating', async () => {
+  let authenticateCalls = 0;
+  const handler = createHandler({
+    authenticateUser: async () => {
+      authenticateCalls += 1;
+      return { ok: false };
+    },
+  });
+
+  const req = {
+    method: 'POST',
+    query: { action: 'mobile-login' },
+    body: { email: 'casey@example.com' },
+    headers: {},
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, { ok: false, error: 'Invalid payload' });
+  assert.equal(authenticateCalls, 0);
+});
+
+test('POST /api/auth?action=mobile-login reserves 500 for internal authentication failures', async () => {
+  const handler = createHandler({
+    authenticateUser: async () => {
+      throw new Error('DynamoDB unavailable');
+    },
+  });
+
+  const req = {
+    method: 'POST',
+    query: { action: 'mobile-login' },
+    body: { email: 'casey@example.com', password: 'password1234' },
+    headers: {},
+  };
+  const res = createMockRes();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 500);
+  assert.deepEqual(res.body, { ok: false, error: 'Mobile login failed' });
 });
 
 test('GET /api/auth?action=session accepts bearer-resolved session identity', async () => {
