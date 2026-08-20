@@ -1683,3 +1683,226 @@ test('drive-time helper allows all work types', () => {
   assert.equal(canRecordDriveTime('drive_time', { paidDriveTimeEnabled: false }), true);
   assert.equal(canRecordDriveTime('drive_time', { paidDriveTimeEnabled: true }), true);
 });
+
+async function setupOfflineClockingContext(t, suffix) {
+  const businessId = `biz-offline-${suffix}`;
+  const userId = `user-offline-${suffix}`;
+  const employeeId = `emp-offline-${suffix}`;
+  const token = `token-offline-${suffix}`;
+  const email = `${suffix}@example.com`;
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId, userId, role: 'crew_member', email });
+  await createEmployeeForBusiness({
+    businessId,
+    employee: { id: employeeId, name: 'Offline Employee', email, role: 'crew_member', active: true },
+  });
+  await createBearerTokenForUser({ businessId, userId, role: 'crew_member', email, employeeId, token });
+  seedJob(store, { businessId, jobId: 'job-a', assignedEmployeeIds: [employeeId] });
+  seedJob(store, { businessId, jobId: 'job-b', assignedEmployeeIds: [employeeId] });
+  seedJob(store, { businessId, jobId: 'job-hidden', assignedEmployeeIds: ['someone-else'] });
+  seedUnbillableCategory(store, { businessId, categoryId: 'cat-training', name: 'Training' });
+  return { store, businessId, employeeId, token };
+}
+
+async function callClocking(token, action, body) {
+  const res = createMockRes();
+  await clockingHandler({ method: 'POST', query: { action }, headers: { authorization: `Bearer ${token}` }, body }, res);
+  return res;
+}
+
+const isoOffset = (baseMs, offsetMs) => new Date(baseMs + offsetMs).toISOString();
+
+test('complete delayed sequence preserves event boundaries and separate server receipt metadata', async (t) => {
+  const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'sequence');
+  const receiptMs = Date.now();
+  const startMs = receiptMs - 11 * 60 * 60 * 1000;
+  const events = {
+    clockIn: isoOffset(startMs, 2 * 60 * 1000),
+    jobB: isoOffset(startMs, 2 * 60 * 60 * 1000 + 15 * 60 * 1000),
+    drive: isoOffset(startMs, 5 * 60 * 60 * 1000 + 3 * 60 * 1000),
+    returnJobB: isoOffset(startMs, 6 * 60 * 60 * 1000),
+    clockOut: isoOffset(startMs, 9 * 60 * 60 * 1000 + 32 * 60 * 1000),
+  };
+
+  const clockIn = await callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'offline-in', idempotencyKey: 'offline-in', clientOccurredAt: events.clockIn });
+  const switchJob = await callClocking(token, 'switch-activity', { workType: 'job', jobIds: ['job-b'], requestId: 'offline-job-b', idempotencyKey: 'offline-job-b', clientOccurredAt: events.jobB });
+  const drive = await callClocking(token, 'switch-activity', { workType: 'drive_time', jobIds: ['job-b'], requestId: 'offline-drive', idempotencyKey: 'offline-drive', clientOccurredAt: events.drive });
+  const returnJob = await callClocking(token, 'switch-activity', { workType: 'job', jobIds: ['job-b'], requestId: 'offline-return', idempotencyKey: 'offline-return', clientOccurredAt: events.returnJobB });
+  const clockOut = await callClocking(token, 'clock-out', { entryId: returnJob.body.timeEntry.id, requestId: 'offline-out', idempotencyKey: 'offline-out', clientOccurredAt: events.clockOut });
+
+  assert.deepEqual([clockIn.statusCode, switchJob.statusCode, drive.statusCode, returnJob.statusCode, clockOut.statusCode], [200, 200, 200, 200, 200]);
+  const entries = (await listTimeEntriesForBusiness(businessId)).sort((left, right) => Date.parse(left.clockIn) - Date.parse(right.clockIn));
+  assert.deepEqual(entries.map((entry) => [entry.clockIn, entry.clockOut, entry.workType]), [
+    [events.clockIn, events.jobB, 'job'],
+    [events.jobB, events.drive, 'job'],
+    [events.drive, events.returnJobB, 'drive_time'],
+    [events.returnJobB, events.clockOut, 'job'],
+  ]);
+  assert.equal(entries.reduce((sum, entry) => sum + Date.parse(entry.clockOut) - Date.parse(entry.clockIn), 0), Date.parse(events.clockOut) - Date.parse(events.clockIn));
+  for (const entry of entries) {
+    assert.equal(entry.clockInTimestampSource, 'client');
+    assert.ok(Date.parse(entry.clockInServerReceivedAt) > Date.parse(entry.clockIn));
+  }
+  const finalRaw = store.get(mapKey(`BUSINESS#${businessId}`, `TIME#${clockOut.body.timeEntry.id}`));
+  assert.equal(finalRaw.clockOut, events.clockOut);
+  assert.equal(finalRaw.clockOutTimestampSource, 'client');
+  assert.ok(Date.parse(finalRaw.clockOutServerReceivedAt) > Date.parse(events.clockOut));
+  store.set(mapKey(`BUSINESS#${businessId}`, 'PROFILE'), {
+    PK: `BUSINESS#${businessId}`, SK: 'PROFILE', entityType: 'BUSINESS', businessId, name: 'Offline Business', timezone: 'America/Toronto',
+  });
+  const bootstrap = createMockRes();
+  await bootstrapHandler({ method: 'GET', headers: { authorization: `Bearer ${token}` } }, bootstrap);
+  assert.equal(bootstrap.statusCode, 200);
+  assert.deepEqual(bootstrap.body.timeEntries.map((entry) => [entry.clockIn, entry.clockOut]), entries.map((entry) => [entry.clockIn, entry.clockOut]));
+});
+
+test('legacy clock-in without clientOccurredAt keeps server-time behavior', async (t) => {
+  const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'legacy-online');
+  const before = Date.now();
+  const result = await callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'legacy-online', idempotencyKey: 'legacy-online' });
+  const after = Date.now();
+  assert.equal(result.statusCode, 200);
+  assert.ok(Date.parse(result.body.timeEntry.clockIn) >= before && Date.parse(result.body.timeEntry.clockIn) <= after);
+  const raw = store.get(mapKey(`BUSINESS#${businessId}`, `TIME#${result.body.timeEntry.id}`));
+  assert.equal(raw.clockInTimestampSource, 'server');
+  assert.equal(raw.clockIn, raw.clockInServerReceivedAt);
+});
+
+test('clock-in accepts four minutes of future device skew', async (t) => {
+  const { employeeId, token } = await setupOfflineClockingContext(t, 'future-four');
+  const result = await callClocking(token, 'clock-in', {
+    employeeId,
+    workType: 'job',
+    jobIds: ['job-a'],
+    requestId: 'future-four',
+    idempotencyKey: 'future-four',
+    clientOccurredAt: isoOffset(Date.now(), 4 * 60 * 1000),
+  });
+  assert.equal(result.statusCode, 200);
+});
+
+test('delayed clocking retries replay and changed event timestamps conflict', async (t) => {
+  const { employeeId, token } = await setupOfflineClockingContext(t, 'idempotency');
+  const now = Date.now();
+  const clockInAt = isoOffset(now, -3 * 60 * 60 * 1000);
+  const switchAt = isoOffset(now, -2 * 60 * 60 * 1000);
+  const clockOutAt = isoOffset(now, -60 * 60 * 1000);
+  const clockInBody = { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'idem-in', idempotencyKey: 'idem-in', clientOccurredAt: clockInAt };
+  const firstIn = await callClocking(token, 'clock-in', clockInBody);
+  const replayIn = await callClocking(token, 'clock-in', clockInBody);
+  const changedIn = await callClocking(token, 'clock-in', { ...clockInBody, clientOccurredAt: isoOffset(now, -3 * 60 * 60 * 1000 + 1000) });
+  assert.equal(replayIn.body.timeEntry.id, firstIn.body.timeEntry.id);
+  assert.equal(changedIn.body.code, 'clock_idempotency_conflict');
+
+  const switchBody = { workType: 'job', jobIds: ['job-b'], requestId: 'idem-switch', idempotencyKey: 'idem-switch', clientOccurredAt: switchAt };
+  const firstSwitch = await callClocking(token, 'switch-activity', switchBody);
+  const replaySwitch = await callClocking(token, 'switch-activity', switchBody);
+  const changedSwitch = await callClocking(token, 'switch-activity', { ...switchBody, clientOccurredAt: isoOffset(now, -2 * 60 * 60 * 1000 + 1000) });
+  assert.equal(replaySwitch.body.timeEntry.id, firstSwitch.body.timeEntry.id);
+  assert.equal(changedSwitch.body.code, 'clock_idempotency_conflict');
+
+  const clockOutBody = { entryId: firstSwitch.body.timeEntry.id, requestId: 'idem-out', idempotencyKey: 'idem-out', clientOccurredAt: clockOutAt };
+  const firstOut = await callClocking(token, 'clock-out', clockOutBody);
+  const replayOut = await callClocking(token, 'clock-out', clockOutBody);
+  const changedOut = await callClocking(token, 'clock-out', { ...clockOutBody, clientOccurredAt: isoOffset(now, -60 * 60 * 1000 + 1000) });
+  assert.equal(replayOut.body.timeEntry.clockOut, firstOut.body.timeEntry.clockOut);
+  assert.equal(changedOut.body.code, 'clock_idempotency_conflict');
+});
+
+test('offline timestamp bounds and absolute format fail with stable codes', async (t) => {
+  const { businessId, employeeId, token } = await setupOfflineClockingContext(t, 'bounds');
+  const now = Date.now();
+  const base = { employeeId, workType: 'job', jobIds: ['job-a'] };
+  const malformed = await callClocking(token, 'clock-in', { ...base, requestId: 'bad', idempotencyKey: 'bad', clientOccurredAt: '2026-08-20T07:00:00' });
+  const future = await callClocking(token, 'clock-in', { ...base, requestId: 'future', idempotencyKey: 'future', clientOccurredAt: isoOffset(now, 6 * 60 * 1000) });
+  const old = await callClocking(token, 'clock-in', { ...base, requestId: 'old', idempotencyKey: 'old', clientOccurredAt: isoOffset(now, -25 * 60 * 60 * 1000) });
+  assert.deepEqual([[malformed.statusCode, malformed.body.code], [future.statusCode, future.body.code], [old.statusCode, old.body.code]], [
+    [400, 'offline_event_invalid_timestamp'],
+    [409, 'offline_event_in_future'],
+    [409, 'offline_event_too_old'],
+  ]);
+  assert.equal((await listTimeEntriesForBusiness(businessId)).length, 0);
+});
+
+test('delayed switches and clock-out reject non-sequential event ordering', async (t) => {
+  const { employeeId, token } = await setupOfflineClockingContext(t, 'ordering');
+  const now = Date.now();
+  const clockInAt = isoOffset(now, -3 * 60 * 60 * 1000);
+  const clockIn = await callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'order-in', idempotencyKey: 'order-in', clientOccurredAt: clockInAt });
+  assert.equal(clockIn.statusCode, 200);
+  const earlySwitch = await callClocking(token, 'switch-activity', { workType: 'job', jobIds: ['job-b'], requestId: 'early-switch', idempotencyKey: 'early-switch', clientOccurredAt: isoOffset(now, -4 * 60 * 60 * 1000) });
+  assert.equal(earlySwitch.body.code, 'offline_event_order_conflict');
+  const validSwitch = await callClocking(token, 'switch-activity', { workType: 'job', jobIds: ['job-b'], requestId: 'valid-switch', idempotencyKey: 'valid-switch', clientOccurredAt: isoOffset(now, -2 * 60 * 60 * 1000) });
+  assert.equal(validSwitch.statusCode, 200);
+  const earlyOut = await callClocking(token, 'clock-out', { entryId: validSwitch.body.timeEntry.id, requestId: 'early-out', idempotencyKey: 'early-out', clientOccurredAt: isoOffset(now, -2 * 60 * 60 * 1000 - 1) });
+  assert.equal(earlyOut.body.code, 'offline_event_order_conflict');
+});
+
+test('clock-out enforces the same past and future bounds as other mutations', async (t) => {
+  const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'out-bounds');
+  const now = Date.now();
+  seedActiveShiftForEntry(store, { businessId, employeeId, entryId: 'out-bounds-entry', clockIn: isoOffset(now, -2 * 60 * 60 * 1000), workType: 'job', jobIds: ['job-a'] });
+  const tooOld = await callClocking(token, 'clock-out', { entryId: 'out-bounds-entry', requestId: 'out-old', idempotencyKey: 'out-old', clientOccurredAt: isoOffset(now, -25 * 60 * 60 * 1000) });
+  const future = await callClocking(token, 'clock-out', { entryId: 'out-bounds-entry', requestId: 'out-future', idempotencyKey: 'out-future', clientOccurredAt: isoOffset(now, 6 * 60 * 1000) });
+  assert.deepEqual([[tooOld.statusCode, tooOld.body.code], [future.statusCode, future.body.code]], [
+    [409, 'offline_event_too_old'],
+    [409, 'offline_event_in_future'],
+  ]);
+});
+
+test('mixed online and delayed clocking retains server and client timestamp sources', async (t) => {
+  const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'mixed');
+  const now = Date.now();
+  const onlineStart = isoOffset(now, -3 * 60 * 60 * 1000);
+  seedActiveShiftForEntry(store, { businessId, employeeId, entryId: 'mixed-online-entry', clockIn: onlineStart, workType: 'job', jobIds: ['job-a'] });
+  const rawOnline = store.get(mapKey(`BUSINESS#${businessId}`, 'TIME#mixed-online-entry'));
+  rawOnline.clockInServerReceivedAt = onlineStart;
+  rawOnline.clockInTimestampSource = 'server';
+  const delayedSwitchAt = isoOffset(now, -2 * 60 * 60 * 1000);
+  const delayedOutAt = isoOffset(now, -60 * 60 * 1000);
+  const switched = await callClocking(token, 'switch-activity', { workType: 'job', jobIds: ['job-b'], requestId: 'mixed-switch', idempotencyKey: 'mixed-switch', clientOccurredAt: delayedSwitchAt });
+  const clockedOut = await callClocking(token, 'clock-out', { entryId: switched.body.timeEntry.id, requestId: 'mixed-out', idempotencyKey: 'mixed-out', clientOccurredAt: delayedOutAt });
+  assert.equal(clockedOut.statusCode, 200);
+  const entries = (await listTimeEntriesForBusiness(businessId)).sort((left, right) => Date.parse(left.clockIn) - Date.parse(right.clockIn));
+  assert.deepEqual(entries.map((entry) => [entry.clockIn, entry.clockOut]), [[onlineStart, delayedSwitchAt], [delayedSwitchAt, delayedOutAt]]);
+  assert.deepEqual(entries.map((entry) => entry.clockInTimestampSource), ['server', 'client']);
+});
+
+test('delayed clock-in may sync before a later delayed clock-out', async (t) => {
+  const { businessId, employeeId, token } = await setupOfflineClockingContext(t, 'mixed-delayed-in');
+  const now = Date.now();
+  const clockInAt = isoOffset(now, -3 * 60 * 60 * 1000);
+  const clockOutAt = isoOffset(now, -60 * 60 * 1000);
+  const clockIn = await callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'mixed-delayed-in', idempotencyKey: 'mixed-delayed-in', clientOccurredAt: clockInAt });
+  const clockOut = await callClocking(token, 'clock-out', { entryId: clockIn.body.timeEntry.id, requestId: 'mixed-delayed-out', idempotencyKey: 'mixed-delayed-out', clientOccurredAt: clockOutAt });
+  assert.equal(clockOut.statusCode, 200);
+  const [entry] = await listTimeEntriesForBusiness(businessId);
+  assert.equal(entry.clockIn, clockInAt);
+  assert.equal(entry.clockOut, clockOutAt);
+});
+
+test('delayed clock-in still rejects hidden jobs with the mobile conflict code', async (t) => {
+  const { employeeId, token } = await setupOfflineClockingContext(t, 'hidden-job');
+  const res = await callClocking(token, 'clock-in', {
+    employeeId,
+    workType: 'job',
+    jobIds: ['job-hidden'],
+    requestId: 'hidden-job',
+    idempotencyKey: 'hidden-job',
+    clientOccurredAt: isoOffset(Date.now(), -60 * 60 * 1000),
+  });
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.code, 'offline_job_unauthorized');
+});
+
+test('competing delayed clock-ins commit only one active timeline', async (t) => {
+  const { businessId, employeeId, token } = await setupOfflineClockingContext(t, 'concurrency');
+  const clientOccurredAt = isoOffset(Date.now(), -60 * 60 * 1000);
+  const [first, second] = await Promise.all([
+    callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-a'], requestId: 'race-a', idempotencyKey: 'race-a', clientOccurredAt }),
+    callClocking(token, 'clock-in', { employeeId, workType: 'job', jobIds: ['job-b'], requestId: 'race-b', idempotencyKey: 'race-b', clientOccurredAt }),
+  ]);
+  assert.deepEqual([first.statusCode, second.statusCode].sort(), [200, 409]);
+  const entries = await listTimeEntriesForBusiness(businessId);
+  assert.equal(entries.filter((entry) => entry.status === 'clocked_in').length, 1);
+});

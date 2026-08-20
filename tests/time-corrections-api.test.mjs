@@ -34,7 +34,7 @@ function baseSession(role = 'crew_member') {
   };
 }
 
-function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabled = false } = {}) {
+function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabled = false, now = '2026-08-07T12:00:00.000Z' } = {}) {
   const corrections = [];
   const timeEntries = [
     {
@@ -125,6 +125,7 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
     listCrewsForBusiness,
+    now: () => now,
   });
 
   return { handler, corrections, timeEntries };

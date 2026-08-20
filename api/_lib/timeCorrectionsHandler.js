@@ -181,6 +181,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
     listCrewsForBusiness,
+    now: nowIso,
     ...overrides,
   };
 
@@ -235,7 +236,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
 
     if (req.method === 'POST' && action === 'create') {
       const normalized = normalizeTimeCorrectionRequest(req.body ?? {});
-      const submittedAt = nowIso();
+      const submittedAt = deps.now();
       const ownerAdmin = isOwnerOrAdmin(session);
 
       const timeEntry = normalized.timeEntryId
@@ -401,7 +402,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         }
       }
 
-      const reviewedAt = nowIso();
+      const reviewedAt = deps.now();
       let createdTimeEntry;
       if (!correction.timeEntryId && correction.requestType === 'forgot_clock_in') {
         if (!correction.requestedClockInAt || !correction.requestedClockOutAt) {
@@ -461,7 +462,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         return res.status(409).json({ ok: false, error: 'Only pending correction requests can be rejected.' });
       }
 
-      const reviewedAt = nowIso();
+      const reviewedAt = deps.now();
       const result = await deps.rejectTimeCorrectionForBusiness({
         businessId: session.businessId,
         correction,

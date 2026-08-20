@@ -10,6 +10,8 @@ import {
   getClockingErrorResponse,
   getClockingFailureResponse,
   getExistingClockingIdempotency,
+  normalizeClientOccurredAt,
+  resolveClockingEventTime,
   resolveClockOutActiveShift,
 } from './_lib/clocking.js';
 import { ddb } from './_lib/db.js';
@@ -42,9 +44,43 @@ function scopedIdempotencyKey(employeeId, idempotencyKey) {
 
 function replayClockingRequest(res, existing, hashedPayload) {
   if (existing.payloadHash !== hashedPayload) {
-    return res.status(409).json({ ok: false, error: 'Clocking idempotency key was reused with a different request.' });
+    return res.status(409).json({ ok: false, code: 'clock_idempotency_conflict', error: 'Clocking idempotency key was reused with a different request.' });
   }
   return res.status(200).json({ ok: true, timeEntry: existing.response });
+}
+
+function clockingError(res, result) {
+  return res.status(result.status).json({ ok: false, code: result.code, error: result.error });
+}
+
+function normalizeRequestedEventTime(res, clientOccurredAt) {
+  const normalized = normalizeClientOccurredAt(clientOccurredAt);
+  if (!normalized.ok) {
+    clockingError(res, normalized);
+    return null;
+  }
+  return normalized.clientOccurredAt;
+}
+
+function validateEventAfter(eventOccurredAt, boundaryAt) {
+  const eventMs = Date.parse(eventOccurredAt);
+  const boundaryMs = Date.parse(boundaryAt);
+  if (Number.isNaN(boundaryMs) || eventMs <= boundaryMs) {
+    return { status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' };
+  }
+  return null;
+}
+
+function hasClockInTimelineConflict(entries, employeeId, eventOccurredAt) {
+  const eventMs = Date.parse(eventOccurredAt);
+  return entries.some((entry) => {
+    if (entry.employeeId !== employeeId) return false;
+    const clockInMs = Date.parse(entry.clockIn);
+    const clockOutMs = Date.parse(entry.clockOut);
+    if (Number.isNaN(clockInMs)) return true;
+    if (entry.status === 'clocked_in' || Number.isNaN(clockOutMs)) return true;
+    return clockInMs >= eventMs || clockOutMs > eventMs;
+  });
 }
 
 export function canRecordDriveTime(workType, employee) {
@@ -124,7 +160,7 @@ async function validateClockingJobs({ session, jobIds }) {
     const job = await getJobForBusiness(session.businessId, jobId);
     if (!job) return { ok: false, status: 400, error: 'Job is invalid.' };
     if (!authorizeRecordAccess(session, 'jobs', job, { crews })) {
-      return { ok: false, status: 403, error: 'Forbidden' };
+      return { ok: false, status: 403, code: 'offline_job_unauthorized', error: 'Forbidden' };
     }
   }
 
@@ -158,6 +194,9 @@ export default async function handler(req, res) {
     }
 
     const employeeId = req.body.employeeId;
+    const serverReceivedAt = nowIso();
+    const normalizedClientOccurredAt = normalizeRequestedEventTime(res, req.body?.clientOccurredAt);
+    if (req.body?.clientOccurredAt !== undefined && normalizedClientOccurredAt === null) return;
     const employee = await getEmployeeForBusiness(session.businessId, employeeId);
     if (!employee || !employee.active) {
       return res.status(400).json({ ok: false, error: 'Employee is invalid.' });
@@ -174,7 +213,7 @@ export default async function handler(req, res) {
     if (requestedWorkType === 'job' || requestedWorkType === 'drive_time') {
       const jobValidation = await validateClockingJobs({ session, jobIds: requestedJobIds });
       if (!jobValidation.ok) {
-        return res.status(jobValidation.status).json({ ok: false, error: jobValidation.error });
+        return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code, error: jobValidation.error });
       }
     }
     if (!canRecordDriveTime(requestedWorkType, employee)) {
@@ -209,6 +248,7 @@ export default async function handler(req, res) {
         : undefined,
       requestId,
       idempotencyKey: clientIdempotencyKey,
+      clientOccurredAt: normalizedClientOccurredAt,
     };
     const hashedPayload = payloadHash(payload);
 
@@ -218,25 +258,33 @@ export default async function handler(req, res) {
       return replayClockingRequest(res, existing, hashedPayload);
     }
 
+    const eventTime = resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
+    if (!eventTime.ok) return clockingError(res, eventTime);
+
     const activeEntries = await listTimeEntriesForBusiness(session.businessId);
     const activeEntry = activeEntries.find((entry) => entry.employeeId === employeeId && entry.status === 'clocked_in');
     if (activeEntry) {
       const response = getClockingErrorResponse({ statusCode: 409, code: 'ALREADY_CLOCKED_IN' });
-      return res.status(response.status).json({ ok: false, error: response.error });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
+    }
+    if (hasClockInTimelineConflict(activeEntries, employeeId, eventTime.eventOccurredAt)) {
+      return clockingError(res, { status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' });
     }
 
-    const clockInAt = nowIso();
+    const clockInAt = eventTime.eventOccurredAt;
     const tx = buildClockInTransaction({
       businessId: session.businessId,
       employeeId,
       userId: session.id,
       timeEntryId: `${employeeId}:${clockInAt}`,
       clockInAt,
+      serverReceivedAt: eventTime.serverReceivedAt,
+      timestampSource: eventTime.timestampSource,
       requestId,
       idempotencyKey,
       payloadHash: hashedPayload,
-      source: 'web',
-      auditEventId: `${session.id}:${clockInAt}`,
+      source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'web',
+      auditEventId: `${session.id}:${requestId}:clock-in`,
       jobIds: requestedJobIds,
       workType: requestedWorkType,
       unbillableCategoryId: requestedWorkType === 'non_billable'
@@ -269,6 +317,8 @@ export default async function handler(req, res) {
       };
       return res.status(200).json({ ok: true, timeEntry });
     } catch (error) {
+      const committed = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+      if (committed) return replayClockingRequest(res, committed, hashedPayload);
       const response = getClockingFailureResponse('clock-in', error);
       console.error('[clocking:clock-in]', {
         action: 'clock-in',
@@ -282,7 +332,7 @@ export default async function handler(req, res) {
             }))
           : undefined,
       });
-      return res.status(response.status).json({ ok: false, error: response.error });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
     }
   }
 
@@ -298,6 +348,20 @@ export default async function handler(req, res) {
     const clientIdempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
       ? req.body.idempotencyKey.trim()
       : `${entryId}:${requestId}`;
+
+    const requestedEntry = await getTimeEntryForBusiness(session.businessId, entryId);
+    if (!requestedEntry) {
+      const response = getClockingErrorResponse({ statusCode: 409, code: 'NO_ACTIVE_SHIFT' });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
+    }
+
+    if (!canClockForEmployee(session, requestedEntry.employeeId)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+
+    const serverReceivedAt = nowIso();
+    const normalizedClientOccurredAt = normalizeRequestedEventTime(res, req.body?.clientOccurredAt);
+    if (req.body?.clientOccurredAt !== undefined && normalizedClientOccurredAt === null) return;
     const payload = {
       action: 'clock-out',
       entryId,
@@ -310,18 +374,9 @@ export default async function handler(req, res) {
         : undefined,
       photoAttachmentFileId: req.body?.photoAttachmentFileId ?? undefined,
       photoAttachmentUrl: req.body?.photoAttachmentUrl ?? undefined,
+      clientOccurredAt: normalizedClientOccurredAt,
     };
     const hashedPayload = payloadHash(payload);
-
-    const requestedEntry = await getTimeEntryForBusiness(session.businessId, entryId);
-    if (!requestedEntry) {
-      const response = getClockingErrorResponse({ statusCode: 409, code: 'NO_ACTIVE_SHIFT' });
-      return res.status(response.status).json({ ok: false, error: response.error });
-    }
-
-    if (!canClockForEmployee(session, requestedEntry.employeeId)) {
-      return res.status(403).json({ ok: false, error: 'Forbidden' });
-    }
 
     const idempotencyKey = scopedIdempotencyKey(requestedEntry.employeeId, clientIdempotencyKey);
     const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
@@ -329,9 +384,12 @@ export default async function handler(req, res) {
       return replayClockingRequest(res, existing, hashedPayload);
     }
 
+    const eventTime = resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
+    if (!eventTime.ok) return clockingError(res, eventTime);
+
     if (requestedEntry.status !== 'clocked_in') {
       const response = getClockingErrorResponse({ statusCode: 409, code: 'NO_ACTIVE_SHIFT' });
-      return res.status(response.status).json({ ok: false, error: response.error });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
     }
 
     const activeEntry = requestedEntry;
@@ -378,8 +436,11 @@ export default async function handler(req, res) {
           reason: activeShiftState.reason,
         });
       }
-      return res.status(activeShiftState.status).json({ ok: false, error: activeShiftState.error });
+      return res.status(activeShiftState.status).json({ ok: false, code: 'offline_shift_state_conflict', error: activeShiftState.error });
     }
+
+    const orderError = validateEventAfter(eventTime.eventOccurredAt, activeEntry.clockIn);
+    if (orderError) return clockingError(res, orderError);
 
     console.info('[clocking:clock-out:pre-transaction]', {
       businessId: session.businessId,
@@ -391,18 +452,20 @@ export default async function handler(req, res) {
     });
 
     const employee = await getEmployeeForBusiness(session.businessId, activeEntry.employeeId);
-    const clockOutAt = nowIso();
+    const clockOutAt = eventTime.eventOccurredAt;
     const tx = buildClockOutTransaction({
       businessId: session.businessId,
       employeeId: activeEntry.employeeId,
       userId: session.id,
       timeEntryId: entryId,
       clockOutAt,
+      serverReceivedAt: eventTime.serverReceivedAt,
+      timestampSource: eventTime.timestampSource,
       requestId,
       idempotencyKey,
       payloadHash: hashedPayload,
-      source: 'web',
-      auditEventId: `${session.id}:${clockOutAt}`,
+      source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'web',
+      auditEventId: `${session.id}:${requestId}:clock-out`,
       breakMinutes: req.body?.breakMinutes ?? 0,
       notes: req.body?.notes ?? '',
       photoAttachmentFileIds: attachmentValidation.fileIds ?? undefined,
@@ -440,6 +503,8 @@ export default async function handler(req, res) {
       };
       return res.status(200).json({ ok: true, timeEntry });
     } catch (error) {
+      const committed = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+      if (committed) return replayClockingRequest(res, committed, hashedPayload);
       const response = getClockingFailureResponse('clock-out', error);
       console.error('[clocking:clock-out]', {
         action: 'clock-out',
@@ -463,7 +528,7 @@ export default async function handler(req, res) {
         stack: error?.stack,
         transactionSummary: summarizeTransaction(tx),
       });
-      return res.status(response.status).json({ ok: false, error: response.error });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
     }
   }
 
@@ -485,6 +550,9 @@ export default async function handler(req, res) {
     if (!employee || !employee.active) {
       return res.status(400).json({ ok: false, error: 'Employee is invalid.' });
     }
+    const serverReceivedAt = nowIso();
+    const normalizedClientOccurredAt = normalizeRequestedEventTime(res, req.body?.clientOccurredAt);
+    if (req.body?.clientOccurredAt !== undefined && normalizedClientOccurredAt === null) return;
 
     const workTypeResult = getSwitchWorkType(req.body);
     if (!workTypeResult.ok) {
@@ -509,17 +577,8 @@ export default async function handler(req, res) {
     if (nextWorkType === 'job' || nextWorkType === 'drive_time') {
       const jobValidation = await validateClockingJobs({ session, jobIds: nextJobIds });
       if (!jobValidation.ok) {
-        return res.status(jobValidation.status).json({ ok: false, error: jobValidation.error });
+        return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code, error: jobValidation.error });
       }
-    }
-
-    const activeShift = await getActiveShiftForEmployee({
-      businessId: session.businessId,
-      employeeId,
-    });
-
-    if (!activeShift || typeof activeShift.activeEntryId !== 'string' || !activeShift.activeEntryId.trim()) {
-      return res.status(409).json({ ok: false, error: 'No active shift found' });
     }
 
     const requestId = typeof req.body?.requestId === 'string' && req.body.requestId.trim()
@@ -537,6 +596,7 @@ export default async function handler(req, res) {
       unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
       requestId,
       idempotencyKey: clientIdempotencyKey,
+      clientOccurredAt: normalizedClientOccurredAt,
     };
     const hashedPayload = payloadHash(payload);
 
@@ -546,11 +606,25 @@ export default async function handler(req, res) {
       return replayClockingRequest(res, existing, hashedPayload);
     }
 
+    const eventTime = resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
+    if (!eventTime.ok) return clockingError(res, eventTime);
+
+    const activeShift = await getActiveShiftForEmployee({
+      businessId: session.businessId,
+      employeeId,
+    });
+
+    if (!activeShift || typeof activeShift.activeEntryId !== 'string' || !activeShift.activeEntryId.trim()) {
+      return clockingError(res, { status: 409, code: 'offline_shift_state_conflict', error: 'No active shift found' });
+    }
+
     const allEntries = await listTimeEntriesForBusiness(session.businessId);
     const previousEntry = allEntries.find((entry) => entry.id === activeShift.activeEntryId);
     if (!previousEntry || previousEntry.status !== 'clocked_in' || previousEntry.employeeId !== employeeId) {
-      return res.status(409).json({ ok: false, error: 'No active shift found' });
+      return clockingError(res, { status: 409, code: 'offline_shift_state_conflict', error: 'No active shift found' });
     }
+    const orderError = validateEventAfter(eventTime.eventOccurredAt, previousEntry.clockIn);
+    if (orderError) return clockingError(res, orderError);
 
     if (nextWorkType === 'non_billable') {
       const categoryResult = await resolveActiveUnbillableCategoryOrError({
@@ -573,7 +647,7 @@ export default async function handler(req, res) {
       activeShiftActiveEntryId: activeShift.activeEntryId,
     });
 
-    const switchedAt = nowIso();
+    const switchedAt = eventTime.eventOccurredAt;
     const nextTimeEntryId = `${employeeId}:${switchedAt}`;
     const tx = buildSwitchActivityTransaction({
       businessId: session.businessId,
@@ -588,11 +662,13 @@ export default async function handler(req, res) {
         unbillableCategoryName: nextWorkType === 'non_billable' ? requestedUnbillableCategory.name : undefined,
       },
       switchedAt,
+      serverReceivedAt: eventTime.serverReceivedAt,
+      timestampSource: eventTime.timestampSource,
       requestId,
       idempotencyKey,
       payloadHash: hashedPayload,
-      source: 'mobile',
-      auditEventId: `${session.id}:${switchedAt}`,
+      source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'mobile',
+      auditEventId: `${session.id}:${requestId}:switch-activity`,
       employeeName: employee.name,
     });
 
@@ -613,6 +689,8 @@ export default async function handler(req, res) {
       };
       return res.status(200).json({ ok: true, timeEntry });
     } catch (error) {
+      const committed = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+      if (committed) return replayClockingRequest(res, committed, hashedPayload);
       const response = getClockingFailureResponse('switch-activity', error);
       console.error('[clocking:switch-activity]', {
         action: 'switch-activity',
@@ -630,7 +708,7 @@ export default async function handler(req, res) {
         stack: error?.stack,
         transactionSummary: summarizeTransaction(tx),
       });
-      return res.status(response.status).json({ ok: false, error: response.error });
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
     }
   }
 

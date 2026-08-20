@@ -7,6 +7,57 @@ function nowIso() {
 
 export const DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS = 12;
 export const MAX_CLOCK_OUT_PHOTO_ATTACHMENTS = 5;
+export const OFFLINE_EVENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const OFFLINE_EVENT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+const ABSOLUTE_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function normalizeClientOccurredAt(clientOccurredAt) {
+  if (clientOccurredAt === undefined) return { ok: true, clientOccurredAt: undefined };
+  if (typeof clientOccurredAt !== 'string' || !ABSOLUTE_ISO_TIMESTAMP.test(clientOccurredAt.trim())) {
+    return { ok: false, status: 400, code: 'offline_event_invalid_timestamp', error: 'clientOccurredAt must be a valid absolute ISO-8601 timestamp.' };
+  }
+  const eventOccurredMs = Date.parse(clientOccurredAt.trim());
+  if (Number.isNaN(eventOccurredMs)) {
+    return { ok: false, status: 400, code: 'offline_event_invalid_timestamp', error: 'clientOccurredAt must be a valid absolute ISO-8601 timestamp.' };
+  }
+  return { ok: true, clientOccurredAt: new Date(eventOccurredMs).toISOString() };
+}
+
+export function resolveClockingEventTime({ clientOccurredAt, serverReceivedAt = nowIso() }) {
+  const serverReceivedMs = Date.parse(serverReceivedAt);
+  if (Number.isNaN(serverReceivedMs)) throw new TypeError('serverReceivedAt must be a valid timestamp.');
+
+  if (clientOccurredAt === undefined) {
+    return {
+      ok: true,
+      eventOccurredAt: new Date(serverReceivedMs).toISOString(),
+      serverReceivedAt: new Date(serverReceivedMs).toISOString(),
+      timestampSource: 'server',
+      timestampDeltaMs: 0,
+    };
+  }
+
+  const normalized = normalizeClientOccurredAt(clientOccurredAt);
+  if (!normalized.ok) return normalized;
+  const eventOccurredMs = Date.parse(normalized.clientOccurredAt);
+
+  const timestampDeltaMs = eventOccurredMs - serverReceivedMs;
+  if (timestampDeltaMs > OFFLINE_EVENT_MAX_FUTURE_SKEW_MS) {
+    return { ok: false, status: 409, code: 'offline_event_in_future', error: 'Clocking event time is too far in the future.' };
+  }
+  if (timestampDeltaMs < -OFFLINE_EVENT_MAX_AGE_MS) {
+    return { ok: false, status: 409, code: 'offline_event_too_old', error: 'Clocking event time is outside the offline clocking window.' };
+  }
+
+  return {
+    ok: true,
+    eventOccurredAt: new Date(eventOccurredMs).toISOString(),
+    serverReceivedAt: new Date(serverReceivedMs).toISOString(),
+    timestampSource: 'client',
+    timestampDeltaMs,
+  };
+}
 
 export function isPossiblyForgottenClockOut({
   clockInAt,
@@ -54,6 +105,8 @@ export function buildClockInTransaction({
   userId,
   timeEntryId,
   clockInAt,
+  serverReceivedAt,
+  timestampSource = 'server',
   requestId,
   idempotencyKey,
   payloadHash,
@@ -65,7 +118,8 @@ export function buildClockInTransaction({
   unbillableCategoryName,
   employeeName = '',
 }) {
-  const now = clockInAt ?? nowIso();
+  const eventOccurredAt = clockInAt ?? nowIso();
+  const receivedAt = serverReceivedAt ?? nowIso();
   const timeEntryItem = {
     PK: businessPk(businessId),
     SK: timeEntrySk(timeEntryId),
@@ -79,12 +133,14 @@ export function buildClockInTransaction({
     workType,
     unbillableCategoryId: workType === 'non_billable' ? unbillableCategoryId : undefined,
     unbillableCategoryName: workType === 'non_billable' ? unbillableCategoryName : undefined,
-    clockIn: now,
+    clockIn: eventOccurredAt,
+    clockInServerReceivedAt: receivedAt,
+    clockInTimestampSource: timestampSource,
     status: 'clocked_in',
     breakMinutes: 0,
     notes: '',
-    createdAt: now,
-    updatedAt: now,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   const lockItem = {
@@ -95,8 +151,9 @@ export function buildClockInTransaction({
     employeeId,
     activeEntryId: timeEntryId,
     status: 'active',
-    createdAt: now,
-    updatedAt: now,
+    activeEntryStartedAt: eventOccurredAt,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   const auditItem = {
@@ -110,11 +167,14 @@ export function buildClockInTransaction({
     actorName: employeeName || userId,
     actorEmail: '',
     affectedEntryCount: 1,
-    createdAt: now,
+    createdAt: receivedAt,
     metadata: {
       employeeId,
       timeEntryId,
       source,
+      eventOccurredAt,
+      serverReceivedAt: receivedAt,
+      timestampSource,
     },
   };
 
@@ -135,13 +195,16 @@ export function buildClockInTransaction({
       workType,
       unbillableCategoryId: workType === 'non_billable' ? unbillableCategoryId : undefined,
       unbillableCategoryName: workType === 'non_billable' ? unbillableCategoryName : undefined,
-      clockIn: now,
+      clockIn: eventOccurredAt,
       breakMinutes: 0,
       notes: '',
       status: 'clocked_in',
     },
-    createdAt: now,
-    updatedAt: now,
+    eventOccurredAt,
+    serverReceivedAt: receivedAt,
+    timestampSource,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   return {
@@ -242,6 +305,8 @@ export function buildClockOutTransaction({
   userId,
   timeEntryId,
   clockOutAt,
+  serverReceivedAt,
+  timestampSource = 'server',
   requestId,
   idempotencyKey,
   payloadHash,
@@ -260,7 +325,8 @@ export function buildClockOutTransaction({
   clockIn,
   employeeName = '',
 }) {
-  const now = clockOutAt ?? nowIso();
+  const eventOccurredAt = clockOutAt ?? nowIso();
+  const receivedAt = serverReceivedAt ?? nowIso();
   const attachmentFileIds = Array.isArray(photoAttachmentFileIds)
     ? photoAttachmentFileIds.filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
     : [];
@@ -292,7 +358,7 @@ export function buildClockOutTransaction({
       jobIds,
       workType,
       clockIn,
-      clockOut: now,
+      clockOut: eventOccurredAt,
       breakMinutes,
       notes,
       photoAttachmentFileIds: hasPhotoAttachmentFileIds ? normalizedAttachmentFileIds : undefined,
@@ -304,8 +370,11 @@ export function buildClockOutTransaction({
       unbillableCategoryName,
       status: 'clocked_out',
     },
-    createdAt: now,
-    updatedAt: now,
+    eventOccurredAt,
+    serverReceivedAt: receivedAt,
+    timestampSource,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   const auditItem = {
@@ -319,11 +388,14 @@ export function buildClockOutTransaction({
     actorName: employeeName || userId,
     actorEmail: '',
     affectedEntryCount: 1,
-    createdAt: now,
+    createdAt: receivedAt,
     metadata: {
       employeeId,
       timeEntryId,
       source,
+      eventOccurredAt,
+      serverReceivedAt: receivedAt,
+      timestampSource,
     },
   };
 
@@ -333,6 +405,8 @@ export function buildClockOutTransaction({
     '#breakMinutes = :breakMinutes',
     '#notes = :notes',
     '#updatedAt = :updatedAt',
+    '#clockOutServerReceivedAt = :clockOutServerReceivedAt',
+    '#clockOutTimestampSource = :clockOutTimestampSource',
   ];
   const expressionAttributeNames = {
     '#status': 'status',
@@ -340,13 +414,18 @@ export function buildClockOutTransaction({
     '#breakMinutes': 'breakMinutes',
     '#notes': 'notes',
     '#updatedAt': 'updatedAt',
+    '#clockOutServerReceivedAt': 'clockOutServerReceivedAt',
+    '#clockOutTimestampSource': 'clockOutTimestampSource',
+    '#clockIn': 'clockIn',
   };
   const expressionAttributeValues = {
     ':status': 'clocked_out',
-    ':clockOut': now,
+    ':clockOut': eventOccurredAt,
     ':breakMinutes': breakMinutes,
     ':notes': notes,
-    ':updatedAt': now,
+    ':updatedAt': receivedAt,
+    ':clockOutServerReceivedAt': receivedAt,
+    ':clockOutTimestampSource': timestampSource,
     ':clockedIn': 'clocked_in',
   };
 
@@ -407,9 +486,12 @@ export function buildClockOutTransaction({
             SK: timeEntrySk(timeEntryId),
           },
           UpdateExpression: `SET ${updateExpressionParts.join(', ')}`,
-          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn AND #clockIn = :expectedClockIn',
           ExpressionAttributeNames: expressionAttributeNames,
-          ExpressionAttributeValues: expressionAttributeValues,
+          ExpressionAttributeValues: {
+            ...expressionAttributeValues,
+            ':expectedClockIn': clockIn,
+          },
         },
       },
       {
@@ -430,6 +512,8 @@ export function buildSwitchActivityTransaction({
   previousTimeEntry,
   nextTimeEntry,
   switchedAt,
+  serverReceivedAt,
+  timestampSource = 'server',
   requestId,
   idempotencyKey,
   payloadHash,
@@ -437,7 +521,8 @@ export function buildSwitchActivityTransaction({
   auditEventId,
   employeeName = '',
 }) {
-  const now = switchedAt ?? nowIso();
+  const eventOccurredAt = switchedAt ?? nowIso();
+  const receivedAt = serverReceivedAt ?? nowIso();
   const idempotencyItem = {
     PK: businessPk(businessId),
     SK: idempotencySk(idempotencyKey),
@@ -456,13 +541,16 @@ export function buildSwitchActivityTransaction({
       workType: nextTimeEntry.workType,
       unbillableCategoryId: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryId : undefined,
       unbillableCategoryName: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryName : undefined,
-      clockIn: now,
+      clockIn: eventOccurredAt,
       breakMinutes: 0,
       notes: '',
       status: 'clocked_in',
     },
-    createdAt: now,
-    updatedAt: now,
+    eventOccurredAt,
+    serverReceivedAt: receivedAt,
+    timestampSource,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   const nextEntryItem = {
@@ -478,12 +566,14 @@ export function buildSwitchActivityTransaction({
     workType: nextTimeEntry.workType,
     unbillableCategoryId: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryId : undefined,
     unbillableCategoryName: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryName : undefined,
-    clockIn: now,
+    clockIn: eventOccurredAt,
+    clockInServerReceivedAt: receivedAt,
+    clockInTimestampSource: timestampSource,
     status: 'clocked_in',
     breakMinutes: 0,
     notes: '',
-    createdAt: now,
-    updatedAt: now,
+    createdAt: receivedAt,
+    updatedAt: receivedAt,
   };
 
   const auditItem = {
@@ -497,7 +587,7 @@ export function buildSwitchActivityTransaction({
     actorName: employeeName || userId,
     actorEmail: '',
     affectedEntryCount: 2,
-    createdAt: now,
+    createdAt: receivedAt,
     metadata: {
       employeeId,
       previousTimeEntryId: previousTimeEntry.id,
@@ -507,6 +597,9 @@ export function buildSwitchActivityTransaction({
       previousJobIds: Array.isArray(previousTimeEntry.jobIds) ? previousTimeEntry.jobIds : [],
       newJobIds: Array.isArray(nextTimeEntry.jobIds) ? nextTimeEntry.jobIds : [],
       source,
+      eventOccurredAt,
+      serverReceivedAt: receivedAt,
+      timestampSource,
     },
   };
 
@@ -526,18 +619,24 @@ export function buildSwitchActivityTransaction({
             PK: businessPk(businessId),
             SK: timeEntrySk(previousTimeEntry.id),
           },
-          UpdateExpression: 'SET #status = :status, #clockOut = :clockOut, #updatedAt = :updatedAt',
-          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn',
+          UpdateExpression: 'SET #status = :status, #clockOut = :clockOut, #updatedAt = :updatedAt, #clockOutServerReceivedAt = :clockOutServerReceivedAt, #clockOutTimestampSource = :clockOutTimestampSource',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn AND #clockIn = :expectedClockIn',
           ExpressionAttributeNames: {
             '#status': 'status',
             '#clockOut': 'clockOut',
             '#updatedAt': 'updatedAt',
+            '#clockOutServerReceivedAt': 'clockOutServerReceivedAt',
+            '#clockOutTimestampSource': 'clockOutTimestampSource',
+            '#clockIn': 'clockIn',
           },
           ExpressionAttributeValues: {
             ':status': 'clocked_out',
-            ':clockOut': now,
-            ':updatedAt': now,
+            ':clockOut': eventOccurredAt,
+            ':updatedAt': receivedAt,
+            ':clockOutServerReceivedAt': receivedAt,
+            ':clockOutTimestampSource': timestampSource,
             ':clockedIn': 'clocked_in',
+            ':expectedClockIn': previousTimeEntry.clockIn,
           },
         },
       },
@@ -555,16 +654,18 @@ export function buildSwitchActivityTransaction({
             PK: activeShiftPk(businessId, employeeId),
             SK: activeShiftSk(),
           },
-          UpdateExpression: 'SET #activeEntryId = :newEntryId, #updatedAt = :updatedAt',
+          UpdateExpression: 'SET #activeEntryId = :newEntryId, #activeEntryStartedAt = :activeEntryStartedAt, #updatedAt = :updatedAt',
           ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #activeEntryId = :previousEntryId',
           ExpressionAttributeNames: {
             '#activeEntryId': 'activeEntryId',
             '#updatedAt': 'updatedAt',
+            '#activeEntryStartedAt': 'activeEntryStartedAt',
           },
           ExpressionAttributeValues: {
             ':newEntryId': nextTimeEntry.id,
             ':previousEntryId': previousTimeEntry.id,
-            ':updatedAt': now,
+            ':activeEntryStartedAt': eventOccurredAt,
+            ':updatedAt': receivedAt,
           },
         },
       },
