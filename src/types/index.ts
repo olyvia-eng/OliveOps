@@ -866,7 +866,8 @@ export type LabourClassification = 'billable' | 'overhead';
 
 export interface LabourDivisionAllocation {
   divisionId: ID;
-  percentage: number;
+  hours?: number;
+  percentage?: number;
 }
 
 export interface EquipmentDivisionAllocation {

@@ -142,25 +142,25 @@ test('Labour planning validates classification, overtime, and exact same-Budget 
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: {
     name: 'Operator', compType: 'hourly', hourlyRate: 30, plannedHours: 2000,
     labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
-    divisionAllocations: [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }],
+    divisionAllocations: [{ divisionId: 'land', hours: 1200 }, { divisionId: 'snow', hours: 800 }],
   } } }, valid);
   assert.equal(valid.statusCode, 200);
   assert.equal(valid.body.item.divisionAllocations.length, 2);
 
   const overBillable = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Labourer', expectedBillablePct: 101, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', percentage: 100 }] } } }, overBillable);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Labourer', plannedHours: 1900, expectedBillablePct: 101, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, overBillable);
   assert.equal(overBillable.statusCode, 400);
 
   const invalidMultiplier = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Installer', overtimeMultiplier: 0.5, divisionAllocations: [{ divisionId: 'land', percentage: 100 }] } } }, invalidMultiplier);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Installer', plannedHours: 1900, overtimeMultiplier: 0.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, invalidMultiplier);
   assert.equal(invalidMultiplier.statusCode, 400);
 
   const incomplete = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Foreman', overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', percentage: 80 }] } } }, incomplete);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Foreman', plannedHours: 2000, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 1600 }] } } }, incomplete);
   assert.equal(incomplete.statusCode, 400);
 
   const crossBudget = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Estimator', overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'foreign-division', percentage: 100 }] } } }, crossBudget);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Estimator', plannedHours: 1900, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'foreign-division', hours: 1900 }] } } }, crossBudget);
   assert.equal(crossBudget.statusCode, 400);
   assert.match(crossBudget.body.error, /belong to this Budget/);
 });
@@ -216,7 +216,7 @@ test('one employee Labour item is shared across allocated Divisions and remains 
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: {
     employeeId: 'ryan', name: 'Ryan Field', compType: 'salaried', annualSalary: 90000, plannedHours: 2000,
     labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 0, overtimeMultiplier: 1.5,
-    divisionAllocations: [{ divisionId: 'hardscape', percentage: 60 }, { divisionId: 'snow', percentage: 40 }],
+    divisionAllocations: [{ divisionId: 'hardscape', hours: 1200 }, { divisionId: 'snow', hours: 800 }],
   } } }, created);
   assert.equal(created.statusCode, 200);
   const labourItemId = created.body.item.id;
@@ -229,23 +229,23 @@ test('one employee Labour item is shared across allocated Divisions and remains 
   await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour' }, headers: { authorization: 'Bearer token-a' } }, snow);
   assert.equal(hardscape.body.items[0].id, labourItemId);
   assert.equal(snow.body.items[0].id, labourItemId);
-  assert.equal(hardscape.body.items[0].divisionAllocations.find((item) => item.divisionId === 'hardscape').percentage, 60);
-  assert.equal(snow.body.items[0].divisionAllocations.find((item) => item.divisionId === 'snow').percentage, 40);
+  assert.equal(hardscape.body.items[0].divisionAllocations.find((item) => item.divisionId === 'hardscape').hours, 1200);
+  assert.equal(snow.body.items[0].divisionAllocations.find((item) => item.divisionId === 'snow').hours, 800);
 
   const duplicate = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { employeeId: 'ryan', name: 'Ryan Field', overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'snow', percentage: 100 }] } } }, duplicate);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { employeeId: 'ryan', name: 'Ryan Field', plannedHours: 1900, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'snow', hours: 1900 }] } } }, duplicate);
   assert.equal(duplicate.statusCode, 409);
   assert.match(duplicate.body.error, /already in the Budget/);
 
   const editedFromSnow = response();
-  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: labourItemId }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', percentage: 50 }, { divisionId: 'snow', percentage: 50 }] } } }, editedFromSnow);
+  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: labourItemId }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }, { divisionId: 'snow', hours: 1000 }] } } }, editedFromSnow);
   assert.equal(editedFromSnow.statusCode, 200);
   assert.equal(editedFromSnow.body.item.id, labourItemId);
-  assert.deepEqual(editedFromSnow.body.item.divisionAllocations, [{ divisionId: 'hardscape', percentage: 50 }, { divisionId: 'snow', percentage: 50 }]);
+  assert.deepEqual(editedFromSnow.body.item.divisionAllocations, [{ divisionId: 'hardscape', hours: 1000 }, { divisionId: 'snow', hours: 1000 }]);
   assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'labour').length, 1);
 
   const removeSnowAllocation = response();
-  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: labourItemId }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }, { divisionId: 'snow', percentage: 0 }] } } }, removeSnowAllocation);
+  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: labourItemId }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }, { divisionId: 'snow', hours: 0 }] } } }, removeSnowAllocation);
   assert.equal(removeSnowAllocation.statusCode, 200);
   const snowAfter = response();
   await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour' }, headers: { authorization: 'Bearer token-a' } }, snowAfter);
@@ -255,7 +255,7 @@ test('one employee Labour item is shared across allocated Divisions and remains 
   assert.equal(hardscapeAfter.body.items[0].id, labourItemId);
 });
 
-test('legacy Division-scoped Labour migrates on edit, rejects local reorder, and deletes all key forms', async (t) => {
+test('legacy Division-scoped Labour migrates on budget-wide reorder and deletes all key forms', async (t) => {
   const store = installDdb(t);
   await seedTenant(store);
   seedBudget(store, 'biz-a', 'budget-a', '2027');
@@ -274,11 +274,11 @@ test('legacy Division-scoped Labour migrates on edit, rejects local reorder, and
 
   const reorder = response();
   await planningHandler({ method: 'PUT', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { orderedIds: ['legacy-ryan'] } }, reorder);
-  assert.equal(reorder.statusCode, 400);
-  assert.match(reorder.body.error, /cannot be reordered/);
+  assert.equal(reorder.statusCode, 200);
+  assert.equal(reorder.body.items[0].id, 'legacy-ryan');
 
   const edited = response();
-  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: 'legacy-ryan' }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', percentage: 50 }, { divisionId: 'snow', percentage: 50 }] } } }, edited);
+  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'labour', id: 'legacy-ryan' }, headers: { authorization: 'Bearer token-a' }, body: { data: { divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }, { divisionId: 'snow', hours: 1000 }] } } }, edited);
   assert.equal(edited.statusCode, 200);
   const canonicalItemSk = 'BUDGET_DIVISION_PLAN#budget-a#CATEGORY#labour#ITEM#legacy-ryan';
   const canonicalIdentitySk = `BUDGET_DIVISION_PLAN#budget-a#CATEGORY#labour#IDENTITY#${Buffer.from('employee:ryan').toString('base64url')}`;

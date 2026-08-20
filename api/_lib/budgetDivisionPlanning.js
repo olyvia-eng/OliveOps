@@ -49,7 +49,7 @@ export async function listBudgetPlanningItems({ businessId, budgetId, category }
 export async function listDivisionPlanningItems({ businessId, budgetId, divisionId, category }) {
   if (category === 'labour') {
     const items = await listBudgetPlanningItems({ businessId, budgetId, category });
-    return items.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0));
+    return items.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0));
   }
   const result = await ddb.send(new QueryCommand({
     TableName: tableName,

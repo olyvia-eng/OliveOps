@@ -1733,7 +1733,7 @@ export const useStore = create<AppState>()((set, get) => ({
       reorderBudgetDivisionPlanningItems: async (budgetId, divisionId, category, orderedIds) => {
         const previous = get().budgetDivisionPlanningItems;
         const order = new Map(orderedIds.map((id, index) => [id, index]));
-        set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((item) => item.budgetId === budgetId && item.divisionId === divisionId && item.category === category ? { ...item, sortOrder: order.get(item.id) ?? item.sortOrder } : item) }));
+        set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((item) => item.budgetId === budgetId && item.category === category && ((category === 'labour' || category === 'equipment') || item.divisionId === divisionId) ? { ...item, sortOrder: order.get(item.id) ?? item.sortOrder } : item) }));
         try {
           const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(budgetId)}&divisionId=${encodeURIComponent(divisionId)}&category=${encodeURIComponent(category)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ orderedIds }),

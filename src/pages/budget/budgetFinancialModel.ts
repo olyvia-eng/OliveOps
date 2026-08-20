@@ -1,5 +1,5 @@
 import type { BudgetDivision, BudgetDivisionPlanningItem, BudgetItem } from '../../types';
-import { calculateDivisionLabourShare } from './divisionLabourPlanningModel';
+import { calculateDivisionLabourShare, isLabourAllocatedToDivision } from './divisionLabourPlanningModel';
 
 type PlanningItem = Partial<BudgetDivisionPlanningItem> & Pick<BudgetDivisionPlanningItem, 'id' | 'budgetId' | 'divisionId' | 'category'>;
 
@@ -57,7 +57,7 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const division = input.divisions.find((item) => item.id === divisionId);
   const items = [...new Map(input.planningItems.map((item) => [item.id, item])).values()];
   const categoryPresent = (category: PlanningItem['category']) => items.some((item) => item.category === category && (
-    category === 'labour' ? calculateDivisionLabourShare(item, divisionId).percentage > 0
+    category === 'labour' ? isLabourAllocatedToDivision(item, divisionId)
       : category === 'equipment' ? finiteNonNegative(equipmentMonths(item, divisionId)) > 0
         : item.divisionId === divisionId
   ));

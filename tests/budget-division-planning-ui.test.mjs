@@ -17,12 +17,13 @@ test('all four Division planning tabs provide intentional Add and Import empty s
   assert.match(planner, /Import from Previous Budget/);
 });
 
-test('planning tabs retain Add and Import actions after items exist and keep ordering local', () => {
+test('planning tabs retain Add and Import actions and allow every category to be reordered', () => {
   assert.match(planner, /items\.length === 0[\s\S]*actions[\s\S]*items\.length/);
-  assert.match(planner, /draggable=\{canEdit && category !== 'equipment' && category !== 'labour'\}/);
-  assert.match(planner, /category !== 'equipment' && category !== 'labour' \? <th[\s\S]*Order/);
+  assert.match(planner, /draggable=\{canEdit\}/);
+  assert.match(planner, />Order<\/th>/);
   assert.match(planner, /onDragStart/);
   assert.match(planner, /reorderBudgetDivisionPlanningItems/);
+  assert.match(planner, /category === 'labour' \|\| category === 'equipment'/);
   assert.match(planner, /Move \$\{item\.name \?\? item\.description\} earlier/);
   assert.match(planner, /Move \$\{item\.name \?\? item\.description\} later/);
 });
@@ -60,7 +61,8 @@ test('Labour form separates classification, billable capacity, overtime, and Div
   assert.match(planner, /activeDivisions\.map/);
   assert.match(planner, /Allocate Employee Cost Across Divisions/);
   assert.match(planner, /Split Evenly/);
-  assert.match(planner, /step=\{0\.01\}/);
+  assert.match(planner, /\?\.hours \?\? 0/);
+  assert.match(planner, />hours<\/span>/);
   assert.match(planner, /Current Division/);
   assert.match(planner, /Remaining:/);
   assert.match(planner, /over allocation/);
@@ -72,7 +74,7 @@ test('Labour plan table shows only the selected Division share and prevents dupl
   assert.match(planner, /directCostPerBillableHour/);
   assert.match(planner, /isLabourAllocatedToDivision\(item, division\.id\)/);
   assert.match(planner, /calculateDivisionLabourShare\(item, division\.id\)/);
-  assert.match(planner, /Allocation: \{labourShare\.percentage\}% to \{division\.name\}/);
+  assert.match(planner, /Allocation: \{labourShare\.hours\} hours to \{division\.name\}/);
   assert.match(planner, /Already in Budget/);
   assert.match(planner, /Edit Allocation/);
   assert.match(planner, /overhead pool/);
@@ -90,7 +92,7 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(planner, /equipmentDivisionAllocations/);
   assert.match(planner, /allocation\.divisionId === division\.id && allocation\.months > 0/);
   assert.match(planner, /equipmentMonthsForDivision/);
-  assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\) \/ 12/);
+  assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\)\) \/ 12/);
   assert.match(planner, /addEquipmentAsset/);
   assert.match(planner, /Add to Budget/);
   assert.match(planner, /Save Equipment/);

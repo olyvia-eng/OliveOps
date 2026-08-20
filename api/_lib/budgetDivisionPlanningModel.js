@@ -28,14 +28,20 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
     if (source[field] !== undefined) copied[field] = source[field];
   }
   if (category === 'labour' && Array.isArray(copied.divisionAllocations) && destination.divisionIdMap) {
-    const percentages = new Map();
+    const allocationsByDivision = new Map();
+    const usesHours = Number.isFinite(source.plannedHours) && source.plannedHours > 0;
     for (const allocation of copied.divisionAllocations) {
-      if (!(allocation.percentage > 0)) continue;
+      const value = usesHours
+        ? (Number.isFinite(allocation.hours) ? allocation.hours : source.plannedHours * (allocation.percentage ?? 0) / 100)
+        : (allocation.percentage ?? 0);
+      if (!(value > 0)) continue;
       const divisionId = destination.divisionIdMap.get(allocation.divisionId);
       if (!divisionId) throw new Error('Every positive Labour allocation requires a mapped destination Division.');
-      percentages.set(divisionId, (percentages.get(divisionId) ?? 0) + allocation.percentage);
+      allocationsByDivision.set(divisionId, (allocationsByDivision.get(divisionId) ?? 0) + value);
     }
-    copied.divisionAllocations = [...percentages].map(([divisionId, percentage]) => ({ divisionId, percentage }));
+    copied.divisionAllocations = [...allocationsByDivision].map(([divisionId, value]) => usesHours
+      ? ({ divisionId, hours: value })
+      : ({ divisionId, percentage: value }));
   }
   return {
     ...copied,
@@ -64,8 +70,15 @@ export function normalizeLabourPlanAssumptions(item) {
     overtimeHours: Number.isFinite(item.overtimeHours) ? item.overtimeHours : 0,
     overtimeMultiplier: Number.isFinite(item.overtimeMultiplier) ? item.overtimeMultiplier : 1.5,
     divisionAllocations: Array.isArray(item.divisionAllocations) && item.divisionAllocations.length
-      ? item.divisionAllocations
-      : [{ divisionId: item.divisionId, percentage: 100 }],
+      ? item.divisionAllocations.map((allocation) => plannedHours > 0 || Number.isFinite(allocation.hours)
+        ? ({
+          divisionId: allocation.divisionId,
+          hours: Number.isFinite(allocation.hours) && allocation.hours >= 0
+            ? allocation.hours
+            : plannedHours * (Number.isFinite(allocation.percentage) ? allocation.percentage : 0) / 100,
+        })
+        : ({ divisionId: allocation.divisionId, percentage: allocation.percentage }))
+      : [{ divisionId: item.divisionId, hours: plannedHours }],
   };
 }
 

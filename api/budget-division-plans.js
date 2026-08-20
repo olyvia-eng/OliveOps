@@ -29,9 +29,10 @@ function validate(item) {
     if (item.overtimeMultiplier < 1) return 'Overtime multiplier must be at least 1.';
     if (!Array.isArray(item.divisionAllocations) || item.divisionAllocations.length === 0) return 'Labour must be allocated across Divisions.';
     if (new Set(item.divisionAllocations.map((allocation) => allocation.divisionId)).size !== item.divisionAllocations.length) return 'Each Division can appear only once in Labour allocation.';
-    if (item.divisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(allocation.percentage) || allocation.percentage > 100)) return 'Division allocation percentages must be between 0 and 100.';
-    const allocationTotal = item.divisionAllocations.reduce((sum, allocation) => sum + allocation.percentage, 0);
-    if (Math.abs(allocationTotal - 100) > 0.001) return 'Division allocation must total 100%.';
+    const usesLegacyPercentages = !(item.plannedHours > 0) && item.divisionAllocations.every((allocation) => Number.isFinite(allocation.percentage));
+    if (item.divisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(usesLegacyPercentages ? allocation.percentage : allocation.hours))) return 'Division allocation hours must be zero or greater.';
+    const allocationTotal = item.divisionAllocations.reduce((sum, allocation) => sum + (usesLegacyPercentages ? allocation.percentage : allocation.hours), 0);
+    if (Math.abs(allocationTotal - (usesLegacyPercentages ? 100 : item.plannedHours)) > 0.001) return usesLegacyPercentages ? 'Legacy Division allocation must total 100%.' : 'Division allocation hours must equal planned hours.';
   }
   if (item.category === 'equipment' && item.equipmentDivisionAllocations !== undefined) {
     if (!Array.isArray(item.equipmentDivisionAllocations) || item.equipmentDivisionAllocations.length === 0) return 'Equipment must be allocated across Divisions.';
@@ -81,20 +82,25 @@ export default async function handler(req, res) {
   }
   try {
     if (!await resolveDestination(session, budgetId, divisionId)) return res.status(404).json({ ok: false, error: 'Budget Division not found.' });
-    const budgetItems = category === 'labour'
+    const budgetItems = category === 'labour' || category === 'equipment'
       ? await listBudgetPlanningItems({ businessId: session.businessId, budgetId, category })
       : await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
     const items = category === 'labour'
-      ? budgetItems.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0))
-      : budgetItems;
+      ? budgetItems.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0))
+      : category === 'equipment'
+        ? budgetItems.filter((item) => item.divisionId === divisionId || item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.months > 0))
+        : budgetItems;
     if (req.method === 'GET') return res.status(200).json({ ok: true, items: items.sort((a, b) => a.sortOrder - b.sortOrder) });
     if (req.method === 'PUT') {
-      if (category === 'labour') return res.status(400).json({ ok: false, error: 'Shared Labour items cannot be reordered within one Division.' });
       const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
-      if (orderedIds.length !== items.length || new Set(orderedIds).size !== items.length || orderedIds.some((id) => !items.some((item) => item.id === id))) {
+      const reorderItems = category === 'labour' || category === 'equipment' ? budgetItems : items;
+      if (orderedIds.length !== reorderItems.length || new Set(orderedIds).size !== reorderItems.length || orderedIds.some((id) => !reorderItems.some((item) => item.id === id))) {
         return res.status(400).json({ ok: false, error: 'Planning order must include every item exactly once.' });
       }
-      const reordered = await reorderDivisionPlanningItems({ businessId: session.businessId, items: orderedIds.map((id) => items.find((item) => item.id === id)) });
+      if (category === 'labour') {
+        await Promise.all(reorderItems.map((item) => updateDivisionPlanningItem({ businessId: session.businessId, previous: item, item })));
+      }
+      const reordered = await reorderDivisionPlanningItems({ businessId: session.businessId, items: orderedIds.map((id) => reorderItems.find((item) => item.id === id)) });
       return res.status(200).json({ ok: true, items: reordered });
     }
     const itemId = req.query?.id;

@@ -382,6 +382,8 @@ try {
   record('storage own download', downloaded.ok, `HTTP ${downloaded.status}`);
   expectStatus('storage A2 attachment denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'prepare-download', fileId: a2File }), 403);
   expectStatus('storage tenant B attachment denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'prepare-download', fileId: bFile }), 404);
+  expectStatus('storage A2 attachment delete denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'delete', fileId: a2File }), 403);
+  expectStatus('storage tenant B attachment delete denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'delete', fileId: bFile }), 404);
   expectStatus('unauthorized file with authorized entry denied', await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_BAD_FILE`, { photoAttachmentFileIds: [a2File] }), [400, 403]);
   expectStatus('authorized file with unauthorized parent denied', await clockOut(state.tokens.A1, a2Entry, `${PREFIX}_A1_BAD_PARENT`, { photoAttachmentFileIds: [a1File] }), 403);
   const a1ClockOut = await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_OUT`, { photoAttachmentFileIds: [a1File] });
@@ -389,6 +391,7 @@ try {
   const a1ClockOutRetry = await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_OUT`, { photoAttachmentFileIds: [a1File] });
   const clockOutReplayed = a1ClockOutRetry.status === 200 && a1ClockOutRetry.data?.timeEntry?.id === a1ClockOutData.timeEntry?.id;
   record('A1 clock-out identical retry returns original', clockOutReplayed, `HTTP ${a1ClockOutRetry.status}`);
+  expectStatus('storage own delete', await request('POST', '/api/storage', state.tokens.A1, { action: 'delete', fileId: a1File }), 200);
 
   expectStatus('clock-in hidden same-business job', await clockIn(state.tokens.A1, state.employees.A1, state.jobs.A2, `${PREFIX}_HIDDEN_CLOCK`), 403);
   expectStatus('time correction hidden same-business job', await request('POST', '/api/clocking?action=create', state.tokens.A1, {

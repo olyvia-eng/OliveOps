@@ -32,7 +32,7 @@ function buildLabourDivisionMap({ sourceDivisionId, destinationDivisionId, sourc
 }
 
 function labourMappingError(item, divisionIdMap, ambiguousSourceIds) {
-  const positiveAllocations = Array.isArray(item.divisionAllocations) ? item.divisionAllocations.filter((allocation) => allocation.percentage > 0) : [];
+  const positiveAllocations = Array.isArray(item.divisionAllocations) ? item.divisionAllocations.filter((allocation) => (allocation.hours ?? allocation.percentage ?? 0) > 0) : [];
   if (positiveAllocations.some((allocation) => ambiguousSourceIds.has(allocation.divisionId))) return 'A source Labour allocation matches more than one destination Division name. Review the destination Divisions before importing.';
   if (positiveAllocations.some((allocation) => !divisionIdMap.has(allocation.divisionId))) return 'A source Labour allocation has no matching active destination Division. Create or rename the matching Division before importing.';
   return null;

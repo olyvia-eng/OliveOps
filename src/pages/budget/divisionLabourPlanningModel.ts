@@ -45,27 +45,33 @@ export function calculateDivisionLabour(item: Partial<BudgetDivisionPlanningItem
 }
 
 export function labourAllocationTotal(allocations: LabourDivisionAllocation[] | undefined) {
-  return (allocations ?? []).reduce((sum, allocation) => sum + finiteNonNegative(allocation.percentage), 0);
+  return (allocations ?? []).reduce((sum, allocation) => sum + finiteNonNegative(allocation.hours ?? allocation.percentage), 0);
 }
 
 export function labourAllocationForDivision(item: Partial<BudgetDivisionPlanningItem>, divisionId: string) {
   if (Array.isArray(item.divisionAllocations)) {
-    return finiteNonNegative(item.divisionAllocations.find((allocation) => allocation.divisionId === divisionId)?.percentage);
+    const allocation = item.divisionAllocations.find((value) => value.divisionId === divisionId);
+    if (allocation?.hours !== undefined) return finiteNonNegative(allocation.hours);
+    return finiteNonNegative(item.plannedHours) * (finiteNonNegative(allocation?.percentage) / 100);
   }
-  return item.divisionId === divisionId ? 100 : 0;
+  return item.divisionId === divisionId ? finiteNonNegative(item.plannedHours) : 0;
 }
 
 export function isLabourAllocatedToDivision(item: Partial<BudgetDivisionPlanningItem>, divisionId: string) {
-  return labourAllocationForDivision(item, divisionId) > 0;
+  const allocation = item.divisionAllocations?.find((value) => value.divisionId === divisionId);
+  if (allocation?.hours !== undefined) return finiteNonNegative(allocation.hours) > 0;
+  if (allocation?.percentage !== undefined) return finiteNonNegative(allocation.percentage) > 0;
+  return !Array.isArray(item.divisionAllocations) && item.divisionId === divisionId;
 }
 
 export function calculateDivisionLabourShare(item: Partial<BudgetDivisionPlanningItem>, divisionId: string) {
   const calculation = calculateDivisionLabour(item);
-  const percentage = labourAllocationForDivision(item, divisionId);
-  const share = percentage / 100;
+  const hours = labourAllocationForDivision(item, divisionId);
+  const legacyPercentage = item.divisionAllocations?.find((allocation) => allocation.divisionId === divisionId)?.percentage;
+  const share = calculation.plannedHours > 0 ? hours / calculation.plannedHours : finiteNonNegative(legacyPercentage) / 100;
   return {
     ...calculation,
-    percentage,
+    hours,
     annualLabourCost: calculation.annualLabourCost * share,
     expectedBillableHours: calculation.expectedBillableHours * share,
     directLabourCost: calculation.directLabourCost * share,
@@ -73,14 +79,15 @@ export function calculateDivisionLabourShare(item: Partial<BudgetDivisionPlannin
   };
 }
 
-export function splitLabourAllocationsEvenly(divisionIds: string[]): LabourDivisionAllocation[] {
+export function splitLabourAllocationsEvenly(divisionIds: string[], plannedHours = 0): LabourDivisionAllocation[] {
   const uniqueDivisionIds = [...new Set(divisionIds)];
   if (uniqueDivisionIds.length === 0) return [];
-  const baseHundredths = Math.floor(10000 / uniqueDivisionIds.length);
-  const remainder = 10000 - baseHundredths * uniqueDivisionIds.length;
+  const totalHundredths = Math.round(finiteNonNegative(plannedHours) * 100);
+  const baseHundredths = Math.floor(totalHundredths / uniqueDivisionIds.length);
+  const remainder = totalHundredths - baseHundredths * uniqueDivisionIds.length;
   return uniqueDivisionIds.map((divisionId, index) => ({
     divisionId,
-    percentage: (baseHundredths + (index === uniqueDivisionIds.length - 1 ? remainder : 0)) / 100,
+    hours: (baseHundredths + (index === uniqueDivisionIds.length - 1 ? remainder : 0)) / 100,
   }));
 }
 
@@ -100,11 +107,18 @@ export function calculateBudgetLabourTotals(items: Array<Partial<BudgetDivisionP
 
 export function allocateLabourCost(item: Partial<BudgetDivisionPlanningItem>) {
   const calculation = calculateDivisionLabour(item);
-  return (item.divisionAllocations ?? []).map((allocation) => ({
-    ...allocation,
-    annualLabourCost: calculation.annualLabourCost * (finiteNonNegative(allocation.percentage) / 100),
-    expectedBillableHours: calculation.expectedBillableHours * (finiteNonNegative(allocation.percentage) / 100),
-    directLabourCost: calculation.directLabourCost * (finiteNonNegative(allocation.percentage) / 100),
-    overheadLabourCost: calculation.overheadLabourCost * (finiteNonNegative(allocation.percentage) / 100),
-  }));
+  return (item.divisionAllocations ?? []).map((allocation) => {
+    const hours = allocation.hours !== undefined
+      ? finiteNonNegative(allocation.hours)
+      : calculation.plannedHours * (finiteNonNegative(allocation.percentage) / 100);
+    const share = calculation.plannedHours > 0 ? hours / calculation.plannedHours : finiteNonNegative(allocation.percentage) / 100;
+    return {
+      divisionId: allocation.divisionId,
+      hours,
+      annualLabourCost: calculation.annualLabourCost * share,
+      expectedBillableHours: calculation.expectedBillableHours * share,
+      directLabourCost: calculation.directLabourCost * share,
+      overheadLabourCost: calculation.overheadLabourCost * share,
+    };
+  });
 }

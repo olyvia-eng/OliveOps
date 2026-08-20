@@ -4,6 +4,7 @@ import {
   appendImportedSortOrders,
   copyDivisionPlanAssumptions,
   divisionPlanIdentity,
+  normalizeLabourPlanAssumptions,
 } from '../api/_lib/budgetDivisionPlanningModel.js';
 
 test('division planning identities use catalog references and stable manual fallbacks', () => {
@@ -41,6 +42,7 @@ test('imported source order is preserved while rows append to the destination', 
 test('Labour import copies reusable assumptions and remaps Division allocations as a snapshot', () => {
   const source = {
     id: 'source-labour', budgetId: 'old', divisionId: 'old-land', category: 'labour', employeeId: 'employee-1',
+    plannedHours: 2000,
     labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
     divisionAllocations: [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }],
   };
@@ -51,17 +53,26 @@ test('Labour import copies reusable assumptions and remaps Division allocations 
   assert.equal(copied.expectedBillablePct, 80);
   assert.equal(copied.overtimeHours, 120);
   assert.equal(copied.overtimeMultiplier, 1.5);
-  assert.deepEqual(copied.divisionAllocations, [{ divisionId: 'new-land', percentage: 60 }, { divisionId: 'new-snow', percentage: 40 }]);
+  assert.deepEqual(copied.divisionAllocations, [{ divisionId: 'new-land', hours: 1200 }, { divisionId: 'new-snow', hours: 800 }]);
   assert.deepEqual(source.divisionAllocations, [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }]);
 });
 
 test('Labour import rejects every positive allocation without an explicit destination mapping', () => {
   const source = {
     id: 'source-labour', budgetId: 'old', divisionId: 'old-land', category: 'labour', employeeId: 'employee-1',
+    plannedHours: 2000,
     divisionAllocations: [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }],
   };
   assert.throws(
     () => copyDivisionPlanAssumptions(source, { budgetId: 'new', divisionId: 'new-land', divisionIdMap: new Map([['old-land', 'new-land']]) }, () => 'new-item'),
     /requires a mapped destination Division/,
   );
+});
+
+test('legacy Labour percentages remain readable when planned hours are absent', () => {
+  const normalized = normalizeLabourPlanAssumptions({
+    category: 'labour', divisionId: 'land',
+    divisionAllocations: [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }],
+  });
+  assert.deepEqual(normalized.divisionAllocations, [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }]);
 });

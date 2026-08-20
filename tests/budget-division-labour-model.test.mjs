@@ -47,13 +47,13 @@ test('overhead Labour has no billable capacity or direct cost and enters overhea
 });
 
 test('division allocation distributes cost and billable hours without changing totals', () => {
-  const item = { id: 'ryan-plan', category: 'labour', compType: 'salaried', annualSalary: 90000, plannedHours: 2000, labourClassification: 'billable', expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'landscaping', percentage: 60 }, { divisionId: 'snow', percentage: 40 }] };
+  const item = { id: 'ryan-plan', category: 'labour', compType: 'salaried', annualSalary: 90000, plannedHours: 2000, labourClassification: 'billable', expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'landscaping', hours: 1200 }, { divisionId: 'snow', hours: 800 }] };
   const allocated = model.allocateLabourCost(item);
-  assert.equal(model.labourAllocationTotal(item.divisionAllocations), 100);
+  assert.equal(model.labourAllocationTotal(item.divisionAllocations), 2000);
   assert.deepEqual(allocated.map((value) => [value.annualLabourCost, value.expectedBillableHours]), [[54000, 960], [36000, 640]]);
   assert.equal(allocated.reduce((sum, value) => sum + value.annualLabourCost, 0), 90000);
   assert.deepEqual(model.calculateDivisionLabourShare(item, 'landscaping'), {
-    ...model.calculateDivisionLabour(item), percentage: 60, annualLabourCost: 54000,
+    ...model.calculateDivisionLabour(item), hours: 1200, annualLabourCost: 54000,
     expectedBillableHours: 960, directLabourCost: 54000, overheadLabourCost: 0,
   });
   assert.equal(model.calculateDivisionLabourShare(item, 'snow').annualLabourCost, 36000);
@@ -69,18 +69,18 @@ test('Labour visibility follows positive allocation with legacy ownership fallba
   assert.equal(model.isLabourAllocatedToDivision({ divisionId: 'snow' }, 'landscaping'), false);
 });
 
-test('Split Evenly uses exact hundredths for two, three, and four active Divisions', () => {
-  assert.deepEqual(model.splitLabourAllocationsEvenly(['land', 'snow']), [{ divisionId: 'land', percentage: 50 }, { divisionId: 'snow', percentage: 50 }]);
-  assert.deepEqual(model.splitLabourAllocationsEvenly(['land', 'snow', 'excavation']), [{ divisionId: 'land', percentage: 33.33 }, { divisionId: 'snow', percentage: 33.33 }, { divisionId: 'excavation', percentage: 33.34 }]);
-  assert.deepEqual(model.splitLabourAllocationsEvenly(['one', 'two', 'three', 'four']).map((item) => item.percentage), [25, 25, 25, 25]);
-  assert.equal(model.labourAllocationTotal(model.splitLabourAllocationsEvenly(['land', 'snow', 'excavation'])), 100);
+test('Split Evenly uses exact hundredths of planned hours', () => {
+  assert.deepEqual(model.splitLabourAllocationsEvenly(['land', 'snow'], 2000), [{ divisionId: 'land', hours: 1000 }, { divisionId: 'snow', hours: 1000 }]);
+  assert.deepEqual(model.splitLabourAllocationsEvenly(['land', 'snow', 'excavation'], 2000), [{ divisionId: 'land', hours: 666.66 }, { divisionId: 'snow', hours: 666.66 }, { divisionId: 'excavation', hours: 666.68 }]);
+  assert.deepEqual(model.splitLabourAllocationsEvenly(['one', 'two', 'three', 'four'], 1900).map((item) => item.hours), [475, 475, 475, 475]);
+  assert.equal(model.labourAllocationTotal(model.splitLabourAllocationsEvenly(['land', 'snow', 'excavation'], 2000)), 2000);
 });
 
 test('adding a Division does not redistribute saved Labour until Split Evenly is requested', () => {
-  const saved = [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }];
-  const withNewDivision = ['land', 'snow', 'excavation'].map((divisionId) => ({ divisionId, percentage: saved.find((item) => item.divisionId === divisionId)?.percentage ?? 0 }));
-  assert.deepEqual(withNewDivision, [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }, { divisionId: 'excavation', percentage: 0 }]);
-  assert.deepEqual(model.splitLabourAllocationsEvenly(withNewDivision.map((item) => item.divisionId)).map((item) => item.percentage), [33.33, 33.33, 33.34]);
+  const saved = [{ divisionId: 'land', hours: 1200 }, { divisionId: 'snow', hours: 800 }];
+  const withNewDivision = ['land', 'snow', 'excavation'].map((divisionId) => ({ divisionId, hours: saved.find((item) => item.divisionId === divisionId)?.hours ?? 0 }));
+  assert.deepEqual(withNewDivision, [{ divisionId: 'land', hours: 1200 }, { divisionId: 'snow', hours: 800 }, { divisionId: 'excavation', hours: 0 }]);
+  assert.deepEqual(model.splitLabourAllocationsEvenly(withNewDivision.map((item) => item.divisionId), 2000).map((item) => item.hours), [666.66, 666.66, 666.68]);
 });
 
 test('overhead Labour uses the same Division allocation shares', () => {
