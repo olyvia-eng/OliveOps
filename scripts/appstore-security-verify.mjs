@@ -39,15 +39,26 @@ function email(label) {
 }
 
 async function request(method, path, token, body) {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let response;
+  let transportError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      response = await fetch(`${API}${path}`, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      break;
+    } catch (error) {
+      transportError = error;
+      console.warn(`Transport retry ${attempt}/3 for ${method} ${path}`);
+    }
+  }
+  if (!response) throw transportError;
   const text = await response.text();
   let data = null;
   try {
@@ -372,6 +383,7 @@ try {
   expectStatus('storage A2 attachment denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'prepare-download', fileId: a2File }), 403);
   expectStatus('storage tenant B attachment denied', await request('POST', '/api/storage', state.tokens.A1, { action: 'prepare-download', fileId: bFile }), 404);
   expectStatus('unauthorized file with authorized entry denied', await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_BAD_FILE`, { photoAttachmentFileIds: [a2File] }), [400, 403]);
+  expectStatus('authorized file with unauthorized parent denied', await clockOut(state.tokens.A1, a2Entry, `${PREFIX}_A1_BAD_PARENT`, { photoAttachmentFileIds: [a1File] }), 403);
   const a1ClockOut = await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_OUT`, { photoAttachmentFileIds: [a1File] });
   const a1ClockOutData = expectStatus('A1 clock-out', a1ClockOut, 200);
   const a1ClockOutRetry = await clockOut(state.tokens.A1, a1Entry, `${PREFIX}_A1_OUT`, { photoAttachmentFileIds: [a1File] });
@@ -392,7 +404,7 @@ try {
   const scopedEntry = expectStatus('A1 cannot receive A2 idempotency replay', scopedClock, 200).timeEntry.id;
   expectStatus('A1 scoped clock-out', await clockOut(state.tokens.A1, scopedEntry, `${PREFIX}_A1_SCOPED_OUT`), 200);
   const foreignReplay = await clockOut(state.tokens.A1, a2Entry, `${PREFIX}_A2_OUT`);
-  expectStatus('clock-out ownership before foreign replay', foreignReplay, 409);
+  expectStatus('clock-out ownership before foreign replay', foreignReplay, 403);
   record('foreign replay data not disclosed', !foreignReplay.data?.timeEntry, 'no timeEntry in denial');
 
   const firstForm = await submitForm(state.tokens.A1, 'A', 'TEST-A', `${PREFIX}_ANSWER_ONE`);
@@ -409,6 +421,16 @@ try {
 
   expectStatus('cross-tenant employee spoof write', await clockIn(state.tokens.A1, state.employees.B1, state.jobs.B, `${PREFIX}_CROSS_EMPLOYEE`), 403);
   expectStatus('cross-tenant job clock-in', await clockIn(state.tokens.A1, state.employees.A1, state.jobs.B, `${PREFIX}_CROSS_JOB`), [400, 403]);
+  const employeeSelector = expectStatus('employee selector tenant read', await request('GET', '/api/data?entity=employees', state.tokens.A1), 200);
+  record('cross-tenant employee absent', !employeeSelector.items?.some((employee) => employee.id === state.employees.B1), 'Business B employee not listed');
+  const jobSelector = expectStatus('job selector tenant read', await request('GET', '/api/data?entity=jobs', state.tokens.A1), 200);
+  record('cross-tenant job absent', !jobSelector.items?.some((job) => job.id === state.jobs.B), 'Business B job not listed');
+  expectStatus('cross-tenant Form direct submit', await request('POST', '/api/employee?action=submit', state.tokens.A1, {
+    formId: state.forms.B,
+    trigger: 'on_demand',
+    clientSubmissionId: `${PREFIX}_CROSS_FORM`,
+    responses: [{ fieldId: state.fields.B, value: 'denied' }],
+  }), 404);
   expectStatus('cross-tenant submission read', await request('GET', `/api/employee?action=submission&id=${encodeURIComponent(b1FormData.submission.id)}`, state.tokens.A1), 404);
   expectStatus('cross-tenant time-entry write', await request('PATCH', `/api/data?entity=time-entries&id=${encodeURIComponent(bEntry)}`, state.tokens.A1, { data: { notes: 'denied' } }), 403);
   expectStatus('cross-tenant file read', await request('POST', '/api/storage', state.tokens.A1, { action: 'prepare-download', fileId: bFile }), 404);
