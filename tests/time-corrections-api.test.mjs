@@ -50,7 +50,11 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
       status: 'clocked_out',
     },
   ];
-  const jobs = [{ id: 'job-1', title: 'Job 1' }, { id: 'job-2', title: 'Job 2' }];
+  const jobs = [
+    { id: 'job-1', title: 'Job 1', assignedEmployeeIds: ['emp-1'] },
+    { id: 'job-2', title: 'Job 2', assignedEmployeeIds: ['emp-1'] },
+    { id: 'job-other', title: 'Other Job', assignedEmployeeIds: ['emp-2'] },
+  ];
   const unbillableCategories = [
     { id: 'cat-training', name: 'Training', active: true },
     { id: 'cat-archived', name: 'Archived', active: false },
@@ -70,6 +74,7 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     unbillableCategories.find((item) => item.id === categoryId) ?? null
   );
   const listTimeEntriesForBusiness = async () => [...timeEntries];
+  const listCrewsForBusiness = async () => [];
 
   const createTimeCorrectionForBusiness = async ({ correction }) => {
     corrections.push(correction);
@@ -119,6 +124,7 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     approveTimeCorrectionForBusiness,
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
+    listCrewsForBusiness,
   });
 
   return { handler, corrections, timeEntries };
@@ -167,6 +173,40 @@ test('employee cannot approve correction requests', async () => {
   await handler(req, res);
 
   assert.equal(res.statusCode, 403);
+});
+
+test('employee effective time history excludes another employee entries', async () => {
+  const { handler, timeEntries } = createHarness();
+  timeEntries.push({
+    id: 'entry-other',
+    employeeId: 'emp-2',
+    workType: 'job',
+    clockIn: '2026-08-06T12:00:00.000Z',
+    clockOut: '2026-08-06T20:00:00.000Z',
+    status: 'clocked_out',
+  });
+
+  const res = createMockRes();
+  await handler({ method: 'GET', query: { action: 'effective-time-entries' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.items.map((entry) => entry.id), ['entry-1']);
+});
+
+test('employee cannot submit a correction using another employee or unauthorized job', async () => {
+  const { handler, timeEntries } = createHarness();
+  timeEntries.push({
+    id: 'entry-other', employeeId: 'emp-2', jobId: 'job-other', jobIds: ['job-other'], workType: 'job',
+    clockIn: '2026-08-06T12:00:00.000Z', clockOut: '2026-08-06T20:00:00.000Z', status: 'clocked_out',
+  });
+
+  const otherEntry = createMockRes();
+  await handler({ method: 'POST', query: { action: 'create' }, body: { timeEntryId: 'entry-other', requestType: 'wrong_time', reason: 'attack' } }, otherEntry);
+  const otherJob = createMockRes();
+  await handler({ method: 'POST', query: { action: 'create' }, body: { timeEntryId: 'entry-1', requestType: 'wrong_job', requestedActivityType: 'job', requestedJobId: 'job-other', reason: 'attack' } }, otherJob);
+
+  assert.equal(otherEntry.statusCode, 403);
+  assert.equal(otherJob.statusCode, 403);
 });
 
 test('owner can approve and duplicate approval is idempotent', async () => {

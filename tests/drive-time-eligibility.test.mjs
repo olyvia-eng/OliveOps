@@ -232,7 +232,10 @@ function installDdbMock(t) {
   return store;
 }
 
-function seedJob(store, { businessId, jobId, title = 'Job' }) {
+function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds }) {
+  const inferredEmployeeIds = [...store.values()]
+    .filter((item) => item.PK === `BUSINESS#${businessId}` && item.entityType === 'EMPLOYEE')
+    .map((item) => item.employeeId);
   store.set(
     mapKey(`BUSINESS#${businessId}`, `JOB#${jobId}`),
     {
@@ -243,7 +246,7 @@ function seedJob(store, { businessId, jobId, title = 'Job' }) {
       jobId,
       title,
       status: 'scheduled',
-      assignedEmployeeIds: [],
+      assignedEmployeeIds: assignedEmployeeIds ?? inferredEmployeeIds,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
@@ -642,6 +645,33 @@ test('eligible employee can pass drive time validation for clock-in', async (t) 
   assert.equal(res.body.timeEntry.workType, 'drive_time');
 });
 
+test('clock-in rejects employee spoofing and unauthorized same-business jobs', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-clock-authz', userId: 'user-a', role: 'crew_member', email: 'a@example.com' });
+  await createEmployeeForBusiness({
+    businessId: 'biz-clock-authz',
+    employee: { id: 'emp-a', name: 'Employee A', email: 'a@example.com', phone: '', role: 'crew_member', hourlyRate: 24, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-clock-authz',
+    employee: { id: 'emp-b', name: 'Employee B', email: 'b@example.com', phone: '', role: 'crew_member', hourlyRate: 24, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+  });
+  seedJob(store, { businessId: 'biz-clock-authz', jobId: 'job-b', assignedEmployeeIds: ['emp-b'] });
+  await createBearerTokenForUser({ businessId: 'biz-clock-authz', userId: 'user-a', role: 'crew_member', email: 'a@example.com', employeeId: 'emp-a', token: 'token-clock-authz' });
+
+  const call = async (body) => {
+    const res = createMockRes();
+    await clockingHandler({ method: 'POST', query: { action: 'clock-in' }, headers: { authorization: 'Bearer token-clock-authz' }, body }, res);
+    return res;
+  };
+  const spoofed = await call({ employeeId: 'emp-b', workType: 'job', jobIds: ['job-b'] });
+  const unauthorizedJob = await call({ employeeId: 'emp-a', workType: 'job', jobIds: ['job-b'] });
+
+  assert.equal(spoofed.statusCode, 403);
+  assert.equal(unauthorizedJob.statusCode, 403);
+  assert.equal((await listTimeEntriesForBusiness('biz-clock-authz')).length, 0);
+});
+
 test('disabling eligibility does not alter historical drive time records', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {
@@ -805,6 +835,28 @@ test('active drive time can clock out safely after eligibility is disabled', asy
   assert.equal(res.body.ok, true);
   assert.equal(res.body.timeEntry.workType, 'drive_time');
   assert.equal(res.body.timeEntry.status, 'clocked_out');
+});
+
+test('clock-out checks entry ownership before idempotency replay', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-clockout-authz', userId: 'user-a', role: 'crew_member', email: 'a@example.com' });
+  await createEmployeeForBusiness({ businessId: 'biz-clockout-authz', employee: { id: 'emp-a', name: 'A', email: 'a@example.com', role: 'crew_member', active: true } });
+  await createEmployeeForBusiness({ businessId: 'biz-clockout-authz', employee: { id: 'emp-b', name: 'B', email: 'b@example.com', role: 'crew_member', active: true } });
+  seedActiveShiftForEntry(store, { businessId: 'biz-clockout-authz', employeeId: 'emp-b', entryId: 'entry-b', clockIn: '2026-08-01T08:00:00.000Z' });
+  store.set(mapKey('BUSINESS#biz-clockout-authz', 'IDEMPOTENCY#emp-b:shared-key'), {
+    PK: 'BUSINESS#biz-clockout-authz', SK: 'IDEMPOTENCY#emp-b:shared-key', entityType: 'IDEMPOTENCY',
+    payloadHash: 'attacker-does-not-need-to-know-this', response: { id: 'entry-b', employeeId: 'emp-b' },
+  });
+  await createBearerTokenForUser({ businessId: 'biz-clockout-authz', userId: 'user-a', role: 'crew_member', email: 'a@example.com', employeeId: 'emp-a', token: 'token-clockout-authz' });
+
+  const res = createMockRes();
+  await clockingHandler({
+    method: 'POST', query: { action: 'clock-out' }, headers: { authorization: 'Bearer token-clockout-authz' },
+    body: { entryId: 'entry-b', requestId: 'attack', idempotencyKey: 'shared-key' },
+  }, res);
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.error, 'Forbidden');
 });
 
 test('switch activity supports job work to job work transition across jobs', async (t) => {
@@ -1395,7 +1447,7 @@ test('switch activity preserves one active entry invariant and exact boundary ti
 });
 
 test('bootstrap returns authoritative currentActiveEntryId for session employee', async (t) => {
-  await setupSwitchContext({
+  const store = await setupSwitchContext({
     t,
     businessId: 'biz-bootstrap-active',
     userId: 'user-bootstrap-active',
@@ -1407,6 +1459,10 @@ test('bootstrap returns authoritative currentActiveEntryId for session employee'
     activeJobIds: ['job-bootstrap'],
     token: 'token-bootstrap-active',
   });
+  store.set(mapKey('BUSINESS#biz-bootstrap-active', 'PROFILE'), {
+    PK: 'BUSINESS#biz-bootstrap-active', SK: 'PROFILE', entityType: 'BUSINESS',
+    businessId: 'biz-bootstrap-active', name: 'Bootstrap Business', timezone: 'America/Vancouver',
+  });
 
   const req = {
     method: 'GET',
@@ -1417,6 +1473,7 @@ test('bootstrap returns authoritative currentActiveEntryId for session employee'
   await bootstrapHandler(req, res);
 
   assert.equal(res.statusCode, 200);
+  assert.equal(res.body.timezone, 'America/Vancouver');
   assert.equal(res.body.currentActiveEntryId, 'entry-bootstrap-active');
 });
 
@@ -1465,6 +1522,34 @@ test('bootstrap returns null currentActiveEntryId when no active shift lock exis
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.currentActiveEntryId, null);
+});
+
+test('employee bootstrap excludes coworker-private and cross-tenant records', async (t) => {
+  const store = await setupSwitchContext({
+    t, businessId: 'biz-bootstrap-a', userId: 'user-a', employeeId: 'emp-a', email: 'a@example.com',
+    paidDriveTimeEnabled: true, activeEntryId: 'entry-a', activeWorkType: 'job', activeJobIds: ['job-a'], token: 'token-bootstrap-a',
+  });
+  await createEmployeeForBusiness({ businessId: 'biz-bootstrap-a', employee: { id: 'emp-b', name: 'Employee B', email: 'b@example.com', role: 'crew_member', active: true } });
+  seedJob(store, { businessId: 'biz-bootstrap-a', jobId: 'job-a', assignedEmployeeIds: ['emp-a'] });
+  seedJob(store, { businessId: 'biz-bootstrap-a', jobId: 'job-b', assignedEmployeeIds: ['emp-b'] });
+  seedJob(store, { businessId: 'biz-bootstrap-b', jobId: 'job-foreign', assignedEmployeeIds: ['emp-a'] });
+  store.set(mapKey('BUSINESS#biz-bootstrap-a', 'TIME#entry-b'), {
+    PK: 'BUSINESS#biz-bootstrap-a', SK: 'TIME#entry-b', entityType: 'TIME_ENTRY', businessId: 'biz-bootstrap-a',
+    entryId: 'entry-b', employeeId: 'emp-b', clockIn: '2026-08-01T08:00:00.000Z', status: 'clocked_out',
+  });
+  store.set(mapKey('BUSINESS#biz-bootstrap-b', 'TIME#entry-foreign'), {
+    PK: 'BUSINESS#biz-bootstrap-b', SK: 'TIME#entry-foreign', entityType: 'TIME_ENTRY', businessId: 'biz-bootstrap-b',
+    entryId: 'entry-foreign', employeeId: 'emp-a', clockIn: '2026-08-01T08:00:00.000Z', status: 'clocked_out',
+  });
+
+  const res = createMockRes();
+  await bootstrapHandler({ method: 'GET', headers: { authorization: 'Bearer token-bootstrap-a' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.employees.map((item) => item.id), ['emp-a']);
+  assert.deepEqual(res.body.jobs.map((item) => item.id), ['job-a']);
+  assert.deepEqual(res.body.timeEntries.map((item) => item.id), ['entry-a']);
+  assert.equal(JSON.stringify(res.body).includes('biz-bootstrap-b'), false);
 });
 
 test('data endpoint rejects creating active/open time entries outside clocking actions', async (t) => {

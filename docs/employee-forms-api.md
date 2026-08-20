@@ -2,6 +2,12 @@
 
 Phase 1 exposes the existing OliveOps Forms definitions and submissions to employee clients. The Forms builder remains the source of `FormRecord` and `FormField` data. Mobile clients must use `/api/employee`; they must not read or write Forms through `/api/data`.
 
+## Employee bootstrap timezone
+
+`GET /api/bootstrap` returns `timezone`, an IANA timezone derived from the persisted business profile. Mobile must use this value as the business authority for business-day boundaries; it must not submit a device timezone as the business timezone.
+
+The server treats `after_completing_job` as a legacy, distinct trigger value. It is not emitted or reinterpreted by the backend as switching away, clocking out, `after_leaving_job`, or `job_completed`; clients that still use it must request it explicitly. Form workflow checks remain advisory even when `completionRequirement` is `required`. True blocking requires a future server-owned workflow transition that checks and commits Form completion atomically with the guarded action.
+
 ## Authentication
 
 Every request requires an OliveOps session cookie or a bearer access token:

@@ -153,6 +153,10 @@ function canAccessAttachmentRecord({ session, entityType, entity, accessMode, co
     return false;
   }
 
+  if (entityType === 'time-entry' && authorizeRecordAccess(session, authorizationEntity, entity, context)) {
+    return true;
+  }
+
   const hasEntityPermission = accessMode === 'write'
     ? canWriteEntity(authorizationEntity, session.role)
     : canReadEntity(authorizationEntity, session.role);

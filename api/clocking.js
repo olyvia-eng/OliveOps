@@ -22,7 +22,8 @@ import {
   listTimeEntriesForBusiness,
   listUnbillableTimeCategoriesForBusiness,
 } from './_lib/authRepo.js';
-import { canClockForEmployee } from './_lib/authorization.js';
+import { authorizeRecordAccess, canClockForEmployee } from './_lib/authorization.js';
+import { listCrewsForBusiness } from './_lib/schedulingConfig.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -32,6 +33,17 @@ function nowIso() {
 
 function payloadHash(payload) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function scopedIdempotencyKey(employeeId, idempotencyKey) {
+  return `${employeeId}:${idempotencyKey}`;
+}
+
+function replayClockingRequest(res, existing, hashedPayload) {
+  if (existing.payloadHash !== hashedPayload) {
+    return res.status(409).json({ ok: false, error: 'Clocking idempotency key was reused with a different request.' });
+  }
+  return res.status(200).json({ ok: true, timeEntry: existing.response });
 }
 
 export function canRecordDriveTime(workType, employee) {
@@ -103,6 +115,21 @@ async function resolveActiveUnbillableCategoryOrError({ businessId, categoryId }
   return { ok: true, category };
 }
 
+async function validateClockingJobs({ session, jobIds }) {
+  if (jobIds.length === 0) return { ok: true };
+  const crews = await listCrewsForBusiness(session.businessId);
+
+  for (const jobId of jobIds) {
+    const job = await getJobForBusiness(session.businessId, jobId);
+    if (!job) return { ok: false, status: 400, error: 'Job is invalid.' };
+    if (!authorizeRecordAccess(session, 'jobs', job, { crews })) {
+      return { ok: false, status: 403, error: 'Forbidden' };
+    }
+  }
+
+  return { ok: true };
+}
+
 export default async function handler(req, res) {
   const action = typeof req.query.action === 'string' ? req.query.action : '';
   if (['list', 'create', 'approve', 'reject', 'effective-time-entries', 'notifications'].includes(action)) {
@@ -136,6 +163,19 @@ export default async function handler(req, res) {
     }
 
     const requestedWorkType = req.body?.workType ?? 'job';
+    if (!VALID_WORK_TYPES.has(requestedWorkType)) {
+      return res.status(400).json({ ok: false, error: 'Invalid activity type.' });
+    }
+    const requestedJobIds = getNormalizedJobIds(req.body?.jobIds);
+    if (requestedWorkType === 'job' && requestedJobIds.length === 0) {
+      return res.status(400).json({ ok: false, error: 'At least one job is required for job work.' });
+    }
+    if (requestedWorkType === 'job' || requestedWorkType === 'drive_time') {
+      const jobValidation = await validateClockingJobs({ session, jobIds: requestedJobIds });
+      if (!jobValidation.ok) {
+        return res.status(jobValidation.status).json({ ok: false, error: jobValidation.error });
+      }
+    }
     if (!canRecordDriveTime(requestedWorkType, employee)) {
       return res.status(403).json({ ok: false, error: 'Drive time is not enabled for this employee.' });
     }
@@ -155,25 +195,26 @@ export default async function handler(req, res) {
     const requestId = typeof req.body?.requestId === 'string' && req.body.requestId.trim()
       ? req.body.requestId.trim()
       : `${session.id}:${nowIso()}`;
-    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
+    const clientIdempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
       ? req.body.idempotencyKey.trim()
       : `${employeeId}:${requestId}`;
     const payload = {
       action: 'clock-in',
       employeeId,
       workType: requestedWorkType,
-      jobIds: Array.isArray(req.body?.jobIds) ? req.body.jobIds.filter(Boolean) : [],
+      jobIds: requestedJobIds,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
         : undefined,
       requestId,
-      idempotencyKey,
+      idempotencyKey: clientIdempotencyKey,
     };
     const hashedPayload = payloadHash(payload);
 
+    const idempotencyKey = scopedIdempotencyKey(employeeId, clientIdempotencyKey);
     const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
     if (existing) {
-      return res.status(200).json({ ok: true, timeEntry: existing.response });
+      return replayClockingRequest(res, existing, hashedPayload);
     }
 
     const activeEntries = await listTimeEntriesForBusiness(session.businessId);
@@ -195,7 +236,7 @@ export default async function handler(req, res) {
       payloadHash: hashedPayload,
       source: 'web',
       auditEventId: `${session.id}:${clockInAt}`,
-      jobIds: Array.isArray(req.body?.jobIds) ? req.body.jobIds.filter(Boolean) : [],
+      jobIds: requestedJobIds,
       workType: requestedWorkType,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
@@ -211,8 +252,8 @@ export default async function handler(req, res) {
       const timeEntry = {
         id: `${employeeId}:${clockInAt}`,
         employeeId,
-        jobId: Array.isArray(req.body?.jobIds) && req.body.jobIds.length > 0 ? req.body.jobIds[0] : undefined,
-        jobIds: Array.isArray(req.body?.jobIds) ? req.body.jobIds.filter(Boolean) : [],
+        jobId: requestedJobIds[0],
+        jobIds: requestedJobIds,
         workType: requestedWorkType,
         unbillableCategoryId: requestedWorkType === 'non_billable'
           ? requestedUnbillableCategory.id
@@ -253,14 +294,14 @@ export default async function handler(req, res) {
     const requestId = typeof req.body?.requestId === 'string' && req.body.requestId.trim()
       ? req.body.requestId.trim()
       : `${session.id}:${nowIso()}`;
-    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
+    const clientIdempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
       ? req.body.idempotencyKey.trim()
       : `${entryId}:${requestId}`;
     const payload = {
       action: 'clock-out',
       entryId,
       requestId,
-      idempotencyKey,
+      idempotencyKey: clientIdempotencyKey,
       breakMinutes: req.body?.breakMinutes ?? 0,
       notes: req.body?.notes ?? '',
       photoAttachmentFileIds: Array.isArray(req.body?.photoAttachmentFileIds)
@@ -271,11 +312,6 @@ export default async function handler(req, res) {
     };
     const hashedPayload = payloadHash(payload);
 
-    const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
-    if (existing) {
-      return res.status(200).json({ ok: true, timeEntry: existing.response });
-    }
-
     const activeEntries = await listTimeEntriesForBusiness(session.businessId);
     const activeEntry = activeEntries.find((entry) => entry.id === entryId && entry.status === 'clocked_in');
     if (!activeEntry) {
@@ -285,6 +321,12 @@ export default async function handler(req, res) {
 
     if (!canClockForEmployee(session, activeEntry.employeeId)) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+
+    const idempotencyKey = scopedIdempotencyKey(activeEntry.employeeId, clientIdempotencyKey);
+    const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+    if (existing) {
+      return replayClockingRequest(res, existing, hashedPayload);
     }
 
     const attachmentValidation = await validateClockOutPhotoAttachment({
@@ -454,11 +496,9 @@ export default async function handler(req, res) {
     }
 
     if (nextWorkType === 'job' || nextWorkType === 'drive_time') {
-      for (const jobId of nextJobIds) {
-        const job = await getJobForBusiness(session.businessId, jobId);
-        if (!job) {
-          return res.status(400).json({ ok: false, error: 'Job is invalid.' });
-        }
+      const jobValidation = await validateClockingJobs({ session, jobIds: nextJobIds });
+      if (!jobValidation.ok) {
+        return res.status(jobValidation.status).json({ ok: false, error: jobValidation.error });
       }
     }
 
@@ -474,25 +514,25 @@ export default async function handler(req, res) {
     const requestId = typeof req.body?.requestId === 'string' && req.body.requestId.trim()
       ? req.body.requestId.trim()
       : `${session.id}:${nowIso()}`;
-    const idempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
+    const clientIdempotencyKey = typeof req.body?.idempotencyKey === 'string' && req.body.idempotencyKey.trim()
       ? req.body.idempotencyKey.trim()
       : `${employeeId}:${requestId}`;
 
     const payload = {
       action: 'switch-activity',
       employeeId,
-      previousEntryId: activeShift.activeEntryId,
       workType: nextWorkType,
       jobIds: nextJobIds,
       unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
       requestId,
-      idempotencyKey,
+      idempotencyKey: clientIdempotencyKey,
     };
     const hashedPayload = payloadHash(payload);
 
+    const idempotencyKey = scopedIdempotencyKey(employeeId, clientIdempotencyKey);
     const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
     if (existing) {
-      return res.status(200).json({ ok: true, timeEntry: existing.response });
+      return replayClockingRequest(res, existing, hashedPayload);
     }
 
     const allEntries = await listTimeEntriesForBusiness(session.businessId);

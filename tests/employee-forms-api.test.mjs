@@ -141,6 +141,28 @@ test('employee submission rejects unassigned forms, foreign fields, and another 
   assert.equal(detail.statusCode, 404);
 });
 
+test('employee Forms production handler fails closed for foreign tenant and context identifiers', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a', role: 'crew_member' });
+  seedForm(store, { id: 'local-form' });
+  seedForm(store, { id: 'foreign-form', businessId: 'biz-b' });
+  store.set(key('BUSINESS#biz-b', 'JOB#job-b'), { PK: 'BUSINESS#biz-b', SK: 'JOB#job-b', entityType: 'JOB', businessId: 'biz-b', jobId: 'job-b', title: 'Foreign Job', assignedEmployeeIds: ['employee-a'] });
+  store.set(key('BUSINESS#biz-b', 'DIVISION#division-b'), { PK: 'BUSINESS#biz-b', SK: 'DIVISION#division-b', entityType: 'DIVISION', businessId: 'biz-b', divisionId: 'division-b', name: 'Foreign Division', active: true });
+  store.set(key('BUSINESS#biz-b', 'EQUIPMENT#equipment-b'), { PK: 'BUSINESS#biz-b', SK: 'EQUIPMENT#equipment-b', entityType: 'EQUIPMENT', businessId: 'biz-b', equipmentId: 'equipment-b', name: 'Foreign Equipment', status: 'active' });
+  store.set(key('BUSINESS#biz-b', 'FORM_SUBMISSION#submission-b'), { PK: 'BUSINESS#biz-b', SK: 'FORM_SUBMISSION#submission-b', entityType: 'FORM_SUBMISSION', businessId: 'biz-b', formSubmissionId: 'submission-b', formId: 'foreign-form', employeeId: 'employee-a', status: 'submitted' });
+
+  const foreignForm = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'foreign-form', responses: [] } });
+  const foreignJob = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'local-form', jobId: 'job-b', responses: [{ fieldId: 'local-form-notes', value: 'x' }] } });
+  const foreignDivision = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'local-form', divisionId: 'division-b', responses: [{ fieldId: 'local-form-notes', value: 'x' }] } });
+  const foreignEquipment = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'local-form', equipmentId: 'equipment-b', responses: [{ fieldId: 'local-form-notes', value: 'x' }] } });
+  const foreignSubmission = await request('token-a', { action: 'submission', query: { id: 'submission-b' } });
+
+  assert.deepEqual(
+    [foreignForm.statusCode, foreignJob.statusCode, foreignDivision.statusCode, foreignEquipment.statusCode, foreignSubmission.statusCode],
+    [404, 403, 403, 403, 404]
+  );
+});
+
 test('employee Forms API rejects invalid sessions and inactive form submissions', async (t) => {
   const store = installDdb(t);
   await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });

@@ -774,3 +774,46 @@ test('crew_member cannot prepare-download for unrelated job attachment', async (
   assert.equal(res.body.ok, false);
   assert.equal(res.body.error, 'Forbidden');
 });
+
+test('crew_member can upload to own time entry but not another employee entry', async () => {
+  const pendingParents = [];
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({ id: 'user-a', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-a' }),
+    getTimeEntryForBusiness: async (_businessId, id) => (
+      id === 'entry-a'
+        ? { id, employeeId: 'emp-a', status: 'clocked_in' }
+        : { id, employeeId: 'emp-b', status: 'clocked_in' }
+    ),
+    createPendingFileForBusiness: async ({ file }) => {
+      pendingParents.push(file.entityId);
+      return { ok: true };
+    },
+  }));
+  const requestUpload = async (entityId) => {
+    const res = createMockRes();
+    await handler({ method: 'POST', body: { action: 'prepare-upload', fileName: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 100, entityType: 'time-entry', entityId, category: 'clock-out-photo' } }, res);
+    return res;
+  };
+
+  assert.equal((await requestUpload('entry-a')).statusCode, 200);
+  assert.equal((await requestUpload('entry-b')).statusCode, 403);
+  assert.deepEqual(pendingParents, ['entry-a']);
+});
+
+test('crew_member file actions reauthorize the stored file parent entry', async () => {
+  const file = {
+    id: 'file-b', businessId: 'biz-1', entityType: 'time-entry', entityId: 'entry-b', category: 'clock-out-photo',
+    uploadStatus: 'uploaded', key: 'biz-1/file-b/photo.jpg', objectKey: 'biz-1/file-b/photo.jpg',
+  };
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({ id: 'user-a', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-a' }),
+    getFileForBusiness: async () => file,
+    getTimeEntryForBusiness: async () => ({ id: 'entry-b', employeeId: 'emp-b', status: 'clocked_in' }),
+  }));
+
+  for (const action of ['prepare-download', 'complete-upload', 'delete']) {
+    const res = createMockRes();
+    await handler({ method: 'POST', body: { action, fileId: file.id } }, res);
+    assert.equal(res.statusCode, 403, action);
+  }
+});

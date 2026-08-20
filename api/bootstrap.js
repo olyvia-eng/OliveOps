@@ -25,6 +25,7 @@ import {
   getTimeEntryForBusiness,
   listTimeEntriesForBusiness,
   getEmployeeForBusiness,
+  getBusinessProfile,
 } from './_lib/authRepo.js';
 import { DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS, getActiveShiftForEmployee, isPossiblyForgottenClockOut } from './_lib/clocking.js';
 import { requireSession } from './_lib/session.js';
@@ -35,6 +36,7 @@ import {
 } from './_lib/budgetGroups.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
+import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -46,9 +48,12 @@ export default async function handler(req, res) {
   if (!session) return;
 
   try {
-    const sessionEmployee = typeof session.employeeId === 'string'
-      ? await getEmployeeForBusiness(session.businessId, session.employeeId)
-      : null;
+    const [businessProfile, sessionEmployee] = await Promise.all([
+      getBusinessProfile(session.businessId),
+      typeof session.employeeId === 'string'
+        ? getEmployeeForBusiness(session.businessId, session.employeeId)
+        : null,
+    ]);
     const activeShift = typeof session.employeeId === 'string'
       ? await getActiveShiftForEmployee({ businessId: session.businessId, employeeId: session.employeeId })
       : null;
@@ -99,6 +104,7 @@ export default async function handler(req, res) {
       capabilities: {
         paidDriveTime: Boolean(sessionEmployee),
       },
+      timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
       forms: filterRecordsForSession(session, 'forms', forms),
       formFields: filterRecordsForSession(session, 'form-fields', formFields),
       formSubmissions: filterRecordsForSession(session, 'form-submissions', formSubmissions),

@@ -20,6 +20,8 @@ import {
   normalizeTimeCorrectionRequest,
   validateTimeCorrectionRequestPayload,
 } from './timeCorrections.js';
+import { authorizeRecordAccess } from './authorization.js';
+import { listCrewsForBusiness } from './schedulingConfig.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -133,6 +135,7 @@ async function validateActivityAndJobRules({
   jobId,
   getJobForBusinessFn,
   getUnbillableTimeCategoryForBusinessFn,
+  listCrewsForBusinessFn,
 }) {
   if (!jobId && request.requestedActivityType === 'job') {
     return { error: 'Job work corrections must include a requested job.' };
@@ -142,6 +145,10 @@ async function validateActivityAndJobRules({
     const job = await getJobForBusinessFn(session.businessId, jobId);
     const error = ensureSameBusinessJobOrError(job, jobId);
     if (error) return { error };
+    const crews = await listCrewsForBusinessFn(session.businessId);
+    if (!authorizeRecordAccess(session, 'jobs', job, { crews })) {
+      return { error: 'Requested job is not available to this employee.', status: 403 };
+    }
   }
 
   if (request.requestedActivityType === 'non_billable') {
@@ -173,6 +180,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
     approveTimeCorrectionForBusiness,
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
+    listCrewsForBusiness,
     ...overrides,
   };
 
@@ -286,9 +294,10 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         jobId: normalized.requestedJobId,
         getJobForBusinessFn: deps.getJobForBusiness,
         getUnbillableTimeCategoryForBusinessFn: deps.getUnbillableTimeCategoryForBusiness,
+        listCrewsForBusinessFn: deps.listCrewsForBusiness,
       });
       if (activityValidation.error) {
-        return res.status(400).json({ ok: false, error: activityValidation.error });
+        return res.status(activityValidation.status ?? 400).json({ ok: false, error: activityValidation.error });
       }
 
       const correction = {
@@ -374,6 +383,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         jobId: correction.requestedJobId,
         getJobForBusinessFn: deps.getJobForBusiness,
         getUnbillableTimeCategoryForBusinessFn: deps.getUnbillableTimeCategoryForBusiness,
+        listCrewsForBusinessFn: deps.listCrewsForBusiness,
       });
       if (activityValidation.error) {
         return res.status(409).json({ ok: false, error: activityValidation.error });
@@ -474,7 +484,10 @@ export function createTimeCorrectionsHandler(overrides = {}) {
       const entries = await deps.listTimeEntriesForBusiness(session.businessId);
       const corrections = await deps.listTimeCorrectionsForBusiness(session.businessId);
       const scopedCorrections = filterCorrectionsForSession(session, corrections);
-      const effectiveEntries = buildEffectiveTimeEntries(entries, scopedCorrections);
+      const scopedEntries = isOwnerOrAdmin(session)
+        ? entries
+        : entries.filter((entry) => entry.employeeId === session.employeeId);
+      const effectiveEntries = buildEffectiveTimeEntries(scopedEntries, scopedCorrections);
       return res.status(200).json({ ok: true, items: effectiveEntries });
     }
 
