@@ -214,9 +214,9 @@ interface AppState {
   saveBudgetGroup: (group: Omit<BudgetGroup, 'createdAt' | 'updatedAt'>, confirmAllocationMove?: boolean) => Promise<{ ok: boolean; requiresConfirmation?: boolean; error?: string }>;
   dissolveBudgetGroup: (id: ID) => Promise<boolean>;
   refreshBudgetGroups: () => Promise<void>;
-  addBudgetItem: (item: Omit<BudgetItem, 'id'>, allocationMonths?: number) => void;
+  addBudgetItem: (item: Omit<BudgetItem, 'id'>, allocationMonths?: number) => Promise<BudgetItem | null>;
   updateBudgetItem: (id: ID, data: Partial<BudgetItem>, allocationMonths?: number) => Promise<boolean>;
-  deleteBudgetItem: (id: ID) => void;
+  deleteBudgetItem: (id: ID) => Promise<boolean>;
   saveGroupedEquipmentAllocations: (input: {
     budgetId: ID;
     equipmentId: ID;
@@ -1817,7 +1817,7 @@ export const useStore = create<AppState>()((set, get) => ({
         await get().refreshBudgetGroups();
         return true;
       },
-      addBudgetItem: (item, allocationMonths) => {
+      addBudgetItem: async (item, allocationMonths) => {
         const previous = get().budgetItems;
         const budgetItem = {
           ...item,
@@ -1826,19 +1826,22 @@ export const useStore = create<AppState>()((set, get) => ({
         };
         set((s) => ({ budgetItems: [...s.budgetItems, budgetItem] }));
 
-        void ensureOk(fetch(dataUrl('budget'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...budgetItem, budgeted: item.budgeted }, allocationMonths }),
-        })).then(() => {
+        try {
+          await ensureOk(fetch(dataUrl('budget'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: { ...budgetItem, budgeted: item.budgeted }, allocationMonths }),
+          }));
           if (allocationMonths !== undefined) void get().refreshBudgetGroups();
-        }).catch(() => {
+          return budgetItem;
+        } catch {
           set({ budgetItems: previous });
           emitAppToast({ tone: 'error', message: 'Budget item could not be saved.' });
-        });
+          return null;
+        }
       },
       updateBudgetItem: async (id, data, allocationMonths) => {
         const previous = get().budgetItems;
@@ -1871,17 +1874,21 @@ export const useStore = create<AppState>()((set, get) => ({
           return false;
         }
       },
-      deleteBudgetItem: (id) => {
+      deleteBudgetItem: async (id) => {
         const previous = get().budgetItems;
         set((s) => ({ budgetItems: s.budgetItems.filter((b) => b.id !== id) }));
 
-        void ensureOk(fetch(dataUrl('budget', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).catch(() => {
+        try {
+          await ensureOk(fetch(dataUrl('budget', id), {
+            method: 'DELETE',
+            credentials: 'include',
+          }));
+          return true;
+        } catch {
           set({ budgetItems: previous });
           emitAppToast({ tone: 'error', message: 'Budget item could not be deleted.' });
-        });
+          return false;
+        }
       },
       saveGroupedEquipmentAllocations: async (input) => {
         try {

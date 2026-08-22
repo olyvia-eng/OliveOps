@@ -131,6 +131,45 @@ function buildBudgetRecord(overrides = {}) {
   };
 }
 
+test('Company Overhead persists as a top-level Budget item through CRUD and reload', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
+  await seedSessionToken();
+  const headers = { authorization: 'Bearer budget-token-a' };
+
+  const budgetRes = createMockRes();
+  await dataHandler({ method: 'POST', query: { entity: 'budgets' }, headers, body: { data: buildBudgetRecord() } }, budgetRes);
+  assert.equal(budgetRes.statusCode, 200);
+
+  const item = { id: 'company-overhead-accounting', budgetId: 'budget-1', category: 'overhead', description: 'Accounting', costCode: 'ADMIN-001', budgeted: 12000, actual: 0, period: '2026-01' };
+  const createRes = createMockRes();
+  await dataHandler({ method: 'POST', query: { entity: 'budget' }, headers, body: { data: item } }, createRes);
+  assert.equal(createRes.statusCode, 200);
+  assert.equal(createRes.body.ok, true);
+
+  const listAfterCreate = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'budget' }, headers }, listAfterCreate);
+  assert.deepEqual(listAfterCreate.body.items.map((value) => [value.description, value.costCode, value.budgeted]), [['Accounting', 'ADMIN-001', 12000]]);
+
+  const updateRes = createMockRes();
+  await dataHandler({ method: 'PATCH', query: { entity: 'budget', id: item.id }, headers, body: { data: { description: 'General Accounting', budgeted: 15000 } } }, updateRes);
+  assert.equal(updateRes.statusCode, 200);
+  assert.equal(updateRes.body.ok, true);
+
+  const listAfterUpdate = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'budget' }, headers }, listAfterUpdate);
+  assert.deepEqual(listAfterUpdate.body.items.map((value) => [value.description, value.budgeted]), [['General Accounting', 15000]]);
+
+  const deleteRes = createMockRes();
+  await dataHandler({ method: 'DELETE', query: { entity: 'budget', id: item.id }, headers }, deleteRes);
+  assert.equal(deleteRes.statusCode, 200);
+  assert.equal(deleteRes.body.ok, true);
+
+  const listAfterDelete = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'budget' }, headers }, listAfterDelete);
+  assert.deepEqual(listAfterDelete.body.items, []);
+});
+
 test('budget create accepts arbitrary division text and preserves stored value', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });

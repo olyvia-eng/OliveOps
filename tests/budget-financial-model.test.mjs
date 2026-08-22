@@ -57,6 +57,19 @@ test('Budget financials consolidate Divisions once and include company overhead 
   assert.equal(result.operatingMargin, 936000 / 1550000 * 100);
 });
 
+test('Company Overhead reduces overall profit once without changing Division profitability', () => {
+  const withoutCompanyOverhead = model.calculateBudgetFinancials({ divisions, planningItems, companyOverheadItems: [] });
+  const withCompanyOverhead = model.calculateBudgetFinancials({ divisions, planningItems, companyOverheadItems: [{ budgeted: 50000 }] });
+
+  assert.equal(withoutCompanyOverhead.operatingProfit - withCompanyOverhead.operatingProfit, 50000);
+  assert.equal(withCompanyOverhead.companyOverhead, 50000);
+  assert.equal(withCompanyOverhead.companyOverheadAllocated, false);
+  assert.deepEqual(
+    withCompanyOverhead.divisions.map((division) => [division.divisionId, division.divisionOverhead, division.operatingProfitBeforeCompanyOverhead, division.allocatedCompanyOverhead]),
+    withoutCompanyOverhead.divisions.map((division) => [division.divisionId, division.divisionOverhead, division.operatingProfitBeforeCompanyOverhead, division.allocatedCompanyOverhead]),
+  );
+});
+
 test('zero revenue and incomplete planning never present misleading profit', () => {
   const incomplete = model.calculateDivisionFinancials({ divisions: [{ ...divisions[0], revenueTarget: 0 }], planningItems: planningItems.filter((item) => item.category === 'labour') }, 'hardscape');
   assert.equal(incomplete.isComplete, false);

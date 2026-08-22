@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const budget = readFileSync('src/pages/budget/BudgetWorkspacePage.tsx', 'utf8');
 const division = readFileSync('src/pages/budget/DivisionWorkspacePage.tsx', 'utf8');
+const companyOverhead = readFileSync('src/components/budget/CompanyOverheadSection.tsx', 'utf8');
 const statement = readFileSync('src/components/budget/ProfitLossView.tsx', 'utf8');
 const model = readFileSync('src/pages/budget/budgetFinancialModel.ts', 'utf8');
 const plannerModel = readFileSync('api/_lib/budgetDivisionPlanningModel.js', 'utf8');
@@ -47,6 +48,7 @@ test('financial statements show hierarchy, incomplete state, and honest company 
 test('Company Overhead tab exposes existing Budget overhead rows without reallocating them', () => {
   assert.match(budget, /companyOverheadItems = budgetItems\.filter/);
   assert.match(budget, /item\.category === 'overhead'/);
-  assert.match(budget, /Total Company Overhead/);
-  assert.match(budget, /It is not silently allocated to Divisions/);
+  assert.match(budget, /CompanyOverheadSection/);
+  assert.match(companyOverhead, /Total Company Overhead/);
+  assert.match(companyOverhead, /remain separate from Division Overhead/);
 });

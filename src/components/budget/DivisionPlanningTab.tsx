@@ -40,11 +40,11 @@ const config = {
     description: 'Add subcontractors manually or bring forward subcontractor planning items from a previous Budget.',
   },
   overhead: {
-    label: 'Overhead',
+    label: 'Division Overhead',
     singular: 'Overhead Cost',
     icon: ReceiptText,
     title: 'No Division overhead planned yet',
-    description: 'Add costs that belong specifically to this Division, such as shop, software, phones, training, or office costs.',
+    description: 'Costs specific to this division that are not already captured as labour, equipment, materials, or subcontractor costs.',
   },
 } as const;
 

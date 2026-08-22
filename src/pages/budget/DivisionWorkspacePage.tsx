@@ -15,7 +15,7 @@ const tabs: Array<{ key: DivisionTab; label: string }> = [
   { key: 'equipment', label: 'Equipment' },
   { key: 'materials', label: 'Materials' },
   { key: 'subcontractors', label: 'Subcontractors' },
-  { key: 'overhead', label: 'Overhead' },
+  { key: 'overhead', label: 'Division Overhead' },
   { key: 'profit-loss', label: 'Profit & Loss' },
 ];
 
