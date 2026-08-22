@@ -224,8 +224,8 @@ interface AppState {
     allocations: Array<{ budgetId: ID; budgetItemId: ID; monthsAllocated: number }>;
   }) => Promise<{ ok: boolean; error?: string }>;
   reorderBudgetEquipment: (budgetId: ID, orderedIds: ID[]) => Promise<boolean>;
-  addBudgetRate: (rate: Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateBudgetRate: (id: ID, data: Partial<BudgetRate>) => void;
+  addBudgetRate: (rate: Omit<BudgetRate, 'id' | 'createdAt' | 'updatedAt'>) => Promise<BudgetRate>;
+  updateBudgetRate: (id: ID, data: Partial<BudgetRate>) => Promise<BudgetRate>;
   deleteBudgetRate: (id: ID) => void;
   upsertLabourBudgetPlan: (plan: LabourBudgetPlan) => Promise<boolean>;
   deleteLabourBudgetPlan: (id: ID) => Promise<boolean>;
@@ -1945,7 +1945,7 @@ export const useStore = create<AppState>()((set, get) => ({
           return false;
         }
       },
-      addBudgetRate: (rateInput) => {
+      addBudgetRate: async (rateInput) => {
         const previous = get().budgetRates;
         const budgetRate = {
           ...rateInput,
@@ -1955,38 +1955,49 @@ export const useStore = create<AppState>()((set, get) => ({
         };
         set((s) => ({ budgetRates: [...s.budgetRates, budgetRate] }));
 
-        void ensureOk(fetch(dataUrl('budget-rates'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: budgetRate }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('budget-rates'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: budgetRate }),
+          }));
+          return budgetRate;
+        } catch (error: unknown) {
           set({ budgetRates: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget rate could not be saved.') });
-        });
+          throw error;
+        }
       },
-      updateBudgetRate: (id, data) => {
+      updateBudgetRate: async (id, data) => {
         const previous = get().budgetRates;
         const updatedAt = nowISO();
+        const budgetRate = previous.find((rate) => rate.id === id);
+        if (!budgetRate) throw new Error('Budget rate not found.');
+        const updatedBudgetRate = { ...budgetRate, ...data, updatedAt };
         set((s) => ({
           budgetRates: s.budgetRates.map((rate) => (
-            rate.id === id ? { ...rate, ...data, updatedAt } : rate
+            rate.id === id ? updatedBudgetRate : rate
           )),
         }));
 
-        void ensureOk(fetch(dataUrl('budget-rates', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('budget-rates', id), {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt } }),
+          }));
+          return updatedBudgetRate;
+        } catch (error: unknown) {
           set({ budgetRates: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget rate changes could not be saved.') });
-        });
+          throw error;
+        }
       },
       deleteBudgetRate: (id) => {
         const previous = get().budgetRates;
