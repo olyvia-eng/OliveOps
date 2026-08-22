@@ -47,6 +47,7 @@ import {
   deleteTimeEntryForBusiness,
   deleteTaskForBusiness,
   getBudgetForBusiness,
+  getBudgetDivisionForBusiness,
   getBudgetItemForBusiness,
   getBudgetRateForBusiness,
   getAuditEventForBusiness,
@@ -692,6 +693,15 @@ function validateUnbillableTimeCategoryRecord(record) {
   return null;
 }
 
+function validateRecoveryPolicy(policy) {
+  if (policy === undefined || policy === null) return null;
+  if (policy.version !== 2 || !policy.allocation || typeof policy.allocation !== 'object') return 'Overhead recovery policy is invalid.';
+  const fields = ['labourPercent', 'equipmentPercent', 'materialsPercent', 'subcontractorsPercent'];
+  if (fields.some((field) => !isFiniteNumber(policy.allocation[field]) || policy.allocation[field] < 0 || policy.allocation[field] > 100)) return 'Overhead recovery percentages must be between 0 and 100.';
+  const total = fields.reduce((sum, field) => sum + policy.allocation[field], 0);
+  return Math.abs(total - 100) < 0.001 ? null : 'Overhead recovery percentages must total 100%.';
+}
+
 function validateBudgetRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Budget id is required.';
   if (!isNonEmptyString(record.name)) return 'Budget name is required.';
@@ -714,6 +724,8 @@ function validateBudgetRecord(record) {
     return 'Budget planning model is invalid.';
   }
   if (!BUDGET_STATUSES.has(record.status)) return 'Budget status is invalid.';
+  const recoveryError = validateRecoveryPolicy(record.overheadRecoveryPolicy);
+  if (recoveryError) return recoveryError;
   return null;
 }
 
@@ -1044,7 +1056,7 @@ async function authorizeNewEstimatePricing({ businessId, existing, estimate }) {
     listEquipmentAssetsForBusiness(businessId),
     listMaterialCatalogItemsForBusiness(businessId),
   ]);
-  const catalog = buildEstimatePricingCatalog({ budgetId: budget.id, planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems });
+  const catalog = buildEstimatePricingCatalog({ budgetId: budget.id, includeAllDivisions: true, planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems });
   return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
 }
 
@@ -1059,6 +1071,8 @@ function validateBudgetRateRecord(record) {
   if (!isNonEmptyString(record.itemName)) return 'Budget rate item name is required.';
   if (!isNonEmptyString(record.unit)) return 'Budget rate unit is required.';
   if (!isFiniteNumber(record.unitCost) || record.unitCost < 0) return 'Budget rate unit cost must be zero or greater.';
+  if (record.pricingVersion !== undefined && record.pricingVersion !== 2) return 'Budget rate pricing version is invalid.';
+  if (record.pricingVersion === 2 && !isNonEmptyString(record.divisionId)) return 'Version 2 Budget rates require a Division.';
   for (const [field, label] of [
     ['budgetItemId', 'Budget item'],
     ['employeeId', 'Employee'],
@@ -1074,6 +1088,10 @@ function validateBudgetRateRecord(record) {
     ['overheadRecoveryPerUnit', 'Budget rate overhead recovery'],
     ['targetMarginPercent', 'Budget rate target margin'],
     ['recommendedSellPrice', 'Budget rate recommended sell price'],
+    ['directCostPerUnit', 'Budget rate direct cost'],
+    ['divisionOverheadRecoveryPerUnit', 'Budget rate Division overhead recovery'],
+    ['companyOverheadRecoveryPerUnit', 'Budget rate Company overhead recovery'],
+    ['recoveredCostPerUnit', 'Budget rate recovered cost'],
   ]) {
     if (record[field] !== undefined && record[field] !== null && (!isFiniteNumber(record[field]) || record[field] < 0)) {
       return `${label} must be zero or greater.`;
@@ -1100,6 +1118,7 @@ function validateBudgetRateRecord(record) {
 async function validateBudgetRateRelationships(businessId, record) {
   const budget = await getBudgetForBusiness(businessId, record.budgetId);
   if (!budget) return 'Budget rate Budget must belong to this business.';
+  if (record.divisionId && !await getBudgetDivisionForBusiness(businessId, record.budgetId, record.divisionId)) return 'Budget rate Division must belong to the selected Budget.';
   if (record.employeeId && !await getEmployeeForBusiness(businessId, record.employeeId)) return 'Budget rate Employee must belong to this business.';
   if (record.equipmentId && !await getEquipmentAssetForBusiness(businessId, record.equipmentId)) return 'Budget rate Equipment must belong to this business.';
   if (record.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, record.materialCatalogItemId)) return 'Budget rate Material must belong to this business.';

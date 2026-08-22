@@ -39,7 +39,13 @@ const dedupeKey = (item) => {
   return sourceId ? `${item.category}:${sourceId}` : `${item.category}:budget-item:${item.id}`;
 };
 
-export function buildEstimatePricingCatalog({ budgetId, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
+const itemDivisionIds = (item) => {
+  if (item.category === 'labour' && Array.isArray(item.divisionAllocations)) return item.divisionAllocations.filter((allocation) => Number(allocation.hours ?? allocation.percentage ?? 0) > 0).map((allocation) => allocation.divisionId);
+  if (item.category === 'equipment' && Array.isArray(item.equipmentDivisionAllocations)) return item.equipmentDivisionAllocations.filter((allocation) => Number(allocation.months ?? 0) > 0).map((allocation) => allocation.divisionId);
+  return item.divisionId ? [item.divisionId] : [];
+};
+
+export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
   const entities = {
     employees: new Map(employees.map((item) => [item.id, item])),
     equipment: new Map(equipmentAssets.map((item) => [item.id, item])),
@@ -50,14 +56,28 @@ export function buildEstimatePricingCatalog({ budgetId, planningItems, budgetRat
 
   for (const item of planningItems) {
     if (item.budgetId !== budgetId || !CATEGORY_MAP[item.category]) continue;
-    const key = dedupeKey(item);
-    if (!uniqueItems.has(key)) uniqueItems.set(key, item);
+    const divisionIds = itemDivisionIds(item);
+    if (!divisionId && !includeAllDivisions) {
+      const key = dedupeKey(item);
+      if (!uniqueItems.has(key)) uniqueItems.set(key, { item, divisionId: undefined });
+      continue;
+    }
+    if (includeAllDivisions) {
+      const legacyKey = `legacy:${dedupeKey(item)}`;
+      if (!uniqueItems.has(legacyKey)) uniqueItems.set(legacyKey, { item, divisionId: undefined });
+    }
+    for (const itemDivisionId of divisionIds) {
+      if (divisionId && itemDivisionId !== divisionId) continue;
+      const key = `${itemDivisionId}:${dedupeKey(item)}`;
+      if (!uniqueItems.has(key)) uniqueItems.set(key, { item, divisionId: itemDivisionId });
+    }
   }
 
   const catalog = { labour: [], equipment: [], materials: [], subcontractors: [] };
-  for (const item of uniqueItems.values()) {
+  for (const { item, divisionId: itemDivisionId } of uniqueItems.values()) {
     const type = CATEGORY_MAP[item.category];
-    const matchingRate = rates.find((rate) => rate.category === type && sourceRateMatches(item, rate));
+    const matchingRate = rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
+      ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));
     const approvedRate = matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : positiveNumber(item.approvedRate);
     const recommendedRate = matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : positiveNumber(item.recommendedRate);
     const costRate = matchingRate ? positiveNumber(matchingRate.unitCost) : positiveNumber(item.costRate);
@@ -70,6 +90,13 @@ export function buildEstimatePricingCatalog({ budgetId, planningItems, budgetRat
       budgetItemId: item.id,
       sourceRateId: matchingRate?.id,
       pricingRateUpdatedAt: matchingRate?.updatedAt,
+      pricingVersion: matchingRate?.pricingVersion,
+      divisionId: itemDivisionId,
+      directCostPerUnit: matchingRate?.directCostPerUnit ?? costRate,
+      divisionOverheadRecoveryPerUnit: matchingRate?.divisionOverheadRecoveryPerUnit ?? null,
+      companyOverheadRecoveryPerUnit: matchingRate?.companyOverheadRecoveryPerUnit ?? null,
+      recoveredCostPerUnit: matchingRate?.recoveredCostPerUnit ?? null,
+      targetMarginPct: matchingRate?.targetMarginPercent ?? null,
       name: displayName(item, entities) || 'Unnamed item',
       description: item.description ?? '',
       costCode: item.costCode,
@@ -94,7 +121,7 @@ const estimateLineItems = (estimate) => [
 
 export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstimate, catalog }) {
   const existingById = new Map(estimateLineItems(existingEstimate).map((item) => [item.id, item]));
-  const pricingByBudgetItemId = new Map(catalogItems(catalog).map((item) => [item.budgetItemId, item]));
+  const pricingByBudgetItemId = new Map(catalogItems(catalog).map((item) => [`${item.divisionId ?? ''}:${item.budgetItemId}`, item]));
 
   const apply = (item) => {
     if (!item?.sourceBudgetItemId) return { ok: true, item };
@@ -103,7 +130,8 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
     if (item.sourceBudgetId !== catalog.budgetId || nextEstimate.pricingBudgetId !== catalog.budgetId) {
       return { ok: false, error: 'Estimate pricing must come from its selected Pricing Budget.' };
     }
-    const pricing = pricingByBudgetItemId.get(item.sourceBudgetItemId);
+    const pricing = pricingByBudgetItemId.get(`${item.divisionId ?? ''}:${item.sourceBudgetItemId}`)
+      ?? pricingByBudgetItemId.get(`:${item.sourceBudgetItemId}`);
     if (!pricing || pricing.pricingStatus !== 'approved' || !(pricing.approvedRate > 0)) {
       return { ok: false, error: 'The selected Budget item does not have approved pricing.' };
     }
@@ -122,6 +150,14 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       sourceEntityId: pricing.sourceEntityId,
       sourceRateId: pricing.sourceRateId,
       pricingRateUpdatedAt: pricing.pricingRateUpdatedAt,
+      pricingVersion: pricing.pricingVersion,
+      divisionId: pricing.divisionId,
+      directCostPerUnit: pricing.directCostPerUnit ?? unitCost,
+      divisionOverheadRecoveryPerUnit: pricing.divisionOverheadRecoveryPerUnit ?? undefined,
+      companyOverheadRecoveryPerUnit: pricing.companyOverheadRecoveryPerUnit ?? undefined,
+      recoveredCostPerUnit: pricing.recoveredCostPerUnit ?? undefined,
+      targetMarginPct: pricing.targetMarginPct ?? undefined,
+      recommendedRateAtEstimate: pricing.recommendedRate ?? undefined,
       equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,

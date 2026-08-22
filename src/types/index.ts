@@ -57,6 +57,14 @@ export interface EstimateLineItem {
   sourceEntityId?: ID;
   sourceRateId?: ID;
   pricingRateUpdatedAt?: string;
+  pricingVersion?: number;
+  divisionId?: ID;
+  directCostPerUnit?: number;
+  divisionOverheadRecoveryPerUnit?: number;
+  companyOverheadRecoveryPerUnit?: number;
+  recoveredCostPerUnit?: number;
+  targetMarginPct?: number;
+  recommendedRateAtEstimate?: number;
   sourceCategory?: LineItemCategory;
   equipmentId?: ID;
   equipmentName?: string;
@@ -93,6 +101,13 @@ export interface EstimatePricingCatalogItem {
   approvedRate: number | null;
   pricingStatus: EstimatePricingStatus;
   pricingRateUpdatedAt?: string;
+  pricingVersion?: number;
+  divisionId?: ID;
+  directCostPerUnit?: number | null;
+  divisionOverheadRecoveryPerUnit?: number | null;
+  companyOverheadRecoveryPerUnit?: number | null;
+  recoveredCostPerUnit?: number | null;
+  targetMarginPct?: number | null;
 }
 
 export interface EstimatePricingCatalog {
@@ -105,6 +120,7 @@ export interface EstimatePricingCatalog {
 
 export interface EstimateWorkArea {
   id: ID;
+  divisionId?: ID;
   name: string;
   description: string;
   sortOrder: number;
@@ -840,6 +856,7 @@ export interface Budget {
     materialsPercent: number;
     subcontractorsPercent: number;
   };
+  overheadRecoveryPolicy?: OverheadRecoveryPolicy;
   desiredNetProfit?: number;
   targetMarginPct?: number;
   equipmentUtilizationHours?: number;
@@ -856,6 +873,7 @@ export interface BudgetDivision {
   revenueTarget: number;
   status: BudgetDivisionStatus;
   sortOrder: number;
+  overheadRecoveryPolicy?: OverheadRecoveryPolicy;
   createdAt: string;
   updatedAt: string;
 }
@@ -873,6 +891,19 @@ export interface LabourDivisionAllocation {
 export interface EquipmentDivisionAllocation {
   divisionId: ID;
   months: number;
+  sellableHours?: number;
+}
+
+export interface OverheadRecoveryAllocation {
+  labourPercent: number;
+  equipmentPercent: number;
+  materialsPercent: number;
+  subcontractorsPercent: number;
+}
+
+export interface OverheadRecoveryPolicy {
+  version: 2;
+  allocation: OverheadRecoveryAllocation;
 }
 
 export interface BudgetDivisionPlanningItem {
@@ -994,6 +1025,12 @@ export interface BudgetRate {
   materialCatalogItemId?: ID;
   vendorId?: ID;
   overheadRecoveryPerUnit?: number;
+  pricingVersion?: number;
+  divisionId?: ID;
+  directCostPerUnit?: number;
+  divisionOverheadRecoveryPerUnit?: number;
+  companyOverheadRecoveryPerUnit?: number;
+  recoveredCostPerUnit?: number;
   targetMarginPercent?: number;
   recommendedSellPrice?: number;
   defaultMarkupPercent: number;

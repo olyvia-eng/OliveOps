@@ -15,6 +15,15 @@ function nonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function validateRecoveryPolicy(policy) {
+  if (policy === undefined || policy === null) return null;
+  if (policy.version !== 2 || !policy.allocation || typeof policy.allocation !== 'object') return 'Overhead recovery policy is invalid.';
+  const fields = ['labourPercent', 'equipmentPercent', 'materialsPercent', 'subcontractorsPercent'];
+  if (fields.some((field) => typeof policy.allocation[field] !== 'number' || !Number.isFinite(policy.allocation[field]) || policy.allocation[field] < 0 || policy.allocation[field] > 100)) return 'Overhead recovery percentages must be between 0 and 100.';
+  const total = fields.reduce((sum, field) => sum + policy.allocation[field], 0);
+  return Math.abs(total - 100) < 0.001 ? null : 'Overhead recovery percentages must total 100%.';
+}
+
 function validateDivision(division) {
   if (!nonEmptyString(division.id)) return 'Division id is required.';
   if (!nonEmptyString(division.budgetId)) return 'Budget id is required.';
@@ -26,6 +35,8 @@ function validateDivision(division) {
   }
   if (!STATUSES.has(division.status)) return 'Division status is invalid.';
   if (!Number.isFinite(division.sortOrder) || division.sortOrder < 0) return 'Division sort order is invalid.';
+  const recoveryError = validateRecoveryPolicy(division.overheadRecoveryPolicy);
+  if (recoveryError) return recoveryError;
   return null;
 }
 

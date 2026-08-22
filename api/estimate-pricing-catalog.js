@@ -1,6 +1,7 @@
 import { requireSession } from './_lib/session.js';
 import {
   getBudgetForBusiness,
+  getBudgetDivisionForBusiness,
   getEstimateForBusiness,
   listBudgetRatesForBusiness,
   listEmployeesForBusiness,
@@ -14,6 +15,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
   const deps = {
     requireSession,
     getBudgetForBusiness,
+    getBudgetDivisionForBusiness,
     getEstimateForBusiness,
     listBudgetRatesForBusiness,
     listEmployeesForBusiness,
@@ -31,6 +33,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
     const session = await deps.requireSession(req, res, ['owner', 'admin'], 'estimates');
     if (!session) return;
     const estimateId = req.query?.estimateId;
+    const divisionId = typeof req.query?.divisionId === 'string' && req.query.divisionId.trim() ? req.query.divisionId.trim() : undefined;
     if (typeof estimateId !== 'string' || !estimateId.trim()) {
       return res.status(400).json({ ok: false, error: 'Estimate is required.' });
     }
@@ -43,6 +46,9 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
       if (budget.planningModel !== 'divisions_v1') {
         return res.status(409).json({ ok: false, error: 'This Pricing Budget uses the legacy pricing catalog.' });
       }
+      if (divisionId && !await deps.getBudgetDivisionForBusiness(session.businessId, budget.id, divisionId)) {
+        return res.status(400).json({ ok: false, error: 'Estimate Work Area Division is invalid.' });
+      }
 
       const [planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
         deps.listDivisionPlanningItemsForBusiness(session.businessId),
@@ -53,6 +59,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
       ]);
       const catalog = buildEstimatePricingCatalog({
         budgetId: budget.id,
+        divisionId,
         planningItems,
         budgetRates,
         employees,

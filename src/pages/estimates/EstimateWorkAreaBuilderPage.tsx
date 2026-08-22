@@ -25,6 +25,7 @@ interface Props {
 }
 
 type WorkAreaBuilderForm = {
+  divisionId?: string;
   name: string;
   description: string;
   lineItems: EstimateLineItem[];
@@ -96,15 +97,17 @@ const createWorkAreaPayload = (estimate: Estimate, workAreas: ReturnType<typeof 
 export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) {
   const { id, workAreaId } = useParams<{ id: string; workAreaId: string }>();
   const navigate = useNavigate();
-  const { estimates, customers, budgets, budgetRates, equipmentAssets, materialCatalogItems, updateEstimate } = useStore();
+  const { estimates, customers, budgets, budgetDivisions, budgetRates, equipmentAssets, materialCatalogItems, updateEstimate } = useStore();
 
   const estimate = estimates.find((item) => item.id === id);
   const customer = customers.find((item) => item.id === estimate?.customerId);
   const pricingBudget = budgets.find((budget) => budget.id === estimate?.pricingBudgetId);
+  const pricingDivisions = useMemo(() => budgetDivisions.filter((division) => division.budgetId === pricingBudget?.id && division.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder), [budgetDivisions, pricingBudget?.id]);
   const workAreas = useMemo(() => (estimate ? normalizeEstimateWorkAreas(estimate) : []), [estimate]);
   const workArea = useMemo(() => workAreas.find((area) => area.id === workAreaId) ?? null, [workAreaId, workAreas]);
 
   const [form, setForm] = useState<WorkAreaBuilderForm | null>(workArea ? {
+    divisionId: workArea.divisionId,
     name: workArea.name,
     description: workArea.description,
     lineItems: workArea.lineItems,
@@ -136,6 +139,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       return;
     }
     setForm({
+      divisionId: workArea.divisionId,
       name: workArea.name,
       description: workArea.description,
       lineItems: workArea.lineItems,
@@ -151,7 +155,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     const controller = new AbortController();
     setCatalogLoading(true);
     setCatalogError('');
-    void fetch(`/api/estimate-pricing-catalog?estimateId=${encodeURIComponent(estimate.id)}`, { credentials: 'include', signal: controller.signal })
+    const divisionQuery = form?.divisionId ? `&divisionId=${encodeURIComponent(form.divisionId)}` : '';
+    void fetch(`/api/estimate-pricing-catalog?estimateId=${encodeURIComponent(estimate.id)}${divisionQuery}`, { credentials: 'include', signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json() as { ok?: boolean; catalog?: EstimatePricingCatalog; error?: string };
         if (!response.ok || !payload.ok || !payload.catalog) throw new Error(payload.error || 'Could not load Estimate pricing.');
@@ -164,11 +169,12 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       })
       .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
     return () => controller.abort();
-  }, [estimate, pricingBudget?.planningModel]);
+  }, [estimate, form?.divisionId, pricingBudget?.planningModel]);
 
   const initialSnapshot = useMemo(() => {
     if (!workArea) return '';
     return JSON.stringify({
+      divisionId: workArea.divisionId,
       name: workArea.name,
       description: workArea.description,
       lineItems: workArea.lineItems,
@@ -355,6 +361,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     if (!form || !workArea) return null;
     const currentWorkArea = {
       ...workArea,
+      divisionId: form.divisionId,
       name: form.name,
       description: form.description,
       lineItems: form.lineItems,
@@ -476,6 +483,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       area.id === workArea.id
         ? {
             ...area,
+            divisionId: form.divisionId,
             name: form.name.trim() || area.name,
             description: form.description,
             lineItems: form.lineItems,
@@ -765,6 +773,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
           <Card className="p-4 space-y-4">
+            <Select label="Division" value={form.divisionId ?? ''} disabled={form.lineItems.some((item) => Boolean(item.sourceBudgetItemId))} onChange={(event) => setForm((current) => current ? { ...current, divisionId: event.target.value || undefined } : current)}>
+              <option value="">Legacy / No Division</option>
+              {pricingDivisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+            </Select>
+            {form.lineItems.some((item) => Boolean(item.sourceBudgetItemId)) ? <p className="text-xs text-gray-500">Remove Budget-priced items before changing this Work Area's Division.</p> : null}
             <Input
               label="Work Area Name"
               required

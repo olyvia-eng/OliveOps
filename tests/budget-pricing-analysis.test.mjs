@@ -52,25 +52,31 @@ test('Budget Analysis leaves recommendations unavailable when pricing units are 
 test('Estimate Pricing rows expose explicit saved, dirty, saving, and failed states', () => {
   assert.match(pricingSource, /persisted: string/);
   assert.match(pricingSource, /ratesMatch\(state\.draft, state\.persisted\)/);
-  assert.match(pricingSource, /onChange=\{\(event\) => setDraft\(row\.item\.id, event\.target\.value\)\}/);
+  assert.match(pricingSource, /onChange=\{\(event\) => setDraft\(row\.key, event\.target\.value\)\}/);
   assert.match(pricingSource, /'Saving…'/);
   assert.match(pricingSource, /'Try Again'/);
   assert.match(pricingSource, /'Save'/);
   assert.match(pricingSource, /'Saved ✓'/);
   assert.match(pricingSource, /role="alert"/);
-  assert.match(pricingSource, /setRateStates\(\(current\) => \(\{ \.\.\.current, \[row\.item\.id\]: \{ draft: persisted, persisted, status: 'idle' \} \}\)\)/);
-  assert.match(pricingSource, /\.\.\.current\[row\.item\.id\],[\s\S]*status: 'failed'/);
+  assert.match(pricingSource, /setRateStates\(\(current\) => \(\{ \.\.\.current, \[row\.key\]: \{ draft: persisted, persisted, status: 'idle' \} \}\)\)/);
+  assert.match(pricingSource, /\.\.\.current\[row\.key\],[\s\S]*status: 'failed'/);
 });
 
-test('Use recommended changes only the draft and requires an explicit save', () => {
-  assert.match(pricingSource, />Use recommended<\/button>/);
-  assert.match(pricingSource, /onClick=\{\(\) => setDraft\(row\.item\.id, String\(row\.recommendedRate\)\)\}/);
-  assert.doesNotMatch(pricingSource, /Use recommended<\/button>[\s\S]{0,80}save\(/);
+test('Estimate Pricing exposes components and keeps one explicit save action', () => {
+  assert.match(pricingSource, />Direct Cost</);
+  assert.match(pricingSource, />Division OH</);
+  assert.match(pricingSource, />Company OH</);
+  assert.match(pricingSource, /Using recommended rate/);
+  assert.match(pricingSource, /Custom rate/);
+  assert.doesNotMatch(pricingSource, />Use recommended<\/button>/);
 });
 
 test('Estimate Pricing prevents duplicate saves and awaits individual persistence', () => {
-  assert.match(pricingSource, /savesInFlight\.current\.has\(row\.item\.id\)/);
-  assert.match(pricingSource, /savesInFlight\.current\.add\(row\.item\.id\)/);
+  assert.match(pricingSource, /savesInFlight\.current\.has\(row\.key\)/);
+  assert.match(pricingSource, /savesInFlight\.current\.add\(row\.key\)/);
+  assert.match(pricingSource, /row\.rate\?\.pricingVersion === 2/);
+  assert.match(pricingSource, /pricingVersion: 2/);
+  assert.match(pricingSource, /divisionOverheadRecoveryPerUnit: row\.divisionOverheadPerUnit/);
   assert.match(pricingSource, /await updateBudgetRate\(row\.rate\.id, payload\)/);
   assert.match(pricingSource, /await addBudgetRate\(payload\)/);
   assert.match(storeSource, /addBudgetRate: async \(rateInput\)/);

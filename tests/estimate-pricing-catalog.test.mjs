@@ -97,6 +97,44 @@ test('existing Estimate snapshots do not silently reprice when the Budget approv
   assert.equal(result.estimate.lineItems[0].total, 760);
 });
 
+test('Division catalogs prefer version-2 rates and snapshot recovery components immutably', () => {
+  const versionedRate = {
+    id: 'rate-ryan-hardscape-v2', budgetId, budgetItemId: 'labour-ryan', employeeId: 'ryan', divisionId: 'hardscape', pricingVersion: 2,
+    category: 'labour', unit: 'hr', unitCost: 42, directCostPerUnit: 42, divisionOverheadRecoveryPerUnit: 8,
+    companyOverheadRecoveryPerUnit: 10, recoveredCostPerUnit: 60, targetMarginPercent: 20, recommendedSellPrice: 75, defaultSellPrice: 78, active: true,
+  };
+  const catalog = buildEstimatePricingCatalog({
+    budgetId, divisionId: 'hardscape', planningItems, budgetRates: [...budgetRates, versionedRate],
+    employees: [{ id: 'ryan', name: 'Ryan Field' }, { id: 'john', name: 'John Field' }], equipmentAssets: [], materialCatalogItems: [],
+  });
+  const ryan = catalog.labour.find((item) => item.sourceEntityId === 'ryan');
+  assert.equal(ryan.sourceRateId, versionedRate.id);
+  assert.equal(ryan.divisionId, 'hardscape');
+  assert.equal(ryan.approvedRate, 78);
+
+  const requested = { id: 'line-v2', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', itemName: '', description: '', quantity: 2, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
+  const result = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-v2', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
+  assert.equal(result.ok, true);
+  assert.deepEqual({
+    pricingVersion: result.estimate.lineItems[0].pricingVersion,
+    direct: result.estimate.lineItems[0].directCostPerUnit,
+    division: result.estimate.lineItems[0].divisionOverheadRecoveryPerUnit,
+    company: result.estimate.lineItems[0].companyOverheadRecoveryPerUnit,
+    recovered: result.estimate.lineItems[0].recoveredCostPerUnit,
+    margin: result.estimate.lineItems[0].targetMarginPct,
+    recommended: result.estimate.lineItems[0].recommendedRateAtEstimate,
+    approved: result.estimate.lineItems[0].sellPrice,
+  }, { pricingVersion: 2, direct: 42, division: 8, company: 10, recovered: 60, margin: 20, recommended: 75, approved: 78 });
+
+  const changedCatalog = structuredClone(catalog);
+  changedCatalog.labour.find((item) => item.sourceEntityId === 'ryan').approvedRate = 100;
+  const unchanged = applyAuthoritativeEstimatePricing({ existingEstimate: result.estimate, nextEstimate: structuredClone(result.estimate), catalog: changedCatalog });
+  assert.equal(unchanged.estimate.lineItems[0].sellPrice, 78);
+
+  const snowCatalog = buildEstimatePricingCatalog({ budgetId, divisionId: 'snow', planningItems, budgetRates: [...budgetRates, versionedRate] });
+  assert.equal(snowCatalog.labour.find((item) => item.sourceEntityId === 'ryan').sourceRateId, 'rate-ryan');
+});
+
 test('adding approved Labour, Equipment, Material, and Subcontractor pricing preserves Estimate totals', () => {
   const catalog = build();
   const requested = [
@@ -128,6 +166,7 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
     requireSession: async () => ({ businessId: 'biz-a', role: 'admin' }),
     getEstimateForBusiness: async (businessId, estimateId) => businessId === 'biz-a' && estimateId === 'estimate-a' ? { id: estimateId, pricingBudgetId: budgetId } : null,
     getBudgetForBusiness: async (businessId, requestedBudgetId) => businessId === 'biz-a' && requestedBudgetId === budgetId ? { id: budgetId, name: '2027 annual', planningModel: 'divisions_v1' } : null,
+    getBudgetDivisionForBusiness: async (businessId, requestedBudgetId, divisionId) => businessId === 'biz-a' && requestedBudgetId === budgetId && divisionId === 'hardscape' ? { id: divisionId, budgetId: requestedBudgetId } : null,
     listDivisionPlanningItemsForBusiness: async (businessId) => businessId === 'biz-a' ? planningItems : [],
     listBudgetRatesForBusiness: async (businessId) => businessId === 'biz-a' ? budgetRates : [],
     listEmployeesForBusiness: async () => [{ id: 'ryan', name: 'Ryan Field' }, { id: 'john', name: 'John Field' }],
@@ -140,6 +179,15 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.budget.id, budgetId);
   assert.equal(response.body.catalog.labour.length, 2);
+
+  const divisionResponse = { ...response, statusCode: 200, body: null };
+  await handler({ method: 'GET', query: { estimateId: 'estimate-a', divisionId: 'hardscape' } }, divisionResponse);
+  assert.equal(divisionResponse.statusCode, 200);
+  assert.equal(divisionResponse.body.catalog.labour.every((item) => item.divisionId === 'hardscape'), true);
+
+  const invalidDivisionResponse = { ...response, statusCode: 200, body: null };
+  await handler({ method: 'GET', query: { estimateId: 'estimate-a', divisionId: 'foreign-division' } }, invalidDivisionResponse);
+  assert.equal(invalidDivisionResponse.statusCode, 400);
 
   const foreignResponse = { ...response, statusCode: 200, body: null };
   await handler({ method: 'GET', query: { estimateId: 'foreign-estimate' } }, foreignResponse);

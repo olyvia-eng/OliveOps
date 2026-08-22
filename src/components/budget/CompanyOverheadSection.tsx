@@ -4,6 +4,7 @@ import { Button, Card, EmptyState, Input, Modal } from '../ui';
 import { useStore } from '../../store';
 import type { Budget, BudgetItem } from '../../types';
 import { formatCurrency } from '../../utils';
+import OverheadRecoveryEditor from './OverheadRecoveryEditor';
 
 interface Props {
   budget: Budget;
@@ -21,7 +22,7 @@ type OverheadForm = {
 const emptyForm = (): OverheadForm => ({ description: '', costCode: '', annualAmount: '' });
 
 export default function CompanyOverheadSection({ budget, items, total, canEdit }: Props) {
-  const { addBudgetItem, updateBudgetItem, deleteBudgetItem } = useStore();
+  const { addBudgetItem, updateBudgetItem, deleteBudgetItem, updateBudget } = useStore();
   const [editing, setEditing] = useState<BudgetItem | 'new' | null>(null);
   const [form, setForm] = useState<OverheadForm>(emptyForm);
   const [formError, setFormError] = useState('');
@@ -117,6 +118,8 @@ export default function CompanyOverheadSection({ budget, items, total, canEdit }
         </table>
       </div>
     </Card>}
+
+    <OverheadRecoveryEditor title="Company Overhead Recovery" description="Choose how this company-wide pool is recovered through Estimate pricing. This does not allocate Company Overhead into Division Profit & Loss." totalOverhead={total} policy={budget.overheadRecoveryPolicy} canEdit={canEdit} onSave={(overheadRecoveryPolicy) => updateBudget(budget.id, { overheadRecoveryPolicy })} />
 
     <Modal open={editing !== null} onClose={() => { if (!saving) setEditing(null); }} title={editing === 'new' ? 'Add Company Overhead' : 'Edit Company Overhead'} footer={<><Button variant="secondary" onClick={() => setEditing(null)} disabled={saving}>Cancel</Button><Button onClick={() => void save()} disabled={saving || !formIsValid}>{saving ? 'Saving…' : 'Save Company Overhead'}</Button></>}>
       <div className="space-y-4">

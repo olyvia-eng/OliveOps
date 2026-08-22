@@ -78,7 +78,7 @@ test('Labour plan table shows only the selected Division share and prevents dupl
   assert.match(planner, /Already in Budget/);
   assert.match(planner, /Edit Allocation/);
   assert.match(planner, /overhead pool/);
-  assert.doesNotMatch(planner, /overhead recovery|target margin|sell rate/i);
+  assert.match(planner, /category === 'overhead' \? <OverheadRecoveryEditor/);
 });
 
 test('active Division equipment editor uses the shared wide equipment form and Budget-only allocation', () => {
@@ -90,6 +90,8 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(planner, /size=\{category === 'equipment' \? 'large' : 'wide'\}/);
   assert.match(planner, /Allocate Annual Equipment Cost/);
   assert.match(planner, /equipmentDivisionAllocations/);
+  assert.match(planner, /sellableHours/);
+  assert.match(planner, /not inferred from allocated months/);
   assert.match(planner, /allocation\.divisionId === division\.id && allocation\.months > 0/);
   assert.match(planner, /equipmentMonthsForDivision/);
   assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\)\) \/ 12/);

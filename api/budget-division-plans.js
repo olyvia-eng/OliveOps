@@ -38,6 +38,7 @@ function validate(item) {
     if (!Array.isArray(item.equipmentDivisionAllocations) || item.equipmentDivisionAllocations.length === 0) return 'Equipment must be allocated across Divisions.';
     if (new Set(item.equipmentDivisionAllocations.map((allocation) => allocation.divisionId)).size !== item.equipmentDivisionAllocations.length) return 'Each Division can appear only once in Equipment allocation.';
     if (item.equipmentDivisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(allocation.months) || allocation.months > 12)) return 'Equipment allocation months must be between 0 and 12.';
+    if (item.equipmentDivisionAllocations.some((allocation) => allocation.sellableHours !== undefined && !isNonNegative(allocation.sellableHours))) return 'Equipment allocation sellable hours must be zero or greater.';
     const allocationTotal = item.equipmentDivisionAllocations.reduce((sum, allocation) => sum + allocation.months, 0);
     if (Math.abs(allocationTotal - 12) > 0.001) return 'Equipment allocation must total 12 months.';
   }

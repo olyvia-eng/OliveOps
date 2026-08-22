@@ -9,6 +9,8 @@ import { calculateDivisionLabour, calculateDivisionLabourShare, isLabourAllocate
 import EquipmentInfoForm from '../equipment/EquipmentInfoForm';
 import { emptyEquipmentInfoFormValue, normalizeEquipmentInfoForm, type EquipmentInfoFormValue, validateEquipmentInfoForm } from '../equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
+import OverheadRecoveryEditor from './OverheadRecoveryEditor';
+import { buildOverheadRecoveryModel } from '../../pages/budget/overheadRecoveryModel.js';
 
 const config = {
   labour: {
@@ -60,7 +62,7 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems, updateBudgetDivision } = useStore();
   const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
@@ -99,7 +101,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               yearlyMaintenanceCost: 0,
               sellableHoursPerYear: 0,
               equipmentHoursPerDay: 8,
-              equipmentDivisionAllocations: [{ divisionId: division.id, months: 12 }],
+              equipmentDivisionAllocations: [{ divisionId: division.id, months: 12, sellableHours: 0 }],
             }
           : { unit: 'each', plannedQuantity: 1 },
     );
@@ -188,12 +190,14 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       equipmentHoursPerDay: value.equipmentHoursPerDay,
       plannedAmount: calculateEquipmentCostBreakdown(value).totalEquipmentCostPerYear,
     }));
-  const setEquipmentDivisionAllocation = (divisionId: string, months: number) =>
+  const setEquipmentDivisionAllocation = (divisionId: string, field: 'months' | 'sellableHours', value: number) =>
     setDraft((current) => ({
       ...current,
       equipmentDivisionAllocations: activeDivisions.map((item) => ({
         divisionId: item.id,
-        months: item.id === divisionId ? months : (current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.months ?? 0),
+        months: current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.months ?? 0,
+        sellableHours: current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.sellableHours ?? 0,
+        ...(item.id === divisionId ? { [field]: value } : {}),
       })),
     }));
 
@@ -300,6 +304,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const total = items.reduce((sum, item) => sum + plannedAmount(item), 0);
   const directLabourTotal = items.reduce((sum, item) => sum + calculateDivisionLabourShare(item, division.id).directLabourCost, 0);
   const overheadLabourTotal = items.reduce((sum, item) => sum + calculateDivisionLabourShare(item, division.id).overheadLabourCost, 0);
+  const divisionRecoveryTotal = buildOverheadRecoveryModel({ budget, divisions: activeDivisions, planningItems: budgetDivisionPlanningItems, companyOverhead: 0 }).divisions[division.id]?.totalOverhead ?? total;
 
   const actions = canEdit ? (
     <div className="flex flex-wrap justify-center gap-2">
@@ -411,6 +416,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
           </Card>
         </>
       )}
+
+      {category === 'overhead' ? <OverheadRecoveryEditor title="Division Overhead Recovery" description={`Choose how ${division.name}'s overhead pool is recovered through this Division's Estimate pricing.`} totalOverhead={divisionRecoveryTotal} policy={division.overheadRecoveryPolicy} canEdit={canEdit} onSave={(overheadRecoveryPolicy) => updateBudgetDivision(budget.id, division.id, { overheadRecoveryPolicy })} /> : null}
 
       <Modal
         open={editing !== null}
@@ -699,22 +706,26 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 <p className="mt-1 text-xs text-gray-500">Allocation controls cost responsibility and which Division Equipment views show this asset.</p>
                 <div className="mt-3 space-y-2">
                   {activeDivisions.map((item) => {
-                    const months = draft.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.months ?? 0;
+                    const allocation = draft.equipmentDivisionAllocations?.find((value) => value.divisionId === item.id);
+                    const months = allocation?.months ?? 0;
+                    const sellableHours = allocation?.sellableHours ?? 0;
                     return (
-                      <div key={item.id} className="grid items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_10rem]">
+                      <div key={item.id} className="grid items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_10rem_10rem]">
                         <label htmlFor={`equipment-allocation-${item.id}`} className="text-sm font-medium text-gray-900">
                           {item.name}
                           {item.id === division.id ? <span className="ml-2 text-xs font-normal text-brand-600">Current Division</span> : null}
                         </label>
                         <div className="flex items-center gap-2">
-                          <Input id={`equipment-allocation-${item.id}`} type="number" min={0} max={12} step={0.25} value={months} onChange={(event) => setEquipmentDivisionAllocation(item.id, numberValue(event.target.value))} />
+                          <Input id={`equipment-allocation-${item.id}`} type="number" min={0} max={12} step={0.25} value={months} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'months', numberValue(event.target.value))} />
                           <span className="text-xs text-gray-500">months</span>
                         </div>
+                        <Input aria-label={`${item.name} sellable equipment hours`} type="number" min={0} step={1} value={sellableHours} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'sellableHours', numberValue(event.target.value))} />
                         <p className="text-right text-sm font-semibold text-gray-900">{formatCurrency((equipmentCostBreakdown.totalEquipmentCostPerYear * months) / 12)}</p>
                       </div>
                     );
                   })}
                 </div>
+                <p className="mt-2 text-xs text-gray-500">Sellable hours are entered explicitly for each Division and are not inferred from allocated months.</p>
                 <p className={`mt-3 text-sm font-semibold ${equipmentAllocationValid ? 'text-green-700' : equipmentAllocationTotal > 12 ? 'text-accent-700' : 'text-amber-700'}`}>
                   {equipmentAllocationTotal} of 12 months allocated
                   {equipmentAllocationTotal < 12 ? ` · ${12 - equipmentAllocationTotal} remaining` : equipmentAllocationTotal > 12 ? ` · ${equipmentAllocationTotal - 12} over allocation` : ''}
