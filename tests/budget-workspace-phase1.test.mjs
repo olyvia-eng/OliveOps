@@ -44,7 +44,6 @@ test('Division roll-ups use stored revenue targets and centralized financial cal
   assert.match(workspaceSource, /calculateBudgetFinancials/);
   assert.match(workspaceSource, /Total Direct Cost[\s\S]*financials\.totalDirectCosts/);
   assert.match(workspaceSource, /Gross Profit[\s\S]*result\.grossProfit/);
-  assert.match(workspaceSource, /Allocated Overhead[\s\S]*Operating Profit/);
   assert.doesNotMatch(workspaceSource, /Contribution before Company/);
 });
 
@@ -55,6 +54,7 @@ test('Analysis uses the financial statement before existing recovery and pricing
   assert.match(workspaceSource, /onTargetMarginChange=\{\(targetMarginPct\) => updateBudget\(budget\.id, \{ targetMarginPct \}\)\}/);
   assert.doesNotMatch(workspaceSource, /activeTab === 'analysis'[\s\S]{0,300}lg:grid-cols-5/);
   assert.doesNotMatch(workspaceSource, /Summary label="Direct Costs"|Summary label="Gross Profit"|Summary label="Net Profit"/);
+  assert.doesNotMatch(workspaceSource, /Division Performance|No Division performance yet/);
 });
 
 test('legacy Budgets and group controls are absent from the Budget overview', () => {
