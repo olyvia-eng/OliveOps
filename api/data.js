@@ -1060,6 +1060,21 @@ async function authorizeNewEstimatePricing({ businessId, existing, estimate }) {
   return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
 }
 
+async function validateNewEstimatePricingDivision({ businessId, estimate }) {
+  if (!isNonEmptyString(estimate.pricingBudgetId)) return 'Estimate Pricing Budget is required.';
+  const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
+  if (!budget) return 'Estimate Pricing Budget is invalid.';
+  const workAreas = Array.isArray(estimate.workAreas) ? estimate.workAreas.filter((area) => area && typeof area === 'object') : [];
+  if (workAreas.length === 0 || workAreas.some((area) => !isNonEmptyString(area.divisionId))) {
+    return 'Estimate Division is required.';
+  }
+  for (const area of workAreas) {
+    const division = await getBudgetDivisionForBusiness(businessId, estimate.pricingBudgetId, area.divisionId);
+    if (!division || division.status !== 'active') return 'Estimate Division must be active and belong to the selected Pricing Budget.';
+  }
+  return null;
+}
+
 function ensureDefaultEstimateWorkArea(record) {
   return ensureDefaultEstimateWorkAreaModel(record, generateId);
 }
@@ -1480,6 +1495,8 @@ export default async function handler(req, res) {
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
+      const relationshipError = await validateNewEstimatePricingDivision({ businessId: session.businessId, estimate: record });
+      if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
       const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
       if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
       record = pricingResult.estimate;

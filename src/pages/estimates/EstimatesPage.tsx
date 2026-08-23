@@ -26,6 +26,7 @@ import {
   setDetailWorkspaceTab,
 } from '../../components/detail-workspace/detailWorkspaceQuery';
 import EstimateDetailPanel, { type EstimateDetailTab } from './EstimateDetailPanel';
+import { activeDivisionsForBudget, resolveEstimateDivisionId } from './estimateSetupModel.js';
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
 const ESTIMATE_WORKSPACE_QUERY = { recordParam: 'estimate', tabParam: 'estimateTab', defaultTab: 'overview' } as const;
@@ -279,9 +280,19 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const hasCustomers = customers.length > 0;
   const hasBudgets = budgets.length > 0;
   const hasPricingRates = budgets.length > 0;
-  const pricingDivisions = budgetDivisions
-    .filter((division) => division.budgetId === createForm.pricingBudgetId && division.status === 'active')
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
+  const pricingDivisions = useMemo(
+    () => activeDivisionsForBudget(budgetDivisions, createForm.pricingBudgetId),
+    [budgetDivisions, createForm.pricingBudgetId],
+  );
+  const selectedDivisionIsValid = pricingDivisions.some((division) => division.id === createForm.divisionId);
+  const canCreateEstimate = Boolean(createForm.customerId && createForm.pricingBudgetId && selectedDivisionIsValid);
+
+  useEffect(() => {
+    setCreateForm((current) => {
+      const divisionId = resolveEstimateDivisionId(current.divisionId, pricingDivisions);
+      return divisionId === current.divisionId ? current : { ...current, divisionId };
+    });
+  }, [pricingDivisions]);
 
   const filtered = estimates.filter((estimate) => {
     const customer = customers.find((item) => item.id === estimate.customerId);
@@ -305,18 +316,16 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       return;
     }
 
-    const pricingBudgetId = budgets.find((budget) => budget.status === 'active')?.id ?? budgets[0]?.id ?? '';
     setCreateForm({
       ...defaultCreateForm(),
       customerId: customerId ?? '',
-      pricingBudgetId,
     });
     setCreateModalOpen(true);
   };
 
   const createEstimate = async () => {
     if (creatingEstimate) return;
-    if (!createForm.customerId || !createForm.pricingBudgetId || !createForm.divisionId) {
+    if (!createForm.customerId || !createForm.pricingBudgetId || !selectedDivisionIsValid) {
       emitAppToast({ tone: 'error', message: 'Customer, pricing budget, and Division are required to start an estimate.' });
       return;
     }
@@ -601,7 +610,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
         footer={(
           <>
             <Button variant="secondary" onClick={() => setCreateModalOpen(false)} disabled={creatingEstimate}>Cancel</Button>
-            <Button onClick={() => void createEstimate()} disabled={creatingEstimate}>{creatingEstimate ? 'Creating...' : 'Create Estimate'}</Button>
+            <Button onClick={() => void createEstimate()} disabled={creatingEstimate || !canCreateEstimate}>{creatingEstimate ? 'Creating...' : 'Create Estimate'}</Button>
           </>
         )}
       >
@@ -626,17 +635,22 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
               <option value="">Select budget</option>
               {budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.name}</option>)}
             </Select>
+          </div>
+
+          {createForm.pricingBudgetId && pricingDivisions.length > 0 ? (
             <Select
               label="Division"
               required
               value={createForm.divisionId}
               onChange={(event) => setCreateForm((current) => ({ ...current, divisionId: event.target.value }))}
-              disabled={!createForm.pricingBudgetId}
+              disabled={pricingDivisions.length === 1}
             >
               <option value="">Select division</option>
               {pricingDivisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
             </Select>
-          </div>
+          ) : createForm.pricingBudgetId ? (
+            <p className="text-sm text-amber-700 dark:text-amber-300">This Budget has no active Divisions.</p>
+          ) : null}
 
           <Select
             label="Property (optional)"
