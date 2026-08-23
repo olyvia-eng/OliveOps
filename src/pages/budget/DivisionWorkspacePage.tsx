@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, EmptyState, PageHeader } from '../../components/ui';
@@ -15,7 +16,7 @@ const tabs: Array<{ key: DivisionTab; label: string }> = [
   { key: 'equipment', label: 'Equipment' },
   { key: 'materials', label: 'Materials' },
   { key: 'subcontractors', label: 'Subcontractors' },
-  { key: 'overhead', label: 'Division Overhead' },
+  { key: 'overhead', label: 'Overhead' },
   { key: 'profit-loss', label: 'Profit & Loss' },
 ];
 
@@ -23,14 +24,22 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   const { budgetId, divisionId } = useParams<{ budgetId: string; divisionId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { budgets, budgetDivisions, budgetDivisionPlanningItems } = useStore();
+  const { budgets, budgetDivisions, budgetDivisionPlanningItems, migrateLegacyBudgetOverhead } = useStore();
   const budget = budgets.find((item) => item.id === budgetId);
   const division = budgetDivisions.find((item) => item.id === divisionId && item.budgetId === budgetId);
   const requestedTab = searchParams.get('tab') ?? 'overview';
   const activeTab = (requestedTab === 'other-costs' ? 'overhead' : requestedTab) as DivisionTab;
   const activeTabLabel = tabs.find((item) => item.key === activeTab)?.label;
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const migrationStarted = useRef(false);
   const setTab = (tab: DivisionTab) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set('tab', tab); return next; });
+
+  useEffect(() => {
+    const hasActiveDivision = budgetDivisions.some((item) => item.budgetId === budgetId && item.status === 'active');
+    if (!budgetId || !canEdit || !hasActiveDivision || migrationStarted.current) return;
+    migrationStarted.current = true;
+    void migrateLegacyBudgetOverhead(budgetId);
+  }, [budgetDivisions, budgetId, canEdit, migrateLegacyBudgetOverhead]);
 
   if (!budget || !division) {
     return <Card><EmptyState title="Division not found" description="This Division may not belong to the selected Budget or is still syncing." action={<Button onClick={() => navigate(`/budgets/${budgetId}?tab=divisions`)}>Back to Divisions</Button>} /></Card>;

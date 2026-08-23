@@ -5,7 +5,6 @@ import {
   grossMarginRate,
   recoveryAllocationIsValid,
   recoveryAllocationTotal,
-  recoveryPerUnit,
 } from '../src/pages/budget/overheadRecoveryModel.js';
 import { buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
 
@@ -19,7 +18,7 @@ test('version-2 recovery allocations must total exactly 100 percent', () => {
 });
 
 test('recovery uses eligible hours and cost denominators without counting overhead resources twice', () => {
-  const budget = { id: 'budget', overheadRecoveryPolicy: policy(allocation(40, 30, 20, 10)) };
+  const budget = { id: 'budget' };
   const divisions = [
     { id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: policy(allocation(50, 50, 0, 0)) },
     { id: 'landscape', budgetId: budget.id, name: 'Landscape', status: 'active', overheadRecoveryPolicy: policy(allocation(50, 50, 0, 0)) },
@@ -32,35 +31,32 @@ test('recovery uses eligible hours and cost denominators without counting overhe
     { id: 'salt', budgetId: budget.id, divisionId: 'snow', category: 'materials', unitCost: 100, plannedQuantity: 200 },
     { id: 'mulch', budgetId: budget.id, divisionId: 'landscape', category: 'materials', unitCost: 50, plannedQuantity: 100 },
     { id: 'hauling', budgetId: budget.id, divisionId: 'snow', category: 'subcontractors', rate: 200, plannedQuantity: 20 },
-    { id: 'snow-oh', budgetId: budget.id, divisionId: 'snow', category: 'overhead', plannedAmount: 10000 },
-    { id: 'landscape-oh', budgetId: budget.id, divisionId: 'landscape', category: 'overhead', plannedAmount: 30000 },
+    { id: 'snow-oh', budgetId: budget.id, divisionId: 'snow', category: 'overhead', plannedAmount: 10000, overheadDivisionAllocations: [{ divisionId: 'snow', percentage: 100 }] },
+    { id: 'landscape-oh', budgetId: budget.id, divisionId: 'landscape', category: 'overhead', plannedAmount: 30000, overheadDivisionAllocations: [{ divisionId: 'landscape', percentage: 100 }] },
   ];
 
-  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems, companyOverhead: 100000 });
-  assert.equal(recovery.company.denominators.labour, 1600);
-  assert.equal(recovery.company.denominators.equipment, 1200);
-  assert.equal(recovery.company.denominators.materials, 25000);
-  assert.equal(recovery.company.denominators.subcontractors, 4000);
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems });
   assert.equal(recovery.divisions.snow.denominators.equipment, 800);
   assert.equal(recovery.divisions.landscape.denominators.equipment, 400);
   assert.equal(recovery.divisions.snow.totalOverhead, 46000);
   assert.equal(recovery.divisions.landscape.totalOverhead, 66000);
-  assert.equal(recoveryPerUnit(recovery.company, 'materials', 100), 80);
 
-  const rows = buildBudgetPricingRows({ budget: { ...budget, targetMarginPct: 20 }, divisions, planningItems, budgetRates: [], companyOverhead: 100000 });
+  const rows = buildBudgetPricingRows({ budget: { ...budget, targetMarginPct: 20 }, divisions, planningItems, budgetRates: [] });
   const bobcatRows = rows.filter((row) => row.item.id === 'bobcat');
   assert.equal(bobcatRows.length, 2);
   assert.equal(bobcatRows[0].costRate, bobcatRows[1].costRate);
   assert.notEqual(bobcatRows[0].divisionOverheadPerUnit, bobcatRows[1].divisionOverheadPerUnit);
-  for (const row of bobcatRows) assert.equal(row.recommendedRate, grossMarginRate(row.costRate + row.divisionOverheadPerUnit + row.companyOverheadPerUnit, 20));
+  for (const row of bobcatRows) assert.equal(row.recommendedRate, grossMarginRate(row.costRate + row.divisionOverheadPerUnit, 20));
   assert.equal(rows.some((row) => row.item.id === 'manager' || row.item.id === 'shop-truck'), false);
 });
 
 test('zero denominators produce warnings and unrecoverable amounts without invalid numbers', () => {
-  const budget = { id: 'budget', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) };
-  const recovery = buildOverheadRecoveryModel({ budget, divisions: [], planningItems: [], companyOverhead: 50000 });
-  assert.equal(recovery.company.recoverableAmount, 0);
-  assert.equal(recovery.company.unrecoverableAmount, 50000);
-  assert.equal(recovery.company.warnings.length, 1);
-  assert.equal(Number.isFinite(recovery.company.rates.equipment), true);
+  const budget = { id: 'budget' };
+  const divisions = [{ id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) }];
+  const planningItems = [{ id: 'overhead', budgetId: budget.id, divisionId: 'snow', category: 'overhead', plannedAmount: 50000, overheadDivisionAllocations: [{ divisionId: 'snow', percentage: 100 }] }];
+  const scope = buildOverheadRecoveryModel({ budget, divisions, planningItems }).divisions.snow;
+  assert.equal(scope.recoverableAmount, 0);
+  assert.equal(scope.unrecoverableAmount, 50000);
+  assert.equal(scope.warnings.length, 1);
+  assert.equal(Number.isFinite(scope.rates.equipment), true);
 });

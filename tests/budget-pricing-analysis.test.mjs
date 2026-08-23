@@ -9,21 +9,21 @@ const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 const budget = {
   id: 'budget-2027', targetMarginPct: 20,
-  overheadRecoveryAllocation: { labourPercent: 50, equipmentPercent: 30, materialsPercent: 20, subcontractorsPercent: 0 },
 };
+const divisions = [{ id: 'hardscape', budgetId: budget.id, name: 'Hardscaping', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 50, equipmentPercent: 30, materialsPercent: 20, subcontractorsPercent: 0 } } }];
 const planningItems = [
-  { id: 'ryan', budgetId: budget.id, divisionId: 'hardscape', category: 'labour', employeeId: 'employee-ryan', name: 'Ryan', compType: 'hourly', hourlyRate: 30, plannedHours: 2000, expectedBillablePct: 80, payrollBurdenPct: 20, labourClassification: 'billable' },
-  { id: 'ryan', budgetId: budget.id, divisionId: 'snow', category: 'labour', employeeId: 'employee-ryan', name: 'Ryan', compType: 'hourly', hourlyRate: 30, plannedHours: 2000, expectedBillablePct: 80, payrollBurdenPct: 20, labourClassification: 'billable' },
-  { id: 'bobcat', budgetId: budget.id, divisionId: 'hardscape', category: 'equipment', equipmentId: 'equipment-bobcat', name: 'Bobcat E50', plannedAmount: 52000, sellableHoursPerYear: 1200 },
+  { id: 'ryan', budgetId: budget.id, divisionId: 'hardscape', category: 'labour', employeeId: 'employee-ryan', name: 'Ryan', compType: 'hourly', hourlyRate: 30, plannedHours: 2000, expectedBillablePct: 80, payrollBurdenPct: 20, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] },
+  { id: 'bobcat', budgetId: budget.id, divisionId: 'hardscape', category: 'equipment', equipmentId: 'equipment-bobcat', name: 'Bobcat E50', plannedAmount: 52000, sellableHoursPerYear: 1200, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12, sellableHours: 1200 }] },
   { id: 'gravel', budgetId: budget.id, divisionId: 'hardscape', category: 'materials', materialCatalogItemId: 'material-gravel', name: 'A Gravel', unit: 'tonne', unitCost: 28, plannedQuantity: 100 },
   { id: 'concrete', budgetId: budget.id, divisionId: 'hardscape', category: 'subcontractors', name: 'Concrete Co', unit: 'hr', rate: 100, plannedQuantity: 50 },
+  { id: 'shared-overhead', budgetId: budget.id, divisionId: 'hardscape', category: 'overhead', name: 'Office', plannedAmount: 100000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }] },
 ];
 
 test('Budget Analysis calculates recommendations once per shared item and resolves canonical approvals', () => {
   const rows = buildBudgetPricingRows({
     budget,
+    divisions,
     planningItems,
-    companyOverhead: 100000,
     budgetRates: [{ id: 'rate-ryan', budgetId: budget.id, budgetItemId: 'ryan', employeeId: 'employee-ryan', category: 'labour', defaultSellPrice: 80 }],
   });
 
@@ -43,7 +43,7 @@ test('Budget Analysis calculates recommendations once per shared item and resolv
 });
 
 test('Budget Analysis leaves recommendations unavailable when pricing units are missing', () => {
-  const rows = buildBudgetPricingRows({ budget, planningItems: [{ id: 'idle', budgetId: budget.id, category: 'equipment', equipmentId: 'idle', name: 'Idle Equipment', plannedAmount: 10000, sellableHoursPerYear: 0 }], budgetRates: [], companyOverhead: 1000 });
+  const rows = buildBudgetPricingRows({ budget, divisions, planningItems: [{ id: 'idle', budgetId: budget.id, divisionId: 'hardscape', category: 'equipment', equipmentId: 'idle', name: 'Idle Equipment', plannedAmount: 10000, sellableHoursPerYear: 0 }], budgetRates: [] });
   assert.equal(rows[0].costRate, 0);
   assert.equal(rows[0].recommendedRate, 0);
   assert.equal(rows[0].pricingStatus, 'unavailable');
@@ -64,8 +64,8 @@ test('Estimate Pricing rows expose explicit saved, dirty, saving, and failed sta
 
 test('Estimate Pricing exposes components and keeps one explicit save action', () => {
   assert.match(pricingSource, />Direct Cost</);
-  assert.match(pricingSource, />Division OH</);
-  assert.match(pricingSource, />Company OH</);
+  assert.match(pricingSource, />Overhead Recovery</);
+  assert.doesNotMatch(pricingSource, />Company OH</);
   assert.match(pricingSource, /Using recommended rate/);
   assert.match(pricingSource, /Custom rate/);
   assert.doesNotMatch(pricingSource, />Use recommended<\/button>/);
@@ -90,8 +90,8 @@ test('unavailable pricing omits editable and save controls', () => {
 
 test('persisted approved rates reconstruct the saved baseline after reload', () => {
   const persistedRates = [{ id: 'rate-ryan', budgetId: budget.id, budgetItemId: 'ryan', employeeId: 'employee-ryan', category: 'labour', defaultSellPrice: 62.5 }];
-  const firstRender = buildBudgetPricingRows({ budget, planningItems, companyOverhead: 100000, budgetRates: persistedRates });
-  const reloadedRender = buildBudgetPricingRows({ budget, planningItems, companyOverhead: 100000, budgetRates: structuredClone(persistedRates) });
+  const firstRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: persistedRates });
+  const reloadedRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: structuredClone(persistedRates) });
 
   assert.equal(firstRender.find((row) => row.item.id === 'ryan').approvedRate, 62.5);
   assert.equal(reloadedRender.find((row) => row.item.id === 'ryan').approvedRate, 62.5);

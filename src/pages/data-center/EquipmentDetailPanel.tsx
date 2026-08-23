@@ -2,9 +2,8 @@ import { Pencil, Trash2 } from 'lucide-react';
 import DetailWorkspaceHeader from '../../components/detail-workspace/DetailWorkspaceHeader';
 import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspaceTabs';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
-import type { Budget, BudgetGroup, BudgetItem, BudgetRate, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
+import type { Budget, BudgetDivision, BudgetGroup, BudgetItem, BudgetRate, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
 import { formatCurrency } from '../../utils';
-import { resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 
 export type EquipmentDetailTab = 'overview' | 'pricing' | 'budgets';
 
@@ -13,10 +12,11 @@ interface EquipmentDetailPanelProps {
   activeTab: EquipmentDetailTab;
   expanded: boolean;
   budgets: Budget[];
+  budgetDivisions: BudgetDivision[];
   budgetGroups: BudgetGroup[];
   budgetItems: BudgetItem[];
   allocations: EquipmentBudgetAllocation[];
-  pricingRate?: BudgetRate;
+  pricingRates: BudgetRate[];
   onTabChange: (tab: EquipmentDetailTab) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -39,10 +39,11 @@ export default function EquipmentDetailPanel({
   activeTab,
   expanded,
   budgets,
+  budgetDivisions,
   budgetGroups,
   budgetItems,
   allocations,
-  pricingRate,
+  pricingRates,
   onTabChange,
   onEdit,
   onDelete,
@@ -50,13 +51,15 @@ export default function EquipmentDetailPanel({
   onCollapse,
   onClose,
 }: EquipmentDetailPanelProps) {
-  const directCostRate = pricingRate?.unitCost ?? resolveEquipmentCostRate(equipment);
-  const overheadRecovery = pricingRate?.overheadRecoveryPerUnit;
-  const fullyBurdenedCost = directCostRate !== null && directCostRate !== undefined && overheadRecovery !== undefined
-    ? directCostRate + overheadRecovery
-    : null;
-  const recommendedRate = pricingRate?.recommendedSellPrice ?? equipment.recommendedSellRate;
-  const approvedRate = equipment.chargeOutRate;
+  const pricingRows = pricingRates.map((rate) => ({
+    rate,
+    divisionName: budgetDivisions.find((division) => division.id === rate.divisionId)?.name ?? 'Legacy / Unassigned',
+    directCost: rate.directCostPerUnit ?? rate.unitCost,
+    overheadRecovery: rate.divisionOverheadRecoveryPerUnit ?? rate.overheadRecoveryPerUnit,
+    recoveredCost: rate.recoveredCostPerUnit,
+    recommendedRate: rate.recommendedSellPrice,
+    approvedRate: rate.defaultSellPrice,
+  }));
   const isOverheadEquipment = equipment.equipmentClassification === 'overhead';
   const allocatedRows = allocations.map((allocation) => {
     const budget = budgets.find((value) => value.id === allocation.budgetId);
@@ -145,17 +148,10 @@ export default function EquipmentDetailPanel({
         {activeTab === 'pricing' ? (
           isOverheadEquipment ? (
             <EmptyState title="Charge-out pricing is not available" description="Overhead equipment costs are recovered through overhead rather than estimate charge-out rates." />
-          ) : recommendedRate && recommendedRate > 0 ? (
-            <div className={`grid gap-3 ${expanded ? 'sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2'}`}>
-              {[
-                ['Direct Cost / Hour', directCostRate !== null && directCostRate !== undefined ? formatCurrency(directCostRate) : 'Not calculated'],
-                ['Overhead Recovery', overheadRecovery !== undefined ? formatCurrency(overheadRecovery) : 'Not calculated'],
-                ['Fully Burdened Cost', fullyBurdenedCost !== null ? formatCurrency(fullyBurdenedCost) : 'Not calculated'],
-                ['Target Margin', pricingRate?.targetMarginPercent !== undefined ? `${pricingRate.targetMarginPercent}%` : 'Not set'],
-                ['Recommended Charge-Out', formatCurrency(recommendedRate)],
-                ['Approved Charge-Out', approvedRate && approvedRate > 0 ? formatCurrency(approvedRate) : 'Not approved'],
-              ].map(([label, value]) => <Card key={label} className="p-4"><p className="text-xs text-gray-500 dark:text-brand-200">{label}</p><p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{value}</p></Card>)}
-            </div>
+          ) : pricingRows.length > 0 ? (
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Direct Cost / Hour</th><th className="px-4 py-3 text-right font-medium">Overhead Recovery</th><th className="px-4 py-3 text-right font-medium">Recovered Cost</th><th className="px-4 py-3 text-right font-medium">Recommended Rate</th><th className="px-4 py-3 text-right font-medium">Approved Rate</th></tr></thead><tbody className="divide-y divide-gray-100">{pricingRows.map((row) => <tr key={row.rate.id}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{row.divisionName}</td><td className="px-4 py-3 text-right">{row.directCost > 0 ? `${formatCurrency(row.directCost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.overheadRecovery !== undefined ? `${formatCurrency(row.overheadRecovery)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.recoveredCost !== undefined ? `${formatCurrency(row.recoveredCost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.recommendedRate && row.recommendedRate > 0 ? `${formatCurrency(row.recommendedRate)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.approvedRate > 0 ? `${formatCurrency(row.approvedRate)}/hr` : 'Not approved'}</td></tr>)}</tbody></table></div>
+            </Card>
           ) : (
             <EmptyState
               title="Recommended pricing has not been calculated yet"

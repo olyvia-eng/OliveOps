@@ -44,7 +44,8 @@ test('Division roll-ups use stored revenue targets and centralized financial cal
   assert.match(workspaceSource, /calculateBudgetFinancials/);
   assert.match(workspaceSource, /Total Direct Cost[\s\S]*financials\.totalDirectCosts/);
   assert.match(workspaceSource, /Gross Profit[\s\S]*result\.grossProfit/);
-  assert.match(workspaceSource, /Contribution before Company/);
+  assert.match(workspaceSource, /Allocated Overhead[\s\S]*Operating Profit/);
+  assert.doesNotMatch(workspaceSource, /Contribution before Company/);
 });
 
 test('legacy Budgets and group controls are absent from the Budget overview', () => {

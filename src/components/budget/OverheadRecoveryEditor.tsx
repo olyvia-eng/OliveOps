@@ -32,6 +32,7 @@ export default function OverheadRecoveryEditor({ title, description, totalOverhe
 
   const total = recoveryAllocationTotal(allocation);
   const valid = Math.abs(total - 100) < 0.001;
+  const dirty = JSON.stringify(allocation) !== JSON.stringify(policy?.allocation ?? emptyRecoveryAllocation());
   const save = async () => {
     if (!valid || saving.current) return;
     saving.current = true;
@@ -59,7 +60,7 @@ export default function OverheadRecoveryEditor({ title, description, totalOverhe
     </div>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-brand-100 pt-3 dark:border-brand-600">
       <p className={`text-sm font-semibold ${valid ? 'text-green-700' : 'text-amber-700'}`}>{total.toFixed(2)}% allocated{valid ? '' : ' · Must total 100%'}</p>
-      {canEdit ? <div className="flex items-center gap-3">{status === 'failed' ? <p className="text-sm text-red-600" role="alert">Recovery policy could not be saved.</p> : status === 'saved' ? <p className="text-sm text-green-700">Saved</p> : null}<Button size="sm" disabled={!valid || status === 'saving'} onClick={() => void save()}>{status === 'saving' ? 'Saving...' : 'Save Recovery'}</Button></div> : null}
+      {canEdit ? <div className="flex items-center gap-3">{status === 'failed' ? <p className="text-sm text-red-600" role="alert">Recovery policy could not be saved.</p> : status === 'saved' ? <p className="text-sm text-green-700">Saved</p> : dirty ? <p className="text-sm text-amber-700">Unsaved changes</p> : null}<Button size="sm" disabled={!valid || !dirty || status === 'saving'} onClick={() => void save()}>{status === 'saving' ? 'Saving...' : 'Save Recovery'}</Button></div> : null}
     </div>
   </Card>;
 }

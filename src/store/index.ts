@@ -210,6 +210,7 @@ interface AppState {
   updateBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem, data: Partial<BudgetDivisionPlanningItem>) => Promise<BudgetDivisionPlanningItem | null>;
   deleteBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem) => Promise<boolean>;
   reorderBudgetDivisionPlanningItems: (budgetId: ID, divisionId: ID, category: BudgetDivisionPlanningItem['category'], orderedIds: ID[]) => Promise<boolean>;
+  migrateLegacyBudgetOverhead: (budgetId: ID) => Promise<boolean>;
   importBudgetDivisionPlanningItems: (input: { budgetId: ID; divisionId: ID; category: BudgetDivisionPlanningItem['category']; sourceBudgetId: ID; sourceDivisionId: ID; sourceItemIds: ID[] }) => Promise<{ ok: boolean; importedCount: number; skippedCount: number; error?: string }>;
   saveBudgetGroup: (group: Omit<BudgetGroup, 'createdAt' | 'updatedAt'>, confirmAllocationMove?: boolean) => Promise<{ ok: boolean; requiresConfirmation?: boolean; error?: string }>;
   dissolveBudgetGroup: (id: ID) => Promise<boolean>;
@@ -1744,7 +1745,7 @@ export const useStore = create<AppState>()((set, get) => ({
       reorderBudgetDivisionPlanningItems: async (budgetId, divisionId, category, orderedIds) => {
         const previous = get().budgetDivisionPlanningItems;
         const order = new Map(orderedIds.map((id, index) => [id, index]));
-        set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((item) => item.budgetId === budgetId && item.category === category && ((category === 'labour' || category === 'equipment') || item.divisionId === divisionId) ? { ...item, sortOrder: order.get(item.id) ?? item.sortOrder } : item) }));
+        set((state) => ({ budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.map((item) => item.budgetId === budgetId && item.category === category && ((category === 'labour' || category === 'equipment' || category === 'overhead') || item.divisionId === divisionId) ? { ...item, sortOrder: order.get(item.id) ?? item.sortOrder } : item) }));
         try {
           const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(budgetId)}&divisionId=${encodeURIComponent(divisionId)}&category=${encodeURIComponent(category)}`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ orderedIds }),
@@ -1757,6 +1758,25 @@ export const useStore = create<AppState>()((set, get) => ({
         } catch (error) {
           set({ budgetDivisionPlanningItems: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning order could not be saved.') });
+          return false;
+        }
+      },
+      migrateLegacyBudgetOverhead: async (budgetId) => {
+        try {
+          const response = await fetch('/api/budget-overhead-migration', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ budgetId }),
+          });
+          const payload = await response.json() as { ok?: boolean; items?: BudgetDivisionPlanningItem[]; error?: string };
+          if (!response.ok || !payload.ok || !payload.items) throw new Error(payload.error);
+          set((state) => ({
+            budgetDivisionPlanningItems: [
+              ...state.budgetDivisionPlanningItems.filter((item) => item.budgetId !== budgetId || item.category !== 'overhead'),
+              ...payload.items as BudgetDivisionPlanningItem[],
+            ],
+          }));
+          return true;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Legacy overhead could not be normalized.') });
           return false;
         }
       },

@@ -7,10 +7,11 @@ const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLA
 const budgetCategoryPrefix = (budgetId, category) => `BUDGET_DIVISION_PLAN#${budgetId}#CATEGORY#${category}#`;
 const legacyPlanSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
 const legacyIdentitySk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`;
-const planSk = (item) => item.category === 'labour'
+const isBudgetScoped = (item) => item.category === 'labour' || item.category === 'overhead';
+const planSk = (item) => isBudgetScoped(item)
   ? `${budgetCategoryPrefix(item.budgetId, item.category)}ITEM#${item.id}`
   : legacyPlanSk(item);
-const identitySk = (item) => item.category === 'labour'
+const identitySk = (item) => isBudgetScoped(item)
   ? `${budgetCategoryPrefix(item.budgetId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`
   : legacyIdentitySk(item);
 
@@ -47,9 +48,11 @@ export async function listBudgetPlanningItems({ businessId, budgetId, category }
 }
 
 export async function listDivisionPlanningItems({ businessId, budgetId, divisionId, category }) {
-  if (category === 'labour') {
+  if (category === 'labour' || category === 'overhead') {
     const items = await listBudgetPlanningItems({ businessId, budgetId, category });
-    return items.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0));
+    return items.filter((item) => category === 'labour'
+      ? item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0)
+      : item.overheadDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0));
   }
   const result = await ddb.send(new QueryCommand({
     TableName: tableName,
@@ -90,7 +93,7 @@ export async function createDivisionPlanningItems({ businessId, items }) {
 }
 
 export async function updateDivisionPlanningItem({ businessId, previous, item }) {
-  if (item.category === 'labour') {
+  if (isBudgetScoped(item)) {
     const previousIdentityChanged = divisionPlanIdentity(previous) !== divisionPlanIdentity(item);
     const transaction = [
       { Put: { TableName: tableName, Item: storedItem(businessId, item) } },
@@ -127,7 +130,7 @@ export async function deleteDivisionPlanningItem({ businessId, item }) {
     { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: planSk(item) } } },
     { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: identitySk(item) } } },
   ];
-  if (item.category === 'labour') {
+  if (isBudgetScoped(item)) {
     transaction.push(
       { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyPlanSk(item) } } },
       { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: legacyIdentitySk(item) } } },

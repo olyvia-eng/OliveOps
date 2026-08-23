@@ -42,34 +42,27 @@ const matchingRate = (budgetRates, budgetId, item, type, divisionId) => {
     ?? candidates.find((candidate) => candidate.pricingVersion !== 2 && !candidate.divisionId);
 };
 
-const buildLegacyRows = ({ budget, uniqueItems, budgetRates, companyOverhead }) => {
+const buildLegacyRows = ({ budget, uniqueItems, budgetRates }) => {
   const margin = Math.min(99, number(budget.targetMarginPct ?? 20));
-  const allocation = budget.overheadRecoveryAllocation ?? { labourPercent: 50, equipmentPercent: 30, materialsPercent: 20, subcontractorsPercent: 0 };
-  const units = { labour: 0, equipment: 0, materials: 0, subcontractors: 0 };
   const costs = new Map();
 
   for (const item of uniqueItems) {
     if (item.category === 'labour') {
       const calculated = labourCost(item);
       costs.set(item.id, calculated.perUnit);
-      units.labour += calculated.units;
     } else if (item.category === 'equipment') {
       const hours = number(item.sellableHoursPerYear ?? item.utilizationHours);
       costs.set(item.id, hours > 0 ? number(item.plannedAmount) / hours : 0);
-      units.equipment += hours;
     } else if (item.category === 'materials') {
       costs.set(item.id, number(item.unitCost));
-      units.materials += number(item.plannedQuantity);
     } else {
       costs.set(item.id, number(item.rate));
-      units.subcontractors += number(item.plannedQuantity);
     }
   }
 
   return uniqueItems.map((item) => {
     const type = typeForCategory(item.category);
-    const categoryPercent = allocation[`${item.category === 'materials' ? 'materials' : item.category}Percent`] ?? 0;
-    const overheadPerUnit = units[item.category] > 0 ? number(companyOverhead) * (number(categoryPercent) / 100) / units[item.category] : 0;
+    const overheadPerUnit = 0;
     const costRate = costs.get(item.id) ?? 0;
     const recommendedRate = costRate > 0 ? (costRate + overheadPerUnit) / (1 - margin / 100) : 0;
     const rate = matchingRate(budgetRates, budget.id, item, type);
@@ -83,7 +76,6 @@ const buildLegacyRows = ({ budget, uniqueItems, budgetRates, companyOverhead }) 
       costRate,
       overheadPerUnit,
       divisionOverheadPerUnit: 0,
-      companyOverheadPerUnit: overheadPerUnit,
       recoveredCostPerUnit: costRate + overheadPerUnit,
       targetMarginPct: margin,
       recommendedRate,
@@ -93,14 +85,14 @@ const buildLegacyRows = ({ budget, uniqueItems, budgetRates, companyOverhead }) 
   }).sort((left, right) => (left.item.name || left.item.description || '').localeCompare(right.item.name || right.item.description || ''));
 };
 
-export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, companyOverhead = 0 }) {
+export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates }) {
   const uniqueItems = [...new Map(planningItems
     .filter((item) => item.budgetId === budget.id && ['labour', 'equipment', 'materials', 'subcontractors'].includes(item.category))
     .map((item) => [identity(item), item])).values()];
-  if (!Array.isArray(divisions)) return buildLegacyRows({ budget, uniqueItems, budgetRates, companyOverhead });
+  if (!Array.isArray(divisions)) return buildLegacyRows({ budget, uniqueItems, budgetRates });
 
   const margin = Math.min(99, number(budget.targetMarginPct ?? 20));
-  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems, companyOverhead });
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems });
   const costs = new Map();
   for (const item of uniqueItems) {
     if (item.category === 'labour') costs.set(item.id, labourCost(item).perUnit);
@@ -116,9 +108,8 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
       const type = typeForCategory(item.category);
       const costRate = costs.get(item.id) ?? 0;
-      const companyOverheadPerUnit = recoveryPerUnit(recovery.company, item.category, costRate);
       const divisionOverheadPerUnit = recoveryPerUnit(recovery.divisions[divisionId], item.category, costRate);
-      const recoveredCostPerUnit = costRate + divisionOverheadPerUnit + companyOverheadPerUnit;
+      const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
       const recommendedRate = grossMarginRate(recoveredCostPerUnit, margin);
       const rate = matchingRate(budgetRates, budget.id, item, type, divisionId);
       const division = divisions.find((value) => value.id === divisionId);
@@ -131,9 +122,8 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         rate,
         unit: item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
         costRate,
-        overheadPerUnit: divisionOverheadPerUnit + companyOverheadPerUnit,
+        overheadPerUnit: divisionOverheadPerUnit,
         divisionOverheadPerUnit,
-        companyOverheadPerUnit,
         recoveredCostPerUnit,
         targetMarginPct: margin,
         recommendedRate,

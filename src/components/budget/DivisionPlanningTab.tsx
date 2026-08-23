@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Download, GripVertical, HardHat, Package, Pencil, Plus, ReceiptText, Trash2, Truck, Users } from 'lucide-react';
 import { Button, Card, EmptyState, Input, Modal, Select, TextArea } from '../ui';
 import type { Budget, BudgetDivision, BudgetDivisionPlanCategory, BudgetDivisionPlanningItem } from '../../types';
@@ -9,8 +9,7 @@ import { calculateDivisionLabour, calculateDivisionLabourShare, isLabourAllocate
 import EquipmentInfoForm from '../equipment/EquipmentInfoForm';
 import { emptyEquipmentInfoFormValue, normalizeEquipmentInfoForm, type EquipmentInfoFormValue, validateEquipmentInfoForm } from '../equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
-import OverheadRecoveryEditor from './OverheadRecoveryEditor';
-import { buildOverheadRecoveryModel } from '../../pages/budget/overheadRecoveryModel.js';
+import { overheadAllocatedAmount, overheadAllocationForDivision, overheadAllocationTotal, overheadAllocationsAreValid, splitOverheadAllocationsEvenly } from '../../pages/budget/overheadAllocationModel.js';
 
 const config = {
   labour: {
@@ -42,7 +41,7 @@ const config = {
     description: 'Add subcontractors manually or bring forward subcontractor planning items from a previous Budget.',
   },
   overhead: {
-    label: 'Division Overhead',
+    label: 'Overhead',
     singular: 'Overhead Cost',
     icon: ReceiptText,
     title: 'No Division overhead planned yet',
@@ -62,14 +61,16 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems, updateBudgetDivision } = useStore();
-  const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
   const [editing, setEditing] = useState<BudgetDivisionPlanningItem | null | 'new'>(null);
   const [draft, setDraft] = useState<Partial<BudgetDivisionPlanningItem>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const saveInFlight = useRef(false);
+  const [overheadError, setOverheadError] = useState('');
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [equipmentError, setEquipmentError] = useState('');
   const [showEquipmentCalcDetails, setShowEquipmentCalcDetails] = useState(false);
@@ -103,8 +104,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               equipmentHoursPerDay: 8,
               equipmentDivisionAllocations: [{ divisionId: division.id, months: 12, sellableHours: 0 }],
             }
-          : { unit: 'each', plannedQuantity: 1 },
+              : category === 'overhead'
+            ? { plannedAmount: 0, overheadDivisionAllocations: activeDivisions.map((item) => ({ divisionId: item.id, percentage: item.id === division.id ? 100 : 0 })) }
+            : { unit: 'each', plannedQuantity: 1 },
     );
+            setOverheadError('');
     setEquipmentError('');
     setShowEquipmentCalcDetails(false);
     setEditing('new');
@@ -128,7 +132,12 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               months: item.allocationMonths ?? 12,
             },
           ],
+      overheadDivisionAllocations: activeDivisions.map((value) => ({
+        divisionId: value.id,
+        percentage: item.overheadDivisionAllocations?.find((allocation) => allocation.divisionId === value.id)?.percentage ?? 0,
+      })),
     });
+    setOverheadError('');
     setEquipmentError('');
     setShowEquipmentCalcDetails(false);
     setEditing(item);
@@ -171,6 +180,15 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const equipmentCostBreakdown = calculateEquipmentCostBreakdown(equipmentFormValue);
   const equipmentAllocationTotal = (draft.equipmentDivisionAllocations ?? []).reduce((sum, allocation) => sum + Number(allocation.months || 0), 0);
   const equipmentAllocationValid = category !== 'equipment' || Math.abs(equipmentAllocationTotal - 12) < 0.001;
+  const overheadTotal = overheadAllocationTotal(draft.overheadDivisionAllocations);
+  const overheadAllocationValid = category !== 'overhead' || overheadAllocationsAreValid(draft.overheadDivisionAllocations);
+  const setOverheadDivisionAllocation = (divisionId: string, percentage: number) => setDraft((current) => ({
+    ...current,
+    overheadDivisionAllocations: activeDivisions.map((item) => ({
+      divisionId: item.id,
+      percentage: item.id === divisionId ? percentage : current.overheadDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.percentage ?? 0,
+    })),
+  }));
   const setEquipmentFormValue = (value: EquipmentInfoFormValue) =>
     setDraft((current) => ({
       ...current,
@@ -202,6 +220,12 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     }));
 
   const save = async () => {
+    if (saveInFlight.current) return;
+    if (!overheadAllocationValid) {
+      setOverheadError('Division allocations must total exactly 100%.');
+      return;
+    }
+    saveInFlight.current = true;
     setSaving(true);
     let nextDraft = { ...draft };
     if (category === 'equipment') {
@@ -210,6 +234,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       if (validationError || !equipmentAllocationValid) {
         setEquipmentError(validationError ?? 'Equipment allocation must total 12 months.');
         setSaving(false);
+        saveInFlight.current = false;
         return;
       }
       let equipmentId = draft.equipmentId;
@@ -232,6 +257,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
         if (!created.ok || !created.id) {
           setEquipmentError('Could not create equipment in the catalog.');
           setSaving(false);
+          saveInFlight.current = false;
           return;
         }
         equipmentId = created.id;
@@ -269,12 +295,14 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
           ? await updateBudgetDivisionPlanningItem(editing, nextDraft)
           : null;
     setSaving(false);
+    saveInFlight.current = false;
     if (result) setEditing(null);
+    else if (category === 'overhead') setOverheadError('Overhead could not be saved. Check your connection and try again.');
   };
 
   const reorder = (sourceId: string, targetId: string) => {
     if (sourceId === targetId) return;
-    const next = (category === 'labour' || category === 'equipment' ? budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category) : items).slice().sort((left, right) => left.sortOrder - right.sortOrder);
+    const next = (category === 'labour' || category === 'equipment' || category === 'overhead' ? budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category) : items).slice().sort((left, right) => left.sortOrder - right.sortOrder);
     const sourceIndex = next.findIndex((item) => item.id === sourceId);
     const targetIndex = next.findIndex((item) => item.id === targetId);
     const [moved] = next.splice(sourceIndex, 1);
@@ -298,22 +326,20 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       const annualCost = item.plannedAmount ?? (item.equipmentPayment ?? 0) * (item.equipmentPaymentFrequencyPerYear ?? item.paymentFrequencyPerYear ?? 1) + (item.yearlyFuelCost ?? 0) + (item.yearlyInsuranceCost ?? 0) + (item.yearlyMaintenanceCost ?? 0);
       return (annualCost * equipmentMonthsForDivision(item)) / 12;
     }
+    if (item.category === 'overhead') return overheadAllocatedAmount(item, division.id);
     if (item.plannedAmount !== undefined) return item.plannedAmount;
     return (item.unitCost ?? item.rate ?? 0) * (item.plannedQuantity ?? 1);
   };
   const total = items.reduce((sum, item) => sum + plannedAmount(item), 0);
   const directLabourTotal = items.reduce((sum, item) => sum + calculateDivisionLabourShare(item, division.id).directLabourCost, 0);
   const overheadLabourTotal = items.reduce((sum, item) => sum + calculateDivisionLabourShare(item, division.id).overheadLabourCost, 0);
-  const divisionRecoveryTotal = buildOverheadRecoveryModel({ budget, divisions: activeDivisions, planningItems: budgetDivisionPlanningItems, companyOverhead: 0 }).divisions[division.id]?.totalOverhead ?? total;
 
   const actions = canEdit ? (
     <div className="flex flex-wrap justify-center gap-2">
       <Button onClick={openNew}>
         <Plus /> Add {settings.singular}
       </Button>
-      <Button variant="secondary" onClick={() => setImportOpen(true)}>
-        <Download /> Import from Previous Budget
-      </Button>
+      {category !== 'overhead' ? <Button variant="secondary" onClick={() => setImportOpen(true)}><Download /> Import from Previous Budget</Button> : null}
     </div>
   ) : undefined;
 
@@ -343,7 +369,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                     <th className="w-24 px-3 py-3">Order</th>
                     <th className="px-3 py-3">{settings.singular}</th>
                     <th className="px-3 py-3">Planning assumptions</th>
-                    <th className="px-3 py-3 text-right">Annual Cost</th>
+                    <th className="px-3 py-3 text-right">{category === 'overhead' ? 'Allocated Cost' : 'Annual Cost'}</th>
                     {canEdit ? <th className="w-24 px-3 py-3 text-right">Actions</th> : null}
                   </tr>
                 </thead>
@@ -390,6 +416,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                             </>
                           ) : category === 'equipment' ? (
                             `${item.classification ?? 'billable'} · ${equipmentMonthsForDivision(item)} months · ${formatCurrency(item.yearlyFuelCost ?? 0)} yearly fuel`
+                          ) : category === 'overhead' ? (
+                            <><p>Total annual cost: {formatCurrency(item.plannedAmount ?? 0)}</p><p className="mt-1 text-xs font-medium text-brand-500">{division.name}: {overheadAllocationForDivision(item, division.id).toFixed(2)}%</p></>
                           ) : (
                             `${item.plannedQuantity ?? 1} ${item.unit ?? 'each'} × ${formatCurrency(item.unitCost ?? item.rate ?? 0)}`
                           )}
@@ -417,7 +445,6 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
         </>
       )}
 
-      {category === 'overhead' ? <OverheadRecoveryEditor title="Division Overhead Recovery" description={`Choose how ${division.name}'s overhead pool is recovered through this Division's Estimate pricing.`} totalOverhead={divisionRecoveryTotal} policy={division.overheadRecoveryPolicy} canEdit={canEdit} onSave={(overheadRecoveryPolicy) => updateBudgetDivision(budget.id, division.id, { overheadRecoveryPolicy })} /> : null}
 
       <Modal
         open={editing !== null}
@@ -431,7 +458,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
             <Button variant="secondary" onClick={() => setEditing(null)} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={() => void save()} disabled={saving || (!draft.name && !draft.description && category !== 'equipment') || !labourAllocationValid || !labourInputsValid || !equipmentAllocationValid}>
+            <Button onClick={() => void save()} disabled={saving || (!draft.name && !draft.description && category !== 'equipment') || !labourAllocationValid || !labourInputsValid || !equipmentAllocationValid || !overheadAllocationValid}>
               {saving ? 'Saving...' : category === 'equipment' ? (editing === 'new' && draft.equipmentId ? 'Add to Budget' : editing === 'new' ? 'Save Equipment' : 'Save Changes') : `Save ${settings.singular}`}
             </Button>
           </>
@@ -849,6 +876,24 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 }
               />
               <Input type="number" min={0} label="Annual amount" value={draft.plannedAmount ?? 0} onChange={(event) => setNumber('plannedAmount', event.target.value)} />
+              <div className="sm:col-span-2 rounded-lg border border-gray-200 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><h3 className="font-semibold text-gray-900">Division Allocation</h3><p className="mt-1 text-sm text-gray-500">Allocate this one overhead cost across the applicable Divisions.</p></div>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => { setDraft((current) => ({ ...current, overheadDivisionAllocations: splitOverheadAllocationsEvenly(activeDivisions.map((item) => item.id)) })); setOverheadError(''); }}>Split Evenly</Button>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {activeDivisions.map((item) => {
+                    const percentage = draft.overheadDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.percentage ?? 0;
+                    return <div key={item.id} className="grid items-center gap-3 rounded-lg bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_8rem_10rem]">
+                      <label htmlFor={`overhead-allocation-${item.id}`} className="text-sm font-medium text-gray-900">{item.name}</label>
+                      <div className="flex items-center gap-2"><Input id={`overhead-allocation-${item.id}`} aria-label={`${item.name} overhead allocation percentage`} type="number" min={0} max={100} step={0.01} value={percentage} onChange={(event) => { setOverheadDivisionAllocation(item.id, numberValue(event.target.value)); setOverheadError(''); }} /><span className="text-sm text-gray-500">%</span></div>
+                      <p className="text-right text-sm font-semibold text-gray-900">{formatCurrency(Math.round((draft.plannedAmount ?? 0) * percentage) / 100)}</p>
+                    </div>;
+                  })}
+                </div>
+                <p className={`mt-3 text-sm font-semibold ${overheadAllocationValid ? 'text-green-700' : 'text-amber-700'}`}>{overheadTotal.toFixed(2)}% allocated{overheadAllocationValid ? '' : ' · Must total 100%'}</p>
+                {overheadError ? <p className="mt-2 text-sm text-red-600" role="alert">{overheadError}</p> : null}
+              </div>
             </>
           ) : null}
         </div>

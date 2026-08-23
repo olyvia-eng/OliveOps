@@ -894,6 +894,11 @@ export interface EquipmentDivisionAllocation {
   sellableHours?: number;
 }
 
+export interface OverheadDivisionAllocation {
+  divisionId: ID;
+  percentage: number;
+}
+
 export interface OverheadRecoveryAllocation {
   labourPercent: number;
   equipmentPercent: number;
@@ -953,6 +958,8 @@ export interface BudgetDivisionPlanningItem {
   rate?: number;
   plannedQuantity?: number;
   plannedAmount?: number;
+  overheadDivisionAllocations?: OverheadDivisionAllocation[];
+  legacyBudgetItemId?: ID;
   vendorId?: ID;
   createdAt: string;
   updatedAt: string;

@@ -7,7 +7,7 @@ export function divisionPlanIdentity(item) {
   if (item.category === 'equipment') return item.equipmentId ? `equipment:${item.equipmentId}` : `custom:${normalizeText(item.description)}`;
   if (item.category === 'materials') return item.materialCatalogItemId ? `material:${item.materialCatalogItemId}` : `custom:${normalizeText(item.description)}:${normalizeText(item.unit)}`;
   if (item.category === 'subcontractors') return item.vendorId ? `vendor:${item.vendorId}` : `custom:${normalizeText(item.name || item.description)}`;
-  if (item.category === 'overhead') return `custom:${normalizeText(item.name || item.description)}`;
+  if (item.category === 'overhead') return item.legacyBudgetItemId ? `legacy:${item.legacyBudgetItemId}` : `custom:${normalizeText(item.name || item.description)}`;
   return '';
 }
 
@@ -17,7 +17,7 @@ const CATEGORY_FIELDS = {
   equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
   subcontractors: ['vendorId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
-  overhead: ['costCode', 'plannedAmount'],
+  overhead: ['costCode', 'plannedAmount', 'overheadDivisionAllocations', 'legacyBudgetItemId'],
 };
 
 export function copyDivisionPlanAssumptions(source, destination, createId, now = new Date().toISOString()) {
@@ -42,6 +42,13 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
     copied.divisionAllocations = [...allocationsByDivision].map(([divisionId, value]) => usesHours
       ? ({ divisionId, hours: value })
       : ({ divisionId, percentage: value }));
+  }
+  if (category === 'overhead' && Array.isArray(copied.overheadDivisionAllocations) && destination.divisionIdMap) {
+    copied.overheadDivisionAllocations = copied.overheadDivisionAllocations.map((allocation) => {
+      const divisionId = destination.divisionIdMap.get(allocation.divisionId);
+      if (!divisionId) throw new Error('Every Overhead allocation requires a mapped destination Division.');
+      return { divisionId, percentage: allocation.percentage };
+    });
   }
   return {
     ...copied,

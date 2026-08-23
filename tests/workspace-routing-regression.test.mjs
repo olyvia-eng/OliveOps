@@ -68,7 +68,8 @@ test('Budget screens use the parent workspace without exposing legacy compatibil
   assert.doesNotMatch(budgetsSource, /label="Division"|New Group|Group Selected/);
   assert.match(budgetsSource, /const created = await addBudget/);
   assert.match(budgetsSource, /navigate\(`\/budgets\/\$\{created\.id\}\?tab=info`\)/);
-  assert.match(budgetWorkspaceSource, /Info[\s\S]*Divisions[\s\S]*Company Overhead[\s\S]*Analysis/);
+  assert.match(budgetWorkspaceSource, /Info[\s\S]*Divisions[\s\S]*Profit & Loss[\s\S]*Analysis/);
+  assert.doesNotMatch(budgetWorkspaceSource, /company-overhead|CompanyOverheadSection/);
   assert.doesNotMatch(budgetWorkspaceSource, /Open Legacy Planning|Legacy Planning/);
   assert.match(budgetDetailSource, /Budget not found/);
   assert.match(budgetDetailSource, /toOptionLabel\(activeBudget\.division\)/);

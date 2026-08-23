@@ -114,8 +114,9 @@ test('approved rate is saved to budget pricing and synchronized to the catalog',
   assert.match(budgetSource, /defaultSellPrice: chargeOutRate/);
   assert.match(budgetSource, /updateEquipmentAsset\(row\.asset\.id/);
   assert.match(catalogDetailSource, /Direct Cost \/ Hour/);
-  assert.match(catalogDetailSource, /Recommended Charge-Out/);
-  assert.match(catalogDetailSource, /Approved Charge-Out/);
+  assert.match(catalogDetailSource, /Recommended Rate/);
+  assert.match(catalogDetailSource, /Approved Rate/);
+  assert.match(catalogDetailSource, /pricingRates\.map/);
   assert.match(repoSource, /costRateHourly: Number\(item\.costRateHourly \?\? item\.hourlyCost \?\? 0\)/);
   assert.match(repoSource, /chargeOutRate: Number\(item\.chargeOutRate \?\? item\.recommendedSellRate \?\? 0\)/);
 });

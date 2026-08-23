@@ -1,12 +1,12 @@
-import type { BudgetDivision, BudgetDivisionPlanningItem, BudgetItem } from '../../types';
+import type { BudgetDivision, BudgetDivisionPlanningItem } from '../../types';
 import { calculateDivisionLabourShare, isLabourAllocatedToDivision } from './divisionLabourPlanningModel';
+import { overheadAllocatedAmount } from './overheadAllocationModel.js';
 
 type PlanningItem = Partial<BudgetDivisionPlanningItem> & Pick<BudgetDivisionPlanningItem, 'id' | 'budgetId' | 'divisionId' | 'category'>;
 
 export interface BudgetFinancialInput {
   divisions: BudgetDivision[];
   planningItems: PlanningItem[];
-  companyOverheadItems?: BudgetItem[];
 }
 
 export interface DivisionFinancials {
@@ -22,11 +22,10 @@ export interface DivisionFinancials {
   grossMargin: number | null;
   overheadLabour: number;
   overheadEquipment: number;
-  divisionOverhead: number;
-  allocatedCompanyOverhead: null;
-  totalOverheadBeforeCompany: number;
-  operatingProfitBeforeCompanyOverhead: number | null;
-  operatingMarginBeforeCompanyOverhead: number | null;
+  allocatedOverhead: number;
+  totalOverhead: number;
+  operatingProfit: number | null;
+  operatingMargin: number | null;
   isComplete: boolean;
   missingCategories: string[];
 }
@@ -70,15 +69,15 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const overheadEquipment = items.filter((item) => item.category === 'equipment' && item.classification === 'overhead').reduce((sum, item) => sum + equipmentShare(item, divisionId), 0);
   const materials = items.filter((item) => item.category === 'materials').reduce((sum, item) => sum + localItemCost(item, divisionId), 0);
   const subcontractors = items.filter((item) => item.category === 'subcontractors').reduce((sum, item) => sum + localItemCost(item, divisionId), 0);
-  const divisionOverhead = items.filter((item) => item.category === 'overhead').reduce((sum, item) => sum + localItemCost(item, divisionId), 0);
+  const allocatedOverhead = items.filter((item) => item.category === 'overhead').reduce((sum, item) => sum + overheadAllocatedAmount(item, divisionId), 0);
   const revenue = finiteNonNegative(division?.revenueTarget);
   const totalDirectCosts = directLabour + directEquipment + materials + subcontractors;
   const grossProfit = isComplete ? revenue - totalDirectCosts : null;
   const grossMargin = grossProfit !== null && revenue > 0 ? grossProfit / revenue * 100 : null;
-  const totalOverheadBeforeCompany = overheadLabour + overheadEquipment + divisionOverhead;
-  const operatingProfitBeforeCompanyOverhead = grossProfit === null ? null : grossProfit - totalOverheadBeforeCompany;
-  const operatingMarginBeforeCompanyOverhead = operatingProfitBeforeCompanyOverhead !== null && revenue > 0
-    ? operatingProfitBeforeCompanyOverhead / revenue * 100
+  const totalOverhead = overheadLabour + overheadEquipment + allocatedOverhead;
+  const operatingProfit = grossProfit === null ? null : grossProfit - totalOverhead;
+  const operatingMargin = operatingProfit !== null && revenue > 0
+    ? operatingProfit / revenue * 100
     : null;
 
   return {
@@ -94,11 +93,10 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
     grossMargin,
     overheadLabour,
     overheadEquipment,
-    divisionOverhead,
-    allocatedCompanyOverhead: null,
-    totalOverheadBeforeCompany,
-    operatingProfitBeforeCompanyOverhead,
-    operatingMarginBeforeCompanyOverhead,
+    allocatedOverhead,
+    totalOverhead,
+    operatingProfit,
+    operatingMargin,
     isComplete,
     missingCategories,
   };
@@ -106,15 +104,13 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
 
 export function calculateBudgetFinancials(input: BudgetFinancialInput) {
   const divisions = input.divisions.filter((item) => item.status === 'active').map((division) => calculateDivisionFinancials(input, division.id));
-  const companyOverhead = (input.companyOverheadItems ?? []).reduce((sum, item) => sum + finiteNonNegative(item.budgeted), 0);
   const total = (field: keyof DivisionFinancials) => divisions.reduce((sum, division) => sum + (typeof division[field] === 'number' ? division[field] : 0), 0);
   const revenue = total('revenue');
   const totalDirectCosts = total('totalDirectCosts');
   const isComplete = divisions.length > 0 && divisions.every((division) => division.isComplete);
   const grossProfit = isComplete ? revenue - totalDirectCosts : null;
   const grossMargin = grossProfit !== null && revenue > 0 ? grossProfit / revenue * 100 : null;
-  const totalDivisionOverhead = total('overheadLabour') + total('overheadEquipment') + total('divisionOverhead');
-  const totalOverhead = totalDivisionOverhead + companyOverhead;
+  const totalOverhead = total('totalOverhead');
   const operatingProfit = grossProfit === null ? null : grossProfit - totalOverhead;
   const operatingMargin = operatingProfit !== null && revenue > 0 ? operatingProfit / revenue * 100 : null;
 
@@ -130,13 +126,11 @@ export function calculateBudgetFinancials(input: BudgetFinancialInput) {
     grossMargin,
     overheadLabour: total('overheadLabour'),
     overheadEquipment: total('overheadEquipment'),
-    divisionOverhead: total('divisionOverhead'),
-    companyOverhead,
+    allocatedOverhead: total('allocatedOverhead'),
     totalOverhead,
     operatingProfit,
     operatingMargin,
     isComplete,
-    companyOverheadAllocated: false,
   };
 }
 

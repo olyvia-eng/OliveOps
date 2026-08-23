@@ -42,6 +42,13 @@ function validate(item) {
     const allocationTotal = item.equipmentDivisionAllocations.reduce((sum, allocation) => sum + allocation.months, 0);
     if (Math.abs(allocationTotal - 12) > 0.001) return 'Equipment allocation must total 12 months.';
   }
+  if (item.category === 'overhead') {
+    if (!Array.isArray(item.overheadDivisionAllocations) || item.overheadDivisionAllocations.length === 0) return 'Overhead must be allocated across Divisions.';
+    if (new Set(item.overheadDivisionAllocations.map((allocation) => allocation.divisionId)).size !== item.overheadDivisionAllocations.length) return 'Each Division can appear only once in Overhead allocation.';
+    if (item.overheadDivisionAllocations.some((allocation) => !isText(allocation.divisionId) || !isNonNegative(allocation.percentage) || allocation.percentage > 100)) return 'Overhead allocation percentages must be between 0 and 100.';
+    const allocationTotal = item.overheadDivisionAllocations.reduce((sum, allocation) => sum + allocation.percentage, 0);
+    if (Math.abs(allocationTotal - 100) > 0.001) return 'Overhead Division allocations must total 100%.';
+  }
   return null;
 }
 
@@ -56,6 +63,10 @@ async function validateReferences(businessId, item) {
   if (item.category === 'equipment' && Array.isArray(item.equipmentDivisionAllocations)) {
     const divisions = await Promise.all(item.equipmentDivisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
     if (divisions.some((division) => !division)) return 'Every Equipment allocation Division must belong to this Budget.';
+  }
+  if (item.category === 'overhead') {
+    const divisions = await Promise.all(item.overheadDivisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
+    if (divisions.some((division) => !division)) return 'Every Overhead allocation Division must belong to this Budget.';
   }
   return null;
 }
@@ -83,18 +94,20 @@ export default async function handler(req, res) {
   }
   try {
     if (!await resolveDestination(session, budgetId, divisionId)) return res.status(404).json({ ok: false, error: 'Budget Division not found.' });
-    const budgetItems = category === 'labour' || category === 'equipment'
+    const budgetItems = category === 'labour' || category === 'equipment' || category === 'overhead'
       ? await listBudgetPlanningItems({ businessId: session.businessId, budgetId, category })
       : await listDivisionPlanningItems({ businessId: session.businessId, budgetId, divisionId, category });
     const items = category === 'labour'
       ? budgetItems.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0))
       : category === 'equipment'
         ? budgetItems.filter((item) => item.divisionId === divisionId || item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.months > 0))
+        : category === 'overhead'
+          ? budgetItems.filter((item) => item.overheadDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0))
         : budgetItems;
     if (req.method === 'GET') return res.status(200).json({ ok: true, items: items.sort((a, b) => a.sortOrder - b.sortOrder) });
     if (req.method === 'PUT') {
       const orderedIds = Array.isArray(req.body?.orderedIds) ? req.body.orderedIds : [];
-      const reorderItems = category === 'labour' || category === 'equipment' ? budgetItems : items;
+      const reorderItems = category === 'labour' || category === 'equipment' || category === 'overhead' ? budgetItems : items;
       if (orderedIds.length !== reorderItems.length || new Set(orderedIds).size !== reorderItems.length || orderedIds.some((id) => !reorderItems.some((item) => item.id === id))) {
         return res.status(400).json({ ok: false, error: 'Planning order must include every item exactly once.' });
       }

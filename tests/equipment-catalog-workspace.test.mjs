@@ -7,11 +7,10 @@ const detailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.ts
 
 test('equipment catalog uses a compact table instead of large equipment cards', () => {
   assert.match(catalogSource, /<table className="w-full min-w-\[940px\] text-sm">/);
-  for (const heading of ['Equipment', 'ID / SKU', 'Type', 'Cost / Hour', 'Charge-Out Rate', 'Status', 'Allocated To']) {
+  for (const heading of ['Equipment', 'ID / SKU', 'Type', 'Cost / Hour', 'Recommended Rate', 'Approved Rate', 'Status', 'Allocated To']) {
     assert.match(catalogSource, new RegExp(`>${heading.replace('/', '\\/')}<`));
   }
-  assert.doesNotMatch(catalogSource, /Recommended Rate/);
-  assert.doesNotMatch(catalogSource, /Approved Charge-Out Rate/);
+  assert.match(catalogSource, /division rates/);
   assert.doesNotMatch(catalogSource, /const totalMonths|const totalCost|of 12 months/);
   assert.match(catalogSource, /Not calculated/);
   assert.match(catalogSource, /Not approved/);
@@ -53,10 +52,11 @@ test('equipment detail workspace provides overview, pricing, and budgets tabs', 
 test('allocation and pricing detail stays inside workspace tabs', () => {
   assert.match(detailSource, /Direct Cost \/ Hour/);
   assert.match(detailSource, /Overhead Recovery/);
-  assert.match(detailSource, /Fully Burdened Cost/);
-  assert.match(detailSource, /Target Margin/);
-  assert.match(detailSource, /Recommended Charge-Out/);
-  assert.match(detailSource, /Approved Charge-Out/);
+  assert.match(detailSource, /Recovered Cost/);
+  assert.match(detailSource, /Recommended Rate/);
+  assert.match(detailSource, /Approved Rate/);
+  assert.match(detailSource, /divisionName/);
+  assert.doesNotMatch(detailSource, /average|reduce\(.*recommended/i);
   assert.match(detailSource, /Annual Cost Allocation/);
   assert.match(detailSource, /Annual Allocation/);
   assert.match(detailSource, /Recommended pricing has not been calculated yet/);

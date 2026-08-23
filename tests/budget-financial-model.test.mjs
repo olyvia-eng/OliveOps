@@ -18,8 +18,9 @@ const planningItems = [
   { id: 'salt', budgetId: 'budget', divisionId: 'snow', category: 'materials', plannedAmount: 80000 },
   { id: 'concrete', budgetId: 'budget', divisionId: 'hardscape', category: 'subcontractors', plannedAmount: 45000 },
   { id: 'plowing', budgetId: 'budget', divisionId: 'snow', category: 'subcontractors', rate: 500, plannedQuantity: 50 },
-  { id: 'yard', budgetId: 'budget', divisionId: 'hardscape', category: 'overhead', plannedAmount: 15000 },
-  { id: 'phones', budgetId: 'budget', divisionId: 'snow', category: 'overhead', plannedAmount: 5000 },
+  { id: 'yard', budgetId: 'budget', divisionId: 'hardscape', category: 'overhead', plannedAmount: 15000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }] },
+  { id: 'phones', budgetId: 'budget', divisionId: 'snow', category: 'overhead', plannedAmount: 5000, overheadDivisionAllocations: [{ divisionId: 'snow', percentage: 100 }] },
+  { id: 'secretary', budgetId: 'budget', divisionId: 'hardscape', category: 'overhead', plannedAmount: 60000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 40 }, { divisionId: 'snow', percentage: 60 }] },
 ];
 
 test('Division financials classify costs, apply shared allocations, and never double count', () => {
@@ -30,16 +31,15 @@ test('Division financials classify costs, apply shared allocations, and never do
   assert.equal(hardscape.overheadEquipment, 12000);
   assert.equal(hardscape.materials, 100000);
   assert.equal(hardscape.subcontractors, 45000);
-  assert.equal(hardscape.divisionOverhead, 15000);
+  assert.equal(hardscape.allocatedOverhead, 39000);
   assert.equal(hardscape.totalDirectCosts, 275000);
   assert.equal(hardscape.grossProfit, 675000);
   assert.equal(hardscape.grossMargin, 675000 / 950000 * 100);
-  assert.equal(hardscape.operatingProfitBeforeCompanyOverhead, 623000);
-  assert.equal(hardscape.allocatedCompanyOverhead, null);
+  assert.equal(hardscape.operatingProfit, 599000);
 });
 
-test('Budget financials consolidate Divisions once and include company overhead once', () => {
-  const result = model.calculateBudgetFinancials({ divisions, planningItems, companyOverheadItems: [{ budgeted: 30000 }, { budgeted: 20000 }] });
+test('Budget financials roll up allocated Division overhead and count shared costs once', () => {
+  const result = model.calculateBudgetFinancials({ divisions, planningItems });
   assert.equal(result.revenue, 1550000);
   assert.equal(result.directLabour, 100000);
   assert.equal(result.overheadLabour, 50000);
@@ -47,27 +47,19 @@ test('Budget financials consolidate Divisions once and include company overhead 
   assert.equal(result.overheadEquipment, 24000);
   assert.equal(result.materials, 180000);
   assert.equal(result.subcontractors, 70000);
-  assert.equal(result.divisionOverhead, 20000);
+  assert.equal(result.allocatedOverhead, 80000);
   assert.equal(result.totalDirectCosts, 470000);
   assert.equal(result.grossProfit, 1080000);
   assert.equal(result.grossMargin, 1080000 / 1550000 * 100);
-  assert.equal(result.companyOverhead, 50000);
-  assert.equal(result.totalOverhead, 144000);
-  assert.equal(result.operatingProfit, 936000);
-  assert.equal(result.operatingMargin, 936000 / 1550000 * 100);
+  assert.equal(result.totalOverhead, 154000);
+  assert.equal(result.operatingProfit, 926000);
+  assert.equal(result.operatingMargin, 926000 / 1550000 * 100);
+  assert.equal(result.divisions.reduce((sum, division) => sum + division.allocatedOverhead, 0), 80000);
 });
 
-test('Company Overhead reduces overall profit once without changing Division profitability', () => {
-  const withoutCompanyOverhead = model.calculateBudgetFinancials({ divisions, planningItems, companyOverheadItems: [] });
-  const withCompanyOverhead = model.calculateBudgetFinancials({ divisions, planningItems, companyOverheadItems: [{ budgeted: 50000 }] });
-
-  assert.equal(withoutCompanyOverhead.operatingProfit - withCompanyOverhead.operatingProfit, 50000);
-  assert.equal(withCompanyOverhead.companyOverhead, 50000);
-  assert.equal(withCompanyOverhead.companyOverheadAllocated, false);
-  assert.deepEqual(
-    withCompanyOverhead.divisions.map((division) => [division.divisionId, division.divisionOverhead, division.operatingProfitBeforeCompanyOverhead, division.allocatedCompanyOverhead]),
-    withoutCompanyOverhead.divisions.map((division) => [division.divisionId, division.divisionOverhead, division.operatingProfitBeforeCompanyOverhead, division.allocatedCompanyOverhead]),
-  );
+test('overall P&L equals the roll-up of Division operating results', () => {
+  const result = model.calculateBudgetFinancials({ divisions, planningItems });
+  assert.equal(result.operatingProfit, result.divisions.reduce((sum, division) => sum + division.operatingProfit, 0));
 });
 
 test('zero revenue and incomplete planning never present misleading profit', () => {
@@ -76,7 +68,7 @@ test('zero revenue and incomplete planning never present misleading profit', () 
   assert.deepEqual(incomplete.missingCategories, ['equipment', 'materials', 'subcontractors']);
   assert.equal(incomplete.grossProfit, null);
   assert.equal(incomplete.grossMargin, null);
-  assert.equal(incomplete.operatingProfitBeforeCompanyOverhead, null);
+  assert.equal(incomplete.operatingProfit, null);
 });
 
 test('a configured zero-revenue Budget calculates dollars but never divides by zero', () => {
@@ -85,7 +77,7 @@ test('a configured zero-revenue Budget calculates dollars but never divides by z
   assert.equal(result.isComplete, true);
   assert.equal(result.grossProfit, -470000);
   assert.equal(result.grossMargin, null);
-  assert.equal(result.operatingProfit, -564000);
+  assert.equal(result.operatingProfit, -624000);
   assert.equal(result.operatingMargin, null);
 });
 

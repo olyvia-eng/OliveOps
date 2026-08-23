@@ -31,6 +31,7 @@ export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const equipmentAssets = useStore((state) => state.equipmentAssets);
   const budgets = useStore((state) => state.budgets);
+  const budgetDivisions = useStore((state) => state.budgetDivisions);
   const budgetGroups = useStore((state) => state.budgetGroups);
   const budgetItems = useStore((state) => state.budgetItems);
   const equipmentBudgetAllocations = useStore((state) => state.equipmentBudgetAllocations);
@@ -61,15 +62,15 @@ export default function EquipmentCatalogPage() {
   const selectedAllocations = selectedEquipment
     ? equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === selectedEquipment.id)
     : [];
-  const selectedPricingRate = selectedEquipment
+  const selectedPricingRates = selectedEquipment
     ? budgetRates
       .filter((rate) => {
         if (!rate.active || rate.category !== 'equipment') return false;
         if (rate.equipmentId) return rate.equipmentId === selectedEquipment.id;
         return rate.itemName.trim().toLowerCase() === selectedEquipment.name.trim().toLowerCase();
       })
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0]
-    : undefined;
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    : [];
   const equipmentTypes = useMemo(() => Array.from(new Set(equipmentAssets.map((asset) => asset.type).filter(Boolean))).sort(), [equipmentAssets]);
   const visibleEquipment = useMemo(() => {
     const query = equipmentQuery.trim().toLowerCase();
@@ -248,7 +249,8 @@ export default function EquipmentCatalogPage() {
                       <th className="px-4 py-3 font-medium">ID / SKU</th>
                       <th className="px-4 py-3 font-medium">Type</th>
                       <th className="px-4 py-3 text-right font-medium">Cost / Hour</th>
-                      <th className="px-4 py-3 text-right font-medium">Charge-Out Rate</th>
+                      <th className="px-4 py-3 text-right font-medium">Recommended Rate</th>
+                      <th className="px-4 py-3 text-right font-medium">Approved Rate</th>
                       <th className="px-4 py-3 font-medium">Status</th>
                       <th className="px-4 py-3 font-medium">Allocated To</th>
                     </tr>
@@ -256,6 +258,11 @@ export default function EquipmentCatalogPage() {
                   <tbody className="divide-y divide-gray-100 dark:divide-brand-600">
                     {visibleEquipment.map((asset) => {
                       const costRate = resolveEquipmentCostRate(asset);
+                      const pricingRates = budgetRates.filter((rate) => rate.active && rate.category === 'equipment' && (rate.equipmentId ? rate.equipmentId === asset.id : rate.itemName.trim().toLowerCase() === asset.name.trim().toLowerCase()));
+                      const recommendedRates = pricingRates.filter((rate) => (rate.recommendedSellPrice ?? 0) > 0);
+                      const approvedRates = pricingRates.filter((rate) => rate.defaultSellPrice > 0);
+                      const recommendedSummary = recommendedRates.length > 1 ? `${recommendedRates.length} division rates` : recommendedRates.length === 1 ? `${formatCurrency(recommendedRates[0].recommendedSellPrice ?? 0)}/hr` : 'Not calculated';
+                      const approvedSummary = approvedRates.length > 1 ? `${approvedRates.length} division rates` : approvedRates.length === 1 ? `${formatCurrency(approvedRates[0].defaultSellPrice)}/hr` : asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)}/hr` : 'Not approved';
                       const allocatedBudgetIds = Array.from(new Set(equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === asset.id).map((allocation) => allocation.budgetId)));
                       const allocatedNames = allocatedBudgetIds.map((budgetId) => budgets.find((budget) => budget.id === budgetId)?.name).filter((name): name is string => Boolean(name));
                       const allocationSummary = allocatedNames.length === 0
@@ -276,7 +283,8 @@ export default function EquipmentCatalogPage() {
                           <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.serialNumber || '—'}</td>
                           <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.type || '—'}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{costRate !== null ? `${formatCurrency(costRate)}/hr` : 'Not calculated'}</td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)}/hr` : 'Not approved'}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{recommendedSummary}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{approvedSummary}</td>
                           <td className="px-4 py-3"><Badge label={asset.costType.charAt(0).toUpperCase() + asset.costType.slice(1)} className="bg-accent-50 text-accent-700" /></td>
                           <td className="max-w-56 truncate px-4 py-3 text-gray-600 dark:text-brand-100" title={allocatedNames.join(', ')}>{allocationSummary}</td>
                         </tr>
@@ -294,10 +302,11 @@ export default function EquipmentCatalogPage() {
             activeTab={equipmentDetailTab}
             expanded={workspace.mode === 'expanded'}
             budgets={budgets}
+            budgetDivisions={budgetDivisions}
             budgetGroups={budgetGroups}
             budgetItems={budgetItems}
             allocations={selectedAllocations}
-            pricingRate={selectedPricingRate}
+            pricingRates={selectedPricingRates}
             onTabChange={setEquipmentTab}
             onEdit={() => startEditing(selectedEquipment)}
             onDelete={() => handleDelete(selectedEquipment)}

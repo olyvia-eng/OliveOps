@@ -11,7 +11,6 @@ export interface BudgetPricingRow {
   costRate: number;
   overheadPerUnit: number;
   divisionOverheadPerUnit: number;
-  companyOverheadPerUnit: number;
   recoveredCostPerUnit: number;
   targetMarginPct: number;
   recommendedRate: number;
@@ -24,5 +23,4 @@ export function buildBudgetPricingRows(input: {
   divisions?: BudgetDivision[];
   planningItems: BudgetDivisionPlanningItem[];
   budgetRates: BudgetRate[];
-  companyOverhead?: number;
 }): BudgetPricingRow[];

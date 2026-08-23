@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import planningHandler from '../api/budget-division-plans.js';
 import importHandler from '../api/budget-division-import.js';
+import overheadMigrationHandler from '../api/budget-overhead-migration.js';
 import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
 import { ddb } from '../api/_lib/db.js';
 import { readFileSync } from 'node:fs';
@@ -295,21 +296,52 @@ test('legacy Division-scoped Labour migrates on budget-wide reorder and deletes 
   assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'labour').length, 0);
 });
 
-test('Division Overhead uses existing planning persistence and remains readable', async (t) => {
+test('shared Overhead is stored once and remains readable from every allocated Division', async (t) => {
   const store = installDdb(t);
   await seedTenant(store);
   seedBudget(store, 'biz-a', 'budget-a', '2027');
   seedDivision(store, 'biz-a', 'budget-a', 'hardscape', 'Hardscaping');
+  seedDivision(store, 'biz-a', 'budget-a', 'snow', 'Snow Removal');
 
   const created = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'overhead' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Shop / Yard', description: 'Shop / Yard', costCode: 'OH-100', plannedAmount: 18000 } } }, created);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'overhead' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Shop / Yard', description: 'Shop / Yard', costCode: 'OH-100', plannedAmount: 18000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 60 }, { divisionId: 'snow', percentage: 40 }] } } }, created);
   assert.equal(created.statusCode, 200);
   assert.equal(created.body.item.category, 'overhead');
-  assert.ok(store.has(key('BUSINESS#biz-a', `BUDGET_DIVISION_PLAN#budget-a#DIVISION#hardscape#CATEGORY#overhead#ITEM#${created.body.item.id}`)));
+  assert.ok(store.has(key('BUSINESS#biz-a', `BUDGET_DIVISION_PLAN#budget-a#CATEGORY#overhead#ITEM#${created.body.item.id}`)));
 
   const listed = response();
   await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'overhead' }, headers: { authorization: 'Bearer token-a' } }, listed);
   assert.equal(listed.statusCode, 200);
   assert.equal(listed.body.items[0].description, 'Shop / Yard');
   assert.equal(listed.body.items[0].plannedAmount, 18000);
+
+  const snowListed = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'overhead' }, headers: { authorization: 'Bearer token-a' } }, snowListed);
+  assert.equal(snowListed.statusCode, 200);
+  assert.equal(snowListed.body.items[0].id, created.body.item.id);
+});
+
+test('legacy top-level overhead normalizes once and retains its source record', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'snow', 'Snow Removal');
+  seedDivision(store, 'biz-a', 'budget-a', 'landscape', 'Landscaping');
+  seedDivision(store, 'biz-a', 'budget-a', 'excavation', 'Excavation');
+  const legacyKey = key('BUSINESS#biz-a', 'BUDGET#secretary');
+  store.set(legacyKey, { PK: 'BUSINESS#biz-a', SK: 'BUDGET#secretary', entityType: 'BUDGET_ITEM', businessId: 'biz-a', budgetItemId: 'secretary', id: 'secretary', budgetId: 'budget-a', category: 'overhead', description: 'Secretary', costCode: 'OH-ADMIN', budgeted: 60000, actual: 0, period: '2027-01' });
+
+  const first = response();
+  await overheadMigrationHandler({ method: 'POST', headers: { authorization: 'Bearer token-a' }, body: { budgetId: 'budget-a' } }, first);
+  assert.equal(first.statusCode, 200);
+  assert.equal(first.body.migratedCount, 1);
+  assert.equal(first.body.legacyRecordsRetained, 1);
+  assert.deepEqual(first.body.items[0].overheadDivisionAllocations.map((allocation) => allocation.percentage), [33.33, 33.33, 33.34]);
+  assert.equal(store.has(legacyKey), true);
+
+  const second = response();
+  await overheadMigrationHandler({ method: 'POST', headers: { authorization: 'Bearer token-a' }, body: { budgetId: 'budget-a' } }, second);
+  assert.equal(second.statusCode, 200);
+  assert.equal(second.body.migratedCount, 0);
+  assert.equal(second.body.items.length, 1);
 });

@@ -2,6 +2,8 @@
 
 OliveOps now presents one parent Budget containing operating Divisions. This phase adds the new shell and ownership model without migrating existing detailed planning records.
 
+> Historical note: the Company Overhead deferral described in the original Phase 1 design has been superseded. Current overhead allocation, recovery, and compatibility behavior is documented in [Division Overhead Allocation and Recovery](division-overhead-allocation-and-recovery.md).
+
 ## Persistence
 
 Parent Budgets continue to use `PK = BUSINESS#{businessId}` and `SK = BUDGET_META#{budgetId}`. New Budgets carry `planningModel = divisions_v1`, description, and date-range metadata. The legacy `budgetType` and free-text `division` fields remain stored as `operating` and `company_wide` so old readers continue to work.
@@ -23,15 +25,15 @@ No existing Budget, Budget Group, Budget Item, Budget Rate, Labour Budget Plan, 
 - Existing grouped roll-ups remain read-only at their current routes.
 - New group creation and membership management are hidden from the normal Budget workflow.
 - Existing grouped Budgets are not synthesized into Divisions.
-- Company Overhead and Analysis do not reinterpret old grouped calculations as Division calculations.
+- Legacy top-level overhead records are retained and normalized into shared Division planning records by the current migration flow.
 
 Opening the new workspace performs no migration. Budgets without `planningModel = divisions_v1` display an explicit Legacy Planning link.
 
-## Deferred Migration
+## Overhead Migration
 
-Labour, Equipment, Materials, Subcontractors, and Division Overhead use Division planning records. The former `other-costs` tab name remains a URL compatibility alias for Overhead; persisted expense terminology remains `overhead`, so no records are renamed or migrated. Company Overhead remains on existing Budget-level overhead items and is consolidated only at the overall Budget level because no Division allocation policy has been approved.
+Labour, Equipment, Materials, Subcontractors, and Overhead use Division planning records. The former `other-costs` tab name remains a URL compatibility alias for Overhead. Shared overhead is stored once at Budget scope with explicit Division percentages totaling 100%; legacy top-level overhead records remain available for compatibility and are normalized idempotently.
 
-Profit & Loss is a read-only projection from revenue targets and these planning records. `calculateDivisionFinancials` and `calculateBudgetFinancials` provide the shared calculation boundary for Division Overview, Division summaries, P&L, and Analysis. Incomplete direct-cost planning produces unavailable profit and margin values rather than implied profit. Division operating profit is explicitly reported before Company Overhead until an allocation mechanism is implemented.
+Profit & Loss is a read-only projection from revenue targets and these planning records. `calculateDivisionFinancials` and `calculateBudgetFinancials` provide the shared calculation boundary for Division Overview, Division summaries, P&L, and Analysis. Each Division includes only its allocated overhead share, and the overall Budget rolls up those Division values exactly once. Incomplete direct-cost planning produces unavailable profit and margin values rather than implied profit.
 
 ## Division Planning
 

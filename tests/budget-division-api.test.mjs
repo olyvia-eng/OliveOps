@@ -131,7 +131,7 @@ function buildBudgetRecord(overrides = {}) {
   };
 }
 
-test('Company Overhead persists as a top-level Budget item through CRUD and reload', async (t) => {
+test('legacy top-level overhead remains readable for non-destructive migration compatibility', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-a' });
   await seedSessionToken();

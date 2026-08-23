@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const workspace = readFileSync('src/pages/budget/DivisionWorkspacePage.tsx', 'utf8');
 const planner = readFileSync('src/components/budget/DivisionPlanningTab.tsx', 'utf8');
+const analysis = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
 const importer = readFileSync('src/components/budget/BudgetPlanImportDialog.tsx', 'utf8');
 const store = readFileSync('src/store/index.ts', 'utf8');
 
@@ -78,7 +79,9 @@ test('Labour plan table shows only the selected Division share and prevents dupl
   assert.match(planner, /Already in Budget/);
   assert.match(planner, /Edit Allocation/);
   assert.match(planner, /overhead pool/);
-  assert.match(planner, /category === 'overhead' \? <OverheadRecoveryEditor/);
+  assert.doesNotMatch(planner, /OverheadRecoveryEditor/);
+  assert.match(analysis, /Overhead Recovery/);
+  assert.match(analysis, /<OverheadRecoveryEditor/);
 });
 
 test('active Division equipment editor uses the shared wide equipment form and Budget-only allocation', () => {
