@@ -34,11 +34,14 @@ test('all financial surfaces consume the centralized calculation layer', () => {
 });
 
 test('financial statements show hierarchy and division-allocated overhead', () => {
+  assert.doesNotMatch(statement, /function Kpis|function Kpi|lg:grid-cols-5/);
   assert.match(statement, /Total Revenue/);
   assert.match(statement, /Total Direct Costs/);
   assert.match(statement, /Gross Profit/);
   assert.match(statement, /Total Overhead/);
-  assert.match(statement, /Operating Profit/);
+  assert.match(statement, /Net Profit/);
+  assert.match(statement, /Net Margin/);
+  assert.doesNotMatch(statement, /Operating Profit|Operating Margin/);
   assert.match(statement, /Budget incomplete/);
   assert.match(statement, /Allocated Overhead/);
   assert.doesNotMatch(statement, /before Company Overhead|Company Overhead is not allocated/);
