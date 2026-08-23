@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { Card } from '../ui';
+import { Button, Card } from '../ui';
 import { formatCurrency } from '../../utils';
+import type { Budget, BudgetDivision } from '../../types';
 import type { BudgetFinancials, DivisionFinancials } from '../../pages/budget/budgetFinancialModel';
+import DivisionMonthlyComparison from './DivisionMonthlyComparison';
 
 const amount = (value: number | null) => value === null ? '—' : formatCurrency(value);
 const percentage = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
@@ -32,23 +35,24 @@ export function DivisionProfitLossView({ fiscalYear, financials }: { fiscalYear:
       <SectionHeading>Direct Costs</SectionHeading><Row label="Labour" value={financials.directLabour} /><Row label="Equipment" value={financials.directEquipment} /><Row label="Materials" value={financials.materials} /><Row label="Subcontractors" value={financials.subcontractors} /><Row label="Total Direct Costs" value={financials.totalDirectCosts} total />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
       <SectionHeading>Overhead</SectionHeading><Row label="Overhead Labour" value={financials.overheadLabour} /><Row label="Overhead Equipment" value={financials.overheadEquipment} /><Row label="Allocated Overhead" value={financials.allocatedOverhead} /><Row label="Total Overhead" value={financials.totalOverhead} total />
-      <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Margin" value={financials.operatingMargin} />
+      <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />
     </tbody></table></Card>
   </div>;
 }
 
-export function BudgetProfitLossView({ fiscalYear, financials, onDivisionClick }: { fiscalYear: string; financials: BudgetFinancials; onDivisionClick: (divisionId: string) => void }) {
+export function BudgetProfitLossView({ budget, divisions, financials }: { budget: Budget; divisions: BudgetDivision[]; financials: BudgetFinancials }) {
+  const [compareOpen, setCompareOpen] = useState(false);
   const missingCategories = [...new Set(financials.divisions.flatMap((division) => division.missingCategories))];
   return <div className="space-y-5">
-    <div><p className="text-sm text-gray-500 dark:text-brand-300">{fiscalYear} Budget</p><h2 className="mt-1 text-2xl font-semibold text-gray-950 dark:text-brand-50">Profit &amp; Loss</h2></div>
+    <div className="flex items-end justify-between gap-4"><div><p className="text-sm text-gray-500 dark:text-brand-300">{budget.fiscalYear} Budget</p><h2 className="mt-1 text-2xl font-semibold text-gray-950 dark:text-brand-50">Profit &amp; Loss</h2></div><Button type="button" variant="secondary" onClick={() => setCompareOpen(true)}>Compare</Button></div>
     <IncompleteNotice missingCategories={missingCategories} />
     <Card className="overflow-hidden"><table className="w-full text-sm"><tbody>
       <SectionHeading>Revenue</SectionHeading>{financials.divisions.map((division) => <Row key={division.divisionId} label={division.divisionName} value={division.revenue} />)}<Row label="Total Revenue" value={financials.revenue} total />
       <SectionHeading>Direct Costs</SectionHeading><Row label="Labour" value={financials.directLabour} /><Row label="Equipment" value={financials.directEquipment} /><Row label="Materials" value={financials.materials} /><Row label="Subcontractors" value={financials.subcontractors} /><Row label="Total Direct Costs" value={financials.totalDirectCosts} total />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
       <SectionHeading>Overhead</SectionHeading><Row label="Overhead Labour" value={financials.overheadLabour} /><Row label="Overhead Equipment" value={financials.overheadEquipment} /><Row label="Allocated Overhead" value={financials.allocatedOverhead} /><Row label="Total Overhead" value={financials.totalOverhead} total />
-      <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Margin" value={financials.operatingMargin} />
+      <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />
     </tbody></table></Card>
-    <Card className="overflow-hidden"><div className="border-b border-gray-200 px-5 py-3 dark:border-brand-600"><h3 className="font-semibold text-gray-950 dark:text-brand-50">Division Breakdown</h3></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-sm"><thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-brand-800 dark:text-brand-300"><tr><th className="px-5 py-3">Division</th><th className="px-5 py-3 text-right">Revenue</th><th className="px-5 py-3 text-right">Direct Cost</th><th className="px-5 py-3 text-right">Gross Profit</th><th className="px-5 py-3 text-right">Margin</th></tr></thead><tbody className="divide-y divide-gray-200 dark:divide-brand-600">{financials.divisions.map((division) => <tr key={division.divisionId} className="cursor-pointer hover:bg-brand-50 dark:hover:bg-brand-800" onClick={() => onDivisionClick(division.divisionId)}><td className="px-5 py-3 font-medium text-brand-700 dark:text-brand-200">{division.divisionName}</td><td className="px-5 py-3 text-right tabular-nums">{formatCurrency(division.revenue)}</td><td className="px-5 py-3 text-right tabular-nums">{formatCurrency(division.totalDirectCosts)}</td><td className="px-5 py-3 text-right tabular-nums">{amount(division.grossProfit)}</td><td className="px-5 py-3 text-right tabular-nums">{percentage(division.grossMargin)}</td></tr>)}</tbody></table></div></Card>
+    <DivisionMonthlyComparison open={compareOpen} onClose={() => setCompareOpen(false)} budget={budget} divisions={divisions} />
   </div>;
 }

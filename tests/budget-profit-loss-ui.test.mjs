@@ -40,12 +40,14 @@ test('financial statements show hierarchy and division-allocated overhead', () =
   assert.match(statement, /Gross Profit/);
   assert.match(statement, /Total Overhead/);
   assert.match(statement, /Net Profit/);
-  assert.match(statement, /Net Margin/);
+  assert.match(statement, /Net Profit Margin/);
   assert.doesNotMatch(statement, /Operating Profit|Operating Margin/);
   assert.match(statement, /Budget incomplete/);
   assert.match(statement, /Allocated Overhead/);
   assert.doesNotMatch(statement, /before Company Overhead|Company Overhead is not allocated/);
-  assert.match(statement, /Division Breakdown/);
+  assert.doesNotMatch(statement, /Division Breakdown/);
+  assert.match(statement, />Compare</);
+  assert.match(statement, /DivisionMonthlyComparison/);
 });
 
 test('legacy overhead is normalized without an active company-level calculation path', () => {
