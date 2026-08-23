@@ -63,4 +63,23 @@ Breakeven = Average Labour Cost + Labour Overhead Recovery
 Labour Rate = Breakeven ÷ (1 - Target Net Profit %)
 ```
 
-Approved `Average Labour` rates use the stable identity `average-labour:<divisionId>`. Approval remains explicit, and previously approved employee rates and historical Estimate snapshots remain readable for compatibility.
+The Analysis pricing workbook presents four client-side tabs: Labour, Equipment, Materials, and Subcontractors. Labour is selected by default. Changing tabs only filters the already calculated rows; it does not write Budget rates or other persisted data.
+
+## Recovery denominator audit
+
+Every pricing row reads its recovery pool, denominator, and rate from the same Division scope produced by `buildOverheadRecoveryModel`. Planning records are de-duplicated by record ID before totals are calculated. Only active Divisions in the selected Budget receive recovery scopes.
+
+| Category | Division denominator | Displayed overhead |
+| --- | --- | --- |
+| Labour | Sum of allocated planned billable labour hours | Labour pool / billable hours |
+| Equipment | Sum of `equipmentDivisionAllocations[].sellableHours` for that Division, excluding overhead-classified equipment | Equipment pool / sellable equipment hours |
+| Materials | Sum of `unitCost * plannedQuantity` for material records belonging to that Division | Item unit cost * (material pool / planned material cost) |
+| Subcontractors | Sum of `rate * plannedQuantity` for subcontractor records belonging to that Division | Item rate * (subcontractor pool / planned subcontractor cost) |
+
+Equipment rows are produced once for every positive-month Division allocation. Each row uses that Division's pool and sellable-hours denominator independently; equal displayed rates are valid only when the independent quotients are equal. Asset-wide `sellableHoursPerYear` is used for the equipment direct-cost rate, not as the Division overhead denominator.
+
+Labour allocation writes are validated to contain each Division once and total the employee's planned hours. Legacy percentages must total 100%. Equipment allocation writes contain each Division once, reference Divisions in the same Budget, and total 12 months. These validations prevent malformed new allocations from entering the recovery model.
+
+When a recovery pool is positive but its Division denominator is zero, the category and final calculated rate are `Unavailable`. Analysis exposes the actual unrecoverable pool and missing denominator instead of presenting `$0.00` overhead or a direct-cost-only rate. The warning above Pricing directs the user to add the missing recovery base or change the Division recovery allocation. Unconfigured recovery or percentages that do not total 100% also make calculated rates unavailable until the allocation is corrected.
+
+Previously persisted Budget approvals remain readable in the pricing model for compatibility, including the stable `average-labour:<divisionId>` identity. Analysis no longer displays or edits Approved Rate and Status. Existing approval records, legacy employee rates, Estimate-approved-only selection, and immutable historical Estimate snapshots are unchanged.

@@ -56,11 +56,15 @@ const buildScope = ({ label, totalOverhead, policy, denominators }) => {
   const warnings = [];
   let recoverableAmount = 0;
 
-  if (valid) {
+  if (!valid && totalOverhead > 0) {
+    warnings.push(configured
+      ? `${label}: adjust recovery percentages to total 100% before using calculated rates.`
+      : `${label}: set recovery percentages before using calculated rates.`);
+  } else if (valid) {
     for (const category of CATEGORIES) {
       if (pools[category] > 0 && denominators[category] <= 0) {
         const denominatorLabel = category === 'labour' ? 'billable labour hours' : category === 'equipment' ? 'sellable equipment hours' : `planned ${category === 'materials' ? 'material' : 'subcontractor'} cost`;
-        warnings.push(`${label} assigns $${pools[category].toFixed(2)} to ${category} recovery, but no ${denominatorLabel} are planned.`);
+        warnings.push(`${label}: add ${denominatorLabel} or change the ${category} recovery allocation. $${pools[category].toFixed(2)} is currently unrecoverable.`);
         continue;
       }
       if (denominators[category] > 0) {

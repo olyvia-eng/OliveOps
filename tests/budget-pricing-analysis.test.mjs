@@ -4,8 +4,6 @@ import { readFileSync } from 'node:fs';
 import { buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
 
 const pricingSource = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
-const workspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage.tsx', 'utf8');
-const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 const budget = {
   id: 'budget-2027', targetMarginPct: 20,
@@ -85,66 +83,78 @@ test('Budget Analysis leaves recommendations unavailable when pricing units are 
   assert.equal(rows[0].pricingStatus, 'unavailable');
 });
 
-test('Estimate Pricing rows expose explicit saved, dirty, saving, and failed states', () => {
-  assert.match(pricingSource, /persisted: string/);
-  assert.match(pricingSource, /ratesMatch\(state\.draft, state\.persisted\)/);
-  assert.match(pricingSource, /onChange=\{\(event\) => setDraft\(row\.key, event\.target\.value\)\}/);
-  assert.match(pricingSource, /'Saving…'/);
-  assert.match(pricingSource, /'Try Again'/);
-  assert.match(pricingSource, /'Save'/);
-  assert.match(pricingSource, /'Saved ✓'/);
-  assert.match(pricingSource, /role="alert"/);
-  assert.match(pricingSource, /setRateStates\(\(current\) => \(\{ \.\.\.current, \[row\.key\]: \{ draft: persisted, persisted, status: 'idle' \} \}\)\)/);
-  assert.match(pricingSource, /\.\.\.current\[row\.key\],[\s\S]*status: 'failed'/);
+test('Pricing uses four client-side tabs and defaults to Labour', () => {
+  assert.match(pricingSource, /type PricingTab = 'labour' \| 'equipment' \| 'materials' \| 'subcontractors'/);
+  assert.match(pricingSource, /useState<PricingTab>\('labour'\)/);
+  assert.match(pricingSource, /role="tablist" aria-label="Pricing category"/);
+  assert.match(pricingSource, /role="tab" aria-selected=\{activePricingTab === tab\.key\}/);
+  assert.match(pricingSource, /onClick=\{\(\) => setActivePricingTab\(tab\.key\)\}/);
+  assert.match(pricingSource, /const activeRows = rows\.filter\(\(row\) => row\.type === activeTab\.rowType\)/);
+  for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: '${label}'`));
 });
 
-test('Pricing Recommendations use contractor-facing labour and equipment terms', () => {
-  assert.match(pricingSource, /pricingTable\(labourRows, 'Labour Cost', 'Labour Rate'\)/);
-  assert.match(pricingSource, /pricingTable\(equipmentRows, 'Equipment Cost', 'Equipment Rate'\)/);
+test('Pricing uses contractor-facing labels and renders no approval workflow', () => {
+  for (const label of ['Labour Cost', 'Labour Rate', 'Equipment Cost', 'Equipment Rate', 'Material Cost', 'Material Rate', 'Subcontractor Cost', 'Subcontractor Rate']) assert.match(pricingSource, new RegExp(label));
   assert.match(pricingSource, />Target Net Profit</);
-  assert.match(pricingSource, /Overhead allocated to labour:/);
-  assert.match(pricingSource, /Planned billable labour hours:/);
-  assert.match(pricingSource, /Overhead recovery:/);
-  assert.match(pricingSource, /Breakeven:/);
-  assert.match(pricingSource, /÷ \(1 - \{row\.targetMarginPct\.toFixed\(0\)\}% Target Net Profit\)/);
-  assert.doesNotMatch(pricingSource, />Type</);
-  assert.doesNotMatch(pricingSource, />Direct Cost</);
-  assert.doesNotMatch(pricingSource, />Recommended</);
-  assert.doesNotMatch(pricingSource, />Company OH</);
-  assert.match(pricingSource, /Using recommended rate/);
-  assert.match(pricingSource, /Custom rate/);
-  assert.doesNotMatch(pricingSource, />Use recommended<\/button>/);
+  assert.match(pricingSource, />Pricing<\/h2>/);
+  assert.match(pricingSource, /Review Budget-calculated rates by Division/);
+  for (const removed of ['Approved Rate', 'Saved ✓', 'Custom rate', 'Not approved', 'Using recommended rate', 'addBudgetRate', 'updateBudgetRate']) assert.doesNotMatch(pricingSource, new RegExp(removed));
 });
 
-test('Estimate Pricing prevents duplicate saves and awaits individual persistence', () => {
-  assert.match(pricingSource, /savesInFlight\.current\.has\(row\.key\)/);
-  assert.match(pricingSource, /savesInFlight\.current\.add\(row\.key\)/);
-  assert.match(pricingSource, /row\.rate\?\.pricingVersion === 2/);
-  assert.match(pricingSource, /pricingVersion: 2/);
-  assert.match(pricingSource, /divisionOverheadRecoveryPerUnit: row\.divisionOverheadPerUnit/);
-  assert.match(pricingSource, /await updateBudgetRate\(row\.rate\.id, payload\)/);
-  assert.match(pricingSource, /await addBudgetRate\(payload\)/);
-  assert.match(storeSource, /addBudgetRate: async \(rateInput\)/);
-  assert.match(storeSource, /updateBudgetRate: async \(id, data\)/);
+test('overhead and final rates disclose actual source values and margin formula', () => {
+  for (const label of ['Labour Overhead Pool', 'Billable Labour Hours', 'Equipment Overhead Pool', 'Sellable Equipment Hours', 'Material Overhead Pool', 'Planned Material Cost', 'Subcontractor Overhead Pool', 'Planned Subcontractor Cost']) assert.match(pricingSource, new RegExp(label));
+  assert.match(pricingSource, /row\.overheadPool/);
+  assert.match(pricingSource, /row\.recoveryDenominator/);
+  assert.match(pricingSource, /row\.recoveryRate/);
+  assert.match(pricingSource, /Overhead Recovery:/);
+  assert.match(pricingSource, /Breakeven Rate:/);
+  assert.match(pricingSource, /÷ \(1 - \{row\.targetMarginPct\.toFixed\(0\)\}%\)/);
+  assert.doesNotMatch(pricingSource, /\* 1\.2|× 1\.20/);
 });
 
-test('unavailable pricing omits editable and save controls', () => {
-  assert.match(pricingSource, /isUnavailable \? <>[\s\S]*Rate unavailable[\s\S]*unavailableReason\(row\.item\.category\)[\s\S]*colSpan=\{2\}>—<\/td>/);
-  assert.match(pricingSource, /Complete labour cost information first\./);
+test('materials and subcontractors use Division planned-cost recovery bases', () => {
+  const scopedBudget = { id: 'cost-recovery', targetMarginPct: 20 };
+  const scopedDivisions = [{ id: 'division', budgetId: scopedBudget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 0, equipmentPercent: 0, materialsPercent: 60, subcontractorsPercent: 40 } } }];
+  const scopedItems = [
+    { id: 'material', budgetId: scopedBudget.id, divisionId: 'division', category: 'materials', name: 'Stone', unit: 'tonne', unitCost: 10, plannedQuantity: 200 },
+    { id: 'sub', budgetId: scopedBudget.id, divisionId: 'division', category: 'subcontractors', name: 'Hauling', unit: 'hr', rate: 100, plannedQuantity: 5 },
+    { id: 'overhead', budgetId: scopedBudget.id, category: 'overhead', plannedAmount: 10000, overheadDivisionAllocations: [{ divisionId: 'division', percentage: 100 }] },
+  ];
+  const rows = buildBudgetPricingRows({ budget: scopedBudget, divisions: scopedDivisions, planningItems: scopedItems, budgetRates: [] });
+  const material = rows.find((row) => row.item.id === 'material');
+  const subcontractor = rows.find((row) => row.item.id === 'sub');
+  assert.deepEqual([material.overheadPool, material.recoveryDenominator, material.recoveryRate, material.overheadPerUnit], [6000, 2000, 3, 30]);
+  assert.deepEqual([subcontractor.overheadPool, subcontractor.recoveryDenominator, subcontractor.recoveryRate, subcontractor.overheadPerUnit], [4000, 500, 8, 800]);
 });
 
-test('persisted approved rates reconstruct the saved baseline after reload', () => {
+test('positive recovery pools with missing denominators are unavailable, not zero-overhead pricing', () => {
+  const cases = [
+    ['labour', { category: 'labour', compType: 'hourly', hourlyRate: 30, plannedHours: 1000, expectedBillablePct: 0, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'division', hours: 1000 }] }],
+    ['equipment', { category: 'equipment', plannedAmount: 10000, sellableHoursPerYear: 100, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'division', months: 12, sellableHours: 0 }] }],
+    ['materials', { category: 'materials', divisionId: 'division', unitCost: 25, plannedQuantity: 0 }],
+    ['subcontractors', { category: 'subcontractors', divisionId: 'division', rate: 75, plannedQuantity: 0 }],
+  ];
+  for (const [category, item] of cases) {
+    const missingBudget = { id: `missing-${category}`, targetMarginPct: 20 };
+    const division = { id: 'division', budgetId: missingBudget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: category === 'labour' ? 100 : 0, equipmentPercent: category === 'equipment' ? 100 : 0, materialsPercent: category === 'materials' ? 100 : 0, subcontractorsPercent: category === 'subcontractors' ? 100 : 0 } } };
+    const rows = buildBudgetPricingRows({ budget: missingBudget, divisions: [division], planningItems: [{ id: category, budgetId: missingBudget.id, ...item }, { id: 'overhead', budgetId: missingBudget.id, category: 'overhead', plannedAmount: 1000, overheadDivisionAllocations: [{ divisionId: 'division', percentage: 100 }] }], budgetRates: [] });
+    const row = rows.find((value) => value.item.id === category || value.aggregateLabour);
+    assert.equal(row.recoveryUnavailable, true, category);
+    assert.equal(row.recommendedRate, 0, category);
+    assert.equal(row.overheadPool, 1000, category);
+    assert.equal(row.recoveryDenominator, 0, category);
+  }
+  assert.match(pricingSource, /No \{terms\.missing\} are planned/);
+  assert.match(pricingSource, /cannot currently be recovered/);
+});
+
+test('persisted approved rates remain readable but are not rendered or changed by tabs', () => {
   const persistedRates = [{ id: 'rate-average', budgetId: budget.id, budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2, category: 'labour', defaultSellPrice: 62.5 }];
   const firstRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: persistedRates });
   const reloadedRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: structuredClone(persistedRates) });
 
   assert.equal(firstRender.find((row) => row.item.id === 'average-labour:hardscape').approvedRate, 62.5);
   assert.equal(reloadedRender.find((row) => row.item.id === 'average-labour:hardscape').approvedRate, 62.5);
-  assert.match(pricingSource, /const persisted = row\.approvedRate > 0 \? String\(row\.approvedRate\) : ''/);
-});
-
-test('page Save Changes persists Budget fields, not individually saved pricing rates', () => {
-  assert.match(workspaceSource, /saveIfDirty[\s\S]*updateBudget\(budget\.id/);
-  assert.doesNotMatch(workspaceSource, /saveIfDirty[\s\S]{0,1000}(addBudgetRate|updateBudgetRate)/);
-  assert.match(pricingSource, /await (updateBudgetRate|addBudgetRate)/);
+  assert.match(pricingSource, /onClick=\{\(\) => setActivePricingTab\(tab\.key\)\}/);
+  assert.doesNotMatch(pricingSource, /defaultSellPrice|approvedRate/);
 });

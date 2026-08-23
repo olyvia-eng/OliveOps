@@ -121,7 +121,10 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
     const scope = recovery.divisions[division.id];
     const divisionOverheadPerUnit = recoveryPerUnit(scope, 'labour', costRate);
     const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
-    const recommendedRate = grossMarginRate(recoveredCostPerUnit, margin);
+    const recoveryConfigurationUnavailable = Boolean(scope && !scope.valid && scope.totalOverhead > 0);
+    const recoveryDenominatorUnavailable = Boolean(scope?.valid && (scope.pools.labour ?? 0) > 0 && (scope.denominators.labour ?? 0) <= 0);
+    const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
+    const recommendedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
     const item = { id: averageLabourItemId(division.id), budgetId: budget.id, divisionId: division.id, category: 'labour', name: 'Average Labour' };
     const rate = matchingRate(budgetRates, budget.id, item, 'labour', division.id);
     return {
@@ -143,6 +146,10 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
       billableHours,
       annualCost,
       overheadPool: scope?.pools.labour ?? 0,
+      recoveryDenominator: scope?.denominators.labour ?? 0,
+      recoveryRate: scope?.rates.labour ?? 0,
+      recoveryUnavailable,
+      recoveryUnavailableReason: recoveryConfigurationUnavailable ? 'configuration' : recoveryDenominatorUnavailable ? 'denominator' : undefined,
       contributors,
       aggregateLabour: true,
     };
@@ -153,9 +160,13 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
       const type = typeForCategory(item.category);
       const costRate = costs.get(item.id) ?? 0;
-      const divisionOverheadPerUnit = recoveryPerUnit(recovery.divisions[divisionId], item.category, costRate);
+      const scope = recovery.divisions[divisionId];
+      const divisionOverheadPerUnit = recoveryPerUnit(scope, item.category, costRate);
       const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
-      const recommendedRate = grossMarginRate(recoveredCostPerUnit, margin);
+      const recoveryConfigurationUnavailable = Boolean(scope && !scope.valid && scope.totalOverhead > 0);
+      const recoveryDenominatorUnavailable = Boolean(scope?.valid && (scope.pools[item.category] ?? 0) > 0 && (scope.denominators[item.category] ?? 0) <= 0);
+      const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
+      const recommendedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
       const rate = matchingRate(budgetRates, budget.id, item, type, divisionId);
       const division = divisions.find((value) => value.id === divisionId);
       return {
@@ -172,6 +183,11 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         recoveredCostPerUnit,
         targetMarginPct: margin,
         recommendedRate,
+        overheadPool: scope?.pools[item.category] ?? 0,
+        recoveryDenominator: scope?.denominators[item.category] ?? 0,
+        recoveryRate: scope?.rates[item.category] ?? 0,
+        recoveryUnavailable,
+        recoveryUnavailableReason: recoveryConfigurationUnavailable ? 'configuration' : recoveryDenominatorUnavailable ? 'denominator' : undefined,
         approvedRate: number(rate?.defaultSellPrice),
         pricingStatus: number(rate?.defaultSellPrice) > 0 ? 'approved' : recommendedRate > 0 ? 'recommended_not_approved' : 'unavailable',
       };

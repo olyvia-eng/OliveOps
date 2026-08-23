@@ -20,6 +20,10 @@ export interface BudgetPricingRow {
   billableHours?: number;
   annualCost?: number;
   overheadPool?: number;
+  recoveryDenominator?: number;
+  recoveryRate?: number;
+  recoveryUnavailable?: boolean;
+  recoveryUnavailableReason?: 'configuration' | 'denominator';
   contributors?: Array<{ id: string; name: string; billableHours: number; annualCost: number }>;
 }
 
