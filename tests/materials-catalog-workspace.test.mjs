@@ -15,6 +15,15 @@ test('materials route uses the dedicated catalog workspace and removes the legac
   assert.doesNotMatch(routeSource, /material-catalog-form/);
 });
 
+test('catalog exposes URL-backed Equipment and Materials tabs instead of stacked sections', () => {
+  assert.match(routeSource, /type CatalogTab = 'equipment' \| 'materials'/);
+  assert.match(routeSource, /searchParams\.get\('catalog'\) === 'materials'/);
+  assert.match(routeSource, /role="tablist" aria-label="Catalog type"/);
+  assert.match(routeSource, /role="tab" aria-selected=\{activeCatalog === tab\.key\}/);
+  assert.match(routeSource, /activeCatalog === 'materials'[\s\S]*<MaterialsCatalogSection \/>/);
+  assert.match(routeSource, /activeCatalog === 'equipment'[\s\S]*<DetailWorkspace/);
+});
+
 test('materials catalog renders persisted records in a compact Equipment-style table', () => {
   assert.match(catalogSource, /state\.materialCatalogItems/);
   assert.match(catalogSource, /<table className="w-full min-w-\[720px\] text-sm">/);

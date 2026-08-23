@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { PlusCircle, Search } from 'lucide-react';
+import { Package, PlusCircle, Search, Truck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, EmptyState, Modal, PageHeader } from '../../components/ui';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
@@ -26,6 +26,12 @@ import MaterialsCatalogSection from './MaterialsCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'pricing', 'budgets'];
+type CatalogTab = 'equipment' | 'materials';
+
+const CATALOG_TABS: Array<{ key: CatalogTab; label: string; icon: typeof Truck }> = [
+  { key: 'equipment', label: 'Equipment', icon: Truck },
+  { key: 'materials', label: 'Materials', icon: Package },
+];
 
 export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,6 +55,13 @@ export default function EquipmentCatalogPage() {
   const [equipmentTypeFilter, setEquipmentTypeFilter] = useState('all');
   const [equipmentStatusFilter, setEquipmentStatusFilter] = useState('all');
   const [equipmentBudgetFilter, setEquipmentBudgetFilter] = useState('all');
+  const activeCatalog: CatalogTab = searchParams.get('catalog') === 'materials' ? 'materials' : 'equipment';
+
+  const setCatalogTab = (tab: CatalogTab) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('catalog', tab);
+    setSearchParams(next);
+  };
 
   const sortedEquipment = useMemo(() => {
     return [...equipmentAssets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -190,9 +203,18 @@ export default function EquipmentCatalogPage() {
         subtitle="What materials and assets are we standardizing so planning stays fast and cost decisions stay consistent?"
       />
 
-      <MaterialsCatalogSection />
+      <div className="overflow-x-auto">
+        <div className="inline-flex min-w-max rounded-xl border border-brand-100 bg-white p-1 dark:border-brand-600 dark:bg-brand-700" role="tablist" aria-label="Catalog type">
+          {CATALOG_TABS.map((tab) => {
+            const Icon = tab.icon;
+            return <button key={tab.key} type="button" role="tab" aria-selected={activeCatalog === tab.key} aria-controls={`${tab.key}-catalog-panel`} onClick={() => setCatalogTab(tab.key)} className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${activeCatalog === tab.key ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-800'}`}><Icon size={16} />{tab.label}</button>;
+          })}
+        </div>
+      </div>
 
-      <div className="order-2">
+      {activeCatalog === 'materials' ? <div id="materials-catalog-panel" role="tabpanel"><MaterialsCatalogSection /></div> : null}
+
+      {activeCatalog === 'equipment' ? <div id="equipment-catalog-panel" role="tabpanel">
       <DetailWorkspace
         open={Boolean(workspace.recordId)}
         expanded={workspace.mode === 'expanded'}
@@ -318,7 +340,7 @@ export default function EquipmentCatalogPage() {
           <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Equipment not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeEquipment}>Close</Button></div>
         )}
       />
-      </div>
+      </div> : null}
 
       <Modal
         open={equipmentModalOpen}
