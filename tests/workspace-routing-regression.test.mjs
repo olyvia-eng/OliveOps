@@ -110,6 +110,10 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /employeeTimeEntryNotes[\s\S]*entry\.notes/);
   assert.match(jobWorkspaceSource, /<h2 className="font-semibold">Photos<\/h2>/);
   assert.match(jobWorkspaceSource, /clockInPhotoFileId[\s\S]*clockOutPhotoFileIds[\s\S]*photoAttachmentFileIds/);
+  assert.match(jobWorkspaceSource, /form\.assignedTo === 'job' && form\.assignmentValue === id/);
+  assert.match(jobWorkspaceSource, /submission\.jobId !== id/);
+  assert.match(jobWorkspaceSource, />Assigned Forms<\/h2>/);
+  assert.match(jobWorkspaceSource, /to="\/operations\/forms"/);
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
   assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
   assert.match(jobWorkspaceSource, /No invoices yet/);

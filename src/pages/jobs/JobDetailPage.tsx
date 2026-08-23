@@ -25,6 +25,11 @@ const normalizeEntryJobIds = (entry: { jobIds?: string[]; jobId?: string }): str
     : (entry.jobId ? [entry.jobId] : []);
 };
 
+const formatFormLabel = (value: string) => value
+  .split('_')
+  .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+  .join(' ');
+
 const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
   const fileIds = [...new Set([
     entry.clockInPhotoFileId,
@@ -46,7 +51,7 @@ export default function JobDetailPage({ currentUserRole }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, deleteTimeEntry } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, updateJob, deleteTimeEntry } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -60,6 +65,14 @@ export default function JobDetailPage({ currentUserRole }: Props) {
     () => invoices.filter((invoice) => invoice.jobId === id),
     [id, invoices]
   );
+  const assignedForms = useMemo(() => forms
+    .filter((form) => form.assignedTo === 'job' && form.assignmentValue === id)
+    .sort((left, right) => left.name.localeCompare(right.name)), [forms, id]);
+  const jobFormSubmissionCounts = useMemo(() => formSubmissions.reduce<Record<string, number>>((counts, submission) => {
+    if (submission.jobId !== id) return counts;
+    counts[submission.formId] = (counts[submission.formId] ?? 0) + 1;
+    return counts;
+  }, {}), [formSubmissions, id]);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
 
@@ -476,6 +489,22 @@ export default function JobDetailPage({ currentUserRole }: Props) {
               )}
             </Card>
           </div>
+
+          <Card>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4">
+              <div>
+                <h2 className="font-semibold">Assigned Forms</h2>
+                <p className="text-sm text-gray-500">Forms configured specifically for this job.</p>
+              </div>
+              <Link to="/operations/forms"><Button variant="secondary" size="sm">Manage Forms <ChevronRight size={13} /></Button></Link>
+            </div>
+            {assignedForms.length === 0 ? <p className="p-4 text-sm text-gray-400">No forms are assigned to this job.</p> : (
+              <ul className="divide-y divide-gray-50">{assignedForms.map((form) => {
+                const submissionCount = jobFormSubmissionCounts[form.id] ?? 0;
+                return <li key={form.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-gray-900">{form.name}</p><Badge label={formatFormLabel(form.status)} className={form.status === 'active' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} /></div><p className="mt-1 text-sm text-gray-500">{form.description || `${formatFormLabel(form.category)} form`}</p><p className="mt-2 text-xs text-gray-400">{form.trigger.length > 0 ? form.trigger.map(formatFormLabel).join(' · ') : 'No trigger configured'}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold text-gray-900">{submissionCount}</p><p className="text-xs text-gray-400">submission{submissionCount === 1 ? '' : 's'}</p></div></li>;
+              })}</ul>
+            )}
+          </Card>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-4">
