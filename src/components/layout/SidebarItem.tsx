@@ -1,7 +1,6 @@
-import { ChevronDown, Pin } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { usePinnedPages } from '../../navigation/PinnedPagesContext';
 import type { SidebarNavItem } from '../../navigation/types';
 
 interface SidebarItemProps {
@@ -34,7 +33,6 @@ export default function SidebarItem({
   onAction,
 }: SidebarItemProps) {
   const { pathname } = useLocation();
-  const { isPagePinned, togglePinnedPage } = usePinnedPages();
   const isBranchActive = useMemo(() => hasActiveDescendant(item, pathname), [item, pathname]);
 
   const [expanded, setExpanded] = useState(item.type === 'group' ? (item.defaultExpanded ?? true) : false);
@@ -65,58 +63,31 @@ export default function SidebarItem({
 
   if (item.type === 'link') {
     const Icon = item.icon;
-    const pinned = isPagePinned(item.to);
 
     return (
-      <div style={indentStyle} className="group relative flex items-center gap-1">
-        <NavLink
-          to={item.to}
-          end={item.end}
-          aria-label={item.label}
-          title={iconOnly ? item.label : undefined}
-          className={({ isActive }) =>
-            `group relative flex min-w-0 flex-1 items-center gap-2 ${iconOnly ? 'h-10 justify-center px-0' : compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${iconOnly ? '' : 'pl-3'} rounded-lg text-sm font-medium transition-colors ${
-              isActive
-                ? 'bg-accent-100 dark:bg-brand-600 text-brand-900 dark:text-brand-50 border border-accent-200 dark:border-brand-500 shadow-sm'
-                : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50 border border-transparent'
-            }`
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <span
-                className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r ${
-                  isActive ? 'bg-accent-500' : 'bg-transparent group-hover:bg-accent-400 dark:group-hover:bg-brand-400'
-                }`}
-              />
-              {Icon ? <Icon size={compact ? 14 : 15} /> : null}
-              {!iconOnly ? <span className="truncate text-left">{item.label}</span> : null}
-            </>
-          )}
-        </NavLink>
-        {!iconOnly ? <button
-          type="button"
-          aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
-          title={pinned ? 'Unpin page' : 'Pin page'}
-          className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors ${
-            pinned
-              ? 'text-accent-600 dark:text-accent-400 hover:bg-accent-50 dark:hover:bg-brand-600'
-              : 'text-brand-400 dark:text-brand-300 hover:text-accent-600 dark:hover:text-accent-400 hover:bg-accent-50 dark:hover:bg-brand-600'
-          }`}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            togglePinnedPage({
-              id: item.id,
-              label: item.label,
-              to: item.to,
-              end: item.end,
-            });
-          }}
-        >
-          <Pin size={14} className={pinned ? 'fill-current' : ''} />
-        </button> : null}
-      </div>
+      <NavLink
+        to={item.to}
+        end={item.end}
+        onClick={onNavigate}
+        aria-label={item.label}
+        title={iconOnly ? item.label : undefined}
+        style={indentStyle}
+        className={({ isActive }) =>
+          `group relative flex min-w-0 items-center gap-2 ${iconOnly ? 'h-10 justify-center px-0' : compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${iconOnly ? '' : 'pl-3'} rounded-lg text-sm font-medium transition-colors ${
+            isActive
+              ? 'bg-accent-100 dark:bg-brand-600 text-brand-900 dark:text-brand-50 border border-accent-200 dark:border-brand-500 shadow-sm'
+              : 'text-brand-700 dark:text-brand-200 hover:bg-accent-50 dark:hover:bg-brand-600 hover:text-brand-900 dark:hover:text-brand-50 border border-transparent'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <span className={`absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r ${isActive ? 'bg-accent-500' : 'bg-transparent group-hover:bg-accent-400 dark:group-hover:bg-brand-400'}`} />
+            {Icon ? <Icon size={compact ? 14 : 15} /> : null}
+            {!iconOnly ? <span className="truncate text-left">{item.label}</span> : null}
+          </>
+        )}
+      </NavLink>
     );
   }
 

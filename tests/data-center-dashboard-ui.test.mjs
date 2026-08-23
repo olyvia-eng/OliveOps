@@ -6,8 +6,8 @@ const pageSource = readFileSync('src/pages/department-dashboards/DataCenterDashb
 const sidebarSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
 const appSource = readFileSync('src/App.tsx', 'utf8');
 
-test('Data Center exposes one dashboard with the requested tabs', () => {
-  assert.match(sidebarSource, /to: '\/data-center\/dashboard', label: 'Dashboards'/);
+test('Business Reports opens the existing Data Center dashboard with the requested tabs', () => {
+  assert.match(sidebarSource, /to: '\/data-center\/dashboard', label: 'Reports'/);
   assert.match(pageSource, /\['overview', 'sales', 'jobs', 'labour', 'equipment', 'financial', 'customers'\]/);
   assert.match(pageSource, /role="tablist"/);
   assert.match(pageSource, /role="tab"/);
@@ -27,6 +27,6 @@ test('date and division are global URL-backed filters', () => {
 });
 
 test('dashboard financial reporting is restricted to owner and admin roles', () => {
-  assert.match(sidebarSource, /data-center-dashboards[^\n]+roles: ownerAdminRoles/);
+  assert.match(sidebarSource, /business-reports[^\n]+roles: ownerAdminRoles/);
   assert.match(appSource, /path="data-center\/dashboard"[\s\S]{0,160}canViewReports \? <DataCenterDashboardPage \/> : <Navigate to="\/home" replace \/>/);
 });

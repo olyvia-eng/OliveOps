@@ -5,9 +5,6 @@ import {
   Menu,
   X,
   Leaf,
-  Pin,
-  Moon,
-  Sun,
   ChevronsLeft,
   ChevronsRight,
   Settings,
@@ -16,17 +13,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { BusinessUserRole } from '../../auth/types';
-import { getSidebarConfig, getSidebarLinkItems } from '../../navigation/sidebarConfig';
-import type { SidebarNavItem } from '../../navigation/types';
+import { getSidebarConfig } from '../../navigation/sidebarConfig';
 import { Button, Input, Modal } from '../ui';
 import SidebarItem from './SidebarItem';
 import SidebarSection from './SidebarSection';
-import { usePinnedPages } from '../../navigation/PinnedPagesContext';
 import FeedbackModal from '../feedback/FeedbackModal';
-import type { AppearanceStyle } from './useUiPreferences';
-
-const EXPANDED_SECTIONS_STORAGE_KEY = 'oliveops.sidebar.expanded-sections.v1';
-const THEME_STORAGE_KEY = 'oliveops.theme.v1';
+import type { AppearanceStyle, ThemePreference } from './useUiPreferences';
 
 const ACTION_ROUTE_MAP: Record<string, string> = {
   'placeholder-leads': '/revenue/leads',
@@ -51,6 +43,8 @@ interface SidebarProps {
   onLogout: () => void | Promise<void>;
   appearanceStyle: AppearanceStyle;
   onAppearanceStyleChange: (style: AppearanceStyle) => void;
+  theme: ThemePreference;
+  onThemeChange: (theme: ThemePreference) => void;
   isDesktopCollapsed: boolean;
   onToggleDesktopCollapsed: () => void;
 }
@@ -65,14 +59,14 @@ export default function Sidebar({
   onLogout,
   appearanceStyle,
   onAppearanceStyleChange,
+  theme,
+  onThemeChange,
   isDesktopCollapsed,
   onToggleDesktopCollapsed,
 }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [companySetupExpanded, setCompanySetupExpanded] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const legacyNameParts = userName.trim().split(/\s+/);
@@ -89,9 +83,6 @@ export default function Sidebar({
   const [displayName, setDisplayName] = useState(userName);
   const [displayEmail, setDisplayEmail] = useState(userEmail);
   const navigation = useMemo(() => getSidebarConfig(userRole), [userRole]);
-  const linkCandidates = useMemo(() => getSidebarLinkItems(userRole), [userRole]);
-  const { pinnedPages, reorderPinnedPages } = usePinnedPages();
-  const previousPinnedCountRef = useRef(pinnedPages.length);
   const isDesktopVisuallyExpanded = !isDesktopCollapsed || isDesktopHoverExpanded;
 
   const clearHoverTimer = () => {
@@ -115,74 +106,6 @@ export default function Sidebar({
   useEffect(() => () => clearHoverTimer(), []);
   useEffect(() => { if (!isDesktopCollapsed) setIsDesktopHoverExpanded(false); }, [isDesktopCollapsed]);
 
-  const allSectionIds = useMemo(() => {
-    return ['pinned', ...navigation.sections.map((section) => section.id)];
-  }, [navigation.sections]);
-
-  const [expandedSectionIds, setExpandedSectionIds] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-
-    try {
-      const raw = window.localStorage.getItem(EXPANDED_SECTIONS_STORAGE_KEY);
-      if (!raw) return [];
-
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter((value): value is string => typeof value === 'string');
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    setExpandedSectionIds((current) => {
-      const filtered = current.filter((id) => allSectionIds.includes(id));
-      if (filtered.length === current.length && filtered.every((id, index) => id === current[index])) {
-        return current;
-      }
-      return filtered;
-    });
-  }, [allSectionIds]);
-
-  useEffect(() => {
-    window.localStorage.setItem(EXPANDED_SECTIONS_STORAGE_KEY, JSON.stringify(expandedSectionIds));
-  }, [expandedSectionIds]);
-
-  useEffect(() => {
-    const previousCount = previousPinnedCountRef.current;
-    const currentCount = pinnedPages.length;
-
-    if (currentCount > previousCount) {
-      setExpandedSectionIds((current) => (current.includes('pinned') ? current : [...current, 'pinned']));
-    }
-
-    previousPinnedCountRef.current = currentCount;
-  }, [pinnedPages.length]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (storedTheme === 'dark') {
-      setIsDarkMode(true);
-      return;
-    }
-    if (storedTheme === 'light') {
-      setIsDarkMode(false);
-      return;
-    }
-
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setIsDarkMode(prefersDark);
-  }, []);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-
-    document.documentElement.classList.toggle('dark', isDarkMode);
-    window.localStorage.setItem(THEME_STORAGE_KEY, isDarkMode ? 'dark' : 'light');
-  }, [isDarkMode]);
-
   useEffect(() => {
     setDisplayName(userName);
   }, [userName]);
@@ -190,10 +113,6 @@ export default function Sidebar({
   useEffect(() => {
     setDisplayEmail(userEmail);
   }, [userEmail]);
-
-  const toggleTheme = () => {
-    setIsDarkMode((current) => !current);
-  };
 
   const handleNavigate = () => {
     setMobileOpen(false);
@@ -219,7 +138,6 @@ export default function Sidebar({
 
   const companySetupItems = useMemo(() => {
     return [
-      { label: 'Catalog', path: '/materials/catalog', visible: true },
       { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
       { label: 'Company Settings', path: '/settings/company', visible: canManageCompanySetup },
       { label: 'Scheduling', path: '/settings/scheduling', visible: canManageCompanySetup },
@@ -297,62 +215,6 @@ export default function Sidebar({
     }
   };
 
-  const isExpanded = (sectionId: string) => expandedSectionIds.includes(sectionId);
-  const toggleSection = (sectionId: string) => {
-    setExpandedSectionIds((current) => {
-      if (sectionId === 'pinned') {
-        if (current.includes('pinned')) {
-          return current.filter((id) => id !== 'pinned');
-        }
-        return [...current, 'pinned'];
-      }
-
-      const pinnedExpanded = current.includes('pinned');
-      if (current.includes(sectionId)) {
-        return pinnedExpanded ? ['pinned'] : [];
-      }
-
-      return pinnedExpanded ? ['pinned', sectionId] : [sectionId];
-    });
-  };
-
-  const pinnedItems: SidebarNavItem[] = useMemo(() => {
-    return pinnedPages.map((pinnedPage) => ({
-      ...(linkCandidates.find((candidate) => candidate.to === pinnedPage.to && candidate.label === pinnedPage.label) ?? {}),
-      id: `pin-${pinnedPage.id}`,
-      type: 'link' as const,
-      to: pinnedPage.to,
-      end: pinnedPage.end,
-      label: pinnedPage.label,
-    }));
-  }, [pinnedPages, linkCandidates]);
-
-  const renderPinnedItem = (item: SidebarNavItem, index: number) => (
-    <div
-      key={`pin-${item.id}`}
-      className="flex items-center"
-      draggable
-      onDragStart={() => setDragIndex(index)}
-      onDragOver={(event) => {
-        event.preventDefault();
-      }}
-      onDrop={() => {
-        if (dragIndex === null) return;
-        reorderPinnedPages(dragIndex, index);
-        setDragIndex(null);
-      }}
-      onDragEnd={() => setDragIndex(null)}
-    >
-      <Pin size={12} className="mr-2 text-accent-600" />
-      <SidebarItem
-        item={item}
-        compact
-        onNavigate={handleNavigate}
-        onAction={handleAction}
-      />
-    </div>
-  );
-
   const userInitials = displayName
     .split(' ')
     .map((part) => part[0])
@@ -407,28 +269,11 @@ export default function Sidebar({
             ))}
           </div>
 
-          <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 p-3 mb-4">
-            <button
-              type="button"
-              className="w-full text-left px-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300 mb-1"
-              onClick={() => toggleSection('pinned')}
-            >
-              Pinned
-            </button>
-            {isExpanded('pinned') && (
-              <div className="space-y-0.5">
-                {pinnedItems.map((item, index) => renderPinnedItem(item, index))}
-              </div>
-            )}
-          </div>
-
           {navigation.sections.map((section) => (
             <SidebarSection
               key={section.id}
               section={section}
               compact
-              collapsed={!isExpanded(section.id)}
-              onToggle={toggleSection}
               onNavigate={handleNavigate}
               onAction={handleAction}
             />
@@ -472,12 +317,6 @@ export default function Sidebar({
             className="w-full mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
           >
             <MessageSquare size={16} /> Send Feedback
-          </button>
-          <button
-            onClick={toggleTheme}
-            className="w-full mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
-          >
-            {isDarkMode ? <Sun size={16} /> : <Moon size={16} />} {isDarkMode ? 'Light Mode' : 'Dark Mode'}
           </button>
           <button
             onClick={() => {
@@ -534,29 +373,12 @@ export default function Sidebar({
             ))}
           </div>
 
-          {isDesktopVisuallyExpanded ? <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 p-3 mb-4">
-            <button
-              type="button"
-              className="w-full text-left px-1 text-[10px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-300 mb-1"
-              onClick={() => toggleSection('pinned')}
-            >
-              Pinned
-            </button>
-            {isExpanded('pinned') && (
-              <div className="space-y-0.5">
-                {pinnedItems.map((item, index) => renderPinnedItem(item, index))}
-              </div>
-            )}
-          </div> : null}
-
           {navigation.sections.map((section) => (
             <SidebarSection
               key={section.id}
               section={section}
               compact
               iconOnly={!isDesktopVisuallyExpanded}
-              collapsed={!isExpanded(section.id)}
-              onToggle={toggleSection}
               onNavigate={handleNavigate}
               onAction={handleAction}
             />
@@ -606,20 +428,14 @@ export default function Sidebar({
             <MessageSquare size={16} /> Send Feedback
           </button>
           <button
-            onClick={toggleTheme}
-            className="w-full mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-brand-700 dark:text-brand-100 hover:bg-accent-50 dark:hover:bg-brand-600"
-          >
-            {isDarkMode ? <Sun size={16} /> : <Moon size={16} />} {isDarkMode ? 'Light Mode' : 'Dark Mode'}
-          </button>
-          <button
             onClick={onLogout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-accent-600 dark:text-accent-400 hover:bg-accent-50 dark:hover:bg-brand-600"
           >
             <LogOut size={16} /> Log Out
           </button>
           </> : <div className="space-y-1">
+            <button type="button" onClick={() => { setIsDesktopHoverExpanded(true); setCompanySetupExpanded(true); }} aria-label="Company Setup" title="Company Setup" className="grid h-10 w-full place-items-center rounded-lg text-brand-700 hover:bg-accent-50 dark:text-brand-100 dark:hover:bg-brand-600"><Settings size={17} /></button>
             <button type="button" onClick={openFeedbackModal} aria-label="Send Feedback" title="Send Feedback" className="grid h-10 w-full place-items-center rounded-lg text-brand-700 hover:bg-accent-50 dark:text-brand-100 dark:hover:bg-brand-600"><MessageSquare size={17} /></button>
-            <button type="button" onClick={toggleTheme} aria-label={isDarkMode ? 'Use Light Mode' : 'Use Dark Mode'} title={isDarkMode ? 'Light Mode' : 'Dark Mode'} className="grid h-10 w-full place-items-center rounded-lg text-brand-700 hover:bg-accent-50 dark:text-brand-100 dark:hover:bg-brand-600">{isDarkMode ? <Sun size={17} /> : <Moon size={17} />}</button>
             <button type="button" onClick={onLogout} aria-label="Log Out" title="Log Out" className="grid h-10 w-full place-items-center rounded-lg text-accent-600 hover:bg-accent-50 dark:text-accent-400 dark:hover:bg-brand-600"><LogOut size={17} /></button>
           </div>}
         </div>
@@ -646,7 +462,17 @@ export default function Sidebar({
           <Input label="New Password (optional)" type="password" value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} />
           <Input label="Confirm New Password" type="password" value={profilePasswordConfirm} onChange={(event) => setProfilePasswordConfirm(event.target.value)} />
           <section className="border-t border-brand-100 pt-4 dark:border-brand-600">
-            <div><h3 className="text-sm font-semibold">Appearance Style</h3><p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Changes preview and save immediately.</p></div>
+            <div><h3 className="text-sm font-semibold">Theme</h3><p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Use your device setting or choose a theme.</p></div>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {(['system', 'light', 'dark'] as const).map((value) => (
+                <label key={value} className={`cursor-pointer rounded-lg border p-3 text-sm font-semibold capitalize ${theme === value ? 'border-accent-500 bg-accent-50 dark:bg-brand-600' : 'border-brand-100 bg-white dark:border-brand-600 dark:bg-brand-700'}`}>
+                  <span className="flex items-center gap-2"><input type="radio" name="theme" value={value} checked={theme === value} onChange={() => onThemeChange(value)} />{value}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="border-t border-brand-100 pt-4 dark:border-brand-600">
+            <div><h3 className="text-sm font-semibold">Interface Style</h3><p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Changes preview and save immediately.</p></div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               {([
                 ['standard', 'Standard', 'Current OliveOps surfaces.'],

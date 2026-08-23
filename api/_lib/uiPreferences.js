@@ -2,6 +2,7 @@ import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 
 export const APPEARANCE_STYLES = ['standard', 'tinted-glass', 'clear-glass'];
+export const THEMES = ['system', 'light', 'dark'];
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const preferencesSk = (userId) => `UI_PREFERENCES#${userId}`;
@@ -9,6 +10,7 @@ const preferencesSk = (userId) => `UI_PREFERENCES#${userId}`;
 export function normalizeUiPreferences(value) {
   return {
     appearanceStyle: APPEARANCE_STYLES.includes(value?.appearanceStyle) ? value.appearanceStyle : 'standard',
+    theme: THEMES.includes(value?.theme) ? value.theme : 'system',
     sidebarCollapsed: value?.sidebarCollapsed === true,
   };
 }

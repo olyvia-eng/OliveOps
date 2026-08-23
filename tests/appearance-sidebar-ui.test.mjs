@@ -5,16 +5,21 @@ import { normalizeUiPreferences } from '../api/_lib/uiPreferences.js';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('appearance style remains independent from light and dark theme', async () => {
+test('theme and interface style are personal profile preferences', async () => {
   const [preferences, sidebar] = await Promise.all([
     read('../src/components/layout/useUiPreferences.ts'),
     read('../src/components/layout/Sidebar.tsx'),
   ]);
   assert.match(preferences, /AppearanceStyle = 'standard' \| 'tinted-glass' \| 'clear-glass'/);
+  assert.match(preferences, /ThemePreference = 'system' \| 'light' \| 'dark'/);
   assert.match(preferences, /document\.documentElement\.dataset\.appearance = preferences\.appearanceStyle/);
-  assert.match(sidebar, /document\.documentElement\.classList\.toggle\('dark', isDarkMode\)/);
-  assert.match(sidebar, /Appearance Style/);
+  assert.match(preferences, /document\.documentElement\.classList\.toggle\('dark', useDark\)/);
+  assert.match(preferences, /prefers-color-scheme: dark/);
+  assert.match(sidebar, /Profile & Appearance/);
+  assert.match(sidebar, />Theme</);
+  assert.match(sidebar, /Interface Style/);
   assert.match(sidebar, /Standard[\s\S]*Tinted Glass[\s\S]*Clear Glass/);
+  assert.doesNotMatch(sidebar, /Light Mode|Dark Mode|toggleTheme/);
 });
 
 test('appearance tokens cover standard, tinted, clear, dark, and accessibility fallbacks', async () => {
@@ -59,8 +64,8 @@ test('desktop collapse creates a persistent icon rail with delayed overlay expan
   assert.match(sidebar, /isDesktopVisuallyExpanded \? 'w-72 p-4' : 'w-16 p-3'/);
   assert.match(sidebar, /isDesktopHoverExpanded \? 'z-40 shadow-2xl' : 'z-30'/);
   assert.match(sidebar, /Keep sidebar expanded/);
+  assert.match(sidebar, /aria-label="Company Setup"/);
   assert.match(sidebar, /aria-label="Send Feedback"/);
-  assert.match(sidebar, /aria-label=\{isDarkMode \? 'Use Light Mode' : 'Use Dark Mode'\}/);
   assert.match(sidebar, /aria-label="Log Out"/);
   assert.match(item, /title=\{iconOnly \? item\.label : undefined\}/);
   assert.match(item, /aria-label=\{item\.label\}/);
@@ -85,11 +90,12 @@ test('UI preferences are cached per user and synchronized with the personal pref
   assert.match(endpoint, /requireSession/);
   assert.match(repository, /UI_PREFERENCES#\$\{userId\}/);
   assert.match(repository, /APPEARANCE_STYLES\.includes/);
+  assert.match(repository, /THEMES\.includes/);
   assert.match(repository, /sidebarCollapsed: value\?\.sidebarCollapsed === true/);
 });
 
-test('UI preference normalization rejects unsupported appearance and collapse values', () => {
-  assert.deepEqual(normalizeUiPreferences(null), { appearanceStyle: 'standard', sidebarCollapsed: false });
-  assert.deepEqual(normalizeUiPreferences({ appearanceStyle: 'clear-glass', sidebarCollapsed: true }), { appearanceStyle: 'clear-glass', sidebarCollapsed: true });
-  assert.deepEqual(normalizeUiPreferences({ appearanceStyle: 'invisible', sidebarCollapsed: 'true' }), { appearanceStyle: 'standard', sidebarCollapsed: false });
+test('UI preference normalization rejects unsupported appearance, theme, and collapse values', () => {
+  assert.deepEqual(normalizeUiPreferences(null), { appearanceStyle: 'standard', theme: 'system', sidebarCollapsed: false });
+  assert.deepEqual(normalizeUiPreferences({ appearanceStyle: 'clear-glass', theme: 'dark', sidebarCollapsed: true }), { appearanceStyle: 'clear-glass', theme: 'dark', sidebarCollapsed: true });
+  assert.deepEqual(normalizeUiPreferences({ appearanceStyle: 'invisible', theme: 'sepia', sidebarCollapsed: 'true' }), { appearanceStyle: 'standard', theme: 'system', sidebarCollapsed: false });
 });

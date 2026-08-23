@@ -1,9 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
-import { Pin } from 'lucide-react';
 import Sidebar from './Sidebar';
 import type { BusinessUserRole } from '../../auth/types';
-import { PinnedPagesProvider, usePinnedPages } from '../../navigation/PinnedPagesContext';
-import { Button } from '../ui';
 import NotificationBell from '../notifications/NotificationBell';
 import useUiPreferences from './useUiPreferences';
 
@@ -18,32 +15,13 @@ interface AppLayoutProps {
   onLogout: () => void | Promise<void>;
 }
 
-function PinPageButton() {
-  const { currentPage, isCurrentPagePinned, toggleCurrentPagePinned } = usePinnedPages();
-
-  return (
-    <Button
-      type="button"
-      variant="secondary"
-      onClick={toggleCurrentPagePinned}
-      title={isCurrentPagePinned ? `Unpin ${currentPage.label}` : `Pin ${currentPage.label}`}
-      aria-label={isCurrentPagePinned ? `Unpin ${currentPage.label}` : `Pin ${currentPage.label}`}
-      className={isCurrentPagePinned ? 'bg-accent-50 dark:bg-brand-600 border-accent-100 dark:border-brand-500 text-accent-600 dark:text-accent-400 hover:bg-accent-100 dark:hover:bg-brand-500' : ''}
-    >
-      <Pin size={15} className={isCurrentPagePinned ? 'fill-current' : ''} />
-      Pin
-    </Button>
-  );
-}
-
 export default function AppLayout({ userId, userName, userFirstName, userLastName, userEmail, businessName, userRole, onLogout }: AppLayoutProps) {
   const location = useLocation();
   const isHome = location.pathname === '/home';
-  const { appearanceStyle, sidebarCollapsed, setAppearanceStyle, setSidebarCollapsed } = useUiPreferences(userId);
+  const { appearanceStyle, theme, sidebarCollapsed, setAppearanceStyle, setTheme, setSidebarCollapsed } = useUiPreferences(userId);
 
   return (
-    <PinnedPagesProvider userRole={userRole}>
-      <div className="min-h-screen bg-cream dark:bg-brand-900">
+    <div className="min-h-screen bg-cream dark:bg-brand-900">
         <Sidebar
           userName={userName}
           userFirstName={userFirstName}
@@ -54,6 +32,8 @@ export default function AppLayout({ userId, userName, userFirstName, userLastNam
           onLogout={onLogout}
           appearanceStyle={appearanceStyle}
           onAppearanceStyleChange={setAppearanceStyle}
+          theme={theme}
+          onThemeChange={setTheme}
           isDesktopCollapsed={sidebarCollapsed}
           onToggleDesktopCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
@@ -65,7 +45,6 @@ export default function AppLayout({ userId, userName, userFirstName, userLastNam
                 <div className="hidden lg:block" />
                 <div className="flex items-center gap-2">
                   <NotificationBell />
-                  <PinPageButton />
                 </div>
               </div>
             </div>
@@ -74,7 +53,6 @@ export default function AppLayout({ userId, userName, userFirstName, userLastNam
             <Outlet />
           </div>
         </main>
-      </div>
-    </PinnedPagesProvider>
+    </div>
   );
 }

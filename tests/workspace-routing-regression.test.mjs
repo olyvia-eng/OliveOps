@@ -11,6 +11,8 @@ const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorksp
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
+const sidebarItemSource = readFileSync('src/components/layout/SidebarItem.tsx', 'utf8');
+const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf8');
 const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
 const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
@@ -108,11 +110,31 @@ test('company setup sidebar keeps existing routes and account terminology', () =
   assert.match(userAccessPageSource, /title="Users & Access"/);
   assert.match(userAccessPageSource, /Manage who can sign in to OliveOps and control their account access\./);
   assert.doesNotMatch(sidebarConfigSource, /id: 'operations-unbillable-time-categories'/);
+  assert.doesNotMatch(sidebarSource, /\{ label: 'Catalog', path: '\/materials\/catalog'/);
 });
 
-test('sidebar omits company dashboard and finance reports links', () => {
+test('sidebar uses contractor-oriented workflow, team, and business sections', () => {
   assert.doesNotMatch(sidebarConfigSource, /id: 'data-center-company-dashboard'/);
   assert.doesNotMatch(sidebarConfigSource, /id: 'finance-reports'/);
   assert.doesNotMatch(sidebarConfigSource, /label: 'Company Dashboard'/);
-  assert.doesNotMatch(sidebarConfigSource, /label: 'Reports'/);
+  assert.match(sidebarConfigSource, /title: 'Workflow'[\s\S]*title: 'Team'[\s\S]*title: 'Business'/);
+  assert.match(sidebarConfigSource, /title: 'Workflow'[\s\S]*label: 'Clients'[\s\S]*label: 'Estimates'[\s\S]*label: 'Jobs'[\s\S]*label: 'Schedule'/);
+  assert.match(sidebarConfigSource, /title: 'Team'[\s\S]*label: 'Employees'[\s\S]*label: 'Time Tracking'[\s\S]*label: 'Forms'/);
+  assert.match(sidebarConfigSource, /title: 'Business'[\s\S]*label: 'Budgets'[\s\S]*label: 'Catalog'[\s\S]*label: 'Reports'[\s\S]*label: 'Documents'[\s\S]*label: 'Invoices'/);
+  assert.equal((sidebarConfigSource.match(/collapsible: false/g) ?? []).length, 3);
+  assert.equal((sidebarConfigSource.match(/defaultExpanded: true/g) ?? []).length, 3);
+  assert.match(sidebarConfigSource, /to: '\/data-center\/dashboard', label: 'Reports'/);
+  assert.match(sidebarConfigSource, /label: 'Reports',[^\n]+roles: ownerAdminRoles/);
+  assert.match(sidebarConfigSource, /label: 'Time Tracking',[\s\S]*?roles: ownerAdminRoles/);
+  for (const oldHeading of ['Data Center', 'Revenue', 'Finance', 'Operations', 'Employees']) {
+    assert.doesNotMatch(sidebarConfigSource, new RegExp(`title: '${oldHeading}'`));
+  }
+});
+
+test('Pinned Pages is removed from navigation and the app shell', () => {
+  for (const source of [sidebarConfigSource, sidebarSource, sidebarItemSource, appLayoutSource]) {
+    assert.doesNotMatch(source, /PinnedPages|usePinnedPages|pinnedPages|togglePinnedPage|reorderPinnedPages/);
+  }
+  assert.doesNotMatch(sidebarSource, /oliveops\.navigation\.(?:pinned-pages|favorites)/);
+  assert.doesNotMatch(sidebarItemSource, /aria-label=\{pinned \?/);
 });
