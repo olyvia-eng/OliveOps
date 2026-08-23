@@ -34,6 +34,11 @@ test('dollar and percent modes derive from one canonical target margin', () => {
 });
 
 test('chart consumes summary segments and exposes rather than normalizes shortfall', () => {
+  assert.match(summarySource, /useState<'stacked' \| 'bars'>\('stacked'\)/);
+  assert.match(summarySource, /Revenue distribution chart view/);
+  assert.match(summarySource, /value === 'stacked' \? 'Stacked' : 'Bars'/);
+  assert.match(summarySource, /chartMode === 'stacked'/);
+  assert.match(summarySource, /Separate revenue distribution bars/);
   assert.match(summarySource, /summary\.chartSegments\.map/);
   assert.match(summarySource, /summary\.revenueMarkerPct/);
   assert.match(summarySource, /Revenue limit/);
