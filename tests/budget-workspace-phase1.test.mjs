@@ -48,16 +48,13 @@ test('Division roll-ups use stored revenue targets and centralized financial cal
   assert.doesNotMatch(workspaceSource, /Contribution before Company/);
 });
 
-test('Analysis summarizes the Budget financial path from revenue through net profit', () => {
-  assert.match(workspaceSource, /activeTab === 'analysis'[\s\S]*lg:grid-cols-5/);
-  for (const label of ['Revenue', 'Direct Costs', 'Gross Profit', 'Overhead', 'Net Profit']) {
-    assert.match(workspaceSource, new RegExp(`Summary label="${label}"`));
-  }
-  assert.match(workspaceSource, /label="Revenue" value=\{formatCurrency\(financials\.revenue\)\}/);
-  assert.match(workspaceSource, /label="Direct Costs" value=\{financials\.isComplete \? formatCurrency\(financials\.totalDirectCosts\)/);
-  assert.match(workspaceSource, /label="Gross Profit" value=\{financials\.grossProfit === null \? '—' : formatCurrency\(financials\.grossProfit\)\}/);
-  assert.match(workspaceSource, /label="Overhead" value=\{formatCurrency\(financials\.totalOverhead\)\}/);
-  assert.match(workspaceSource, /label="Net Profit" value=\{financials\.operatingProfit === null \? '—' : formatCurrency\(financials\.operatingProfit\)\}/);
+test('Analysis uses the financial statement before existing recovery and pricing', () => {
+  assert.match(workspaceSource, /activeTab === 'analysis'[\s\S]*<BudgetAnalysisSummary[\s\S]*<BudgetPricingAnalysis/);
+  assert.match(workspaceSource, /financials=\{financials\}/);
+  assert.match(workspaceSource, /targetMarginPct=\{budget\.targetMarginPct\}/);
+  assert.match(workspaceSource, /onTargetMarginChange=\{\(targetMarginPct\) => updateBudget\(budget\.id, \{ targetMarginPct \}\)\}/);
+  assert.doesNotMatch(workspaceSource, /activeTab === 'analysis'[\s\S]{0,300}lg:grid-cols-5/);
+  assert.doesNotMatch(workspaceSource, /Summary label="Direct Costs"|Summary label="Gross Profit"|Summary label="Net Profit"/);
 });
 
 test('legacy Budgets and group controls are absent from the Budget overview', () => {

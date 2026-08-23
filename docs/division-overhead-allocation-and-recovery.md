@@ -96,3 +96,11 @@ Labour allocation writes are validated to contain each Division once and total t
 When a recovery pool is positive but its Division denominator is zero, the category and final calculated rate are `Unavailable`. Analysis exposes the actual unrecoverable pool and missing denominator instead of presenting `$0.00` overhead or a direct-cost-only rate. The warning above Pricing directs the user to add the missing recovery base or change the Division recovery allocation. Unconfigured recovery or percentages that do not total 100% also make calculated rates unavailable until the allocation is corrected.
 
 Previously persisted Budget approvals remain readable in the pricing model for compatibility, including the stable `average-labour:<divisionId>` identity. Analysis no longer displays or edits Approved Rate and Status. Existing approval records, legacy employee rates, Estimate-approved-only selection, and immutable historical Estimate snapshots are unchanged.
+
+## Analysis financial summary
+
+The Analysis summary is a projection of `calculateBudgetFinancials`, not a second financial calculation. Revenue is the sum of active Division revenue targets. Labour and Equipment use the model's allocation-aware direct annual costs, Materials and Subcontractors use their Division planned costs, and Overhead uses `totalOverhead` from overhead Labour, overhead Equipment, and Division-allocated overhead planning items. Legacy Company Overhead records are not an input.
+
+`Budget.targetMarginPct` is the only persisted Target Net Profit value. Percentage mode edits that value directly. Dollar mode derives it as `target profit dollars / Budget revenue`; switching display modes does not persist another value. Pricing reads the same `Budget.targetMarginPct` and continues to use margin division rather than markup.
+
+The summary separately calculates current Budget profit as `revenue - total planned costs`. It never substitutes current profit for Target Net Profit. The revenue distribution bar uses the same summary lines as the financial statement. Its scale is the larger of revenue and `planned costs + target profit`, so an infeasible target displays beyond the revenue-limit marker instead of being normalized back to 100%.
