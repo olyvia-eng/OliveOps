@@ -61,6 +61,7 @@ function estimate(id, budgetId, divisionId) {
     id,
     customerId: 'customer-a',
     pricingBudgetId: budgetId,
+    divisionId,
     proposalNumber: `PROP-2026-${id}`,
     title: 'Driveway Estimate',
     description: '',
@@ -127,6 +128,7 @@ test('Estimate API accepts an active matching Division and rejects stale Budget 
 
   const accepted = await postEstimate(estimate('valid', 'budget-a', 'active-a'));
   assert.equal(accepted.statusCode, 200);
+  assert.equal(accepted.body.estimate.divisionId, 'active-a');
   assert.equal(accepted.body.estimate.workAreas[0].divisionId, 'active-a');
   assert.equal(records.has('BUSINESS#biz-a|ESTIMATE#valid'), true);
 
@@ -142,6 +144,18 @@ test('Estimate API accepts an active matching Division and rejects stale Budget 
     assert.equal(records.has(`BUSINESS#biz-a|ESTIMATE#${id}`), false);
   }
 
-  assert.match(dataApiSource, /getBudgetDivisionForBusiness\(businessId, estimate\.pricingBudgetId, area\.divisionId\)/);
+  const forged = createMockRes();
+  await dataHandler({
+    method: 'PATCH',
+    query: { entity: 'estimates', id: 'valid' },
+    headers: { authorization: 'Bearer estimate-setup-token' },
+    body: { data: { workAreas: [{ ...accepted.body.estimate.workAreas[0], divisionId: 'active-b' }] } },
+  }, forged);
+  assert.equal(forged.statusCode, 409);
+  assert.match(forged.body.error, /different Division/);
+  assert.equal(records.get('BUSINESS#biz-a|ESTIMATE#valid').workAreas[0].divisionId, 'active-a');
+
+  assert.match(dataApiSource, /getBudgetDivisionForBusiness\(businessId, estimate\.pricingBudgetId, estimate\.divisionId\)/);
+  assert.match(dataApiSource, /enforceEstimateWorkAreaDivisionModel\(existing, next\)/);
   assert.match(estimatesPageSource, /if \(!estimateId\) return;\s*setCreateModalOpen\(false\);\s*navigate\(`\/estimates\/\$\{estimateId\}`\)/);
 });

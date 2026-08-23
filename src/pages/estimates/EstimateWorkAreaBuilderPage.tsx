@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Search, Trash2, X } from 'lucide-react';
-import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
@@ -25,13 +25,10 @@ interface Props {
 }
 
 type WorkAreaBuilderForm = {
-  divisionId?: string;
   name: string;
   description: string;
   lineItems: EstimateLineItem[];
 };
-
-type CatalogFilter = 'all' | LineItemCategory;
 
 type CatalogCandidate = {
   key: string;
@@ -58,6 +55,13 @@ const CATEGORY_LABEL: Record<LineItemCategory, string> = {
   subcontractor: 'Subcontractors',
 };
 
+const CATEGORY_ADD_LABEL: Record<LineItemCategory, string> = {
+  labour: 'Labour',
+  equipment: 'Equipment',
+  material: 'Material',
+  subcontractor: 'Subcontractor',
+};
+
 const normalizeKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 const rateSellPrice = (rate: BudgetRate) => (
@@ -78,6 +82,7 @@ const createWorkAreaPayload = (estimate: Estimate, workAreas: ReturnType<typeof 
     title: estimate.title.trim(),
     customerId: estimate.customerId,
     pricingBudgetId: estimate.pricingBudgetId,
+    divisionId: estimate.divisionId,
     propertyLabel: estimate.propertyLabel,
     propertyAddressSnapshot: estimate.propertyAddressSnapshot,
     convertedToJobId: estimate.convertedToJobId,
@@ -102,24 +107,24 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const estimate = estimates.find((item) => item.id === id);
   const customer = customers.find((item) => item.id === estimate?.customerId);
   const pricingBudget = budgets.find((budget) => budget.id === estimate?.pricingBudgetId);
-  const pricingDivisions = useMemo(() => budgetDivisions.filter((division) => division.budgetId === pricingBudget?.id && division.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder), [budgetDivisions, pricingBudget?.id]);
+  const estimateDivision = budgetDivisions.find((division) => division.budgetId === estimate?.pricingBudgetId && division.id === estimate?.divisionId);
   const workAreas = useMemo(() => (estimate ? normalizeEstimateWorkAreas(estimate) : []), [estimate]);
   const workArea = useMemo(() => workAreas.find((area) => area.id === workAreaId) ?? null, [workAreaId, workAreas]);
 
   const [form, setForm] = useState<WorkAreaBuilderForm | null>(workArea ? {
-    divisionId: workArea.divisionId,
     name: workArea.name,
     description: workArea.description,
     lineItems: workArea.lineItems,
   } : null);
   const [catalogSearch, setCatalogSearch] = useState('');
-  const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>('all');
+  const [catalogCategory, setCatalogCategory] = useState<LineItemCategory>('labour');
   const [showCatalogSheet, setShowCatalogSheet] = useState(false);
   const [addingCandidateKey, setAddingCandidateKey] = useState<string | null>(null);
   const [estimatePricingCatalog, setEstimatePricingCatalog] = useState<EstimatePricingCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
   const [savingWorkArea, setSavingWorkArea] = useState(false);
+  const [deletingWorkArea, setDeletingWorkArea] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
@@ -139,7 +144,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       return;
     }
     setForm({
-      divisionId: workArea.divisionId,
       name: workArea.name,
       description: workArea.description,
       lineItems: workArea.lineItems,
@@ -155,8 +159,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     const controller = new AbortController();
     setCatalogLoading(true);
     setCatalogError('');
-    const divisionQuery = form?.divisionId ? `&divisionId=${encodeURIComponent(form.divisionId)}` : '';
-    void fetch(`/api/estimate-pricing-catalog?estimateId=${encodeURIComponent(estimate.id)}${divisionQuery}`, { credentials: 'include', signal: controller.signal })
+    void fetch(`/api/estimate-pricing-catalog?estimateId=${encodeURIComponent(estimate.id)}`, { credentials: 'include', signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json() as { ok?: boolean; catalog?: EstimatePricingCatalog; error?: string };
         if (!response.ok || !payload.ok || !payload.catalog) throw new Error(payload.error || 'Could not load Estimate pricing.');
@@ -169,12 +172,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       })
       .finally(() => { if (!controller.signal.aborted) setCatalogLoading(false); });
     return () => controller.abort();
-  }, [estimate, form?.divisionId, pricingBudget?.planningModel]);
+  }, [estimate, pricingBudget?.planningModel]);
 
   const initialSnapshot = useMemo(() => {
     if (!workArea) return '';
     return JSON.stringify({
-      divisionId: workArea.divisionId,
       name: workArea.name,
       description: workArea.description,
       lineItems: workArea.lineItems,
@@ -339,11 +341,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const visibleCatalogCandidates = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
     return catalogCandidates.filter((candidate) => {
-      const matchesFilter = catalogFilter === 'all' || candidate.category === catalogFilter;
+      const matchesFilter = candidate.category === catalogCategory;
       const matchesSearch = query.length === 0 || candidate.searchText.includes(query);
       return matchesFilter && matchesSearch;
     });
-  }, [catalogCandidates, catalogFilter, catalogSearch]);
+  }, [catalogCandidates, catalogCategory, catalogSearch]);
 
   const groupedLineItems = useMemo(() => {
     return CATEGORY_ORDER.reduce<Record<LineItemCategory, EstimateLineItem[]>>((accumulator, category) => {
@@ -361,7 +363,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     if (!form || !workArea) return null;
     const currentWorkArea = {
       ...workArea,
-      divisionId: form.divisionId,
+      divisionId: estimate?.divisionId,
       name: form.name,
       description: form.description,
       lineItems: form.lineItems,
@@ -372,7 +374,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       sellPrice: computeWorkAreaSubtotal(currentWorkArea),
       categoryCosts: computeWorkAreaCategoryCostTotals(currentWorkArea),
     };
-  }, [form, workArea]);
+  }, [estimate?.divisionId, form, workArea]);
 
   if (!estimate || !workArea || !form || !workAreaSummary) {
     return (
@@ -415,7 +417,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleAddFromCandidate = (candidate: CatalogCandidate) => {
-    if ((!candidate.rate && !candidate.equipment && candidate.pricingItem?.pricingStatus !== 'approved') || addingCandidateKey === candidate.key) return;
+    if (candidate.alreadyAdded || (!candidate.rate && !candidate.equipment && candidate.pricingItem?.pricingStatus !== 'approved') || addingCandidateKey === candidate.key) return;
 
     setAddingCandidateKey(candidate.key);
     setForm((current) => {
@@ -455,6 +457,12 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     setCustomItemOpen(true);
   };
 
+  const openCatalog = (category: LineItemCategory) => {
+    setCatalogCategory(category);
+    setCatalogSearch('');
+    setShowCatalogSheet(true);
+  };
+
   const saveCustomItem = () => {
     const nextItem = calculateEstimateLineItem({
       ...createEmptyEstimateLineItem(customItem.category),
@@ -483,7 +491,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       area.id === workArea.id
         ? {
             ...area,
-            divisionId: form.divisionId,
+            divisionId: estimate.divisionId,
             name: form.name.trim() || area.name,
             description: form.description,
             lineItems: form.lineItems,
@@ -512,15 +520,15 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleDeleteWorkArea = async () => {
-    if (savingWorkArea) return;
+    if (savingWorkArea || deletingWorkArea) return;
 
     const nextWorkAreas = workAreas
       .filter((area) => area.id !== workArea.id)
       .map((area, index) => ({ ...area, sortOrder: index }));
     const payload = createWorkAreaPayload(estimate, nextWorkAreas);
-    setSavingWorkArea(true);
+    setDeletingWorkArea(true);
     const saved = await updateEstimate(estimate.id, payload);
-    setSavingWorkArea(false);
+    setDeletingWorkArea(false);
 
     if (!saved) return;
 
@@ -530,34 +538,17 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
   const renderCatalogPanel = () => (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Add Items</h2>
-        <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Pricing comes from {pricingBudget?.name ?? 'the selected estimate budget'}.</p>
-      </div>
-
       <div className="space-y-3">
         <div className="relative">
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={catalogSearch}
             onChange={(event) => setCatalogSearch(event.target.value)}
-            placeholder="Search catalog..."
+            placeholder={`Search ${CATEGORY_LABEL[catalogCategory].toLowerCase()}...`}
             className="h-10 w-full rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 pl-9 pr-3 text-sm text-brand-900 dark:text-brand-50 shadow-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {(['all', ...CATEGORY_ORDER] as CatalogFilter[]).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setCatalogFilter(value)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${catalogFilter === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 text-gray-700 dark:text-brand-100 hover:bg-brand-50 dark:hover:bg-brand-600'}`}
-            >
-              {value === 'all' ? 'All' : CATEGORY_LABEL[value]}
-            </button>
-          ))}
-        </div>
       </div>
 
       {catalogLoading ? (
@@ -571,12 +562,12 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       {!catalogLoading && !catalogError && visibleCatalogCandidates.length === 0 ? (
         <EmptyState
           title={catalogSearch.trim()
-            ? `No ${catalogFilter === 'all' ? 'catalog items' : CATEGORY_LABEL[catalogFilter].toLowerCase()} match your search`
-            : `No ${catalogFilter === 'all' ? 'pricing items' : CATEGORY_LABEL[catalogFilter].toLowerCase()} in this Budget`}
+            ? `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} match your search`
+            : `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} in this Budget`}
           description={catalogSearch.trim()
             ? 'Try a different search.'
-            : `No ${catalogFilter === 'all' ? 'pricing items have' : CATEGORY_LABEL[catalogFilter].toLowerCase() + ' has'} been added to the ${pricingBudget?.name ?? 'selected'} Budget.`}
-          action={<Button variant="secondary" onClick={() => openCustomItem(catalogFilter === 'all' ? 'labour' : catalogFilter)}>Custom Item</Button>}
+            : `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} pricing has been added to the ${pricingBudget?.name ?? 'selected'} Budget and Division.`}
+          action={<Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>Custom {CATEGORY_ADD_LABEL[catalogCategory]}</Button>}
         />
       ) : !catalogLoading && !catalogError ? (
         <div className="space-y-3">
@@ -588,7 +579,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-gray-900 dark:text-brand-50">{candidate.displayName}</p>
-                    <Badge label={CATEGORY_LABEL[candidate.category]} className="bg-gray-100 text-gray-700" />
                     {candidate.alreadyAdded ? <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">Already added</span> : null}
                   </div>
                   <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">{candidate.description}</p>
@@ -608,11 +598,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                         navigate(`/budgets/${estimate.pricingBudgetId}?tab=analysis&category=${candidate.category}&item=${candidate.pricingItem?.budgetItemId ?? ''}`);
                       }
                     }}
-                    disabled={canAdd && addingCandidateKey === candidate.key}
+                    disabled={candidate.alreadyAdded || (canAdd && addingCandidateKey === candidate.key)}
                     className="mt-2"
                     title={candidate.disabledReason}
                   >
-                    <Plus size={14} /> {canAdd ? 'Add' : 'Add Pricing Rate'}
+                    {!candidate.alreadyAdded ? <Plus size={14} /> : null} {candidate.alreadyAdded ? 'Already added' : canAdd ? 'Add' : 'Complete Pricing'}
                   </Button>
                 </div>
               </div>
@@ -634,8 +624,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">{CATEGORY_LABEL[category]}</h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">{items.length} item{items.length === 1 ? '' : 's'}</p>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => openCustomItem(category)}>
-            <Plus size={14} /> Custom Item
+          <Button variant="secondary" size="sm" onClick={() => openCatalog(category)}>
+            <Plus size={14} /> Add {CATEGORY_ADD_LABEL[category]}
           </Button>
         </div>
 
@@ -763,21 +753,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         {currentUserRole === 'owner' || currentUserRole === 'admin' ? <Badge label="Analysis Enabled" className="bg-gray-100 text-gray-700" /> : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 lg:hidden">
-        <Button variant="secondary" onClick={() => setShowCatalogSheet(true)}>
-          <Plus size={14} /> Add Items
-        </Button>
-        <Button variant="secondary" onClick={() => openCustomItem('labour')}>Custom Item</Button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-6">
+      <div className="space-y-6">
           <Card className="p-4 space-y-4">
-            <Select label="Division" value={form.divisionId ?? ''} disabled={form.lineItems.some((item) => Boolean(item.sourceBudgetItemId))} onChange={(event) => setForm((current) => current ? { ...current, divisionId: event.target.value || undefined } : current)}>
-              <option value="">Legacy / No Division</option>
-              {pricingDivisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
-            </Select>
-            {form.lineItems.some((item) => Boolean(item.sourceBudgetItemId)) ? <p className="text-xs text-gray-500">Remove Budget-priced items before changing this Work Area's Division.</p> : null}
             <Input
               label="Work Area Name"
               required
@@ -792,6 +769,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
               <span>Estimate: {estimate.title}</span>
               {pricingBudget ? <span>• Pricing Budget: {pricingBudget.name}</span> : null}
+              {estimateDivision ? <span>• Division: {estimateDivision.name}</span> : null}
             </div>
           </Card>
 
@@ -836,23 +814,16 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
             </div>
           </Card>
-        </div>
-
-        <div className="hidden lg:block">
-          <Card className="sticky top-20 p-4 max-h-[calc(100vh-7rem)] overflow-y-auto">
-            {renderCatalogPanel()}
-          </Card>
-        </div>
       </div>
 
       {showCatalogSheet ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowCatalogSheet(false)} />
           <div className="absolute inset-y-0 right-0 w-full max-w-md bg-white dark:bg-brand-800 shadow-2xl flex flex-col">
             <div className="flex items-center justify-between border-b border-brand-100 dark:border-brand-600 px-4 py-3">
               <div>
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Add Items</h2>
-                <p className="text-xs text-gray-500 dark:text-brand-300">{pricingBudget?.name ?? 'Selected pricing budget'}</p>
+                <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Add {CATEGORY_ADD_LABEL[catalogCategory]}</h2>
+                <p className="text-xs text-gray-500 dark:text-brand-300">{pricingBudget?.name ?? 'Selected pricing budget'}{estimateDivision ? ` / ${estimateDivision.name}` : ''}</p>
               </div>
               <button type="button" onClick={() => setShowCatalogSheet(false)} className="rounded-lg p-2 text-gray-400 hover:bg-brand-50 hover:text-gray-700 dark:hover:bg-brand-700 dark:text-brand-300">
                 <X size={18} />
@@ -861,6 +832,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <div className="flex-1 overflow-y-auto p-4">
               {renderCatalogPanel()}
             </div>
+            <div className="border-t border-brand-100 dark:border-brand-600 p-4">
+              <Button variant="secondary" className="w-full" onClick={() => openCustomItem(catalogCategory)}>
+                <Plus size={14} /> Custom {CATEGORY_ADD_LABEL[catalogCategory]}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -868,7 +844,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       <Modal
         open={customItemOpen}
         onClose={() => setCustomItemOpen(false)}
-        title={`Custom ${CATEGORY_LABEL[customItemCategory]} Item`}
+        title={`Custom ${CATEGORY_ADD_LABEL[customItemCategory]}`}
         footer={(
           <>
             <Button variant="secondary" onClick={() => setCustomItemOpen(false)}>Cancel</Button>
@@ -877,9 +853,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         )}
       >
         <div className="space-y-3">
-          <Select label="Category" value={customItem.category} onChange={(event) => setCustomItem((current) => ({ ...current, category: event.target.value as LineItemCategory }))}>
-            {CATEGORY_ORDER.map((category) => <option key={category} value={category}>{CATEGORY_LABEL[category]}</option>)}
-          </Select>
           <TextArea label="Description" value={customItem.description} onChange={(event) => setCustomItem((current) => ({ ...current, description: event.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
             <Input label="Quantity" type="number" min={0} value={customItem.quantity} onChange={(event) => setCustomItem((current) => ({ ...current, quantity: Number(event.target.value) }))} />
@@ -895,16 +868,16 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
       <Modal
         open={confirmDeleteOpen}
-        onClose={() => setConfirmDeleteOpen(false)}
-        title={`Delete ${workArea.name}?`}
+        onClose={() => { if (!deletingWorkArea) setConfirmDeleteOpen(false); }}
+        title={`Delete "${workArea.name}"?`}
         footer={(
           <>
-            <Button variant="secondary" onClick={() => setConfirmDeleteOpen(false)}>Cancel</Button>
-            <Button variant="danger" onClick={handleDeleteWorkArea}>Delete Work Area</Button>
+            <Button variant="secondary" onClick={() => setConfirmDeleteOpen(false)} disabled={deletingWorkArea}>Cancel</Button>
+            <Button variant="danger" onClick={handleDeleteWorkArea} disabled={deletingWorkArea}>{deletingWorkArea ? 'Deleting...' : 'Delete Work Area'}</Button>
           </>
         )}
       >
-        <p className="text-sm text-gray-600 dark:text-brand-200">This will remove {form.lineItems.length} estimate line item{form.lineItems.length === 1 ? '' : 's'} from this work area.</p>
+        <p className="text-sm text-gray-600 dark:text-brand-200">This will remove this Work Area and its Labour, Equipment, Materials, and Subcontractor items from this Estimate.</p>
       </Modal>
     </div>
   );

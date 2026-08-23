@@ -133,6 +133,7 @@ export interface Estimate {
   id: ID;
   customerId: ID;
   pricingBudgetId: ID;
+  divisionId?: ID;
   propertyLabel?: string;
   propertyAddressSnapshot?: string;
   convertedToJobId?: ID;

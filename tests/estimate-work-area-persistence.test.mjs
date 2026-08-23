@@ -10,6 +10,7 @@ import {
 import {
   createDefaultEstimateWorkAreaModel,
   ensureDefaultEstimateWorkAreaModel,
+  enforceEstimateWorkAreaDivisionModel,
   legacyEstimateWorkAreaIdModel,
 } from '../src/utils/estimateWorkAreaIdentity.js';
 
@@ -127,8 +128,41 @@ test('adding and deleting embedded work areas preserves distinct authoritative I
   assert.equal(afterDelete.workAreas.find((area) => area.id === 'general-id'), undefined);
 });
 
+test('Estimate Division is inherited and forged or conflicting Work Area Divisions are rejected', () => {
+  const existing = { divisionId: 'landscaping', workAreas: [{ id: 'area-1', divisionId: 'landscaping' }] };
+  const inherited = enforceEstimateWorkAreaDivisionModel(existing, {
+    ...existing,
+    workAreas: [...existing.workAreas, { id: 'area-2' }],
+  });
+  assert.equal(inherited.ok, true);
+  assert.deepEqual(inherited.estimate.workAreas.map((area) => area.divisionId), ['landscaping', 'landscaping']);
+
+  const forged = enforceEstimateWorkAreaDivisionModel(existing, {
+    ...existing,
+    workAreas: [{ id: 'area-1', divisionId: 'snow' }],
+  });
+  assert.equal(forged.ok, false);
+  assert.match(forged.error, /different Division/);
+
+  const compatibleLegacy = enforceEstimateWorkAreaDivisionModel(
+    { workAreas: [{ id: 'area-1', divisionId: 'landscaping' }, { id: 'area-2' }] },
+    { workAreas: [{ id: 'area-1', divisionId: 'landscaping' }, { id: 'area-2' }] }
+  );
+  assert.equal(compatibleLegacy.ok, true);
+  assert.equal(compatibleLegacy.estimate.divisionId, 'landscaping');
+  assert.equal(compatibleLegacy.estimate.workAreas[1].divisionId, 'landscaping');
+
+  const conflictingLegacy = enforceEstimateWorkAreaDivisionModel(
+    { workAreas: [{ divisionId: 'landscaping' }, { divisionId: 'snow' }] },
+    { workAreas: [{ divisionId: 'landscaping' }, { divisionId: 'snow' }] }
+  );
+  assert.equal(conflictingLegacy.ok, false);
+  assert.match(conflictingLegacy.error, /conflicting Divisions/);
+});
+
 test('creation, navigation, add, and delete flows use persisted embedded IDs', () => {
   assert.match(estimatesPageSource, /const generalWorkArea = \{ \.\.\.createDefaultEstimateWorkArea\(\), divisionId: createForm\.divisionId \}/);
+  assert.match(estimatesPageSource, /pricingBudgetId: createForm\.pricingBudgetId,\s*divisionId: createForm\.divisionId,/);
   assert.match(estimatesPageSource, /label="Division"[\s\S]*pricingDivisions\.map/);
   assert.match(estimatesPageSource, /pricingBudgetId: event\.target\.value, divisionId: ''/);
   assert.match(estimatesPageSource, /const estimateId = await addEstimate\(\{/);
@@ -140,7 +174,7 @@ test('creation, navigation, add, and delete flows use persisted embedded IDs', (
   assert.match(storeSource, /estimates: \[\.\.\.s\.estimates, payload\.estimate as Estimate\]/);
   assert.match(dataApiSource, /record = ensureDefaultEstimateWorkArea\(record\)/);
 
-  assert.match(workspaceSource, /createNewEstimateWorkArea\(form\.workAreas\)/);
+  assert.match(workspaceSource, /createNewEstimateWorkArea\(form\.workAreas, estimate\.divisionId\)/);
   assert.match(workspaceSource, /saved = await persistEstimateForm\(nextForm\)/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);

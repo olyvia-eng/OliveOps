@@ -257,11 +257,12 @@ export function flattenWorkAreaLineItems(workAreas: EstimateWorkArea[]): Estimat
     .flatMap((area) => area.lineItems.map((item) => normalizeEstimateLineItem(item)));
 }
 
-export function createNewEstimateWorkArea(workAreas: EstimateWorkArea[]): EstimateWorkArea {
+export function createNewEstimateWorkArea(workAreas: EstimateWorkArea[], divisionId?: string): EstimateWorkArea {
   const sortOrder = workAreas.length;
 
   return {
     id: generateId(),
+    divisionId,
     name: `Work Area ${sortOrder + 1}`,
     description: '',
     sortOrder,

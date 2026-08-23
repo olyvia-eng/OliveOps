@@ -43,5 +43,5 @@ test('budget rates and estimate add-items use a single combined entry per catalo
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.equipment\.filter\(\(value\) => !matchedEquipmentRateIds\.has\(value\.id\)\)/);
   assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.material\.filter\(\(value\) => !matchedMaterialRateIds\.has\(value\.id\)\)/);
   assert.match(estimateBuilderSource, /No pricing rate in selected budget/);
-  assert.match(estimateBuilderSource, /Add Pricing Rate/);
+  assert.match(estimateBuilderSource, /Complete Pricing/);
 });

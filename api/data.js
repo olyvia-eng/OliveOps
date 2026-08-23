@@ -121,7 +121,7 @@ import {
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
-import { ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
+import { enforceEstimateWorkAreaDivisionModel, ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
@@ -1060,17 +1060,24 @@ async function authorizeNewEstimatePricing({ businessId, existing, estimate }) {
   return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
 }
 
-async function validateNewEstimatePricingDivision({ businessId, estimate }) {
+async function validateEstimatePricingDivision({ businessId, estimate, existing }) {
   if (!isNonEmptyString(estimate.pricingBudgetId)) return 'Estimate Pricing Budget is required.';
   const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
   if (!budget) return 'Estimate Pricing Budget is invalid.';
   const workAreas = Array.isArray(estimate.workAreas) ? estimate.workAreas.filter((area) => area && typeof area === 'object') : [];
-  if (workAreas.length === 0 || workAreas.some((area) => !isNonEmptyString(area.divisionId))) {
+  if (!isNonEmptyString(estimate.divisionId) || workAreas.length === 0 || workAreas.some((area) => area.divisionId !== estimate.divisionId)) {
     return 'Estimate Division is required.';
   }
-  for (const area of workAreas) {
-    const division = await getBudgetDivisionForBusiness(businessId, estimate.pricingBudgetId, area.divisionId);
-    if (!division || division.status !== 'active') return 'Estimate Division must be active and belong to the selected Pricing Budget.';
+  const division = await getBudgetDivisionForBusiness(businessId, estimate.pricingBudgetId, estimate.divisionId);
+  if (!division) return 'Estimate Division must belong to the selected Pricing Budget.';
+  if (division.status !== 'active') {
+    const existingAreaDivision = Array.isArray(existing?.workAreas)
+      ? existing.workAreas.find((area) => isNonEmptyString(area?.divisionId))?.divisionId
+      : undefined;
+    const unchangedHistoricalDivision = existing
+      && existing.pricingBudgetId === estimate.pricingBudgetId
+      && (existing.divisionId ?? existingAreaDivision) === estimate.divisionId;
+    if (!unchangedHistoricalDivision) return 'Estimate Division must be active and belong to the selected Pricing Budget.';
   }
   return null;
 }
@@ -1491,11 +1498,14 @@ export default async function handler(req, res) {
 
     if (entity === 'estimates') {
       record = ensureDefaultEstimateWorkArea(record);
+      const divisionResult = enforceEstimateWorkAreaDivisionModel(null, record);
+      if (!divisionResult.ok) return res.status(400).json({ ok: false, error: divisionResult.error });
+      record = divisionResult.estimate;
       const validationError = validateEstimateRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
-      const relationshipError = await validateNewEstimatePricingDivision({ businessId: session.businessId, estimate: record });
+      const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: record });
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
       const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
       if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
@@ -1756,6 +1766,11 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'estimates') {
+        const divisionResult = enforceEstimateWorkAreaDivisionModel(existing, next);
+        if (!divisionResult.ok) return res.status(409).json({ ok: false, error: divisionResult.error });
+        next = divisionResult.estimate;
+        const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: next, existing });
+        if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
         const validationError = validateEstimateRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });

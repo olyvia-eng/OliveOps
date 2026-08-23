@@ -183,7 +183,7 @@ test('adding approved Labour, Equipment, Material, and Subcontractor pricing pre
 test('pricing endpoint derives the selected Budget from the tenant-owned Estimate', async () => {
   const handler = createEstimatePricingCatalogHandler({
     requireSession: async () => ({ businessId: 'biz-a', role: 'admin' }),
-    getEstimateForBusiness: async (businessId, estimateId) => businessId === 'biz-a' && estimateId === 'estimate-a' ? { id: estimateId, pricingBudgetId: budgetId } : null,
+    getEstimateForBusiness: async (businessId, estimateId) => businessId === 'biz-a' && estimateId === 'estimate-a' ? { id: estimateId, pricingBudgetId: budgetId, divisionId: 'hardscape' } : null,
     getBudgetForBusiness: async (businessId, requestedBudgetId) => businessId === 'biz-a' && requestedBudgetId === budgetId ? { id: budgetId, name: '2027 annual', planningModel: 'divisions_v1' } : null,
     getBudgetDivisionForBusiness: async (businessId, requestedBudgetId, divisionId) => businessId === 'biz-a' && requestedBudgetId === budgetId && divisionId === 'hardscape' ? { id: divisionId, budgetId: requestedBudgetId } : null,
     listDivisionPlanningItemsForBusiness: async (businessId) => businessId === 'biz-a' ? planningItems : [],
@@ -204,9 +204,10 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
   assert.equal(divisionResponse.statusCode, 200);
   assert.equal(divisionResponse.body.catalog.labour.every((item) => item.divisionId === 'hardscape'), true);
 
-  const invalidDivisionResponse = { ...response, statusCode: 200, body: null };
-  await handler({ method: 'GET', query: { estimateId: 'estimate-a', divisionId: 'foreign-division' } }, invalidDivisionResponse);
-  assert.equal(invalidDivisionResponse.statusCode, 400);
+  const forgedDivisionResponse = { ...response, statusCode: 200, body: null };
+  await handler({ method: 'GET', query: { estimateId: 'estimate-a', divisionId: 'foreign-division' } }, forgedDivisionResponse);
+  assert.equal(forgedDivisionResponse.statusCode, 200);
+  assert.equal(forgedDivisionResponse.body.catalog.labour.every((item) => item.divisionId === 'hardscape'), true);
 
   const foreignResponse = { ...response, statusCode: 200, body: null };
   await handler({ method: 'GET', query: { estimateId: 'foreign-estimate' } }, foreignResponse);

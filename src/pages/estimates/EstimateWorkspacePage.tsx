@@ -161,6 +161,7 @@ const createProposalDocument = (estimate: Estimate, customerName: string, custom
 const loadFormState = (estimate: Estimate): EstimateFormState => ({
   customerId: estimate.customerId,
   pricingBudgetId: estimate.pricingBudgetId,
+  divisionId: estimate.divisionId ?? normalizeEstimateWorkAreas(estimate).find((area) => area.divisionId)?.divisionId,
   propertyLabel: estimate.propertyLabel ?? '',
   propertyAddressSnapshot: estimate.propertyAddressSnapshot ?? '',
   proposalNumber: estimate.proposalNumber ?? '',
@@ -328,7 +329,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
     saveInFlight.current = true;
     setSavingEstimate(true);
-    const nextWorkArea = createNewEstimateWorkArea(form.workAreas);
+    const nextWorkArea = createNewEstimateWorkArea(form.workAreas, estimate.divisionId);
     const nextForm: EstimateFormState = {
       ...form,
       workAreas: [

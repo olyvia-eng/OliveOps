@@ -44,7 +44,8 @@ test('Estimate pricing endpoint returns persisted shared Budget items and approv
   put(store, 'biz-a', 'USER#admin-a', { entityType: 'USER', userId: 'admin-a', name: 'Admin', email: 'admin@example.com', role: 'admin', active: true, sessionVersion: 0 });
   await createMobileSessionForUser({ user: { id: 'admin-a', businessId: 'biz-a', name: 'Admin', email: 'admin@example.com', role: 'admin', businessName: 'OliveOps' }, accessToken: 'token-a', expiresInSeconds: 3600 });
   put(store, 'biz-a', 'BUDGET_META#budget-2027', { entityType: 'BUDGET', budgetId: 'budget-2027', name: '2027 annual', fiscalYear: '2027', planningModel: 'divisions_v1', status: 'active' });
-  put(store, 'biz-a', 'ESTIMATE#estimate-a', { entityType: 'ESTIMATE', estimateId: 'estimate-a', pricingBudgetId: 'budget-2027', title: 'Dig out area' });
+  put(store, 'biz-a', 'ESTIMATE#estimate-a', { entityType: 'ESTIMATE', estimateId: 'estimate-a', pricingBudgetId: 'budget-2027', divisionId: 'hardscape', title: 'Dig out area' });
+  put(store, 'biz-a', 'BUDGET_DIVISION#budget-2027#DIVISION#hardscape', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-2027', divisionId: 'hardscape', id: 'hardscape', status: 'active' });
   for (const employee of [{ id: 'ryan', name: 'Ryan Field' }, { id: 'john', name: 'John Field' }]) put(store, 'biz-a', `EMPLOYEE#${employee.id}`, { entityType: 'EMPLOYEE', employeeId: employee.id, active: true, ...employee });
   for (const equipment of [{ id: 'bobcat', name: 'Bobcat E50' }, { id: 'truck', name: 'Dump Truck' }]) put(store, 'biz-a', `EQUIPMENT#${equipment.id}`, { entityType: 'EQUIPMENT', equipmentId: equipment.id, status: 'available', type: 'Equipment', ...equipment });
   put(store, 'biz-a', 'MATERIAL#gravel', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'gravel', id: 'gravel', name: 'A Gravel', unit: 'tonne', active: true });
@@ -70,10 +71,11 @@ test('Estimate pricing endpoint returns persisted shared Budget items and approv
   const res = response();
   await handler({ method: 'GET', query: { estimateId: 'estimate-a' }, headers: { authorization: 'Bearer token-a' } }, res);
 
-  assert.equal(res.statusCode, 200);
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
   assert.equal(res.body.budget.name, '2027 annual');
   assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.approvedRate]), [['John Field', 65], ['Ryan Field', 72]]);
-  assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.approvedRate]), [['Bobcat E50', 95], ['Dump Truck', 150]]);
+  assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.approvedRate]), [['Bobcat E50', 95]]);
+  assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
   assert.equal(res.body.catalog.materials[0].approvedRate, 46);
   assert.equal(res.body.catalog.subcontractors[0].approvedRate, 135);
   assert.equal(res.body.catalog.labour.filter((item) => item.sourceEntityId === 'ryan').length, 1);

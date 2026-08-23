@@ -341,6 +341,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     const estimateId = await addEstimate({
       customerId: createForm.customerId,
       pricingBudgetId: createForm.pricingBudgetId,
+      divisionId: createForm.divisionId,
       propertyLabel: selectedProperty?.nickname?.trim() || '',
       propertyAddressSnapshot: selectedProperty ? formatPropertyAddress(selectedProperty) : '',
       proposalNumber,

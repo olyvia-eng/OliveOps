@@ -24,6 +24,21 @@ test('builder waits for persistence before save and delete navigation', () => {
   assert.match(builderSource, /Work area saved\./);
   assert.match(builderSource, /Work area deleted\./);
   assert.match(builderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
+  assert.match(builderSource, /title=\{`Delete "\$\{workArea\.name\}"\?`\}/);
+  assert.match(builderSource, /deletingWorkArea \? 'Deleting\.\.\.' : 'Delete Work Area'/);
+  assert.match(builderSource, /Labour, Equipment, Materials, and Subcontractor items/);
+});
+
+test('builder uses category-specific pickers without a persistent catalog or editable Division', () => {
+  assert.match(builderSource, /openCatalog\(category\)/);
+  assert.match(builderSource, /Add \{CATEGORY_ADD_LABEL\[category\]\}/);
+  assert.match(builderSource, /candidate\.category === catalogCategory/);
+  assert.match(builderSource, /Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}/);
+  assert.match(builderSource, /candidate\.alreadyAdded \|\|/);
+  assert.match(builderSource, /Custom \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);
+  assert.doesNotMatch(builderSource, /lg:grid-cols-\[minmax\(0,1fr\)_340px\]/);
+  assert.doesNotMatch(builderSource, /label="Division"/);
+  assert.doesNotMatch(builderSource, /\['all', \.\.\.CATEGORY_ORDER\]/);
 });
 
 test('work-area normalization uses stable legacy IDs and does not invent a placeholder for empty estimates', () => {

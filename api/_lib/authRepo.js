@@ -3607,6 +3607,7 @@ function mapEstimateRecordFromItem(item) {
     description: item.description,
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : undefined,
     pricingBudgetId: item.pricingBudgetId,
+    divisionId: item.divisionId,
     propertyLabel: item.propertyLabel,
     propertyAddressSnapshot: item.propertyAddressSnapshot,
     status: item.status,
