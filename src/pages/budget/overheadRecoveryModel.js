@@ -26,7 +26,7 @@ export const plannedBillableLabourHours = (item) => item.labourClassification ==
   ? 0
   : nonNegative(item.plannedHours) * Math.min(100, nonNegative(item.expectedBillablePct)) / 100;
 
-const equipmentAnnualCost = (item) => item.plannedAmount !== undefined
+export const equipmentAnnualCost = (item) => item.plannedAmount !== undefined
   ? nonNegative(item.plannedAmount)
   : nonNegative(item.equipmentPayment) * nonNegative(item.equipmentPaymentFrequencyPerYear ?? item.paymentFrequencyPerYear ?? 1)
     + nonNegative(item.yearlyFuelCost)
@@ -36,9 +36,10 @@ const equipmentAnnualCost = (item) => item.plannedAmount !== undefined
 const equipmentMonths = (item, divisionId) => item.equipmentDivisionAllocations?.find((value) => value.divisionId === divisionId)?.months
   ?? (item.divisionId === divisionId ? item.allocationMonths ?? 12 : 0);
 
-const equipmentHours = (item, divisionId) => nonNegative(item.equipmentDivisionAllocations?.find((value) => value.divisionId === divisionId)?.sellableHours);
+export const equipmentDivisionAnnualCost = (item, divisionId) => equipmentAnnualCost(item) * nonNegative(equipmentMonths(item, divisionId)) / 12;
 
-const plannedCost = (item) => nonNegative(item.category === 'materials' ? item.unitCost : item.rate) * nonNegative(item.plannedQuantity);
+const plannedCost = (item) => nonNegative(item.category === 'materials' ? item.unitCost : item.rate)
+  * (item.plannedQuantity === undefined ? 1 : nonNegative(item.plannedQuantity));
 
 export const emptyRecoveryAllocation = () => ({ labourPercent: 0, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 });
 
@@ -63,7 +64,7 @@ const buildScope = ({ label, totalOverhead, policy, denominators }) => {
   } else if (valid) {
     for (const category of CATEGORIES) {
       if (pools[category] > 0 && denominators[category] <= 0) {
-        const denominatorLabel = category === 'labour' ? 'billable labour hours' : category === 'equipment' ? 'sellable equipment hours' : `planned ${category === 'materials' ? 'material' : 'subcontractor'} cost`;
+        const denominatorLabel = category === 'labour' ? 'billable labour hours' : `annual ${category === 'equipment' ? 'equipment' : category === 'materials' ? 'material' : 'subcontractor'} cost`;
         warnings.push(`${label}: add ${denominatorLabel} or change the ${category} recovery allocation. $${pools[category].toFixed(2)} is currently unrecoverable.`);
         continue;
       }
@@ -99,7 +100,7 @@ export function buildOverheadRecoveryModel({ budget, divisions, planningItems })
     const overheadItems = uniqueItems.filter((item) => item.category === 'overhead').reduce((sum, item) => sum + overheadAllocatedAmount(item, division.id), 0);
     const denominators = {
       labour: uniqueItems.filter((item) => item.category === 'labour').reduce((sum, item) => sum + plannedBillableLabourHours(item) * labourDivisionShare(item, division.id), 0),
-      equipment: uniqueItems.filter((item) => item.category === 'equipment' && item.classification !== 'overhead').reduce((sum, item) => sum + equipmentHours(item, division.id), 0),
+      equipment: uniqueItems.filter((item) => item.category === 'equipment' && item.classification !== 'overhead').reduce((sum, item) => sum + equipmentDivisionAnnualCost(item, division.id), 0),
       materials: uniqueItems.filter((item) => item.category === 'materials' && item.divisionId === division.id).reduce((sum, item) => sum + plannedCost(item), 0),
       subcontractors: uniqueItems.filter((item) => item.category === 'subcontractors' && item.divisionId === division.id).reduce((sum, item) => sum + plannedCost(item), 0),
     };
@@ -116,8 +117,8 @@ export function buildOverheadRecoveryModel({ budget, divisions, planningItems })
 
 export function recoveryPerUnit(scope, category, directCostPerUnit) {
   if (!scope?.valid) return 0;
-  if (category === 'materials' || category === 'subcontractors') return nonNegative(directCostPerUnit) * nonNegative(scope.rates[category]);
-  return nonNegative(scope.rates[category]);
+  if (category === 'labour') return nonNegative(scope.rates.labour);
+  return nonNegative(directCostPerUnit) * nonNegative(scope.rates[category]);
 }
 
 export function grossMarginRate(recoveredCostPerUnit, targetMarginPct) {

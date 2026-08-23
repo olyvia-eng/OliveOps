@@ -24,10 +24,10 @@ const pricingTabs = [
 ] as const;
 
 const categoryTerms = (category: BudgetDivisionPlanningItem['category']) => {
-  if (category === 'labour') return { pool: 'Labour Overhead Pool', denominator: 'Billable Labour Hours', missing: 'billable labour hours' };
-  if (category === 'equipment') return { pool: 'Equipment Overhead Pool', denominator: 'Sellable Equipment Hours', missing: 'sellable equipment hours' };
-  if (category === 'materials') return { pool: 'Material Overhead Pool', denominator: 'Planned Material Cost', missing: 'planned material cost' };
-  return { pool: 'Subcontractor Overhead Pool', denominator: 'Planned Subcontractor Cost', missing: 'planned subcontractor cost' };
+  if (category === 'labour') return { label: 'Labour', pool: 'Labour Overhead Pool', denominator: 'Billable Labour Hours', missing: 'billable labour hours' };
+  if (category === 'equipment') return { label: 'Equipment', pool: 'Equipment Recovery Pool', denominator: 'Annual Equipment Cost', missing: 'annual equipment cost' };
+  if (category === 'materials') return { label: 'Material', pool: 'Material Recovery Pool', denominator: 'Annual Material Cost', missing: 'annual material cost' };
+  return { label: 'Subcontractor', pool: 'Subcontractor Recovery Pool', denominator: 'Annual Subcontractor Cost', missing: 'annual subcontractor cost' };
 };
 
 const unavailableCostReason = (category: BudgetDivisionPlanningItem['category']) => {
@@ -51,18 +51,20 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
     const terms = categoryTerms(row.item.category);
     const pool = row.overheadPool ?? 0;
     const denominator = row.recoveryDenominator ?? 0;
-    const isCostRecovery = row.item.category === 'materials' || row.item.category === 'subcontractors';
+    const isCostRecovery = row.item.category !== 'labour';
+    const recoveryPercent = ((row.recoveryRate ?? 0) * 100).toFixed(2);
     const denominatorValue = isCostRecovery
       ? formatCurrency(denominator)
       : `${denominator.toLocaleString(undefined, { maximumFractionDigits: 2 })} hrs`;
-    const displayedValue = row.recoveryUnavailable ? 'Unavailable' : `${formatCurrency(row.divisionOverheadPerUnit)}/${row.unit}`;
+    const displayedValue = row.recoveryUnavailable ? 'Unavailable' : isCostRecovery ? `${recoveryPercent}%` : `${formatCurrency(row.divisionOverheadPerUnit)}/${row.unit}`;
 
     return <details>
       <summary className="cursor-pointer font-medium">{displayedValue}</summary>
       <div className="mt-2 space-y-1 text-left text-xs text-gray-500 dark:text-brand-300">
+        {isCostRecovery ? <><p>Division Overhead: {formatCurrency(row.divisionOverhead ?? 0)}</p><p>{terms.label} Allocation: {(row.recoveryAllocationPct ?? 0).toFixed(2)}%</p></> : null}
         <p>{terms.pool}: {formatCurrency(pool)}</p>
         <p>{terms.denominator}: {denominatorValue}</p>
-        {row.recoveryUnavailableReason === 'configuration' ? <p>Recovery percentages must total 100% before overhead and final rates can be calculated.</p> : row.recoveryUnavailable ? <p>No {terms.missing} are planned, so {formatCurrency(pool)} of {row.item.category === 'subcontractors' ? 'subcontractor' : row.item.category === 'materials' ? 'material' : row.item.category} overhead cannot currently be recovered.</p> : pool <= 0 ? <p>No Division overhead is allocated to {row.item.category} recovery.</p> : isCostRecovery ? <><p>{formatCurrency(pool)} ÷ {formatCurrency(denominator)} = {((row.recoveryRate ?? 0) * 100).toFixed(2)}% recovery</p><p>{formatCurrency(row.costRate)}/{row.unit} × {((row.recoveryRate ?? 0) * 100).toFixed(2)}% = {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p></> : <p>{formatCurrency(pool)} ÷ {denominatorValue} = {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p>}
+        {row.recoveryUnavailableReason === 'configuration' ? <p>Recovery percentages must total 100% before overhead and final rates can be calculated.</p> : row.recoveryUnavailable ? <p>No {terms.missing} is planned, so {formatCurrency(pool)} of {terms.label.toLowerCase()} overhead cannot currently be recovered.</p> : isCostRecovery ? pool > 0 ? <p>{formatCurrency(pool)} ÷ {formatCurrency(denominator)} = {recoveryPercent}% overhead recovery</p> : <p>Recovery Rate: 0.00%</p> : <p>{formatCurrency(pool)} ÷ {denominatorValue} = {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p>}
       </div>
     </details>;
   };
@@ -79,7 +81,7 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
           <td className="px-4 py-3 text-right">{overheadDisclosure(row)}</td>
           <td className="px-4 py-3 text-right">{row.targetMarginPct.toFixed(0)}%</td>
           {isUnavailable ? <td className="px-4 py-3 text-right"><p className="font-medium text-gray-700 dark:text-brand-100">Unavailable</p><p className="mt-1 text-xs font-normal text-gray-500 dark:text-brand-300">{row.recoveryUnavailableReason === 'configuration' ? 'Set recovery percentages to total 100%.' : row.recoveryUnavailable ? `Overhead cannot be recovered without planned ${categoryTerms(row.item.category).missing}.` : unavailableCostReason(row.item.category)}</p></td> : <>
-            <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500 dark:text-brand-300"><summary className="cursor-pointer">Calculation</summary><div className="mt-1 space-y-1 text-left"><p>{costLabel}: {formatCurrency(row.costRate)}/{row.unit}</p><p>Overhead Recovery: {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p><p>Breakeven Rate: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p><p>Target Net Profit: {row.targetMarginPct.toFixed(0)}%</p><p className="font-medium text-gray-700 dark:text-brand-100">{rateLabel}: {formatCurrency(row.recoveredCostPerUnit)} ÷ (1 - {row.targetMarginPct.toFixed(0)}%) = {formatCurrency(row.recommendedRate)}/{row.unit}</p></div></details></td>
+            <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500 dark:text-brand-300"><summary className="cursor-pointer">Calculation</summary><div className="mt-1 space-y-1 text-left"><p>{costLabel}: {formatCurrency(row.costRate)}/{row.unit}</p>{row.item.category === 'labour' ? <><p>Overhead Recovery: {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p><p>Breakeven Rate: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></> : <><p>Overhead Recovery: {((row.recoveryRate ?? 0) * 100).toFixed(2)}%</p><p>Cost After OH Recovery: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></>}<p>Target Net Profit: {row.targetMarginPct.toFixed(0)}%</p><p className="font-medium text-gray-700 dark:text-brand-100">{rateLabel}: {row.item.category === 'labour' ? <>{formatCurrency(row.recoveredCostPerUnit)} ÷ (1 - {row.targetMarginPct.toFixed(0)}%)</> : <>{formatCurrency(row.costRate)} × (1 + {((row.recoveryRate ?? 0) * 100).toFixed(2)}%) ÷ (1 - {row.targetMarginPct.toFixed(0)}%)</>} = {formatCurrency(row.recommendedRate)}/{row.unit}</p></div></details></td>
           </>}
         </tr>;
       })}</tbody>

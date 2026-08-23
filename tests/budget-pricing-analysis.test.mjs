@@ -102,13 +102,17 @@ test('Pricing uses contractor-facing labels and renders no approval workflow', (
 });
 
 test('overhead and final rates disclose actual source values and margin formula', () => {
-  for (const label of ['Labour Overhead Pool', 'Billable Labour Hours', 'Equipment Overhead Pool', 'Sellable Equipment Hours', 'Material Overhead Pool', 'Planned Material Cost', 'Subcontractor Overhead Pool', 'Planned Subcontractor Cost']) assert.match(pricingSource, new RegExp(label));
+  for (const label of ['Labour Overhead Pool', 'Billable Labour Hours', 'Equipment Recovery Pool', 'Annual Equipment Cost', 'Material Recovery Pool', 'Annual Material Cost', 'Subcontractor Recovery Pool', 'Annual Subcontractor Cost']) assert.match(pricingSource, new RegExp(label));
   assert.match(pricingSource, /row\.overheadPool/);
   assert.match(pricingSource, /row\.recoveryDenominator/);
   assert.match(pricingSource, /row\.recoveryRate/);
+  assert.match(pricingSource, /Division Overhead:/);
+  assert.match(pricingSource, /Allocation:/);
   assert.match(pricingSource, /Overhead Recovery:/);
   assert.match(pricingSource, /Breakeven Rate:/);
+  assert.match(pricingSource, /Cost After OH Recovery:/);
   assert.match(pricingSource, /÷ \(1 - \{row\.targetMarginPct\.toFixed\(0\)\}%\)/);
+  assert.match(pricingSource, /× \(1 \+ \{\(\(row\.recoveryRate \?\? 0\) \* 100\)\.toFixed\(2\)\}%\)/);
   assert.doesNotMatch(pricingSource, /\* 1\.2|× 1\.20/);
 });
 
@@ -125,12 +129,30 @@ test('materials and subcontractors use Division planned-cost recovery bases', ()
   const subcontractor = rows.find((row) => row.item.id === 'sub');
   assert.deepEqual([material.overheadPool, material.recoveryDenominator, material.recoveryRate, material.overheadPerUnit], [6000, 2000, 3, 30]);
   assert.deepEqual([subcontractor.overheadPool, subcontractor.recoveryDenominator, subcontractor.recoveryRate, subcontractor.overheadPerUnit], [4000, 500, 8, 800]);
+  assert.equal(material.recommendedRate, 50);
+  assert.equal(subcontractor.recommendedRate, 1125);
+});
+
+test('zero subcontractor allocation safely applies margin with zero overhead recovery', () => {
+  const scopedBudget = { id: 'zero-sub-recovery', targetMarginPct: 10 };
+  const scopedDivisions = [{ id: 'division', budgetId: scopedBudget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } } }];
+  const scopedItems = [
+    { id: 'sub', budgetId: scopedBudget.id, divisionId: 'division', category: 'subcontractors', name: 'Hauling', rate: 90, plannedQuantity: 0 },
+    { id: 'overhead', budgetId: scopedBudget.id, category: 'overhead', plannedAmount: 10000, overheadDivisionAllocations: [{ divisionId: 'division', percentage: 100 }] },
+  ];
+  const row = buildBudgetPricingRows({ budget: scopedBudget, divisions: scopedDivisions, planningItems: scopedItems, budgetRates: [] }).find((value) => value.item.id === 'sub');
+  assert.equal(row.overheadPool, 0);
+  assert.equal(row.recoveryDenominator, 0);
+  assert.equal(row.recoveryRate, 0);
+  assert.equal(row.recoveryUnavailable, false);
+  assert.equal(row.recommendedRate, 100);
+  assert.equal(Number.isFinite(row.recommendedRate), true);
 });
 
 test('positive recovery pools with missing denominators are unavailable, not zero-overhead pricing', () => {
   const cases = [
     ['labour', { category: 'labour', compType: 'hourly', hourlyRate: 30, plannedHours: 1000, expectedBillablePct: 0, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'division', hours: 1000 }] }],
-    ['equipment', { category: 'equipment', plannedAmount: 10000, sellableHoursPerYear: 100, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'division', months: 12, sellableHours: 0 }] }],
+    ['equipment', { category: 'equipment', plannedAmount: 0, sellableHoursPerYear: 100, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'division', months: 12, sellableHours: 100 }] }],
     ['materials', { category: 'materials', divisionId: 'division', unitCost: 25, plannedQuantity: 0 }],
     ['subcontractors', { category: 'subcontractors', divisionId: 'division', rate: 75, plannedQuantity: 0 }],
   ];
@@ -143,8 +165,10 @@ test('positive recovery pools with missing denominators are unavailable, not zer
     assert.equal(row.recommendedRate, 0, category);
     assert.equal(row.overheadPool, 1000, category);
     assert.equal(row.recoveryDenominator, 0, category);
+    assert.equal(Number.isFinite(row.recoveryRate), true, category);
+    assert.equal(Number.isFinite(row.recommendedRate), true, category);
   }
-  assert.match(pricingSource, /No \{terms\.missing\} are planned/);
+  assert.match(pricingSource, /No \{terms\.missing\} is planned/);
   assert.match(pricingSource, /cannot currently be recovered/);
 });
 

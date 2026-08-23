@@ -7,7 +7,7 @@ Allocation and recovery are separate:
 - Allocation answers which Divisions own an overhead cost.
 - Recovery answers how each Division recovers its allocated pool through Labour, Equipment, Materials, and Subcontractor pricing.
 
-Recovery percentages are stored on each Division and must total 100%. Labour uses planned billable hours, Equipment uses planned sellable hours by Division, and Materials/Subcontractors use their planned cost bases. A positive pool with no denominator remains unrecoverable and produces a planning warning instead of dividing by zero.
+Recovery percentages are stored on each Division and must total 100%. Labour recovery remains hour-based. Equipment, Materials, and Subcontractors use annual Division cost as their recovery denominator and apply the resulting recovery percentage to each item's direct cost. A positive pool with no denominator remains unrecoverable and produces a planning warning instead of dividing by zero.
 
 Recommended rates use direct cost plus Division overhead recovery, followed by the existing gross-margin calculation. Approved rates remain separate records and are never overwritten by recalculation. Estimates continue to snapshot approved rates only.
 
@@ -72,11 +72,24 @@ Every pricing row reads its recovery pool, denominator, and rate from the same D
 | Category | Division denominator | Displayed overhead |
 | --- | --- | --- |
 | Labour | Sum of allocated planned billable labour hours | Labour pool / billable hours |
-| Equipment | Sum of `equipmentDivisionAllocations[].sellableHours` for that Division, excluding overhead-classified equipment | Equipment pool / sellable equipment hours |
-| Materials | Sum of `unitCost * plannedQuantity` for material records belonging to that Division | Item unit cost * (material pool / planned material cost) |
-| Subcontractors | Sum of `rate * plannedQuantity` for subcontractor records belonging to that Division | Item rate * (subcontractor pool / planned subcontractor cost) |
+| Equipment | Sum of Division-attributed annual cost for billable equipment | Item direct cost * (equipment pool / annual equipment cost) |
+| Materials | Sum of `unitCost * plannedQuantity` for material records belonging to that Division | Item unit cost * (material pool / annual material cost) |
+| Subcontractors | Sum of `rate * plannedQuantity` for subcontractor records belonging to that Division | Item rate * (subcontractor pool / annual subcontractor cost) |
 
-Equipment rows are produced once for every positive-month Division allocation. Each row uses that Division's pool and sellable-hours denominator independently; equal displayed rates are valid only when the independent quotients are equal. Asset-wide `sellableHoursPerYear` is used for the equipment direct-cost rate, not as the Division overhead denominator.
+Equipment rows are produced once for every positive-month Division allocation. `equipmentAnnualCost` uses `plannedAmount` when present. Its fallback matches Division P&L: `equipmentPayment * equipmentPaymentFrequencyPerYear` plus `yearlyFuelCost`, `yearlyInsuranceCost`, and `yearlyMaintenanceCost`. `equipmentDivisionAnnualCost` attributes that annual cost using the established `allocated months / 12` share. Overhead-classified equipment is excluded from the recovery denominator because its attributed cost already enters Division overhead.
+
+Asset-wide `sellableHoursPerYear` remains part of the equipment direct-cost-per-hour calculation, but equipment hours do not participate in overhead recovery. Shared equipment contributes only its month-attributed annual cost to each Division. Equal recovery percentages in two Divisions are valid only when each Division independently has the same `equipment pool / attributed annual equipment cost` quotient.
+
+For Equipment, Materials, and Subcontractors, the calculation is:
+
+```text
+class recovery pool = Division allocated overhead * class allocation %
+class recovery rate = class recovery pool / annual Division class cost
+cost after overhead recovery = item direct cost * (1 + class recovery rate)
+selling rate = cost after overhead recovery / (1 - Target Net Profit %)
+```
+
+Materials use `unitCost * plannedQuantity`. Subcontractors use `rate * plannedQuantity`. A missing legacy quantity follows the established Division P&L behavior and defaults to one; an explicit zero remains zero. A class with a zero recovery pool and zero annual cost safely uses a 0% recovery rate.
 
 Labour allocation writes are validated to contain each Division once and total the employee's planned hours. Legacy percentages must total 100%. Equipment allocation writes contain each Division once, reference Divisions in the same Budget, and total 12 months. These validations prevent malformed new allocations from entering the recovery model.
 

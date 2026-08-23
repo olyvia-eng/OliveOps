@@ -19,6 +19,8 @@ export interface BudgetPricingRow {
   aggregateLabour?: boolean;
   billableHours?: number;
   annualCost?: number;
+  divisionOverhead?: number;
+  recoveryAllocationPct?: number;
   overheadPool?: number;
   recoveryDenominator?: number;
   recoveryRate?: number;

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildOverheadRecoveryModel,
+  equipmentAnnualCost,
+  equipmentDivisionAnnualCost,
   grossMarginRate,
   recoveryAllocationIsValid,
   recoveryAllocationTotal,
@@ -15,6 +17,30 @@ test('version-2 recovery allocations must total exactly 100 percent', () => {
   assert.equal(recoveryAllocationTotal(allocation(40, 30, 20, 10)), 100);
   assert.equal(recoveryAllocationIsValid(allocation(40, 30, 20, 10)), true);
   assert.equal(recoveryAllocationIsValid(allocation(40, 30, 20, 9)), false);
+});
+
+test('annual class costs use financial planning fields and Division equipment months', () => {
+  const equipment = {
+    category: 'equipment',
+    equipmentPayment: 1000,
+    equipmentPaymentFrequencyPerYear: 12,
+    yearlyFuelCost: 5000,
+    yearlyInsuranceCost: 2000,
+    yearlyMaintenanceCost: 1000,
+    equipmentDivisionAllocations: [{ divisionId: 'landscape', months: 9 }, { divisionId: 'snow', months: 3 }],
+  };
+  assert.equal(equipmentAnnualCost(equipment), 20000);
+  assert.equal(equipmentDivisionAnnualCost(equipment, 'landscape'), 15000);
+  assert.equal(equipmentDivisionAnnualCost(equipment, 'snow'), 5000);
+
+  const budget = { id: 'budget' };
+  const divisions = [{ id: 'landscape', budgetId: budget.id, name: 'Landscaping', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 0, 50, 50)) }];
+  const scope = buildOverheadRecoveryModel({ budget, divisions, planningItems: [
+    { id: 'material', budgetId: budget.id, divisionId: 'landscape', category: 'materials', unitCost: 40 },
+    { id: 'sub', budgetId: budget.id, divisionId: 'landscape', category: 'subcontractors', rate: 75 },
+  ] }).divisions.landscape;
+  assert.equal(scope.denominators.materials, 40);
+  assert.equal(scope.denominators.subcontractors, 75);
 });
 
 test('invalid recovery allocation makes calculated pricing unavailable', () => {
@@ -32,7 +58,7 @@ test('invalid recovery allocation makes calculated pricing unavailable', () => {
   assert.equal(row.recommendedRate, 0);
 });
 
-test('recovery uses eligible hours and cost denominators without counting overhead resources twice', () => {
+test('recovery uses Labour hours and annual class costs without counting overhead resources twice', () => {
   const budget = { id: 'budget' };
   const divisions = [
     { id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: policy(allocation(50, 50, 0, 0)) },
@@ -51,8 +77,10 @@ test('recovery uses eligible hours and cost denominators without counting overhe
   ];
 
   const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems });
-  assert.equal(recovery.divisions.snow.denominators.equipment, 800);
-  assert.equal(recovery.divisions.landscape.denominators.equipment, 400);
+  assert.equal(recovery.divisions.snow.denominators.labour, 960);
+  assert.equal(recovery.divisions.landscape.denominators.labour, 640);
+  assert.equal(recovery.divisions.snow.denominators.equipment, 24000);
+  assert.equal(recovery.divisions.landscape.denominators.equipment, 24000);
   assert.equal(recovery.divisions.snow.totalOverhead, 46000);
   assert.equal(recovery.divisions.landscape.totalOverhead, 66000);
 
@@ -60,6 +88,8 @@ test('recovery uses eligible hours and cost denominators without counting overhe
   const bobcatRows = rows.filter((row) => row.item.id === 'bobcat');
   assert.equal(bobcatRows.length, 2);
   assert.equal(bobcatRows[0].costRate, bobcatRows[1].costRate);
+  assert.equal(bobcatRows.find((row) => row.divisionId === 'snow').recoveryRate, 23000 / 24000);
+  assert.equal(bobcatRows.find((row) => row.divisionId === 'landscape').recoveryRate, 33000 / 24000);
   assert.notEqual(bobcatRows[0].divisionOverheadPerUnit, bobcatRows[1].divisionOverheadPerUnit);
   for (const row of bobcatRows) assert.equal(row.recommendedRate, grossMarginRate(row.costRate + row.divisionOverheadPerUnit, 20));
   assert.equal(rows.some((row) => row.item.id === 'manager' || row.item.id === 'shop-truck'), false);
@@ -74,10 +104,10 @@ test('zero denominators produce warnings and unrecoverable amounts without inval
   assert.equal(scope.unrecoverableAmount, 50000);
   assert.equal(scope.warnings.length, 1);
   assert.equal(Number.isFinite(scope.rates.equipment), true);
-  assert.match(scope.warnings[0], /add sellable equipment hours or change the equipment recovery allocation/);
+  assert.match(scope.warnings[0], /add annual equipment cost or change the equipment recovery allocation/);
 });
 
-test('equal equipment rates in different Divisions are derived from isolated pools and hours', () => {
+test('equal equipment recovery percentages in different Divisions are derived from isolated annual costs', () => {
   const budget = { id: 'budget' };
   const divisions = [
     { id: 'landscape', budgetId: budget.id, name: 'Landscaping', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) },
@@ -92,9 +122,9 @@ test('equal equipment rates in different Divisions are derived from isolated poo
   ];
 
   const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems });
-  assert.deepEqual([recovery.divisions.landscape.pools.equipment, recovery.divisions.landscape.denominators.equipment, recovery.divisions.landscape.rates.equipment], [1500, 100, 15]);
-  assert.deepEqual([recovery.divisions.snow.pools.equipment, recovery.divisions.snow.denominators.equipment, recovery.divisions.snow.rates.equipment], [1500, 100, 15]);
+  assert.deepEqual([recovery.divisions.landscape.pools.equipment, recovery.divisions.landscape.denominators.equipment, recovery.divisions.landscape.rates.equipment], [1500, 15000, 0.1]);
+  assert.deepEqual([recovery.divisions.snow.pools.equipment, recovery.divisions.snow.denominators.equipment, recovery.divisions.snow.rates.equipment], [1500, 15000, 0.1]);
   const rows = buildBudgetPricingRows({ budget: { ...budget, targetMarginPct: 20 }, divisions, planningItems, budgetRates: [] }).filter((row) => row.item.id === 'bobcat');
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map((row) => [row.divisionId, row.overheadPool, row.recoveryDenominator, row.overheadPerUnit]), [['landscape', 1500, 100, 15], ['snow', 1500, 100, 15]]);
+  assert.deepEqual(rows.map((row) => [row.divisionId, row.overheadPool, row.recoveryDenominator, row.recoveryRate, row.overheadPerUnit]), [['landscape', 1500, 15000, 0.1, 15], ['snow', 1500, 15000, 0.1, 15]]);
 });
