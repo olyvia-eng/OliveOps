@@ -1126,6 +1126,14 @@ async function validateBudgetRateRelationships(businessId, record) {
 
   const categoryMap = { labour: 'labour', equipment: 'equipment', material: 'materials', subcontractor: 'subcontractors' };
   const planningItems = await listDivisionPlanningItemsForBusiness(businessId);
+  const averageLabourId = record.divisionId ? `average-labour:${record.divisionId}` : '';
+  if (record.category === 'labour' && record.pricingVersion === 2 && record.budgetItemId === averageLabourId) {
+    const hasBillableLabour = planningItems.some((item) => item.budgetId === record.budgetId
+      && item.category === 'labour'
+      && item.labourClassification !== 'overhead'
+      && item.divisionAllocations?.some((allocation) => allocation.divisionId === record.divisionId && Number(allocation.hours ?? allocation.percentage ?? 0) > 0));
+    return hasBillableLabour ? null : 'Average Labour pricing requires planned billable Labour in the selected Division.';
+  }
   const item = planningItems.find((value) => value.id === record.budgetItemId && value.budgetId === record.budgetId && value.category === categoryMap[record.category]);
   if (!item) return 'Budget pricing item must belong to the selected Budget.';
   if (record.employeeId && item.employeeId !== record.employeeId) return 'Budget pricing Employee does not match its Budget item.';

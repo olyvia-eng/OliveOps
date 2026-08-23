@@ -1,4 +1,4 @@
-import { buildOverheadRecoveryModel, grossMarginRate, recoveryPerUnit } from './overheadRecoveryModel.js';
+import { annualLabourCost, buildOverheadRecoveryModel, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
 
 const number = (value) => {
   const result = Number(value ?? 0);
@@ -24,6 +24,7 @@ const identity = (item) => {
 };
 
 const typeForCategory = (category) => category === 'materials' ? 'material' : category === 'subcontractors' ? 'subcontractor' : category;
+const averageLabourItemId = (divisionId) => `average-labour:${divisionId}`;
 
 const divisionIdsForItem = (item) => {
   if (item.category === 'labour' && Array.isArray(item.divisionAllocations)) return item.divisionAllocations.filter((allocation) => number(allocation.hours ?? allocation.percentage) > 0).map((allocation) => allocation.divisionId);
@@ -103,8 +104,52 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
     else costs.set(item.id, number(item.rate));
   }
 
-  return uniqueItems
-    .filter((item) => item.labourClassification !== 'overhead' && item.classification !== 'overhead')
+  const labourItems = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification !== 'overhead');
+  const labourRows = divisions.filter((division) => division.status === 'active').map((division) => {
+    const contributors = labourItems.map((item) => {
+      const share = labourDivisionShare(item, division.id);
+      return {
+        id: item.id,
+        name: item.name || item.description || 'Labour plan',
+        billableHours: plannedBillableLabourHours(item) * share,
+        annualCost: annualLabourCost(item) * share,
+      };
+    }).filter((item) => item.billableHours > 0);
+    const billableHours = contributors.reduce((sum, item) => sum + item.billableHours, 0);
+    const annualCost = contributors.reduce((sum, item) => sum + item.annualCost, 0);
+    const costRate = billableHours > 0 ? annualCost / billableHours : 0;
+    const scope = recovery.divisions[division.id];
+    const divisionOverheadPerUnit = recoveryPerUnit(scope, 'labour', costRate);
+    const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
+    const recommendedRate = grossMarginRate(recoveredCostPerUnit, margin);
+    const item = { id: averageLabourItemId(division.id), budgetId: budget.id, divisionId: division.id, category: 'labour', name: 'Average Labour' };
+    const rate = matchingRate(budgetRates, budget.id, item, 'labour', division.id);
+    return {
+      item,
+      key: `${division.id}:${item.id}`,
+      divisionId: division.id,
+      divisionName: division.name,
+      type: 'labour',
+      rate,
+      unit: 'hr',
+      costRate,
+      overheadPerUnit: divisionOverheadPerUnit,
+      divisionOverheadPerUnit,
+      recoveredCostPerUnit,
+      targetMarginPct: margin,
+      recommendedRate,
+      approvedRate: number(rate?.defaultSellPrice),
+      pricingStatus: number(rate?.defaultSellPrice) > 0 ? 'approved' : recommendedRate > 0 ? 'recommended_not_approved' : 'unavailable',
+      billableHours,
+      annualCost,
+      overheadPool: scope?.pools.labour ?? 0,
+      contributors,
+      aggregateLabour: true,
+    };
+  });
+
+  const itemRows = uniqueItems
+    .filter((item) => item.category !== 'labour' && item.classification !== 'overhead')
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
       const type = typeForCategory(item.category);
       const costRate = costs.get(item.id) ?? 0;
@@ -130,6 +175,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         approvedRate: number(rate?.defaultSellPrice),
         pricingStatus: number(rate?.defaultSellPrice) > 0 ? 'approved' : recommendedRate > 0 ? 'recommended_not_approved' : 'unavailable',
       };
-    }))
+    }));
+  return [...labourRows, ...itemRows]
     .sort((left, right) => left.divisionName.localeCompare(right.divisionName) || (left.item.name || left.item.description || '').localeCompare(right.item.name || right.item.description || ''));
 }

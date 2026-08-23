@@ -109,6 +109,39 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
     });
   }
 
+  const aggregateLabourRates = rates.filter((rate) => rate.category === 'labour'
+    && rate.pricingVersion === 2
+    && typeof rate.divisionId === 'string'
+    && rate.budgetItemId === `average-labour:${rate.divisionId}`
+    && (!divisionId || rate.divisionId === divisionId));
+  for (const rate of aggregateLabourRates) {
+    if (catalog.labour.some((item) => item.budgetItemId === rate.budgetItemId && item.divisionId === rate.divisionId)) continue;
+    const approvedRate = positiveNumber(rate.defaultSellPrice);
+    const recommendedRate = positiveNumber(rate.recommendedSellPrice);
+    catalog.labour.push({
+      type: 'labour',
+      sourceEntityId: undefined,
+      budgetItemId: rate.budgetItemId,
+      sourceRateId: rate.id,
+      pricingRateUpdatedAt: rate.updatedAt,
+      pricingVersion: rate.pricingVersion,
+      divisionId: rate.divisionId,
+      directCostPerUnit: rate.directCostPerUnit ?? positiveNumber(rate.unitCost),
+      divisionOverheadRecoveryPerUnit: rate.divisionOverheadRecoveryPerUnit ?? null,
+      companyOverheadRecoveryPerUnit: rate.companyOverheadRecoveryPerUnit ?? null,
+      recoveredCostPerUnit: rate.recoveredCostPerUnit ?? null,
+      targetMarginPct: rate.targetMarginPercent ?? null,
+      name: 'Average Labour',
+      description: rate.description ?? '',
+      unit: rate.unit || 'hr',
+      classification: 'billable',
+      costRate: positiveNumber(rate.unitCost),
+      recommendedRate,
+      approvedRate,
+      pricingStatus: approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable',
+    });
+  }
+
   for (const values of Object.values(catalog)) values.sort((left, right) => left.name.localeCompare(right.name));
   return { budgetId, ...catalog };
 }

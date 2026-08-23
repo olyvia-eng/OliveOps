@@ -17,6 +17,9 @@ export interface RecoveryScope {
 export function emptyRecoveryAllocation(): OverheadRecoveryAllocation;
 export function recoveryAllocationTotal(allocation?: OverheadRecoveryAllocation): number;
 export function recoveryAllocationIsValid(allocation?: OverheadRecoveryAllocation): boolean;
+export function annualLabourCost(item: BudgetDivisionPlanningItem): number;
+export function labourDivisionShare(item: BudgetDivisionPlanningItem, divisionId: string): number;
+export function plannedBillableLabourHours(item: BudgetDivisionPlanningItem): number;
 export function buildOverheadRecoveryModel(input: { budget: Budget; divisions: BudgetDivision[]; planningItems: BudgetDivisionPlanningItem[] }): { divisions: Record<string, RecoveryScope> };
 export function recoveryPerUnit(scope: RecoveryScope | undefined, category: RecoveryCategory, directCostPerUnit: number): number;
 export function grossMarginRate(recoveredCostPerUnit: number, targetMarginPct: number): number;

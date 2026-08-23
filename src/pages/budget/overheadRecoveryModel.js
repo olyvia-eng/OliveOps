@@ -7,7 +7,7 @@ const nonNegative = (value) => {
   return Number.isFinite(number) && number > 0 ? number : 0;
 };
 
-const annualLabour = (item) => {
+export const annualLabourCost = (item) => {
   const hours = nonNegative(item.plannedHours);
   const regular = item.compType === 'salaried' ? nonNegative(item.annualSalary) : nonNegative(item.hourlyRate) * hours;
   const overtime = item.compType === 'salaried' ? 0 : nonNegative(item.hourlyRate) * nonNegative(item.overtimeHours) * Math.max(1, nonNegative(item.overtimeMultiplier) || 1.5);
@@ -15,14 +15,14 @@ const annualLabour = (item) => {
   return regular + overtime + burden + nonNegative(item.benefitsExtraCost) + nonNegative(item.bonus);
 };
 
-const labourShare = (item, divisionId) => {
+export const labourDivisionShare = (item, divisionId) => {
   const allocation = item.divisionAllocations?.find((value) => value.divisionId === divisionId);
   if (allocation?.hours !== undefined && nonNegative(item.plannedHours) > 0) return nonNegative(allocation.hours) / nonNegative(item.plannedHours);
   if (allocation?.percentage !== undefined) return nonNegative(allocation.percentage) / 100;
   return item.divisionId === divisionId ? 1 : 0;
 };
 
-const billableLabourHours = (item) => item.labourClassification === 'overhead'
+export const plannedBillableLabourHours = (item) => item.labourClassification === 'overhead'
   ? 0
   : nonNegative(item.plannedHours) * Math.min(100, nonNegative(item.expectedBillablePct)) / 100;
 
@@ -90,11 +90,11 @@ export function buildOverheadRecoveryModel({ budget, divisions, planningItems })
   const divisionScopes = {};
 
   for (const division of divisions.filter((item) => item.budgetId === budget.id && item.status === 'active')) {
-    const overheadLabour = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification === 'overhead').reduce((sum, item) => sum + annualLabour(item) * labourShare(item, division.id), 0);
+    const overheadLabour = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification === 'overhead').reduce((sum, item) => sum + annualLabourCost(item) * labourDivisionShare(item, division.id), 0);
     const overheadEquipment = uniqueItems.filter((item) => item.category === 'equipment' && item.classification === 'overhead').reduce((sum, item) => sum + equipmentAnnualCost(item) * nonNegative(equipmentMonths(item, division.id)) / 12, 0);
     const overheadItems = uniqueItems.filter((item) => item.category === 'overhead').reduce((sum, item) => sum + overheadAllocatedAmount(item, division.id), 0);
     const denominators = {
-      labour: uniqueItems.filter((item) => item.category === 'labour').reduce((sum, item) => sum + billableLabourHours(item) * labourShare(item, division.id), 0),
+      labour: uniqueItems.filter((item) => item.category === 'labour').reduce((sum, item) => sum + plannedBillableLabourHours(item) * labourDivisionShare(item, division.id), 0),
       equipment: uniqueItems.filter((item) => item.category === 'equipment' && item.classification !== 'overhead').reduce((sum, item) => sum + equipmentHours(item, division.id), 0),
       materials: uniqueItems.filter((item) => item.category === 'materials' && item.divisionId === division.id).reduce((sum, item) => sum + plannedCost(item), 0),
       subcontractors: uniqueItems.filter((item) => item.category === 'subcontractors' && item.divisionId === division.id).reduce((sum, item) => sum + plannedCost(item), 0),

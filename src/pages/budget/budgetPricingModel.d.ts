@@ -16,6 +16,11 @@ export interface BudgetPricingRow {
   recommendedRate: number;
   approvedRate: number;
   pricingStatus: 'approved' | 'recommended_not_approved' | 'unavailable';
+  aggregateLabour?: boolean;
+  billableHours?: number;
+  annualCost?: number;
+  overheadPool?: number;
+  contributors?: Array<{ id: string; name: string; billableHours: number; annualCost: number }>;
 }
 
 export function buildBudgetPricingRows(input: {

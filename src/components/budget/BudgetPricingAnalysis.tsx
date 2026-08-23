@@ -40,6 +40,9 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
   const rows = useMemo(() => buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates }), [budget, budgetRates, divisions, planningItems]);
   const recovery = useMemo(() => buildOverheadRecoveryModel({ budget, divisions, planningItems }), [budget, divisions, planningItems]);
   const recoveryWarnings = Object.values(recovery.divisions).flatMap((scope) => scope.warnings);
+  const labourRows = rows.filter((row) => row.type === 'labour');
+  const equipmentRows = rows.filter((row) => row.type === 'equipment');
+  const otherRows = rows.filter((row) => row.type !== 'labour' && row.type !== 'equipment');
   const [rateStates, setRateStates] = useState<Record<string, RateSaveState>>({});
   const savesInFlight = useRef(new Set<string>());
 
@@ -111,6 +114,34 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
     }
   };
 
+  const pricingTable = (tableRows: typeof rows, costLabel: string, rateLabel: string) => <div className="overflow-x-auto">
+    <table className="w-full min-w-[1120px] text-sm">
+      <thead className="bg-brand-50 text-left text-xs uppercase text-gray-500 dark:bg-brand-800"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">Division</th><th className="px-4 py-3 text-right">{costLabel}</th><th className="px-4 py-3 text-right">Overhead</th><th className="px-4 py-3 text-right">Target Net Profit</th><th className="px-4 py-3 text-right">{rateLabel}</th><th className="px-4 py-3">Approved Rate</th><th className="px-4 py-3">Status</th></tr></thead>
+      <tbody className="divide-y divide-brand-100 dark:divide-brand-600">{tableRows.map((row) => {
+        const state = rateStates[row.key] ?? { draft: '', persisted: '', status: 'idle' };
+        const approved = rateValue(state.draft);
+        const isDirty = !ratesMatch(state.draft, state.persisted);
+        const isUnavailable = row.recommendedRate <= 0;
+        const usesRecommended = approved !== null && Math.abs(approved - row.recommendedRate) < 0.005;
+        return <tr key={row.key} id={`pricing-${row.divisionId}-${row.item.id}`}>
+          <td className="px-4 py-3 font-medium">{row.item.name || row.item.description}</td>
+          <td className="px-4 py-3 text-gray-500">{row.divisionName}</td>
+          <td className="px-4 py-3 text-right">{row.costRate > 0 ? `${formatCurrency(row.costRate)}/${row.unit}` : 'Unavailable'}</td>
+          <td className="px-4 py-3 text-right">{row.aggregateLabour ? <details><summary className="cursor-pointer font-medium">{formatCurrency(row.divisionOverheadPerUnit)}/hr</summary><div className="mt-2 space-y-1 text-xs text-gray-500"><p>Overhead allocated to labour: {formatCurrency(row.overheadPool ?? 0)}</p><p>Planned billable labour hours: {(row.billableHours ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</p><p>Overhead recovery: {formatCurrency(row.divisionOverheadPerUnit)}/hr</p></div></details> : formatCurrency(row.divisionOverheadPerUnit)}</td>
+          <td className="px-4 py-3 text-right">{row.targetMarginPct.toFixed(0)}%</td>
+          {isUnavailable ? <>
+            <td className="px-4 py-3 text-right"><p className="font-medium text-gray-700 dark:text-brand-100">Rate unavailable</p><p className="mt-1 text-xs font-normal text-gray-500 dark:text-brand-300">{unavailableReason(row.item.category)}</p></td>
+            <td className="px-4 py-3 text-gray-400" colSpan={2}>—</td>
+          </> : <>
+            <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">Calculation</summary><div className="mt-1 space-y-1"><p>{costLabel}: {formatCurrency(row.costRate)}/{row.unit}</p><p>Overhead: {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p><p>Breakeven: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p><p>Target Net Profit: {row.targetMarginPct.toFixed(0)}%</p><p>{formatCurrency(row.recoveredCostPerUnit)} ÷ (1 - {row.targetMarginPct.toFixed(0)}% Target Net Profit) = {formatCurrency(row.recommendedRate)}/{row.unit}</p></div></details></td>
+            <td className="w-44 px-4 py-3"><Input aria-label={`Approved rate for ${row.item.name || row.item.description} in ${row.divisionName}`} type="number" min={0} step={0.01} value={state.draft} disabled={!canEdit || state.status === 'saving'} onChange={(event) => setDraft(row.key, event.target.value)} placeholder={row.recommendedRate.toFixed(2)} />{state.error ? <p className="mt-1 text-xs text-red-600" role="alert">{state.error}</p> : null}</td>
+            <td className="px-4 py-3"><p className="mb-2 text-xs font-medium text-gray-600">{approved === null ? 'Not approved' : usesRecommended ? 'Using recommended rate' : 'Custom rate'}</p>{canEdit ? <Button type="button" size="sm" variant={isDirty ? 'primary' : 'secondary'} disabled={!isDirty || approved === null || approved <= 0 || state.status === 'saving'} onClick={() => void save(row)}>{state.status === 'saving' ? 'Saving…' : state.status === 'failed' ? 'Try Again' : isDirty ? 'Save' : 'Saved ✓'}</Button> : null}</td>
+          </>}
+        </tr>;
+      })}</tbody>
+    </table>
+  </div>;
+
   return <div className="space-y-5">
     <section className="space-y-3">
       <div><h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Overhead Recovery</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Choose how each Division recovers its allocated overhead through customer pricing.</p></div>
@@ -118,39 +149,6 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
       {divisions.length === 0 ? <Card><EmptyState title="No Divisions yet" description="Add a Division before configuring overhead recovery." /></Card> : null}
     </section>
 
-    {rows.length === 0 ? <Card><EmptyState title="No pricing items yet" description="Add Labour, Equipment, Materials, or Subcontractors to this Budget before approving Estimate pricing." /></Card> : <Card className="overflow-hidden">
-    <div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600">
-      <h2 className="font-semibold text-gray-900 dark:text-brand-50">Pricing Recommendations</h2>
-      <p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Review Budget-calculated recommendations and approve the customer-facing rates Estimates may use.</p>
-    </div>
-    {recoveryWarnings.length > 0 ? <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status"><p className="font-semibold">Some overhead cannot be recovered from the current plan.</p>{recoveryWarnings.map((warning) => <p key={warning} className="mt-1">{warning}</p>)}</div> : null}
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1120px] text-sm">
-        <thead className="bg-brand-50 text-left text-xs uppercase text-gray-500 dark:bg-brand-800"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">Division</th><th className="px-4 py-3">Type</th><th className="px-4 py-3 text-right">Direct Cost</th><th className="px-4 py-3 text-right">Overhead Recovery</th><th className="px-4 py-3 text-right">Recommended</th><th className="px-4 py-3">Approved Rate</th><th className="px-4 py-3">Status</th></tr></thead>
-        <tbody className="divide-y divide-brand-100 dark:divide-brand-600">{rows.map((row) => {
-          const state = rateStates[row.key] ?? { draft: '', persisted: '', status: 'idle' };
-          const approved = rateValue(state.draft);
-          const isDirty = !ratesMatch(state.draft, state.persisted);
-          const isUnavailable = row.recommendedRate <= 0;
-          const usesRecommended = approved !== null && Math.abs(approved - row.recommendedRate) < 0.005;
-          return <tr key={row.key} id={`pricing-${row.divisionId}-${row.item.id}`}>
-            <td className="px-4 py-3 font-medium">{row.item.name || row.item.description}</td>
-            <td className="px-4 py-3 text-gray-500">{row.divisionName}</td>
-            <td className="px-4 py-3 capitalize text-gray-500">{row.type}</td>
-            <td className="px-4 py-3 text-right">{row.costRate > 0 ? `${formatCurrency(row.costRate)}/${row.unit}` : 'Unavailable'}</td>
-            <td className="px-4 py-3 text-right">{formatCurrency(row.divisionOverheadPerUnit)}</td>
-            {isUnavailable ? <>
-              <td className="px-4 py-3 text-right"><p className="font-medium text-gray-700 dark:text-brand-100">Rate unavailable</p><p className="mt-1 text-xs font-normal text-gray-500 dark:text-brand-300">{unavailableReason(row.item.category)}</p></td>
-              <td className="px-4 py-3 text-gray-400" colSpan={2}>—</td>
-            </> : <>
-              <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500"><summary className="cursor-pointer">Calculation</summary><p className="mt-1">({formatCurrency(row.costRate)} + {formatCurrency(row.divisionOverheadPerUnit)}) ÷ {(1 - row.targetMarginPct / 100).toFixed(2)}</p></details></td>
-              <td className="w-44 px-4 py-3"><Input aria-label={`Approved rate for ${row.item.name || row.item.description} in ${row.divisionName}`} type="number" min={0} step={0.01} value={state.draft} disabled={!canEdit || state.status === 'saving'} onChange={(event) => setDraft(row.key, event.target.value)} placeholder={row.recommendedRate.toFixed(2)} />{state.error ? <p className="mt-1 text-xs text-red-600" role="alert">{state.error}</p> : null}</td>
-              <td className="px-4 py-3"><p className="mb-2 text-xs font-medium text-gray-600">{approved === null ? 'Not approved' : usesRecommended ? 'Using recommended rate' : 'Custom rate'}</p>{canEdit ? <Button type="button" size="sm" variant={isDirty ? 'primary' : 'secondary'} disabled={!isDirty || approved === null || approved <= 0 || state.status === 'saving'} onClick={() => void save(row)}>{state.status === 'saving' ? 'Saving…' : state.status === 'failed' ? 'Try Again' : isDirty ? 'Save' : 'Saved ✓'}</Button> : null}</td>
-            </>}
-          </tr>;
-        })}</tbody>
-      </table>
-    </div>
-  </Card>}
+    {rows.length === 0 ? <Card><EmptyState title="No pricing items yet" description="Add Labour, Equipment, Materials, or Subcontractors to this Budget before approving Estimate pricing." /></Card> : <section className="space-y-3"><div><h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Pricing Recommendations</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">Review the calculated rates for each Division, then explicitly approve the customer-facing rates Estimates may use.</p></div>{recoveryWarnings.length > 0 ? <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status"><p className="font-semibold">Some overhead cannot be recovered from the current plan.</p>{recoveryWarnings.map((warning) => <p key={warning} className="mt-1">{warning}</p>)}</div> : null}{labourRows.length > 0 ? <Card className="overflow-hidden"><div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600"><h3 className="font-semibold text-gray-900 dark:text-brand-50">Labour Pricing</h3></div>{pricingTable(labourRows, 'Labour Cost', 'Labour Rate')}</Card> : null}{equipmentRows.length > 0 ? <Card className="overflow-hidden"><div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600"><h3 className="font-semibold text-gray-900 dark:text-brand-50">Equipment Pricing</h3></div>{pricingTable(equipmentRows, 'Equipment Cost', 'Equipment Rate')}</Card> : null}{otherRows.length > 0 ? <Card className="overflow-hidden"><div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600"><h3 className="font-semibold text-gray-900 dark:text-brand-50">Material &amp; Subcontractor Pricing</h3></div>{pricingTable(otherRows, 'Unit Cost', 'Customer Rate')}</Card> : null}</section>}
   </div>;
 }

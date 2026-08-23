@@ -97,6 +97,25 @@ test('existing Estimate snapshots do not silently reprice when the Budget approv
   assert.equal(result.estimate.lineItems[0].total, 760);
 });
 
+test('Division Average Labour approval is available to new Estimates without replacing legacy employee rates', () => {
+  const aggregateRate = {
+    id: 'rate-average-hardscape', budgetId, budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2,
+    category: 'labour', unit: 'hr', unitCost: 40, directCostPerUnit: 40, divisionOverheadRecoveryPerUnit: 5,
+    recoveredCostPerUnit: 45, targetMarginPercent: 20, recommendedSellPrice: 56.25, defaultSellPrice: 58, active: true,
+  };
+  const catalog = buildEstimatePricingCatalog({ budgetId, divisionId: 'hardscape', planningItems, budgetRates: [...budgetRates, aggregateRate] });
+  const average = catalog.labour.find((item) => item.budgetItemId === 'average-labour:hardscape');
+  assert.equal(average.name, 'Average Labour');
+  assert.equal(average.approvedRate, 58);
+  assert.equal(catalog.labour.some((item) => item.sourceEntityId === 'ryan'), true);
+
+  const requested = { id: 'line-average', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'average-labour:hardscape', itemName: '', description: '', quantity: 10, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
+  const result = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-average', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
+  assert.equal(result.ok, true);
+  assert.equal(result.estimate.lineItems[0].sellPrice, 58);
+  assert.equal(result.estimate.lineItems[0].total, 580);
+});
+
 test('Division catalogs prefer version-2 rates and snapshot recovery components immutably', () => {
   const versionedRate = {
     id: 'rate-ryan-hardscape-v2', budgetId, budgetItemId: 'labour-ryan', employeeId: 'ryan', divisionId: 'hardscape', pricingVersion: 2,
