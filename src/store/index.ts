@@ -154,8 +154,8 @@ interface AppState {
   addUnbillableTimeCategory: (category: Omit<UnbillableTimeCategory, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateUnbillableTimeCategory: (id: ID, data: Partial<UnbillableTimeCategory>) => void;
   archiveUnbillableTimeCategory: (id: ID) => void;
-  addMaterialCatalogItem: (item: Omit<MaterialCatalogItem, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateMaterialCatalogItem: (id: ID, data: Partial<MaterialCatalogItem>) => void;
+  addMaterialCatalogItem: (item: Omit<MaterialCatalogItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MaterialCatalogItem>;
+  updateMaterialCatalogItem: (id: ID, data: Partial<MaterialCatalogItem>) => Promise<MaterialCatalogItem>;
   deleteMaterialCatalogItem: (id: ID) => void;
 
   // Jobs
@@ -771,43 +771,54 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Material Catalog ─────────────────────────────────────────────────
-      addMaterialCatalogItem: (item) => {
+      addMaterialCatalogItem: async (item) => {
         const previous = get().materialCatalogItems;
         const materialCatalogItem = { ...item, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
         set((s) => ({ materialCatalogItems: [materialCatalogItem, ...s.materialCatalogItems] }));
 
-        void ensureOk(fetch(dataUrl('material-catalog-items'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: materialCatalogItem }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('material-catalog-items'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: materialCatalogItem }),
+          }));
+          return materialCatalogItem;
+        } catch (error: unknown) {
           set({ materialCatalogItems: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Material catalog item could not be saved.') });
-        });
+          throw error;
+        }
       },
-      updateMaterialCatalogItem: (id, data) => {
+      updateMaterialCatalogItem: async (id, data) => {
         const previous = get().materialCatalogItems;
         const updatedAt = nowISO();
+        const material = previous.find((item) => item.id === id);
+        if (!material) throw new Error('Material catalog item not found.');
+        const updatedMaterial = { ...material, ...data, updatedAt };
         set((s) => ({
           materialCatalogItems: s.materialCatalogItems.map((item) =>
-            item.id === id ? { ...item, ...data, updatedAt } : item
+            item.id === id ? updatedMaterial : item
           ),
         }));
 
-        void ensureOk(fetch(dataUrl('material-catalog-items', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
+        try {
+          await ensureOk(fetch(dataUrl('material-catalog-items', id), {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt } }),
+          }));
+          return updatedMaterial;
+        } catch (error: unknown) {
           set({ materialCatalogItems: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Material catalog changes could not be saved.') });
-        });
+          throw error;
+        }
       },
       deleteMaterialCatalogItem: (id) => {
         const previous = get().materialCatalogItems;

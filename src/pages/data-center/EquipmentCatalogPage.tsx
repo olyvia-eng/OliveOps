@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PlusCircle, Search } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Modal, PageHeader } from '../../components/ui';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
 import {
   closeDetailWorkspace,
@@ -22,42 +22,10 @@ import {
 } from '../../components/equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
+import MaterialsCatalogSection from './MaterialsCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'pricing', 'budgets'];
-
-type MaterialCatalogRow = {
-  key: string;
-  name: string;
-  catalogMentions: number;
-  estimateMentions: number;
-  jobCostMentions: number;
-  expenseMentions: number;
-  referencedJobs: number;
-  totalPlannedOrSpent: number;
-  avgUnitCost: number;
-  unit: string;
-  notes: string;
-  defaultUnitCostTotal: number;
-};
-
-type MaterialSort = 'highest_value' | 'most_referenced' | 'name';
-
-interface MaterialFormState {
-  name: string;
-  unit: string;
-  defaultUnitCost: number;
-  notes: string;
-}
-
-const emptyMaterialForm = (): MaterialFormState => ({
-  name: '',
-  unit: 'unit',
-  defaultUnitCost: 0,
-  notes: '',
-});
-
-const toMaterialKey = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
 
 export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -67,17 +35,11 @@ export default function EquipmentCatalogPage() {
   const budgetItems = useStore((state) => state.budgetItems);
   const equipmentBudgetAllocations = useStore((state) => state.equipmentBudgetAllocations);
   const budgetRates = useStore((state) => state.budgetRates);
-  const materialCatalogItems = useStore((state) => state.materialCatalogItems);
-  const estimates = useStore((state) => state.estimates);
-  const expenses = useStore((state) => state.expenses);
-  const jobs = useStore((state) => state.jobs);
   const addEquipmentAsset = useStore((state) => state.addEquipmentAsset);
-  const addMaterialCatalogItem = useStore((state) => state.addMaterialCatalogItem);
   const updateEquipmentAsset = useStore((state) => state.updateEquipmentAsset);
   const deleteEquipmentAsset = useStore((state) => state.deleteEquipmentAsset);
 
   const [form, setForm] = useState<EquipmentInfoFormValue>(emptyEquipmentInfoFormValue());
-  const [materialForm, setMaterialForm] = useState<MaterialFormState>(emptyMaterialForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [equipmentModalOpen, setEquipmentModalOpen] = useState(false);
   const [equipmentFormError, setEquipmentFormError] = useState('');
@@ -86,8 +48,6 @@ export default function EquipmentCatalogPage() {
   const [equipmentTypeFilter, setEquipmentTypeFilter] = useState('all');
   const [equipmentStatusFilter, setEquipmentStatusFilter] = useState('all');
   const [equipmentBudgetFilter, setEquipmentBudgetFilter] = useState('all');
-  const [materialQuery, setMaterialQuery] = useState('');
-  const [materialSort, setMaterialSort] = useState<MaterialSort>('highest_value');
 
   const sortedEquipment = useMemo(() => {
     return [...equipmentAssets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -128,128 +88,6 @@ export default function EquipmentCatalogPage() {
   const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, EQUIPMENT_WORKSPACE_QUERY, mode));
   const setEquipmentTab = (tab: EquipmentDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, EQUIPMENT_WORKSPACE_QUERY, tab));
 
-  const materialRows = useMemo<MaterialCatalogRow[]>(() => {
-    const rows = new Map<string, MaterialCatalogRow>();
-    const trackedJobIds = new Map<string, Set<string>>();
-
-    const ensureRow = (name: string) => {
-      const cleanName = name.trim() || 'Unspecified Material';
-      const key = toMaterialKey(cleanName);
-      const existing = rows.get(key);
-      if (existing) return existing;
-
-      const created: MaterialCatalogRow = {
-        key,
-        name: cleanName,
-        catalogMentions: 0,
-        estimateMentions: 0,
-        jobCostMentions: 0,
-        expenseMentions: 0,
-        referencedJobs: 0,
-        totalPlannedOrSpent: 0,
-        avgUnitCost: 0,
-        unit: 'unit',
-        notes: '',
-        defaultUnitCostTotal: 0,
-      };
-      rows.set(key, created);
-      trackedJobIds.set(key, new Set<string>());
-      return created;
-    };
-
-    for (const material of materialCatalogItems) {
-      const row = ensureRow(material.name);
-      row.catalogMentions += 1;
-      row.defaultUnitCostTotal += Number(material.defaultUnitCost || 0);
-      if (!row.notes && material.notes.trim()) {
-        row.notes = material.notes.trim();
-      }
-      if (material.unit.trim()) {
-        row.unit = material.unit.trim();
-      }
-    }
-
-    for (const estimate of estimates) {
-      for (const item of estimate.lineItems) {
-        if (item.category !== 'material') continue;
-        const row = ensureRow(item.description);
-        row.estimateMentions += 1;
-        row.totalPlannedOrSpent += item.total;
-      }
-    }
-
-    for (const expense of expenses) {
-      if (expense.category !== 'materials') continue;
-      const row = ensureRow(expense.description || expense.vendor || 'Unspecified Material');
-      row.expenseMentions += 1;
-      row.totalPlannedOrSpent += expense.amount;
-      if (expense.jobId) {
-        trackedJobIds.get(row.key)?.add(expense.jobId);
-      }
-    }
-
-    for (const job of jobs) {
-      for (const cost of job.actualCosts) {
-        if (cost.category !== 'material') continue;
-        const row = ensureRow(cost.description);
-        row.jobCostMentions += 1;
-        row.totalPlannedOrSpent += cost.total;
-        trackedJobIds.get(row.key)?.add(job.id);
-      }
-    }
-
-    const result = Array.from(rows.values()).map((row) => {
-      const mentions = row.catalogMentions + row.estimateMentions + row.expenseMentions + row.jobCostMentions;
-      const referencedJobs = trackedJobIds.get(row.key)?.size ?? 0;
-      return {
-        ...row,
-        referencedJobs,
-        avgUnitCost: mentions > 0
-          ? (row.totalPlannedOrSpent + row.defaultUnitCostTotal) / mentions
-          : 0,
-      };
-    });
-
-    return result.sort((a, b) => b.totalPlannedOrSpent - a.totalPlannedOrSpent || a.name.localeCompare(b.name));
-  }, [estimates, expenses, jobs, materialCatalogItems]);
-
-  const materialSummary = useMemo(() => {
-    const totalValue = materialRows.reduce((sum, row) => sum + row.totalPlannedOrSpent, 0);
-    const mostReferenced = materialRows.reduce((best, row) => {
-      const rowMentions = row.estimateMentions + row.jobCostMentions + row.expenseMentions;
-      const bestMentions = best ? best.estimateMentions + best.jobCostMentions + best.expenseMentions : -1;
-      return rowMentions > bestMentions ? row : best;
-    }, null as MaterialCatalogRow | null);
-
-    return {
-      totalValue,
-      mostReferenced,
-    };
-  }, [materialRows]);
-
-  const visibleMaterialRows = useMemo(() => {
-    const query = materialQuery.trim().toLowerCase();
-    const filtered = query.length === 0
-      ? [...materialRows]
-      : materialRows.filter((row) => row.name.toLowerCase().includes(query));
-
-    filtered.sort((a, b) => {
-      if (materialSort === 'name') {
-        return a.name.localeCompare(b.name);
-      }
-
-      if (materialSort === 'most_referenced') {
-        const aMentions = a.estimateMentions + a.jobCostMentions + a.expenseMentions;
-        const bMentions = b.estimateMentions + b.jobCostMentions + b.expenseMentions;
-        return bMentions - aMentions || b.totalPlannedOrSpent - a.totalPlannedOrSpent;
-      }
-
-      return b.totalPlannedOrSpent - a.totalPlannedOrSpent;
-    });
-
-    return filtered;
-  }, [materialQuery, materialRows, materialSort]);
-
   const equipmentCostBreakdown = useMemo(() => {
     return calculateEquipmentCostBreakdown({
       equipmentCostType: form.equipmentCostType,
@@ -273,20 +111,6 @@ export default function EquipmentCatalogPage() {
   const openAddEquipment = () => {
     resetForm();
     setEquipmentModalOpen(true);
-  };
-
-  const handleMaterialSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!materialForm.name.trim()) return;
-
-    addMaterialCatalogItem({
-      name: materialForm.name.trim(),
-      unit: materialForm.unit.trim() || 'unit',
-      defaultUnitCost: Number(materialForm.defaultUnitCost || 0),
-      notes: materialForm.notes.trim(),
-    });
-
-    setMaterialForm(emptyMaterialForm());
   };
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -365,127 +189,7 @@ export default function EquipmentCatalogPage() {
         subtitle="What materials and assets are we standardizing so planning stays fast and cost decisions stay consistent?"
       />
 
-      <Card className="order-3 p-5">
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Materials Catalog</h2>
-            <p className="text-sm text-gray-500">Built from manual catalog entries, estimate line items, job costs, and material expenses.</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-500">Tracked materials</p>
-            <p className="text-base font-semibold text-gray-900">{materialRows.length}</p>
-          </div>
-        </div>
-
-        <form id="material-catalog-form" onSubmit={handleMaterialSubmit} className="grid gap-3 sm:grid-cols-[minmax(0,1.4fr)_120px_160px_minmax(0,1fr)_auto] mb-4">
-          <Input
-            label="Material Name"
-            required
-            value={materialForm.name}
-            onChange={(event) => setMaterialForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="3/4 inch crushed gravel"
-          />
-          <Input
-            label="Unit"
-            value={materialForm.unit}
-            onChange={(event) => setMaterialForm((current) => ({ ...current, unit: event.target.value }))}
-            placeholder="yard"
-          />
-          <Input
-            label="Default Unit Cost"
-            type="number"
-            min="0"
-            step="0.01"
-            value={materialForm.defaultUnitCost}
-            onChange={(event) => setMaterialForm((current) => ({ ...current, defaultUnitCost: Number(event.target.value || 0) }))}
-          />
-          <TextArea
-            label="Notes"
-            value={materialForm.notes}
-            onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) => setMaterialForm((current) => ({ ...current, notes: event.target.value }))}
-            placeholder="Preferred supplier or spec notes"
-          />
-          <div className="flex items-end">
-            <Button type="submit" className="w-full justify-center">Add Material</Button>
-          </div>
-        </form>
-
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px] mb-4">
-          <Input
-            label="Search Materials"
-            placeholder="Search by material name"
-            value={materialQuery}
-            onChange={(event) => setMaterialQuery(event.target.value)}
-          />
-          <Select
-            label="Sort"
-            value={materialSort}
-            onChange={(event) => setMaterialSort(event.target.value as MaterialSort)}
-          >
-            <option value="highest_value">Highest Value</option>
-            <option value="most_referenced">Most Referenced</option>
-            <option value="name">Name (A-Z)</option>
-          </Select>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3 mb-4">
-          <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
-            <p className="text-xs text-brand-700">Total Planned + Spent</p>
-            <p className="text-lg font-semibold text-brand-900">{formatCurrency(materialSummary.totalValue)}</p>
-          </div>
-          <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
-            <p className="text-xs text-brand-700">Most Referenced</p>
-            <p className="text-base font-semibold text-brand-900">{materialSummary.mostReferenced?.name ?? 'None yet'}</p>
-          </div>
-          <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
-            <p className="text-xs text-brand-700">Active Material Rows</p>
-            <p className="text-lg font-semibold text-brand-900">{materialRows.filter((row) => row.totalPlannedOrSpent > 0).length}</p>
-          </div>
-        </div>
-
-        {visibleMaterialRows.length === 0 ? (
-          materialRows.length === 0 ? (
-            <EmptyState
-              title="No materials yet"
-              description="Build your material catalog for easier estimating and project planning."
-              action={<a href="#material-catalog-form"><Button type="button">Add Material</Button></a>}
-            />
-          ) : (
-            <EmptyState
-              title="No materials match this filter"
-              description="Try a different search term, or clear the current material filter."
-              action={<Button type="button" variant="secondary" onClick={() => { setMaterialQuery(''); setMaterialSort('highest_value'); }}>Clear Filters</Button>}
-            />
-          )
-        ) : (
-          <div className="space-y-3">
-            <p className="text-xs text-gray-500">Showing {visibleMaterialRows.length} material rows</p>
-            {visibleMaterialRows.map((row) => (
-              <div key={row.key} className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{row.name}</h3>
-                    <p className="mt-1 text-sm text-gray-500">{row.referencedJobs} linked jobs</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">Planned + Spent</p>
-                    <p className="font-semibold text-gray-900">{formatCurrency(row.totalPlannedOrSpent)}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge label={`Catalog ${row.catalogMentions}`} className="bg-brand-200 text-brand-800" />
-                  <Badge label={`Estimates ${row.estimateMentions}`} className="bg-brand-50 text-brand-700" />
-                  <Badge label={`Job Costs ${row.jobCostMentions}`} className="bg-accent-50 text-accent-700" />
-                  <Badge label={`Expenses ${row.expenseMentions}`} className="bg-gray-100 text-gray-700" />
-                  <Badge label={`Avg ${formatCurrency(row.avgUnitCost)}`} className="bg-brand-100 text-brand-700" />
-                  <Badge label={`Unit ${row.unit || 'unit'}`} className="bg-gray-100 text-gray-700" />
-                </div>
-                {row.notes ? <p className="mt-3 text-sm text-gray-600">{row.notes}</p> : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <MaterialsCatalogSection />
 
       <div className="order-2">
       <DetailWorkspace
