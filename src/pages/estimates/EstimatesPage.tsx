@@ -38,12 +38,14 @@ const isEstimateStatusFilter = (value: string | null): value is EstimateStatus |
 interface CreateEstimateFormState {
   customerId: string;
   pricingBudgetId: string;
+  divisionId: string;
   propertyRef: string;
 }
 
 const defaultCreateForm = (): CreateEstimateFormState => ({
   customerId: '',
   pricingBudgetId: '',
+  divisionId: '',
   propertyRef: '',
 });
 
@@ -196,6 +198,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     estimates,
     customers,
     budgets,
+    budgetDivisions,
     addEstimate,
     deleteEstimate,
     convertEstimateToJob,
@@ -276,6 +279,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const hasCustomers = customers.length > 0;
   const hasBudgets = budgets.length > 0;
   const hasPricingRates = budgets.length > 0;
+  const pricingDivisions = budgetDivisions
+    .filter((division) => division.budgetId === createForm.pricingBudgetId && division.status === 'active')
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
 
   const filtered = estimates.filter((estimate) => {
     const customer = customers.find((item) => item.id === estimate.customerId);
@@ -299,18 +305,19 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       return;
     }
 
+    const pricingBudgetId = budgets.find((budget) => budget.status === 'active')?.id ?? budgets[0]?.id ?? '';
     setCreateForm({
       ...defaultCreateForm(),
       customerId: customerId ?? '',
-      pricingBudgetId: budgets.find((budget) => budget.status === 'active')?.id ?? budgets[0]?.id ?? '',
+      pricingBudgetId,
     });
     setCreateModalOpen(true);
   };
 
   const createEstimate = async () => {
     if (creatingEstimate) return;
-    if (!createForm.customerId || !createForm.pricingBudgetId) {
-      emitAppToast({ tone: 'error', message: 'Customer and pricing budget are required to start an estimate.' });
+    if (!createForm.customerId || !createForm.pricingBudgetId || !createForm.divisionId) {
+      emitAppToast({ tone: 'error', message: 'Customer, pricing budget, and Division are required to start an estimate.' });
       return;
     }
 
@@ -320,7 +327,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     const propertyIndex = parsePropertyRef(createForm.propertyRef);
     const selectedProperty = propertyIndex !== null ? customerProperties[propertyIndex] : undefined;
 
-    const generalWorkArea = createDefaultEstimateWorkArea();
+    const generalWorkArea = { ...createDefaultEstimateWorkArea(), divisionId: createForm.divisionId };
     setCreatingEstimate(true);
     const estimateId = await addEstimate({
       customerId: createForm.customerId,
@@ -614,10 +621,20 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
               label="Pricing Budget"
               required
               value={createForm.pricingBudgetId}
-              onChange={(event) => setCreateForm((current) => ({ ...current, pricingBudgetId: event.target.value }))}
+              onChange={(event) => setCreateForm((current) => ({ ...current, pricingBudgetId: event.target.value, divisionId: '' }))}
             >
               <option value="">Select budget</option>
               {budgets.map((budget) => <option key={budget.id} value={budget.id}>{budget.name}</option>)}
+            </Select>
+            <Select
+              label="Division"
+              required
+              value={createForm.divisionId}
+              onChange={(event) => setCreateForm((current) => ({ ...current, divisionId: event.target.value }))}
+              disabled={!createForm.pricingBudgetId}
+            >
+              <option value="">Select division</option>
+              {pricingDivisions.map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
             </Select>
           </div>
 

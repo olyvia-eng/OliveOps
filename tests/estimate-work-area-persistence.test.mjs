@@ -128,7 +128,9 @@ test('adding and deleting embedded work areas preserves distinct authoritative I
 });
 
 test('creation, navigation, add, and delete flows use persisted embedded IDs', () => {
-  assert.match(estimatesPageSource, /const generalWorkArea = createDefaultEstimateWorkArea\(\)/);
+  assert.match(estimatesPageSource, /const generalWorkArea = \{ \.\.\.createDefaultEstimateWorkArea\(\), divisionId: createForm\.divisionId \}/);
+  assert.match(estimatesPageSource, /label="Division"[\s\S]*pricingDivisions\.map/);
+  assert.match(estimatesPageSource, /pricingBudgetId: event\.target\.value, divisionId: ''/);
   assert.match(estimatesPageSource, /const estimateId = await addEstimate\(\{/);
   assert.match(estimatesPageSource, /workAreas: \[generalWorkArea\]/);
   assert.match(estimatesPageSource, /if \(!estimateId\) return;\s*setCreateModalOpen\(false\);\s*navigate\(`\/estimates\/\$\{estimateId\}`\)/);

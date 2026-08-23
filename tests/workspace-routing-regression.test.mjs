@@ -27,7 +27,7 @@ test('lightweight estimate creation returns an id and opens the workspace', () =
   assert.match(estimatesSource, /workAreas: \[generalWorkArea\]/);
   assert.match(estimatesSource, /if \(!estimateId\) return;/);
   assert.match(estimatesSource, /navigate\(`\/estimates\/\$\{estimateId\}`\);/);
-  assert.match(estimatesSource, /Customer and pricing budget are required to start an estimate\./);
+  assert.match(estimatesSource, /Customer, pricing budget, and Division are required to start an estimate\./);
 });
 
 test('estimate list title and action open URL-backed details with a dedicated workspace available', () => {
