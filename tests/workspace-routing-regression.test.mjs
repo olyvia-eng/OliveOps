@@ -40,9 +40,11 @@ test('estimate list title and action open URL-backed details with a dedicated wo
 });
 
 test('estimate editing uses a URL-backed tab workspace with restricted analysis', () => {
-  for (const tab of ['info', 'work-areas', 'proposal', 'project-management', 'analysis']) {
+  for (const tab of ['info', 'work-areas', 'proposal', 'analysis']) {
     assert.match(estimateWorkspaceSource, new RegExp(`key: '${tab}'`));
   }
+  assert.doesNotMatch(estimateWorkspaceSource, /key: 'project-management'|activeTab === 'project-management'/);
+  assert.match(estimateWorkspaceSource, /activeTab === 'proposal'[\s\S]*form\.status === 'accepted'[\s\S]*Convert to Job/);
   assert.match(estimateWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(estimateWorkspaceSource, /activeTab === 'analysis' && canViewAnalysis/);
   assert.match(estimateWorkspaceSource, /setSearchParams\(\(previous\) =>/);
@@ -64,6 +66,16 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(workAreaBuilderSource, /rate\.budgetId === estimate\?\.pricingBudgetId/);
   assert.match(workAreaBuilderSource, /Custom \$\{CATEGORY_ADD_LABEL\[customItemCategory\]\}/);
   assert.match(workAreaBuilderSource, /Delete Work Area/);
+});
+
+test('work-area builder puts totals below the name and scope after line items', () => {
+  const nameIndex = workAreaBuilderSource.indexOf('label="Work Area Name"');
+  const totalsIndex = workAreaBuilderSource.indexOf('Work Area Totals');
+  const categoriesIndex = workAreaBuilderSource.indexOf('{CATEGORY_ORDER.map(renderLineItemGroup)}');
+  const scopeIndex = workAreaBuilderSource.indexOf('label="Description / Scope"');
+  assert.ok(nameIndex >= 0 && nameIndex < totalsIndex);
+  assert.ok(totalsIndex < categoriesIndex && categoriesIndex < scopeIndex);
+  assert.doesNotMatch(workAreaBuilderSource, />Sell Total</);
 });
 
 test('Budget screens use the parent workspace without exposing legacy compatibility routes', () => {
@@ -94,6 +106,10 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /invoices\.filter\(\(invoice\) => invoice\.jobId === id\)/);
   assert.match(jobWorkspaceSource, /activeTab === 'invoices'/);
   assert.match(jobWorkspaceSource, /activeTab === 'project-management'/);
+  assert.doesNotMatch(jobWorkspaceSource, />Actual Costs<\/h2>|Add Cost Entry/);
+  assert.match(jobWorkspaceSource, /employeeTimeEntryNotes[\s\S]*entry\.notes/);
+  assert.match(jobWorkspaceSource, /<h2 className="font-semibold">Photos<\/h2>/);
+  assert.match(jobWorkspaceSource, /clockInPhotoFileId[\s\S]*clockOutPhotoFileIds[\s\S]*photoAttachmentFileIds/);
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
   assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
   assert.match(jobWorkspaceSource, /No invoices yet/);

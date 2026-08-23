@@ -26,7 +26,7 @@ import type {
   EstimateWorkArea,
 } from '../../types';
 
-type EstimateTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis';
+type EstimateTab = 'info' | 'work-areas' | 'proposal' | 'analysis';
 
 interface Props {
   currentUserRole: string;
@@ -244,7 +244,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   }, [id, persistedEstimateUpdatedAt]);
 
   useEffect(() => {
-    const validTabs: EstimateTab[] = ['info', 'work-areas', 'proposal', 'project-management', 'analysis'];
+    const validTabs: EstimateTab[] = ['info', 'work-areas', 'proposal', 'analysis'];
     const isAllowed = canViewAnalysis || activeTab !== 'analysis';
     if (!validTabs.includes(activeTab) || !isAllowed) {
       setSearchParams((previous) => {
@@ -502,7 +502,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     { key: 'info', label: 'Info', visible: true },
     { key: 'work-areas', label: 'Work Areas', visible: true },
     { key: 'proposal', label: 'Proposal', visible: true },
-    { key: 'project-management', label: 'Project Management', visible: true },
     { key: 'analysis', label: 'Analysis', visible: canViewAnalysis },
   ];
 
@@ -756,48 +755,14 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                   <Send size={14} /> Mark as Sent
                 </Button>
               ) : null}
+              {form.status === 'accepted' && !form.convertedToJobId ? (
+                <Button onClick={openConvertModal}>
+                  <RefreshCw size={14} /> Convert to Job
+                </Button>
+              ) : null}
             </div>
           </Card>
         )
-      )}
-
-      {activeTab === 'project-management' && (
-        <div className="space-y-4">
-          <Card className="p-4">
-            <h2 className="text-lg font-semibold text-gray-900">Project Management</h2>
-            {!hasWorkAreas && !form.convertedToJobId && form.status !== 'accepted' ? (
-              <EmptyState
-                title="No project planning information yet"
-                description="Add internal planning details as the estimate develops."
-              />
-            ) : (
-              <>
-                <p className="mt-1 text-sm text-gray-600">Estimates stay in sales/proposal mode until converted. Jobs remain separate operational records.</p>
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
-                  <p className="text-gray-600">Status: <span className="font-semibold text-gray-900 capitalize">{form.status}</span></p>
-                  <p className="text-gray-600">Converted Job: <span className="font-semibold text-gray-900">{form.convertedToJobId ?? 'Not converted'}</span></p>
-                  <p className="text-gray-600">Converted At: <span className="font-semibold text-gray-900">{form.convertedAt ? formatDateTime(form.convertedAt) : 'N/A'}</span></p>
-                  <p className="text-gray-600">Work Areas: <span className="font-semibold text-gray-900">{form.workAreas.length}</span></p>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {form.status === 'accepted' ? (
-                    <Button onClick={openConvertModal}>
-                      <RefreshCw size={14} /> Convert to Job
-                    </Button>
-                  ) : null}
-                  {form.convertedToJobId ? (
-                    <Link to={`/jobs/${form.convertedToJobId}`}>
-                      <Button variant="secondary">
-                        <ChevronRight size={14} /> Open Linked Job
-                      </Button>
-                    </Link>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </Card>
-        </div>
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (

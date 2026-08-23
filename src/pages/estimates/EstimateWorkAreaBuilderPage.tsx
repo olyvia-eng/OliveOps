@@ -698,7 +698,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Sell Price</label>
                     <input
@@ -713,10 +713,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <div className="rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 py-2">
                     <p className="text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost</p>
                     <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.quantity * lineItem.unitCost)}</p>
-                  </div>
-                  <div className="rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 py-2">
-                    <p className="text-xs font-medium text-gray-600 dark:text-brand-200">Sell Total</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.total)}</p>
                   </div>
                 </div>
               </div>
@@ -761,11 +757,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               value={form.name}
               onChange={(event) => setForm((current) => current ? { ...current, name: event.target.value } : current)}
             />
-            <TextArea
-              label="Description / Scope"
-              value={form.description}
-              onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
-            />
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
               <span>Estimate: {estimate.title}</span>
               {pricingBudget ? <span>• Pricing Budget: {pricingBudget.name}</span> : null}
@@ -773,17 +764,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             </div>
           </Card>
 
-          {CATEGORY_ORDER.map(renderLineItemGroup)}
-
           <Card className="p-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Work Area Totals</h2>
-                <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Estimate pricing remains tied to the selected budget. Added items are stored as snapshots.</p>
-              </div>
-              <Button variant="secondary" onClick={() => setConfirmDeleteOpen(true)}>
-                <Trash2 size={14} /> Delete Work Area
-              </Button>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Work Area Totals</h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Estimate pricing remains tied to the selected budget. Added items are stored as snapshots.</p>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -808,10 +792,24 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                 </p>
               ))}
             </div>
+          </Card>
 
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="secondary" onClick={() => void persistWorkArea(false)} disabled={!isDirty || savingWorkArea}>Save</Button>
-              <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
+          {CATEGORY_ORDER.map(renderLineItemGroup)}
+
+          <Card className="p-4 space-y-4">
+            <TextArea
+              label="Description / Scope"
+              value={form.description}
+              onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button variant="secondary" onClick={() => setConfirmDeleteOpen(true)}>
+                <Trash2 size={14} /> Delete Work Area
+              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="secondary" onClick={() => void persistWorkArea(false)} disabled={!isDirty || savingWorkArea}>Save</Button>
+                <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
+              </div>
             </div>
           </Card>
       </div>

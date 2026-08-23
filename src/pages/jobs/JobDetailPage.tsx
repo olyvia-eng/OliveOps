@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Card, Button, Badge, EmptyState, Modal, Input, Select } from '../../components/ui';
+import { Card, Button, Badge, EmptyState, Select } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
-import { ArrowLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
-import type { CostEntry, LineItemCategory, JobStatus } from '../../types';
+import { ArrowLeft, ChevronRight, Trash2 } from 'lucide-react';
+import type { JobStatus, TimeEntry } from '../../types';
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 
-const CATEGORIES: LineItemCategory[] = ['material', 'equipment', 'labour', 'subcontractor'];
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
+type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
 
 interface Props {
   currentUserRole: string;
@@ -25,20 +25,33 @@ const normalizeEntryJobIds = (entry: { jobIds?: string[]; jobId?: string }): str
     : (entry.jobId ? [entry.jobId] : []);
 };
 
+const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
+  const fileIds = [...new Set([
+    entry.clockInPhotoFileId,
+    ...(entry.clockOutPhotoFileIds ?? []),
+    entry.clockOutPhotoFileId,
+    ...(entry.photoAttachmentFileIds ?? []),
+    entry.photoAttachmentFileId,
+  ].filter((value): value is string => Boolean(value)))];
+
+  if (fileIds.length > 0) {
+    return fileIds.map((fileId) => ({ key: `${entry.id}:${fileId}`, fileId }));
+  }
+  return entry.photoAttachmentUrl
+    ? [{ key: `${entry.id}:legacy`, legacyUrl: entry.photoAttachmentUrl }]
+    : [];
+};
+
 export default function JobDetailPage({ currentUserRole }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, addCostEntry, deleteTimeEntry } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, updateJob, deleteTimeEntry } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
   const activeTab = (searchParams.get('tab') ?? 'info') as JobTab;
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
-  const [costModal, setCostModal] = useState(false);
-  const [costForm, setCostForm] = useState<Omit<CostEntry, 'id'>>({
-    category: 'labour', description: '', quantity: 1, unit: 'hr', unitCost: 0, total: 0, date: new Date().toISOString().slice(0, 10),
-  });
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -87,13 +100,10 @@ export default function JobDetailPage({ currentUserRole }: Props) {
 
     const resolveUrls = async () => {
       const pairs = await Promise.all(
-        jobTimeEntries.map(async (entry) => {
-          const url = await resolveAttachmentUrl({
-            fileId: entry.clockOutPhotoFileId ?? entry.photoAttachmentFileId,
-            legacyUrl: entry.photoAttachmentUrl,
-          });
-          return [entry.id, url] as const;
-        })
+        jobTimeEntries.flatMap((entry) => timeEntryPhotoRefs(entry).map(async (photo) => {
+          const url = await resolveAttachmentUrl({ fileId: photo.fileId, legacyUrl: photo.legacyUrl });
+          return [photo.key, url] as const;
+        }))
       );
 
       if (cancelled) return;
@@ -196,6 +206,18 @@ export default function JobDetailPage({ currentUserRole }: Props) {
     return warnings;
   }, [job, profitability.laborVariancePct, profitability.projectedMarginFromTracking]);
 
+  const employeeTimeEntryNotes = useMemo(
+    () => jobTimeEntries.filter((entry) => entry.notes?.trim()),
+    [jobTimeEntries]
+  );
+
+  const jobPhotos = useMemo(() => jobTimeEntries.flatMap((entry) => {
+    const employeeName = employees.find((employee) => employee.id === entry.employeeId)?.name ?? 'Employee';
+    return timeEntryPhotoRefs(entry)
+      .map((photo) => ({ ...photo, url: attachmentUrls[photo.key], employeeName, clockIn: entry.clockIn }))
+      .filter((photo): photo is typeof photo & { url: string } => Boolean(photo.url));
+  }), [attachmentUrls, employees, jobTimeEntries]);
+
   const timeEntryTypeMeta = (entry: { workType?: string }) => {
     if (entry.workType === 'drive_time') {
       return { label: 'Drive Time', className: 'bg-accent-50 text-accent-600' };
@@ -204,19 +226,6 @@ export default function JobDetailPage({ currentUserRole }: Props) {
       return { label: 'Non-Billable', className: 'bg-brand-100 text-brand-700' };
     }
     return { label: 'Job Work', className: 'bg-brand-200 text-brand-800' };
-  };
-
-  const setC = (key: keyof typeof costForm, value: unknown) =>
-    setCostForm((f) => {
-      const updated = { ...f, [key]: value };
-      updated.total = Number(updated.quantity) * Number(updated.unitCost);
-      return updated;
-    });
-
-  const saveCost = () => {
-    if (!job || !costForm.description.trim()) return;
-    addCostEntry(job.id, costForm);
-    setCostModal(false);
   };
 
   if (!job) return <div className="p-8 text-gray-400">Job not found.</div>;
@@ -435,86 +444,39 @@ export default function JobDetailPage({ currentUserRole }: Props) {
 
       {activeTab === 'project-management' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-semibold">Actual Costs</h2>
-            <Button size="sm" onClick={() => setCostModal(true)}><Plus size={13} /> Add Cost</Button>
-          </div>
-          {job.actualCosts.length === 0 ? (
-            <p className="text-sm text-gray-400 p-4">No costs recorded yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-gray-500 text-left text-xs">
-                    <th className="px-4 pb-2 font-medium">Date</th>
-                    <th className="pb-2 font-medium">Category</th>
-                    <th className="pb-2 font-medium">Description</th>
-                    <th className="pb-2 font-medium text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {job.actualCosts.map((c) => (
-                    <tr key={c.id}>
-                      <td className="px-4 py-2 text-gray-500 text-xs">{c.date}</td>
-                      <td className="py-2 text-xs capitalize">{c.category}</td>
-                      <td className="py-2">{c.description}</td>
-                      <td className="py-2 text-right font-semibold">{formatCurrency(c.total)}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-gray-50">
-                    <td colSpan={3} className="px-4 py-2 font-semibold text-right text-sm">Total</td>
-                    <td className="py-2 text-right font-bold">{formatCurrency(actualCostTotal)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+          <Card>
+            <div className="border-b border-gray-100 p-4"><h2 className="font-semibold">Time Entries</h2></div>
+            {jobTimeEntries.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
+              <ul className="divide-y divide-gray-50">{jobTimeEntries.map((entry) => {
+                const employee = employees.find((item) => item.id === entry.employeeId);
+                const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+                const typeMeta = timeEntryTypeMeta(entry);
+                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
+              })}</ul>
+            )}
+          </Card>
 
-        <Card>
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold">Time Entries</h2>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card className="p-4">
+              <h2 className="font-semibold">Notes</h2>
+              <div className="mt-3 space-y-3">
+                {job.notes?.trim() ? <div className="rounded-lg bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Job Note</p><p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{job.notes}</p></div> : null}
+                {employeeTimeEntryNotes.map((entry) => {
+                  const employee = employees.find((item) => item.id === entry.employeeId);
+                  return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
+                })}
+                {!job.notes?.trim() && employeeTimeEntryNotes.length === 0 ? <p className="text-sm text-gray-400">No job or employee notes yet.</p> : null}
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <h2 className="font-semibold">Photos</h2>
+              {jobPhotos.length === 0 ? <p className="mt-3 text-sm text-gray-400">No photos uploaded for this job.</p> : (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="truncate text-xs font-medium text-gray-700">{photo.employeeName}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p></div></a>)}</div>
+              )}
+            </Card>
           </div>
-          {jobTimeEntries.length === 0 ? (
-            <p className="text-sm text-gray-400 p-4">No time entries for this job.</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {jobTimeEntries.map((te) => {
-                const emp = employees.find((e) => e.id === te.employeeId);
-                const hrs = durationHours(te.clockIn, te.clockOut, te.breakMinutes);
-                const typeMeta = timeEntryTypeMeta(te);
-                return (
-                  <li key={te.id} className="px-4 py-2 flex items-center justify-between text-sm">
-                    <div>
-                      <p className="font-medium flex items-center gap-2">
-                        <span>{emp?.name ?? '—'}</span>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>
-                          {typeMeta.label}
-                        </span>
-                      </p>
-                      <p className="text-xs text-gray-400">{formatDateTime(te.clockIn)} → {te.clockOut ? formatDateTime(te.clockOut) : 'Active'}</p>
-                      <p className="text-xs text-gray-500">Notes: {te.notes?.trim() ? te.notes : '—'}</p>
-                      {attachmentUrls[te.id] ? (
-                        <a href={attachmentUrls[te.id]} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:text-brand-800">
-                          View attached photo
-                        </a>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-brand-600">{hrs.toFixed(2)}h</span>
-                      <button onClick={() => deleteTimeEntry(te.id)} className="text-gray-300 hover:text-accent-700">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-          </div>
+
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-4">
               <h2 className="mb-3 font-semibold">Assigned Employees</h2>
@@ -528,7 +490,6 @@ export default function JobDetailPage({ currentUserRole }: Props) {
                 <ul className="space-y-2">{assignedEquipment.map((asset) => <li key={asset.id} className="flex items-center justify-between text-sm"><span>{asset.name}</span><span className="text-gray-400">{asset.type}</span></li>)}</ul>
               )}
             </Card>
-            <Card className="p-4"><h2 className="mb-3 font-semibold">Notes</h2><p className="whitespace-pre-line text-sm text-gray-600">{job.notes || 'No notes.'}</p></Card>
           </div>
         </div>
       )}
@@ -557,30 +518,6 @@ export default function JobDetailPage({ currentUserRole }: Props) {
           )}
         </Card>
       )}
-
-      {/* Add Cost Modal */}
-      <Modal open={costModal} onClose={() => setCostModal(false)} title="Add Cost Entry"
-        footer={<>
-          <Button variant="secondary" onClick={() => setCostModal(false)}>Cancel</Button>
-          <Button onClick={saveCost}>Add Cost</Button>
-        </>}
-      >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Select label="Category" value={costForm.category} onChange={(e) => setC('category', e.target.value)}>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-            </Select>
-            <Input label="Date" type="date" value={costForm.date} onChange={(e) => setC('date', e.target.value)} />
-          </div>
-          <Input label="Description *" required value={costForm.description} onChange={(e) => setC('description', e.target.value)} />
-          <div className="grid grid-cols-3 gap-3">
-            <Input label="Qty" type="number" min={0} value={costForm.quantity} onChange={(e) => setC('quantity', Number(e.target.value))} />
-            <Input label="Unit" value={costForm.unit} onChange={(e) => setC('unit', e.target.value)} />
-            <Input label="Unit Cost ($)" type="number" min={0} value={costForm.unitCost} onChange={(e) => setC('unitCost', Number(e.target.value))} />
-          </div>
-          <p className="text-sm font-semibold">Total: {formatCurrency(costForm.total)}</p>
-        </div>
-      </Modal>
 
       <ScheduleJobModal
         open={scheduleModalOpen}
