@@ -119,7 +119,6 @@ export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budge
   if (pricing.pricingStatus !== 'approved' || !(pricing.approvedRate && pricing.approvedRate > 0)) return lineItem;
   const unitCost = Math.max(0, pricing.costRate ?? 0);
   const sellPrice = pricing.approvedRate;
-  const markupPercent = unitCost > 0 ? Math.max(0, ((sellPrice / unitCost) - 1) * 100) : 0;
 
   return calculateEstimateLineItem({
     ...lineItem,
@@ -144,8 +143,8 @@ export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budge
     unit: pricing.unit,
     unitCost,
     sellPrice,
-    markupPercent,
-    markup: markupPercent,
+    markupPercent: 0,
+    markup: 0,
     costRateAtEstimate: pricing.type === 'equipment' ? unitCost : undefined,
     chargeOutRateAtEstimate: pricing.type === 'equipment' ? sellPrice : undefined,
   });
@@ -287,6 +286,18 @@ export function computeWorkAreaCategoryCostTotals(workArea: EstimateWorkArea): R
     const quantity = asNumber(item.quantity, 0);
     const unitCost = asNumber(item.unitCost, 0);
     accumulator[item.category] += quantity * unitCost;
+    return accumulator;
+  }, {
+    labour: 0,
+    equipment: 0,
+    material: 0,
+    subcontractor: 0,
+  });
+}
+
+export function computeWorkAreaCategorySellTotals(workArea: EstimateWorkArea): Record<LineItemCategory, number> {
+  return workArea.lineItems.reduce<Record<LineItemCategory, number>>((accumulator, item) => {
+    accumulator[item.category] += asNumber(item.total, 0);
     return accumulator;
   }, {
     labour: 0,

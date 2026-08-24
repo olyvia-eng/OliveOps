@@ -52,6 +52,11 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
     materials: new Map(materialCatalogItems.map((item) => [item.id, item])),
   };
   const rates = budgetRates.filter((rate) => rate.budgetId === budgetId && rate.active !== false);
+  const divisionLabourRates = new Map(rates.filter((rate) => rate.category === 'labour'
+    && rate.pricingVersion === 2
+    && typeof rate.divisionId === 'string'
+    && rate.budgetItemId === `average-labour:${rate.divisionId}`)
+    .map((rate) => [rate.divisionId, rate]));
   const uniqueItems = new Map();
 
   for (const item of planningItems) {
@@ -76,11 +81,14 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
   const catalog = { labour: [], equipment: [], materials: [], subcontractors: [] };
   for (const { item, divisionId: itemDivisionId } of uniqueItems.values()) {
     const type = CATEGORY_MAP[item.category];
-    const matchingRate = rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
-      ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));
-    const approvedRate = matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : positiveNumber(item.approvedRate);
-    const recommendedRate = matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : positiveNumber(item.recommendedRate);
-    const costRate = matchingRate ? positiveNumber(matchingRate.unitCost) : positiveNumber(item.costRate);
+    const usesDivisionLabourPricing = item.category === 'labour' && Boolean(itemDivisionId);
+    const matchingRate = usesDivisionLabourPricing
+      ? divisionLabourRates.get(itemDivisionId)
+      : rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
+        ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));
+    const approvedRate = matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : usesDivisionLabourPricing ? null : positiveNumber(item.approvedRate);
+    const recommendedRate = matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : usesDivisionLabourPricing ? null : positiveNumber(item.recommendedRate);
+    const costRate = matchingRate ? positiveNumber(matchingRate.unitCost) : usesDivisionLabourPricing ? null : positiveNumber(item.costRate);
     const pricingStatus = approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable';
     const sourceId = sourceEntityId(item);
 
@@ -109,39 +117,6 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
     });
   }
 
-  const aggregateLabourRates = rates.filter((rate) => rate.category === 'labour'
-    && rate.pricingVersion === 2
-    && typeof rate.divisionId === 'string'
-    && rate.budgetItemId === `average-labour:${rate.divisionId}`
-    && (!divisionId || rate.divisionId === divisionId));
-  for (const rate of aggregateLabourRates) {
-    if (catalog.labour.some((item) => item.budgetItemId === rate.budgetItemId && item.divisionId === rate.divisionId)) continue;
-    const approvedRate = positiveNumber(rate.defaultSellPrice);
-    const recommendedRate = positiveNumber(rate.recommendedSellPrice);
-    catalog.labour.push({
-      type: 'labour',
-      sourceEntityId: undefined,
-      budgetItemId: rate.budgetItemId,
-      sourceRateId: rate.id,
-      pricingRateUpdatedAt: rate.updatedAt,
-      pricingVersion: rate.pricingVersion,
-      divisionId: rate.divisionId,
-      directCostPerUnit: rate.directCostPerUnit ?? positiveNumber(rate.unitCost),
-      divisionOverheadRecoveryPerUnit: rate.divisionOverheadRecoveryPerUnit ?? null,
-      companyOverheadRecoveryPerUnit: rate.companyOverheadRecoveryPerUnit ?? null,
-      recoveredCostPerUnit: rate.recoveredCostPerUnit ?? null,
-      targetMarginPct: rate.targetMarginPercent ?? null,
-      name: 'Average Labour',
-      description: rate.description ?? '',
-      unit: rate.unit || 'hr',
-      classification: 'billable',
-      costRate: positiveNumber(rate.unitCost),
-      recommendedRate,
-      approvedRate,
-      pricingStatus: approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable',
-    });
-  }
-
   for (const values of Object.values(catalog)) values.sort((left, right) => left.name.localeCompare(right.name));
   return { budgetId, ...catalog };
 }
@@ -152,6 +127,44 @@ const estimateLineItems = (estimate) => [
   ...(Array.isArray(estimate.workAreas) ? estimate.workAreas.flatMap((area) => Array.isArray(area?.lineItems) ? area.lineItems : []) : []),
 ];
 
+const preservePricingSnapshot = (existing, next) => {
+  const quantity = Math.max(0, Number(next.quantity ?? 0));
+  const unitCost = Math.max(0, Number(existing.unitCost ?? 0));
+  const sellPrice = Math.max(0, Number(existing.sellPrice ?? 0));
+  return {
+    ...next,
+    category: existing.category,
+    sourceBudgetId: existing.sourceBudgetId,
+    sourceBudgetItemId: existing.sourceBudgetItemId,
+    sourceEntityId: existing.sourceEntityId,
+    sourceRateId: existing.sourceRateId,
+    pricingRateUpdatedAt: existing.pricingRateUpdatedAt,
+    pricingVersion: existing.pricingVersion,
+    divisionId: existing.divisionId,
+    directCostPerUnit: existing.directCostPerUnit,
+    divisionOverheadRecoveryPerUnit: existing.divisionOverheadRecoveryPerUnit,
+    companyOverheadRecoveryPerUnit: existing.companyOverheadRecoveryPerUnit,
+    recoveredCostPerUnit: existing.recoveredCostPerUnit,
+    targetMarginPct: existing.targetMarginPct,
+    recommendedRateAtEstimate: existing.recommendedRateAtEstimate,
+    equipmentId: existing.equipmentId,
+    equipmentName: existing.equipmentName,
+    itemName: existing.itemName,
+    unit: existing.unit,
+    unitCost,
+    sellPrice,
+    markupPercent: existing.markupPercent,
+    markup: existing.markup,
+    total: quantity * sellPrice,
+    ...(existing.category === 'equipment' ? {
+      costRateAtEstimate: existing.costRateAtEstimate ?? unitCost,
+      chargeOutRateAtEstimate: existing.chargeOutRateAtEstimate ?? sellPrice,
+      estimatedCost: quantity * unitCost,
+      estimatedSell: quantity * sellPrice,
+    } : {}),
+  };
+};
+
 export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstimate, catalog }) {
   const existingById = new Map(estimateLineItems(existingEstimate).map((item) => [item.id, item]));
   const pricingByBudgetItemId = new Map(catalogItems(catalog).map((item) => [`${item.divisionId ?? ''}:${item.budgetItemId}`, item]));
@@ -159,7 +172,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
   const apply = (item) => {
     if (!item?.sourceBudgetItemId) return { ok: true, item };
     const existing = existingById.get(item.id);
-    if (existing?.sourceBudgetItemId === item.sourceBudgetItemId) return { ok: true, item };
+    if (existing?.sourceBudgetItemId === item.sourceBudgetItemId) return { ok: true, item: preservePricingSnapshot(existing, item) };
     if (item.sourceBudgetId !== catalog.budgetId || nextEstimate.pricingBudgetId !== catalog.budgetId) {
       return { ok: false, error: 'Estimate pricing must come from its selected Pricing Budget.' };
     }
@@ -174,7 +187,6 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
     const unitCost = Math.max(0, pricing.costRate ?? 0);
     const sellPrice = pricing.approvedRate;
     const quantity = Math.max(0, Number(item.quantity ?? 0));
-    const markupPercent = unitCost > 0 ? Math.max(0, ((sellPrice / unitCost) - 1) * 100) : 0;
     return { ok: true, item: {
       ...item,
       category: pricing.type,
@@ -197,8 +209,8 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       unit: pricing.unit,
       unitCost,
       sellPrice,
-      markupPercent,
-      markup: markupPercent,
+      markupPercent: 0,
+      markup: 0,
       total: quantity * sellPrice,
       ...(pricing.type === 'equipment' ? {
         costRateAtEstimate: unitCost,

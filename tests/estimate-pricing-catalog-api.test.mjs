@@ -60,8 +60,7 @@ test('Estimate pricing endpoint returns persisted shared Budget items and approv
   ];
   items.forEach((item) => seedPlanningItem(store, item));
   [
-    { id: 'rate-ryan', budgetId: 'budget-2027', budgetItemId: 'labour-ryan', employeeId: 'ryan', category: 'labour', unit: 'hr', unitCost: 42, recommendedSellPrice: 70, defaultSellPrice: 72 },
-    { id: 'rate-john', budgetId: 'budget-2027', employeeId: 'john', category: 'labour', unit: 'hr', unitCost: 38, recommendedSellPrice: 63, defaultSellPrice: 65 },
+    { id: 'rate-average-hardscape', budgetId: 'budget-2027', budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2, category: 'labour', unit: 'hr', unitCost: 40, directCostPerUnit: 40, recommendedSellPrice: 56.25, defaultSellPrice: 58 },
     { id: 'rate-bobcat', budgetId: 'budget-2027', equipmentId: 'bobcat', category: 'equipment', unit: 'hr', unitCost: 55, recommendedSellPrice: 92, defaultSellPrice: 95 },
     { id: 'rate-truck', budgetId: 'budget-2027', budgetItemId: 'equipment-truck', category: 'equipment', unit: 'hr', unitCost: 90, recommendedSellPrice: 145, defaultSellPrice: 150 },
     { id: 'rate-gravel', budgetId: 'budget-2027', materialCatalogItemId: 'gravel', category: 'material', unit: 'tonne', unitCost: 28, recommendedSellPrice: 44, defaultSellPrice: 46 },
@@ -73,7 +72,7 @@ test('Estimate pricing endpoint returns persisted shared Budget items and approv
 
   assert.equal(res.statusCode, 200, JSON.stringify(res.body));
   assert.equal(res.body.budget.name, '2027 annual');
-  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.approvedRate]), [['John Field', 65], ['Ryan Field', 72]]);
+  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.approvedRate, item.costRate]), [['John Field', 58, 40], ['Ryan Field', 58, 40]]);
   assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.approvedRate]), [['Bobcat E50', 95]]);
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
   assert.equal(res.body.catalog.materials[0].approvedRate, 46);

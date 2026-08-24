@@ -142,14 +142,13 @@ const createProposalDocument = (estimate: Estimate, customerName: string, custom
 
   autoTable(doc, {
     startY: 176,
-    head: [['Category', 'Description', 'Qty', 'Unit', 'Unit Cost', 'Markup', 'Line Total']],
+    head: [['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total']],
     body: lineItems.map((line) => [
       line.category,
       line.description,
       String(line.quantity),
       line.unit,
-      formatCurrency(line.unitCost),
-      `${line.markupPercent ?? line.markup ?? 0}%`,
+      formatCurrency(line.sellPrice),
       formatCurrency(line.total),
     ]),
     styles: { fontSize: 9 },

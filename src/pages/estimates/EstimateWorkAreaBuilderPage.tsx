@@ -10,7 +10,7 @@ import {
   applyEstimatePricingToLineItem,
   applyEquipmentAssetToEstimateLineItem,
   calculateEstimateLineItem,
-  computeWorkAreaCategoryCostTotals,
+  computeWorkAreaCategorySellTotals,
   computeWorkAreaEstimatedCost,
   computeWorkAreaSubtotal,
   createEmptyEstimateLineItem,
@@ -134,7 +134,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     quantity: 1,
     unit: 'hr',
     unitCost: 0,
-    markupPercent: 0,
     sellPrice: 0,
   });
 
@@ -235,9 +234,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           ? `${formatCurrency(item.approvedRate)}/${item.unit}`
           : item.pricingStatus === 'recommended_not_approved' && item.recommendedRate
             ? `${formatCurrency(item.recommendedRate)}/${item.unit} recommended - not approved`
-            : category === 'equipment' ? 'No approved charge-out rate' : `No approved ${CATEGORY_LABEL[category].toLowerCase()} rate`,
+            : category === 'labour' ? 'Division labour pricing incomplete' : category === 'equipment' ? 'No approved charge-out rate' : `No approved ${CATEGORY_LABEL[category].toLowerCase()} rate`,
         pricingItem: item,
-        disabledReason: item.pricingStatus === 'approved' ? undefined : 'Approve pricing in the selected Budget Analysis before adding this item.',
+        disabledReason: item.pricingStatus === 'approved' ? undefined : category === 'labour'
+          ? `Complete Labour pricing for ${estimateDivision?.name ?? 'this Division'} in Budget Analysis.`
+          : 'Approve pricing in the selected Budget Analysis before adding this item.',
         alreadyAdded: alreadyAddedBudgetItemIds.has(item.budgetItemId),
         source: 'budget' as const,
         searchText: `${item.name} ${item.description} ${item.costCode ?? ''} ${category} ${item.unit}`.toLowerCase(),
@@ -336,7 +337,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     }
 
     return candidates;
-  }, [budgetRatesByCategory, equipmentAssets, estimatePricingCatalog, form?.lineItems, materialCatalogItems, pricingBudget?.planningModel]);
+  }, [budgetRatesByCategory, equipmentAssets, estimateDivision?.name, estimatePricingCatalog, form?.lineItems, materialCatalogItems, pricingBudget?.planningModel]);
 
   const visibleCatalogCandidates = useMemo(() => {
     const query = catalogSearch.trim().toLowerCase();
@@ -372,7 +373,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     return {
       estimatedCost: computeWorkAreaEstimatedCost(currentWorkArea),
       sellPrice: computeWorkAreaSubtotal(currentWorkArea),
-      categoryCosts: computeWorkAreaCategoryCostTotals(currentWorkArea),
+      categorySales: computeWorkAreaCategorySellTotals(currentWorkArea),
     };
   }, [estimate?.divisionId, form, workArea]);
 
@@ -397,10 +398,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         ...current,
         lineItems: current.lineItems.map((item) => {
           if (item.id !== lineItemId) return item;
-          return calculateEstimateLineItem(
-            { ...item, [key]: value } as EstimateLineItem,
-            { recalculateSellPrice: key === 'unitCost' || key === 'markupPercent' }
-          );
+          return calculateEstimateLineItem({ ...item, [key]: value } as EstimateLineItem);
         }),
       };
     });
@@ -451,7 +449,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       quantity: 1,
       unit: category === 'labour' || category === 'equipment' ? 'hr' : 'unit',
       unitCost: 0,
-      markupPercent: 0,
       sellPrice: 0,
     });
     setCustomItemOpen(true);
@@ -472,9 +469,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       quantity: customItem.quantity,
       unit: customItem.unit.trim() || 'unit',
       unitCost: customItem.unitCost,
-      markupPercent: customItem.markupPercent,
+      markupPercent: 0,
       sellPrice: customItem.sellPrice,
-    }, { recalculateSellPrice: customItem.sellPrice <= 0 });
+      markup: 0,
+    });
 
     setForm((current) => current ? {
       ...current,
@@ -555,8 +553,12 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         <p className="py-6 text-center text-sm text-gray-500 dark:text-brand-300">Loading pricing from {pricingBudget?.name ?? 'the selected Budget'}...</p>
       ) : catalogError ? (
         <EmptyState title="Pricing catalog unavailable" description={catalogError} />
-      ) : pricingBudget?.planningModel === 'divisions_v1' && catalogCandidates.length > 0 && catalogCandidates.every((candidate) => candidate.pricingItem?.pricingStatus !== 'approved') ? (
-        <div className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm text-accent-800">Items exist in this Budget, but no pricing has been approved yet.</div>
+      ) : pricingBudget?.planningModel === 'divisions_v1' && visibleCatalogCandidates.length > 0 && visibleCatalogCandidates.every((candidate) => candidate.pricingItem?.pricingStatus !== 'approved') ? (
+        <div className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm text-accent-800">
+          {catalogCategory === 'labour'
+            ? `Labour pricing is incomplete for ${estimateDivision?.name ?? 'this Division'}.`
+            : `${CATEGORY_LABEL[catalogCategory]} pricing is incomplete for ${estimateDivision?.name ?? 'this Division'}.`}
+        </div>
       ) : null}
 
       {!catalogLoading && !catalogError && visibleCatalogCandidates.length === 0 ? (
@@ -633,30 +635,25 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
         ) : (
           <div className="mt-4 space-y-3">
-            {items.map((lineItem) => (
-              <div key={lineItem.id} className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/40 dark:bg-brand-900/20 p-3">
+            {items.map((lineItem) => {
+              const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId);
+              const usesHours = category === 'labour' || category === 'equipment';
+              const rateLabel = category === 'labour' ? 'Labour Rate' : category === 'equipment' ? 'Equipment Rate' : category === 'material' ? 'Material Rate' : 'Rate';
+              return (
+              <div key={lineItem.id} className="rounded-lg border border-brand-100 bg-brand-50/40 p-3 dark:border-brand-600 dark:bg-brand-900/20">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
-                    {lineItem.sourceRateId ? <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">Pricing snapshot from selected budget</p> : null}
+                    <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">{CATEGORY_ADD_LABEL[category]}{estimateDivision ? ` · ${estimateDivision.name}` : ''}{isBudgetPriced ? ' · Budget pricing snapshot' : ' · Custom item'}</p>
                   </div>
-                  <button type="button" onClick={() => deleteLineItem(lineItem.id)} className="rounded-lg p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
+                  <button type="button" title="Delete item" onClick={() => deleteLineItem(lineItem.id)} className="rounded p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
                     <Trash2 size={14} />
                   </button>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-                  <div className="xl:col-span-2">
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Description</label>
-                    <textarea
-                      rows={2}
-                      value={lineItem.description}
-                      onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 py-2 text-sm text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
-                    />
-                  </div>
+                <div className={`mt-3 grid grid-cols-1 gap-3 ${usesHours ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Quantity</label>
+                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">{usesHours ? 'Hours' : 'Quantity'}</label>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -666,57 +663,25 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                       className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-right text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
                     />
                   </div>
-                  <div>
+                  {!usesHours ? <div>
                     <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Unit</label>
-                    <input
-                      value={lineItem.unit}
-                      onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
-                    />
+                    {isBudgetPriced ? <p className="mt-1 flex h-10 items-center text-sm font-medium text-gray-900 dark:text-brand-50">{lineItem.unit}</p> : <input value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
+                  </div> : null}
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">{rateLabel}</label>
+                    {isBudgetPriced ? <p className="mt-1 flex h-10 items-center text-sm font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.sellPrice)}/{lineItem.unit}</p> : <input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Unit Cost</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={formatNumericDisplayValue(lineItem.unitCost)}
-                      onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))}
-                      onFocus={(event) => event.currentTarget.select()}
-                      className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-right text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Markup %</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={formatNumericDisplayValue(lineItem.markupPercent)}
-                      onChange={(event) => setLineItem(lineItem.id, 'markupPercent', parseNumericInputValue(event.target.value))}
-                      onFocus={(event) => event.currentTarget.select()}
-                      className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-right text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
-                    />
+                    <p className="text-xs font-medium text-gray-600 dark:text-brand-200">Total</p>
+                    <p className="mt-1 flex h-10 items-center text-base font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.total)}</p>
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Sell Price</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={formatNumericDisplayValue(lineItem.sellPrice)}
-                      onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))}
-                      onFocus={(event) => event.currentTarget.select()}
-                      className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-right text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
-                    />
-                  </div>
-                  <div className="rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 py-2">
-                    <p className="text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost</p>
-                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.quantity * lineItem.unitCost)}</p>
-                  </div>
-                </div>
+                <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes</label>
+                <textarea rows={1} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />
+                {!isBudgetPriced ? <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium text-gray-600 dark:text-brand-200">Costing</summary><div className="mt-2 max-w-48"><label className="text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}</label><input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></div></details> : null}
               </div>
-            ))}
+            );})}
           </div>
         )}
       </Card>
@@ -788,7 +753,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 text-sm">
               {CATEGORY_ORDER.map((category) => (
                 <p key={category} className="text-gray-700 dark:text-brand-100">
-                  {CATEGORY_LABEL[category]} <span className="ml-2 font-semibold">{formatCurrency(workAreaSummary.categoryCosts[category])}</span>
+                  {CATEGORY_LABEL[category]} <span className="ml-2 font-semibold">{formatCurrency(workAreaSummary.categorySales[category])}</span>
                 </p>
               ))}
             </div>
@@ -856,11 +821,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <Input label="Quantity" type="number" min={0} value={customItem.quantity} onChange={(event) => setCustomItem((current) => ({ ...current, quantity: Number(event.target.value) }))} />
             <Input label="Unit" value={customItem.unit} onChange={(event) => setCustomItem((current) => ({ ...current, unit: event.target.value }))} />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            <Input label="Unit Cost" type="number" min={0} value={customItem.unitCost} onChange={(event) => setCustomItem((current) => ({ ...current, unitCost: Number(event.target.value) }))} />
-            <Input label="Markup %" type="number" min={0} value={customItem.markupPercent} onChange={(event) => setCustomItem((current) => ({ ...current, markupPercent: Number(event.target.value) }))} />
-            <Input label="Sell Price" type="number" min={0} value={customItem.sellPrice} onChange={(event) => setCustomItem((current) => ({ ...current, sellPrice: Number(event.target.value) }))} />
-          </div>
+          <Input label="Rate" type="number" min={0} value={customItem.sellPrice} onChange={(event) => setCustomItem((current) => ({ ...current, sellPrice: Number(event.target.value) }))} />
+          <details className="rounded-lg border border-brand-100 p-3 dark:border-brand-600"><summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-brand-100">Costing</summary><div className="mt-3"><Input label="Estimated Cost" type="number" min={0} value={customItem.unitCost} onChange={(event) => setCustomItem((current) => ({ ...current, unitCost: Number(event.target.value) }))} /></div></details>
         </div>
       </Modal>
 

@@ -1063,13 +1063,9 @@ function validateEstimateRecord(record) {
   return null;
 }
 
-async function authorizeNewEstimatePricing({ businessId, existing, estimate }) {
-  const hasNewBudgetSources = estimateLineItems(estimate).some((item) => {
-    if (!item?.sourceBudgetItemId) return false;
-    const previous = estimateLineItems(existing).find((value) => value.id === item.id);
-    return previous?.sourceBudgetItemId !== item.sourceBudgetItemId;
-  });
-  if (!hasNewBudgetSources) return { ok: true, estimate };
+async function authorizeEstimatePricing({ businessId, existing, estimate }) {
+  const hasBudgetSources = estimateLineItems(estimate).some((item) => Boolean(item?.sourceBudgetItemId));
+  if (!hasBudgetSources) return { ok: true, estimate };
   const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
   if (!budget || budget.planningModel !== 'divisions_v1') return { ok: false, error: 'Estimate Pricing Budget is invalid.' };
   const [planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
@@ -1539,7 +1535,7 @@ export default async function handler(req, res) {
       }
       const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: record });
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
-      const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
+      const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
       if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
       record = pricingResult.estimate;
 
@@ -1813,7 +1809,7 @@ export default async function handler(req, res) {
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
-        const pricingResult = await authorizeNewEstimatePricing({ businessId: session.businessId, existing, estimate: next });
+        const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing, estimate: next });
         if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
         next = pricingResult.estimate;
 

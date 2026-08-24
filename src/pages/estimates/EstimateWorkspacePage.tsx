@@ -9,6 +9,7 @@ import { emitAppToast } from '../../toast';
 import { formatCurrency, formatDate, formatDateTime, statusColor } from '../../utils';
 import {
   computeWorkAreaCategoryCostTotals,
+  computeWorkAreaCategorySellTotals,
   computeWorkAreaEstimatedCost,
   computeEstimateSubtotal,
   computeEstimateTax,
@@ -24,6 +25,7 @@ import type {
   Estimate,
   EstimateStatus,
   EstimateWorkArea,
+  LineItemCategory,
 } from '../../types';
 
 type EstimateTab = 'info' | 'work-areas' | 'proposal' | 'analysis';
@@ -37,6 +39,13 @@ type EstimateFormState = Omit<Estimate, 'id' | 'createdAt' | 'updatedAt' | 'line
 };
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
+const CATEGORY_ORDER: LineItemCategory[] = ['labour', 'equipment', 'material', 'subcontractor'];
+const CATEGORY_LABEL: Record<LineItemCategory, string> = {
+  labour: 'Labour',
+  equipment: 'Equipment',
+  material: 'Materials',
+  subcontractor: 'Subcontractors',
+};
 
 const defaultValidUntil = () => {
   const date = new Date();
@@ -110,14 +119,13 @@ const createProposalDocument = (estimate: Estimate, customerName: string, custom
 
   autoTable(doc, {
     startY: 176,
-    head: [['Category', 'Description', 'Qty', 'Unit', 'Unit Cost', 'Markup', 'Line Total']],
+    head: [['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total']],
     body: lineItems.map((line) => [
       line.category,
       line.description,
       String(line.quantity),
       line.unit,
-      formatCurrency(line.unitCost),
-      `${line.markupPercent ?? line.markup ?? 0}%`,
+      formatCurrency(line.sellPrice),
       formatCurrency(line.total),
     ]),
     styles: { fontSize: 9 },
@@ -444,8 +452,17 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         subtotal: 0,
         tax: 0,
         total: 0,
+        estimatedCost: 0,
+        grossProfit: 0,
+        grossMargin: 0,
         itemCount: 0,
         byCategory: {
+          labour: 0,
+          material: 0,
+          equipment: 0,
+          subcontractor: 0,
+        },
+        costByCategory: {
           labour: 0,
           material: 0,
           equipment: 0,
@@ -458,6 +475,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     const tax = computeEstimateTax(subtotal, form.taxRate);
     const total = computeEstimateTotal(subtotal, tax);
     const items = flattenWorkAreaLineItems(form.workAreas);
+    const estimatedCost = form.workAreas.reduce((sum, workArea) => sum + computeWorkAreaEstimatedCost(workArea), 0);
+    const grossProfit = subtotal - estimatedCost;
+    const grossMargin = subtotal > 0 ? (grossProfit / subtotal) * 100 : 0;
 
     const byCategory = items.reduce(
       (acc, item) => {
@@ -471,13 +491,25 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         subcontractor: 0,
       }
     );
+    const costByCategory = form.workAreas.reduce((totals, workArea) => {
+      const workAreaCosts = computeWorkAreaCategoryCostTotals(workArea);
+      totals.labour += workAreaCosts.labour;
+      totals.material += workAreaCosts.material;
+      totals.equipment += workAreaCosts.equipment;
+      totals.subcontractor += workAreaCosts.subcontractor;
+      return totals;
+    }, { labour: 0, material: 0, equipment: 0, subcontractor: 0 });
 
     return {
       subtotal,
       tax,
       total,
+      estimatedCost,
+      grossProfit,
+      grossMargin,
       itemCount: items.length,
       byCategory,
+      costByCategory,
     };
   }, [form]);
 
@@ -646,7 +678,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                   .map((workArea) => {
                     const estimatedCost = computeWorkAreaEstimatedCost(workArea);
                     const sellPrice = computeWorkAreaSubtotal(workArea);
-                    const categoryTotals = computeWorkAreaCategoryCostTotals(workArea);
+                    const categoryTotals = computeWorkAreaCategorySellTotals(workArea);
                     const lineItemCount = workArea.lineItems.length;
 
                     return (
@@ -776,32 +808,34 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
           </Card>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Card className="p-4">
-                <p className="text-xs text-gray-500">Subtotal</p>
+                <p className="text-xs text-gray-500">Revenue</p>
                 <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.subtotal)}</p>
               </Card>
               <Card className="p-4">
-                <p className="text-xs text-gray-500">Tax</p>
-                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.tax)}</p>
+                <p className="text-xs text-gray-500">Estimated Cost</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.estimatedCost)}</p>
               </Card>
               <Card className="p-4">
-                <p className="text-xs text-gray-500">Total</p>
-                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.total)}</p>
+                <p className="text-xs text-gray-500">Gross Profit</p>
+                <p className="text-xl font-bold text-gray-900">{formatCurrency(analysis.grossProfit)}</p>
               </Card>
               <Card className="p-4">
-                <p className="text-xs text-gray-500">Line Items</p>
-                <p className="text-xl font-bold text-gray-900">{analysis.itemCount}</p>
+                <p className="text-xs text-gray-500">Gross Margin</p>
+                <p className="text-xl font-bold text-gray-900">{analysis.grossMargin.toFixed(1)}%</p>
               </Card>
             </div>
 
             <Card className="p-4">
               <h3 className="font-semibold text-gray-900">Category Breakdown</h3>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                <p className="text-gray-700">Labour: <span className="font-semibold">{formatCurrency(analysis.byCategory.labour)}</span></p>
-                <p className="text-gray-700">Material: <span className="font-semibold">{formatCurrency(analysis.byCategory.material)}</span></p>
-                <p className="text-gray-700">Equipment: <span className="font-semibold">{formatCurrency(analysis.byCategory.equipment)}</span></p>
-                <p className="text-gray-700">Subcontractor: <span className="font-semibold">{formatCurrency(analysis.byCategory.subcontractor)}</span></p>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[480px] text-sm">
+                  <thead><tr className="border-b border-gray-200 text-left text-gray-500"><th className="py-2 font-medium">Category</th><th className="py-2 text-right font-medium">Revenue</th><th className="py-2 text-right font-medium">Cost</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {CATEGORY_ORDER.map((category) => <tr key={category}><td className="py-2 text-gray-700">{CATEGORY_LABEL[category]}</td><td className="py-2 text-right font-semibold text-gray-900">{formatCurrency(analysis.byCategory[category])}</td><td className="py-2 text-right text-gray-700">{formatCurrency(analysis.costByCategory[category])}</td></tr>)}
+                  </tbody>
+                </table>
               </div>
             </Card>
 
