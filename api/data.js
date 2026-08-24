@@ -70,6 +70,7 @@ import {
   getTemplateForBusiness,
   getTimeEntryForBusiness,
   getTaskForBusiness,
+  getJobTaskHeadingForBusiness,
   generateId,
   listBudgetsForBusiness,
   listBudgetItemsForBusiness,
@@ -1372,6 +1373,9 @@ function validateTaskRecord(record) {
   if (record.taskTabId !== undefined && record.taskTabId !== null && record.taskTabId !== '' && !isNonEmptyString(record.taskTabId)) {
     return 'Task tab id is invalid.';
   }
+  if (record.headingId !== undefined && record.headingId !== null && record.headingId !== '' && !isNonEmptyString(record.headingId)) {
+    return 'Task heading id is invalid.';
+  }
   if (record.relatedEntityType !== undefined && record.relatedEntityType !== null && !TASK_RELATED_ENTITY_TYPES.has(record.relatedEntityType)) {
     return 'Task related entity type is invalid.';
   }
@@ -1394,6 +1398,12 @@ async function validateTaskRelationships({ businessId, record, session }) {
     if (!preferences.customTaskTabs?.some((tab) => tab.id === record.taskTabId)) return 'Task tab must belong to the signed-in user.';
   }
   const tasks = await listTasksForBusiness(businessId);
+  if (isNonEmptyString(record.headingId)) {
+    const heading = await getJobTaskHeadingForBusiness(businessId, record.headingId);
+    if (!heading || record.relatedEntityType !== 'job' || heading.jobId !== record.relatedEntityId) {
+      return 'Task heading must belong to the related job and business.';
+    }
+  }
   if (isNonEmptyString(record.parentTaskId)) {
     const parent = tasks.find((task) => task.id === record.parentTaskId);
     if (!parent) return 'Parent task must belong to this business.';

@@ -358,6 +358,16 @@ export interface TaskTab {
   createdAt: string;
 }
 
+export interface JobTaskHeading {
+  id: ID;
+  businessId: ID;
+  jobId: ID;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   id: ID;
   parentTaskId?: ID;
@@ -368,6 +378,7 @@ export interface Task {
   status: TaskStatus;
   priority?: TaskPriority;
   taskTabId?: ID;
+  headingId?: ID;
   relatedEntityType?: TaskRelatedEntityType;
   relatedEntityId?: ID;
   createdByUserId: ID;

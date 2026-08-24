@@ -188,6 +188,10 @@ function taskSk(taskId) {
   return `TASK#${taskId}`;
 }
 
+function jobTaskHeadingSk(headingId) {
+  return `JOB_TASK_HEADING#${headingId}`;
+}
+
 function emailPk(email) {
   return `EMAIL#${normalizeEmail(email)}`;
 }
@@ -1429,6 +1433,10 @@ export async function updateJobForBusiness({ businessId, job }) {
 }
 
 export async function deleteJobForBusiness(businessId, jobId) {
+  const headings = await listJobTaskHeadingsForBusiness(businessId);
+  await Promise.all(headings
+    .filter((heading) => heading.jobId === jobId)
+    .map((heading) => deleteJobTaskHeadingForBusiness(businessId, heading.id)));
   await ddb.send(
     new DeleteCommand({
       TableName: tableName,
@@ -2976,6 +2984,7 @@ export async function listTasksForBusiness(businessId) {
       status: item.status,
       priority: item.priority,
       taskTabId: item.taskTabId,
+      headingId: item.headingId,
       relatedEntityType: item.relatedEntityType,
       relatedEntityId: item.relatedEntityId,
       createdByUserId: item.createdByUserId,
@@ -3027,6 +3036,7 @@ export async function getTaskForBusiness(businessId, taskId) {
         status: result.Item.status,
         priority: result.Item.priority,
         taskTabId: result.Item.taskTabId,
+        headingId: result.Item.headingId,
         relatedEntityType: result.Item.relatedEntityType,
         relatedEntityId: result.Item.relatedEntityId,
         createdByUserId: result.Item.createdByUserId,
@@ -3069,6 +3079,88 @@ export async function deleteTaskForBusiness(businessId, taskId) {
     })
   )));
 
+  return { ok: true };
+}
+
+export async function listJobTaskHeadingsForBusiness(businessId) {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': businessPk(businessId),
+        ':prefix': 'JOB_TASK_HEADING#',
+      },
+    })
+  );
+
+  return (result.Items ?? [])
+    .map((item) => ({
+      id: item.headingId,
+      businessId: item.businessId,
+      jobId: item.jobId,
+      name: item.name,
+      sortOrder: item.sortOrder,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }))
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.localeCompare(right.createdAt));
+}
+
+export async function getJobTaskHeadingForBusiness(businessId, headingId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: jobTaskHeadingSk(headingId) },
+  }));
+  if (!result.Item) return null;
+  return {
+    id: result.Item.headingId,
+    businessId: result.Item.businessId,
+    jobId: result.Item.jobId,
+    name: result.Item.name,
+    sortOrder: result.Item.sortOrder,
+    createdAt: result.Item.createdAt,
+    updatedAt: result.Item.updatedAt,
+  };
+}
+
+export async function createJobTaskHeadingForBusiness({ businessId, heading }) {
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId),
+      SK: jobTaskHeadingSk(heading.id),
+      entityType: 'JOB_TASK_HEADING',
+      businessId,
+      headingId: heading.id,
+      ...heading,
+    },
+    ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+  }));
+  return { ok: true };
+}
+
+export async function updateJobTaskHeadingForBusiness({ businessId, heading }) {
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId),
+      SK: jobTaskHeadingSk(heading.id),
+      entityType: 'JOB_TASK_HEADING',
+      businessId,
+      headingId: heading.id,
+      ...heading,
+    },
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+  }));
+  return { ok: true };
+}
+
+export async function deleteJobTaskHeadingForBusiness(businessId, headingId) {
+  await ddb.send(new DeleteCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: jobTaskHeadingSk(headingId) },
+  }));
   return { ok: true };
 }
 

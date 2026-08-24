@@ -17,6 +17,7 @@ import type {
   Expense,
   Invoice,
   Job,
+  JobTaskHeading,
   Employee,
   UnbillableTimeCategory,
   TimeEntry,
@@ -71,6 +72,7 @@ async function ensureOk(responsePromise: Promise<Response>) {
 
     throw new Error(detail);
   }
+  return response;
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -108,6 +110,7 @@ interface AppState {
   timeEntries: TimeEntry[];
   timeCorrections: TimeCorrectionRequest[];
   tasks: Task[];
+  jobTaskHeadings: JobTaskHeading[];
   clockInInFlightEmployeeIds: ID[];
   clockOutInFlightEntryIds: ID[];
   budgetItems: BudgetItem[];
@@ -199,6 +202,10 @@ interface AppState {
   updateTask: (id: ID, data: Partial<Task>) => Promise<{ ok: boolean; task?: Task; error?: string }>;
   completeTask: (id: ID) => Promise<{ ok: boolean; task?: Task; error?: string }>;
   deleteTask: (id: ID) => Promise<{ ok: boolean; error?: string }>;
+  addJobTaskHeading: (jobId: ID, name: string) => Promise<{ ok: boolean; heading?: JobTaskHeading; error?: string }>;
+  renameJobTaskHeading: (jobId: ID, id: ID, name: string) => Promise<{ ok: boolean; error?: string }>;
+  deleteJobTaskHeading: (jobId: ID, id: ID) => Promise<{ ok: boolean; movedTaskCount?: number; error?: string }>;
+  reorderJobTaskHeadings: (jobId: ID, orderedIds: ID[]) => Promise<{ ok: boolean; error?: string }>;
 
   // Budget
   addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget | null>;
@@ -270,6 +277,7 @@ export const useStore = create<AppState>()((set, get) => ({
       timeEntries: [],
       timeCorrections: [],
       tasks: [],
+      jobTaskHeadings: [],
       clockInInFlightEmployeeIds: [],
       clockOutInFlightEntryIds: [],
       budgetItems: [],
@@ -1400,6 +1408,74 @@ export const useStore = create<AppState>()((set, get) => ({
         } catch (error: unknown) {
           set({ tasks: previous });
           const message = errorMessage(error, 'Task could not be deleted.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      addJobTaskHeading: async (jobId, name) => {
+        try {
+          const response = await ensureOk(fetch(`/api/job-task-headings?jobId=${encodeURIComponent(jobId)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name }),
+          }));
+          const body = await response.json() as { heading: JobTaskHeading };
+          set((state) => ({ jobTaskHeadings: [...state.jobTaskHeadings, body.heading] }));
+          return { ok: true, heading: body.heading };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Heading could not be created.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      renameJobTaskHeading: async (jobId, id, name) => {
+        const previous = get().jobTaskHeadings;
+        set((state) => ({ jobTaskHeadings: state.jobTaskHeadings.map((heading) => heading.id === id ? { ...heading, name } : heading) }));
+        try {
+          await ensureOk(fetch(`/api/job-task-headings?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name }),
+          }));
+          return { ok: true };
+        } catch (error: unknown) {
+          set({ jobTaskHeadings: previous });
+          const message = errorMessage(error, 'Heading could not be renamed.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      deleteJobTaskHeading: async (jobId, id) => {
+        const previousHeadings = get().jobTaskHeadings;
+        const previousTasks = get().tasks;
+        set((state) => ({
+          jobTaskHeadings: state.jobTaskHeadings.filter((heading) => heading.id !== id),
+          tasks: state.tasks.map((task) => task.headingId === id ? { ...task, headingId: undefined } : task),
+        }));
+        try {
+          const response = await ensureOk(fetch(`/api/job-task-headings?jobId=${encodeURIComponent(jobId)}&id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' }));
+          const body = await response.json() as { movedTaskCount?: number };
+          return { ok: true, movedTaskCount: body.movedTaskCount ?? 0 };
+        } catch (error: unknown) {
+          set({ jobTaskHeadings: previousHeadings, tasks: previousTasks });
+          const message = errorMessage(error, 'Heading could not be deleted.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      reorderJobTaskHeadings: async (jobId, orderedIds) => {
+        const previous = get().jobTaskHeadings;
+        set((state) => ({ jobTaskHeadings: state.jobTaskHeadings.map((heading) => {
+          const sortOrder = orderedIds.indexOf(heading.id);
+          return sortOrder < 0 ? heading : { ...heading, sortOrder };
+        }) }));
+        try {
+          await ensureOk(fetch(`/api/job-task-headings?jobId=${encodeURIComponent(jobId)}&action=reorder`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ orderedIds }),
+          }));
+          return { ok: true };
+        } catch (error: unknown) {
+          set({ jobTaskHeadings: previous });
+          const message = errorMessage(error, 'Heading order could not be saved.');
           emitAppToast({ tone: 'error', message });
           return { ok: false, error: message };
         }

@@ -56,7 +56,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, updateJob, deleteTimeEntry, addTask, updateTask, deleteTask } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -86,6 +86,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     return counts;
   }, {}), [formSubmissions, id]);
   const jobTasks = useMemo(() => tasks.filter((task) => task.relatedEntityType === 'job' && task.relatedEntityId === id), [id, tasks]);
+  const headings = useMemo(() => jobTaskHeadings.filter((heading) => heading.jobId === id).sort((left, right) => left.sortOrder - right.sortOrder), [id, jobTaskHeadings]);
   const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId && (jobTaskFilter === 'completed' ? task.status === 'completed' : task.status === 'open')), [jobTaskFilter, jobTasks]);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
@@ -532,6 +533,12 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             expanded
             addRequest={0}
             allowCustomTabs={false}
+            jobTaskHeadings={headings}
+            canManageJobTaskHeadings={canManageSchedule}
+            onAddHeading={(name) => addJobTaskHeading(job.id, name)}
+            onRenameHeading={(headingId, name) => renameJobTaskHeading(job.id, headingId, name)}
+            onDeleteHeading={(headingId) => deleteJobTaskHeading(job.id, headingId)}
+            onReorderHeadings={(orderedIds) => reorderJobTaskHeadings(job.id, orderedIds)}
             onFilterChange={(filter) => setJobTaskFilter(filter === 'completed' ? 'completed' : 'all')}
             onRenameFilter={async (filter, name) => {
               if (filter !== 'all' && filter !== 'completed') return;

@@ -47,3 +47,32 @@ test('Job Tasks retain task editing, completion, deletion, priorities, due dates
   assert.match(tasksSource, /aria-label="Priority"/);
   assert.match(tasksSource, /aria-label="Due date"/);
 });
+
+test('Job Tasks group both Open and Completed tasks by first-class headings with Uncategorized fallback', () => {
+  assert.match(jobSource, /jobTaskHeadings\.filter\(\(heading\) => heading\.jobId === id\)/);
+  assert.match(tasksSource, /visibleTasks\.filter\(\(task\) => task\.headingId === section\.id\)/);
+  assert.match(tasksSource, /filter === 'completed' \? 'completed' : 'open'/);
+  assert.match(tasksSource, /Uncategorized/);
+  assert.match(tasksSource, /!task\.headingId \|\| !jobTaskHeadings\.some/);
+});
+
+test('heading controls support create, rename, safe delete, per-heading add, and drag reorder', () => {
+  assert.match(tasksSource, /Add Heading/);
+  assert.match(tasksSource, /openAdd\(section\.id\)/);
+  assert.match(tasksSource, /Move tasks to Uncategorized and delete/);
+  assert.match(tasksSource, /draggable onDragStart=\{\(\) => setDraggedHeadingId\(section\.id\)\}/);
+  assert.match(tasksSource, /onReorderHeadings\(orderedIds\)/);
+});
+
+test('task add and edit preserve or change the optional heading relationship', () => {
+  assert.match(tasksSource, /setHeadingId\(task\.headingId \?\? ''\)/);
+  assert.match(tasksSource, /headingId: headingId \|\| undefined/);
+  assert.match(tasksSource, /aria-label="Heading"/);
+  assert.match(typesSource, /headingId\?: ID/);
+});
+
+test('Job Task heading empty states stay compact and actionable', () => {
+  assert.match(tasksSource, /No job tasks yet/);
+  assert.match(tasksSource, /Create a heading or add your first task\./);
+  assert.match(tasksSource, /No \{filter === 'completed' \? 'completed' : 'open'\} tasks in this section\./);
+});

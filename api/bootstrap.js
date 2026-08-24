@@ -21,6 +21,7 @@ import {
   listJobsForBusiness,
   listTemplatesForBusiness,
   listTasksForBusiness,
+  listJobTaskHeadingsForBusiness,
   listTimeCorrectionsForBusiness,
   getTimeEntryForBusiness,
   listTimeEntriesForBusiness,
@@ -67,7 +68,7 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -95,9 +96,13 @@ export default async function handler(req, res) {
       listRevenueSalesGoalsForBusiness(session.businessId),
       listEmployeesForBusiness(session.businessId),
       listTasksForBusiness(session.businessId),
+      listJobTaskHeadingsForBusiness(session.businessId),
       listTimeEntriesForBusiness(session.businessId),
       listTimeCorrectionsForBusiness(session.businessId),
     ]);
+
+    const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
+    const visibleJobIds = new Set(visibleJobs.map((job) => job.id));
 
     return res.status(200).json({
       ok: true,
@@ -117,7 +122,7 @@ export default async function handler(req, res) {
       crews: filterRecordsForSession(session, 'crews', crews),
       divisions: filterRecordsForSession(session, 'divisions', divisions),
       customers: filterRecordsForSession(session, 'customers', customers),
-      jobs: filterRecordsForSession(session, 'jobs', jobs, { crews }),
+      jobs: visibleJobs,
       estimates: filterRecordsForSession(session, 'estimates', estimates),
       invoices: filterRecordsForSession(session, 'invoices', invoices),
       expenses: filterRecordsForSession(session, 'expenses', expenses),
@@ -132,6 +137,7 @@ export default async function handler(req, res) {
       revenueSalesGoals: filterRecordsForSession(session, 'revenue-sales-goals', revenueSalesGoals),
       employees: filterRecordsForSession(session, 'employees', employees),
       tasks: filterRecordsForSession(session, 'tasks', tasks),
+      jobTaskHeadings: jobTaskHeadings.filter((heading) => visibleJobIds.has(heading.jobId)),
       timeEntries: filterRecordsForSession(session, 'time-entries', timeEntries),
       timeCorrections: filterRecordsForSession(session, 'time-corrections', timeCorrections),
       currentActiveEntryId: activeShift?.activeEntryId ?? null,
