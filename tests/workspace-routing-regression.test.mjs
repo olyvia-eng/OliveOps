@@ -17,10 +17,10 @@ const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf
 const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
-test('estimate and job workspaces are wired with the current user role', () => {
+test('estimate and job workspaces are wired with the current user context', () => {
   assert.match(appSource, /path="estimates\/:id"/);
   assert.match(appSource, /<EstimateWorkspacePage currentUserRole=\{sessionUser\.role\} \/>/);
-  assert.match(appSource, /<JobDetailPage currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(appSource, /<JobDetailPage currentUserRole=\{sessionUser\.role\} currentUserId=\{sessionUser\.id\} \/>/);
 });
 
 test('lightweight estimate creation returns an id and opens the workspace', () => {

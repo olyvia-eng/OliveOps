@@ -634,7 +634,7 @@ export default function App() {
               />
               <Route path="estimates/templates" element={<TemplatesPage />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} />} />
+              <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />

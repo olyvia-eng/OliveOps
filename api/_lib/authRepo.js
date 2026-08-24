@@ -3657,6 +3657,7 @@ function mapJobRecordFromItem(item) {
     contractValue: item.contractValue,
     assignedEmployeeIds: item.assignedEmployeeIds ?? [],
     assignedEquipmentIds: item.assignedEquipmentIds ?? [],
+    taskHeaderLabels: item.taskHeaderLabels,
     notes: item.notes,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,

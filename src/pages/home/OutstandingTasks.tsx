@@ -6,6 +6,8 @@ import { Badge, Button, Card, EmptyState, Input, Modal, Select } from '../../com
 import { taskCreationDefaults } from './homeDashboardModel.js';
 
 interface OutstandingTasksProps {
+  heading?: string;
+  subtitle?: string;
   tasks: Task[];
   allTasks: Task[];
   filter: string;
@@ -24,6 +26,9 @@ interface OutstandingTasksProps {
   onToggle: (task: Task) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
   onDismissCompletedToday: (taskId: string) => void;
+  filterLabels?: Record<string, string>;
+  onRenameFilter?: (filter: string, name: string) => void | Promise<void>;
+  allowCustomTabs?: boolean;
 }
 
 const systemTabLabels: Record<string, string> = { all: 'Open', today: 'Today', overdue: 'Overdue', week: 'This week', completed: 'Completed' };
@@ -34,7 +39,7 @@ const priorityTone = (priority?: string) => {
   return 'bg-gray-100 text-gray-700 dark:bg-brand-600 dark:text-brand-100';
 };
 
-export default function OutstandingTasks({ tasks, allTasks, filter, customTaskTabs, filterOrder, expanded, addRequest, onFilterChange, onFilterOrderChange, onCreateCustomTab, onRenameCustomTab, onDeleteCustomTab, onViewAll, onAdd, onUpdate, onToggle, onDelete, onDismissCompletedToday }: OutstandingTasksProps) {
+export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your next personal actions', tasks, allTasks, filter, customTaskTabs, filterOrder, expanded, addRequest, onFilterChange, onFilterOrderChange, onCreateCustomTab, onRenameCustomTab, onDeleteCustomTab, onViewAll, onAdd, onUpdate, onToggle, onDelete, onDismissCompletedToday, filterLabels, onRenameFilter, allowCustomTabs = true }: OutstandingTasksProps) {
   const [adding, setAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [title, setTitle] = useState('');
@@ -49,7 +54,15 @@ export default function OutstandingTasks({ tasks, allTasks, filter, customTaskTa
   const [tabName, setTabName] = useState('');
   const [tabError, setTabError] = useState('');
   const [contextTabId, setContextTabId] = useState<string | null>(null);
+  const [editingFilter, setEditingFilter] = useState<string | null>(null);
+  const [editingFilterName, setEditingFilterName] = useState('');
   const visibleTasks = expanded ? tasks : tasks.slice(0, 5);
+
+  const saveFilterName = async () => {
+    if (!editingFilter || !editingFilterName.trim() || !onRenameFilter) return;
+    await onRenameFilter(editingFilter, editingFilterName.trim());
+    setEditingFilter(null);
+  };
 
   const openAdd = () => {
     const defaults = taskCreationDefaults(filter, customTaskTabs, new Date());
@@ -140,23 +153,23 @@ export default function OutstandingTasks({ tasks, allTasks, filter, customTaskTa
     <Card id="outstanding-tasks" className="overflow-hidden rounded-lg">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-100 px-4 py-3 dark:border-brand-600">
         <div>
-          <h2 className="font-semibold text-brand-900 dark:text-brand-50">Tasks</h2>
-          <p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">Your next personal actions</p>
+          <h2 className="font-semibold text-brand-900 dark:text-brand-50">{heading}</h2>
+          <p className="mt-0.5 text-xs text-brand-400 dark:text-brand-300">{subtitle}</p>
         </div>
         <Button size="sm" onClick={() => { if (adding) { setAdding(false); setEditingTask(null); setParentTask(null); } else openAdd(); }}>{adding ? <X /> : <Plus />}{adding ? 'Cancel' : 'Add task'}</Button>
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" aria-label="Task filters">
-        {filterOrder.map((value, index) => { const customTab = customTaskTabs.find((tab) => tab.id === value); const label = customTab?.name ?? systemTabLabels[value] ?? value; return (
+        {filterOrder.map((value, index) => { const customTab = customTaskTabs.find((tab) => tab.id === value); const label = customTab?.name ?? filterLabels?.[value] ?? systemTabLabels[value] ?? value; return (
           <div key={value} className="relative shrink-0" onDragOver={(event) => event.preventDefault()} onDrop={() => {
             if (draggedFilter) moveFilter(draggedFilter, index);
             setDraggedFilter(null);
           }}>
-            <button type="button" draggable onDragStart={() => setDraggedFilter(value)} onDragEnd={() => setDraggedFilter(null)} onClick={() => onFilterChange(value)} onContextMenu={(event) => { if (!customTab) return; event.preventDefault(); setContextTabId(value); }} onKeyDown={(event) => { if (customTab && event.shiftKey && event.key === 'F10') { event.preventDefault(); setContextTabId(value); } }} title={customTab ? 'Right-click to manage tab' : undefined} className={`h-8 rounded-md px-3 text-xs font-semibold ${filter === value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{label}</button>
+            {editingFilter === value ? <Input autoFocus value={editingFilterName} maxLength={30} aria-label={`Rename ${label} task header`} onChange={(event) => setEditingFilterName(event.target.value)} onBlur={() => void saveFilterName()} onKeyDown={(event) => { if (event.key === 'Enter') void saveFilterName(); if (event.key === 'Escape') setEditingFilter(null); }} className="h-8 w-32 text-xs" /> : <button type="button" draggable onDragStart={() => setDraggedFilter(value)} onDragEnd={() => setDraggedFilter(null)} onClick={() => onFilterChange(value)} onDoubleClick={() => { if (!onRenameFilter) return; setEditingFilter(value); setEditingFilterName(label); }} onContextMenu={(event) => { if (!customTab) return; event.preventDefault(); setContextTabId(value); }} onKeyDown={(event) => { if (customTab && event.shiftKey && event.key === 'F10') { event.preventDefault(); setContextTabId(value); } }} title={onRenameFilter ? 'Double-click to rename' : customTab ? 'Right-click to manage tab' : undefined} className={`h-8 rounded-md px-3 text-xs font-semibold ${filter === value ? 'bg-brand-700 text-white' : 'text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600'}`}>{label}</button>}
             {contextTabId === value && customTab ? <div role="menu" className="absolute left-0 top-9 z-20 min-w-28 rounded-md border border-brand-100 bg-white p-1 shadow-lg dark:border-brand-600 dark:bg-brand-700"><button type="button" role="menuitem" onClick={() => openTabDialog('rename', customTab)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-brand-50 dark:hover:bg-brand-800">Rename</button><button type="button" role="menuitem" onClick={() => openTabDialog('delete', customTab)} className="block w-full rounded px-3 py-2 text-left text-xs text-accent-700 hover:bg-accent-50">Delete</button></div> : null}
           </div>
         ); })}
-        <button type="button" onClick={() => openTabDialog('create')} aria-label="Add task tab" title="Add task tab" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600"><Plus size={15} /></button>
+        {allowCustomTabs ? <button type="button" onClick={() => openTabDialog('create')} aria-label="Add task tab" title="Add task tab" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600"><Plus size={15} /></button> : null}
       </div>
 
       {adding ? (

@@ -15,7 +15,7 @@ test('Home answers what this user needs to do with a personal command center', (
   assert.match(source, /<PersonalCalendar jobs=\{personalJobs\} tasks=\{rootTasks\}/);
   assert.match(personalCalendarSource, /initialView="timeGridWeek"/);
   assert.match(personalCalendarSource, /\['month', 'week', 'day'\]|VIEW_MAP/);
-  assert.match(tasksSource, />Tasks</);
+  assert.match(tasksSource, /heading = 'Tasks'/);
   assert.match(tasksSource, /draggable onDragStart/);
   assert.match(tasksSource, /onFilterOrderChange/);
   assert.doesNotMatch(tasksSource, /GripVertical|ChevronLeft|ChevronRight|Move earlier|Move later/);

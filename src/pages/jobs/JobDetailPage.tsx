@@ -11,6 +11,7 @@ import type { FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } f
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
+import OutstandingTasks from '../home/OutstandingTasks';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -20,6 +21,7 @@ type SubmissionDetail = { job: { id: string; title: string }; form: FormRecord; 
 
 interface Props {
   currentUserRole: string;
+  currentUserId: string;
 }
 
 const normalizeEntryJobIds = (entry: { jobIds?: string[]; jobId?: string }): string[] => {
@@ -50,11 +52,11 @@ const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
     : [];
 };
 
-export default function JobDetailPage({ currentUserRole }: Props) {
+export default function JobDetailPage({ currentUserRole, currentUserId }: Props) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, updateJob, deleteTimeEntry } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, updateJob, deleteTimeEntry, addTask, updateTask, deleteTask } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -66,6 +68,7 @@ export default function JobDetailPage({ currentUserRole }: Props) {
   const [submissionLoading, setSubmissionLoading] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
+  const [jobTaskFilter, setJobTaskFilter] = useState<'all' | 'completed'>('all');
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -82,6 +85,8 @@ export default function JobDetailPage({ currentUserRole }: Props) {
     counts[submission.formId] = (counts[submission.formId] ?? 0) + 1;
     return counts;
   }, {}), [formSubmissions, id]);
+  const jobTasks = useMemo(() => tasks.filter((task) => task.relatedEntityType === 'job' && task.relatedEntityId === id), [id, tasks]);
+  const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId && (jobTaskFilter === 'completed' ? task.status === 'completed' : task.status === 'open')), [jobTaskFilter, jobTasks]);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
 
@@ -515,6 +520,50 @@ export default function JobDetailPage({ currentUserRole }: Props) {
 
       {activeTab === 'project-management' && (
         <div className="space-y-6">
+          <OutstandingTasks
+            heading="Job Tasks"
+            subtitle="Actions tied directly to this job"
+            tasks={visibleJobTasks}
+            allTasks={jobTasks}
+            filter={jobTaskFilter}
+            filterOrder={['all', 'completed']}
+            filterLabels={job.taskHeaderLabels}
+            customTaskTabs={[]}
+            expanded
+            addRequest={0}
+            allowCustomTabs={false}
+            onFilterChange={(filter) => setJobTaskFilter(filter === 'completed' ? 'completed' : 'all')}
+            onRenameFilter={async (filter, name) => {
+              if (filter !== 'all' && filter !== 'completed') return;
+              await updateJob(job.id, { taskHeaderLabels: { ...job.taskHeaderLabels, [filter]: name } });
+            }}
+            onFilterOrderChange={() => undefined}
+            onCreateCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
+            onRenameCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
+            onDeleteCustomTab={() => false}
+            onViewAll={() => undefined}
+            onAdd={async (input) => {
+              const result = await addTask({
+                ...input,
+                description: '',
+                assignedUserId: currentUserId,
+                status: 'open',
+                relatedEntityType: 'job',
+                relatedEntityId: job.id,
+                createdByUserId: currentUserId,
+              });
+              return result.ok;
+            }}
+            onUpdate={async (taskId, input) => (await updateTask(taskId, input)).ok}
+            onToggle={async (task) => {
+              await updateTask(task.id, task.status === 'completed'
+                ? { status: 'open', completedAt: undefined }
+                : { status: 'completed', completedAt: new Date().toISOString() });
+            }}
+            onDelete={async (taskId) => { await deleteTask(taskId); }}
+            onDismissCompletedToday={() => undefined}
+          />
+
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-4">
               <h2 className="font-semibold">Notes</h2>

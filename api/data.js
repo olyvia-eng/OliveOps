@@ -890,6 +890,14 @@ function validateJobRecord(record) {
   if (Array.isArray(record.assignedEquipmentIds) && record.assignedEquipmentIds.some((value) => typeof value !== 'string' || !value.trim())) {
     return 'Assigned equipment is invalid.';
   }
+  if (record.taskHeaderLabels !== undefined) {
+    if (!record.taskHeaderLabels || typeof record.taskHeaderLabels !== 'object' || Array.isArray(record.taskHeaderLabels)) {
+      return 'Job task header labels are invalid.';
+    }
+    const invalidKey = Object.keys(record.taskHeaderLabels).some((key) => !['all', 'completed'].includes(key));
+    const invalidLabel = Object.values(record.taskHeaderLabels).some((label) => typeof label !== 'string' || !label.trim() || label.trim().length > 30);
+    if (invalidKey || invalidLabel) return 'Job task header labels are invalid.';
+  }
   return null;
 }
 

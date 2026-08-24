@@ -482,6 +482,7 @@ export interface Job {
   contractValue: number;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds?: ID[];
+  taskHeaderLabels?: Partial<Record<'all' | 'completed', string>>;
   notes: string;
   createdAt: string;
   updatedAt: string;
