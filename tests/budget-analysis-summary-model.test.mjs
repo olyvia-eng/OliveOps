@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBudgetAnalysisSummary, targetMarginFromDollars } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
+import { buildBudgetAnalysisSummary, formatTargetMarginPercent, targetMarginFromDollars } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
 
 const financials = {
   revenue: 500000,
@@ -49,4 +49,9 @@ test('chart uses summary values and preserves an over-target shortfall without n
   assert.equal(feasible.shortfall, 0);
   assert.equal(feasible.surplusAfterTarget, 25000);
   assert.equal(feasible.chartTotal, feasible.revenue);
+});
+
+test('Target Net Profit display preserves meaningful precision without trailing zeroes', () => {
+  assert.equal(formatTargetMarginPercent(78.4313725), '78.43%');
+  assert.equal(formatTargetMarginPercent(20), '20%');
 });

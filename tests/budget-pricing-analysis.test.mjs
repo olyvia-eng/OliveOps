@@ -114,7 +114,8 @@ test('overhead and final rates disclose actual source values and margin formula'
   assert.match(pricingSource, /Overhead Recovery:/);
   assert.match(pricingSource, /Breakeven Rate:/);
   assert.match(pricingSource, /Cost After OH Recovery:/);
-  assert.match(pricingSource, /÷ \(1 - \{row\.targetMarginPct\.toFixed\(0\)\}%\)/);
+  assert.match(pricingSource, /÷ \(1 - \{formatTargetMarginPercent\(row\.targetMarginPct\)\}\)/);
+  assert.doesNotMatch(pricingSource, /targetMarginPct\.toFixed\(0\)/);
   assert.match(pricingSource, /× \(1 \+ \{\(\(row\.recoveryRate \?\? 0\) \* 100\)\.toFixed\(2\)\}%\)/);
   assert.doesNotMatch(pricingSource, /\* 1\.2|× 1\.20/);
 });

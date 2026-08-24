@@ -9,7 +9,7 @@ Allocation and recovery are separate:
 
 Recovery percentages are stored on each Division and must total 100%. Labour recovery remains hour-based. Equipment, Materials, and Subcontractors use annual Division cost as their recovery denominator and apply the resulting recovery percentage to each item's direct cost. A positive pool with no denominator remains unrecoverable and produces a planning warning instead of dividing by zero.
 
-Recommended rates use direct cost plus Division overhead recovery, followed by the existing gross-margin calculation. Approved rates remain separate records and are never overwritten by recalculation. Estimates continue to snapshot approved rates only.
+Calculated rates use direct cost plus Division overhead recovery, followed by the existing gross-margin calculation. Existing approved-rate records remain readable and are never overwritten by recalculation. New Division-model Estimate lines snapshot the current calculated rate through server-side authorization; existing Estimate snapshots are not repriced.
 
 ## Legacy normalization
 
@@ -63,6 +63,8 @@ Breakeven = Average Labour Cost + Labour Overhead Recovery
 Labour Rate = Breakeven ÷ (1 - Target Net Profit %)
 ```
 
+Before this model runs, Labour planning records are enriched with current Employee compensation through the shared pricing-input boundary. Budget-specific hours, billable percentage, overtime, classification, and allocations remain unchanged. Persisted planning compensation is retained for imports and compatibility, but stale wage snapshots cannot lower current Budget Analysis or new Estimate pricing.
+
 The Analysis pricing workbook presents four client-side tabs: Labour, Equipment, Materials, and Subcontractors. Labour is selected by default. Changing tabs only filters the already calculated rows; it does not write Budget rates or other persisted data.
 
 ## Recovery denominator audit
@@ -95,7 +97,7 @@ Labour allocation writes are validated to contain each Division once and total t
 
 When a recovery pool is positive but its Division denominator is zero, the category and final calculated rate are `Unavailable`. Analysis exposes the actual unrecoverable pool and missing denominator instead of presenting `$0.00` overhead or a direct-cost-only rate. The warning above Pricing directs the user to add the missing recovery base or change the Division recovery allocation. Unconfigured recovery or percentages that do not total 100% also make calculated rates unavailable until the allocation is corrected.
 
-Previously persisted Budget approvals remain readable in the pricing model for compatibility, including the stable `average-labour:<divisionId>` identity. Analysis no longer displays or edits Approved Rate and Status. Existing approval records, legacy employee rates, Estimate-approved-only selection, and immutable historical Estimate snapshots are unchanged.
+Previously persisted Budget approvals remain readable in the pricing model for compatibility, including the stable `average-labour:<divisionId>` identity. Analysis no longer displays or edits Approved Rate and Status. New Division-model Estimate lines use calculated pricing, while immutable historical Estimate snapshots and legacy Budget pricing behavior remain unchanged.
 
 ## Analysis financial summary
 

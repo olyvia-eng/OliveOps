@@ -5,6 +5,8 @@ const nonNegative = (value) => {
 
 export const normalizeTargetMargin = (value) => Math.min(95, nonNegative(value ?? 20));
 
+export const formatTargetMarginPercent = (value) => `${Number(nonNegative(value).toFixed(2))}%`;
+
 export function targetMarginFromDollars(targetProfit, revenue) {
   return revenue > 0 ? normalizeTargetMargin(nonNegative(targetProfit) / revenue * 100) : 0;
 }

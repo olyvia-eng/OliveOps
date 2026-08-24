@@ -55,7 +55,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
   };
   const rates = budgetRates.filter((rate) => rate.budgetId === budgetId && rate.active !== false);
   const calculatedRows = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
-    ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates })
+    ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees })
     : [];
   const uniqueItems = new Map();
 

@@ -28,5 +28,6 @@ export interface BudgetAnalysisSummary {
   feasible: boolean;
 }
 export function normalizeTargetMargin(value: number | null | undefined): number;
+export function formatTargetMarginPercent(value: number | null | undefined): string;
 export function targetMarginFromDollars(targetProfit: number, revenue: number): number;
 export function buildBudgetAnalysisSummary(financials: BudgetFinancials, targetMarginPct: number | null | undefined): BudgetAnalysisSummary;

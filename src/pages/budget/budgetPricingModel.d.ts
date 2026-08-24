@@ -1,4 +1,4 @@
-import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, LineItemCategory } from '../../types';
+import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, Employee, LineItemCategory } from '../../types';
 
 export interface BudgetPricingRow {
   item: BudgetDivisionPlanningItem;
@@ -36,4 +36,10 @@ export function buildBudgetPricingRows(input: {
   divisions?: BudgetDivision[];
   planningItems: BudgetDivisionPlanningItem[];
   budgetRates: BudgetRate[];
+  employees?: Employee[];
 }): BudgetPricingRow[];
+
+export function prepareBudgetPricingInputs(input: {
+  planningItems: BudgetDivisionPlanningItem[];
+  employees?: Employee[];
+}): BudgetDivisionPlanningItem[];

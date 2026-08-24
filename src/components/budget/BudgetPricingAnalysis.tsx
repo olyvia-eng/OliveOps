@@ -4,9 +4,9 @@ import { Card, EmptyState } from '../ui';
 import { useStore } from '../../store';
 import type { Budget, BudgetDivisionPlanningItem } from '../../types';
 import { formatCurrency } from '../../utils';
-import { buildBudgetPricingRows } from '../../pages/budget/budgetPricingModel.js';
+import { buildBudgetPricingRows, prepareBudgetPricingInputs } from '../../pages/budget/budgetPricingModel.js';
+import { formatTargetMarginPercent } from '../../pages/budget/budgetAnalysisSummaryModel.js';
 import { buildOverheadRecoveryModel } from '../../pages/budget/overheadRecoveryModel.js';
-import { applyEmployeeCostInputs } from '../../utils/employeeLabourCost';
 import OverheadRecoveryEditor from './OverheadRecoveryEditor';
 
 interface Props {
@@ -41,8 +41,8 @@ const unavailableCostReason = (category: BudgetDivisionPlanningItem['category'])
 export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }: Props) {
   const { budgetRates, budgetDivisions, employees, updateBudgetDivision } = useStore();
   const divisions = useMemo(() => budgetDivisions.filter((division) => division.budgetId === budget.id && division.status === 'active'), [budget.id, budgetDivisions]);
-  const resolvedPlanningItems = useMemo(() => planningItems.map((item) => applyEmployeeCostInputs(item, employees.find((employee) => employee.id === item.employeeId))), [employees, planningItems]);
-  const rows = useMemo(() => buildBudgetPricingRows({ budget, divisions, planningItems: resolvedPlanningItems, budgetRates }), [budget, budgetRates, divisions, resolvedPlanningItems]);
+  const resolvedPlanningItems = useMemo(() => prepareBudgetPricingInputs({ planningItems, employees }), [employees, planningItems]);
+  const rows = useMemo(() => buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees }), [budget, budgetRates, divisions, employees, planningItems]);
   const recovery = useMemo(() => buildOverheadRecoveryModel({ budget, divisions, planningItems: resolvedPlanningItems }), [budget, divisions, resolvedPlanningItems]);
   const recoveryWarnings = Object.values(recovery.divisions).flatMap((scope) => scope.warnings);
   const [activePricingTab, setActivePricingTab] = useState<PricingTab>('labour');
@@ -81,9 +81,9 @@ export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }
           <td className="px-4 py-3 text-gray-500">{row.divisionName}</td>
           <td className="px-4 py-3 text-right">{row.costRate > 0 ? `${formatCurrency(row.costRate)}/${row.unit}` : 'Unavailable'}</td>
           <td className="px-4 py-3 text-right">{overheadDisclosure(row)}</td>
-          <td className="px-4 py-3 text-right">{row.targetMarginPct.toFixed(0)}%</td>
+          <td className="px-4 py-3 text-right">{formatTargetMarginPercent(row.targetMarginPct)}</td>
           {isUnavailable ? <td className="px-4 py-3 text-right"><p className="font-medium text-gray-700 dark:text-brand-100">Unavailable</p><p className="mt-1 text-xs font-normal text-gray-500 dark:text-brand-300">{row.recoveryUnavailableReason === 'configuration' ? 'Set recovery percentages to total 100%.' : row.recoveryUnavailable ? `Overhead cannot be recovered without planned ${categoryTerms(row.item.category).missing}.` : unavailableCostReason(row.item.category)}</p></td> : <>
-            <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500 dark:text-brand-300"><summary className="cursor-pointer">Calculation</summary><div className="mt-1 space-y-1 text-left"><p>{costLabel}: {formatCurrency(row.costRate)}/{row.unit}</p>{row.item.category === 'labour' ? <><p>Overhead Recovery: {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p><p>Breakeven Rate: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></> : <><p>Overhead Recovery: {((row.recoveryRate ?? 0) * 100).toFixed(2)}%</p><p>Cost After OH Recovery: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></>}<p>Target Net Profit: {row.targetMarginPct.toFixed(0)}%</p><p className="font-medium text-gray-700 dark:text-brand-100">{rateLabel}: {row.item.category === 'labour' ? <>{formatCurrency(row.recoveredCostPerUnit)} ÷ (1 - {row.targetMarginPct.toFixed(0)}%)</> : <>{formatCurrency(row.costRate)} × (1 + {((row.recoveryRate ?? 0) * 100).toFixed(2)}%) ÷ (1 - {row.targetMarginPct.toFixed(0)}%)</>} = {formatCurrency(row.recommendedRate)}/{row.unit}</p></div></details></td>
+            <td className="px-4 py-3 text-right"><p className="font-semibold">{formatCurrency(row.recommendedRate)}/{row.unit}</p><details className="mt-1 text-xs text-gray-500 dark:text-brand-300"><summary className="cursor-pointer">Calculation</summary><div className="mt-1 space-y-1 text-left"><p>{costLabel}: {formatCurrency(row.costRate)}/{row.unit}</p>{row.item.category === 'labour' ? <><p>Overhead Recovery: {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}</p><p>Breakeven Rate: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></> : <><p>Overhead Recovery: {((row.recoveryRate ?? 0) * 100).toFixed(2)}%</p><p>Cost After OH Recovery: {formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</p></>}<p>Target Net Profit: {formatTargetMarginPercent(row.targetMarginPct)}</p><p className="font-medium text-gray-700 dark:text-brand-100">{rateLabel}: {row.item.category === 'labour' ? <>{formatCurrency(row.recoveredCostPerUnit)} ÷ (1 - {formatTargetMarginPercent(row.targetMarginPct)})</> : <>{formatCurrency(row.costRate)} × (1 + {((row.recoveryRate ?? 0) * 100).toFixed(2)}%) ÷ (1 - {formatTargetMarginPercent(row.targetMarginPct)})</>} = {formatCurrency(row.recommendedRate)}/{row.unit}</p></div></details></td>
           </>}
         </tr>;
       })}</tbody>

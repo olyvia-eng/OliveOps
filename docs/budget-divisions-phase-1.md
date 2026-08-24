@@ -48,7 +48,7 @@ Each destination/category also stores an identity marker based on its reusable c
 
 Imports are explicit snapshots, not live links. Every imported row receives a new ID and destination Budget/Division ownership. Source records remain unchanged.
 
-- Labour copies employee references and reusable compensation, hour, overtime, burden, benefit, and bonus assumptions. It never reads time entries, payroll actuals, completed Jobs, or historical variance.
+- Labour copies employee references and compensation snapshots plus hour, overtime, classification, and allocation assumptions. Current Employee compensation is authoritative for new pricing; copied compensation remains for import history and compatibility fallback. Labour planning never reads time entries, payroll actuals, completed Jobs, or historical variance.
 - Equipment reuses the Equipment Catalog asset and copies Budget-specific classification, payment, fuel, insurance, maintenance, utilization, and allocation suggestions. It never copies group IDs, allocation IDs, source Budget IDs, historical machine usage, or Job data.
 - Materials reuse the Material Catalog reference when it still exists and copy description, unit, unit cost, quantity, and amount assumptions. Missing catalog references become independent snapshots; purchases, invoices, expenses, and Job consumption are excluded.
 - Subcontractors copy independent name, description, rate, quantity, and planned amount assumptions. OliveOps does not yet have a Vendor Catalog, so imports do not create or duplicate vendor/contact records. Invoices, payments, expenses, and Job actuals are excluded.

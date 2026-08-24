@@ -1,4 +1,5 @@
 import { annualLabourCost, buildOverheadRecoveryModel, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
+import { applyEmployeeCostInputs } from '../../utils/employeeLabourCost.js';
 
 const number = (value) => {
   const result = Number(value ?? 0);
@@ -25,6 +26,11 @@ const identity = (item) => {
 
 const typeForCategory = (category) => category === 'materials' ? 'material' : category === 'subcontractors' ? 'subcontractor' : category;
 const averageLabourItemId = (divisionId) => `average-labour:${divisionId}`;
+
+export function prepareBudgetPricingInputs({ planningItems, employees = [] }) {
+  const employeesById = new Map(employees.map((employee) => [employee.id, employee]));
+  return planningItems.map((item) => applyEmployeeCostInputs(item, employeesById.get(item.employeeId)));
+}
 
 const divisionIdsForItem = (item) => {
   if (item.category === 'labour' && Array.isArray(item.divisionAllocations)) return item.divisionAllocations.filter((allocation) => number(allocation.hours ?? allocation.percentage) > 0).map((allocation) => allocation.divisionId);
@@ -88,14 +94,15 @@ const buildLegacyRows = ({ budget, uniqueItems, budgetRates }) => {
   }).sort((left, right) => (left.item.name || left.item.description || '').localeCompare(right.item.name || right.item.description || ''));
 };
 
-export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates }) {
-  const uniqueItems = [...new Map(planningItems
+export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees = [] }) {
+  const preparedPlanningItems = prepareBudgetPricingInputs({ planningItems, employees });
+  const uniqueItems = [...new Map(preparedPlanningItems
     .filter((item) => item.budgetId === budget.id && ['labour', 'equipment', 'materials', 'subcontractors'].includes(item.category))
     .map((item) => [identity(item), item])).values()];
   if (!Array.isArray(divisions)) return buildLegacyRows({ budget, uniqueItems, budgetRates });
 
   const margin = Math.min(99, number(budget.targetMarginPct ?? 20));
-  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems });
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems: preparedPlanningItems });
   const costs = new Map();
   for (const item of uniqueItems) {
     if (item.category === 'labour') costs.set(item.id, labourCost(item).perUnit);

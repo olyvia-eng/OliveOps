@@ -1,6 +1,8 @@
 # Division Labour planning model
 
-Division Labour records reference the shared employee by `employeeId`. Wage, hours, classification, overtime, and allocation values on the record are Budget assumptions and do not update the employee's HR record.
+Division Labour records reference the shared employee by `employeeId`. Planned hours, billable percentage, classification, overtime, and Division allocations are Budget assumptions and do not update the Employee record.
+
+Current Employee compensation type, wage or salary, payroll burden, benefits, and bonus are authoritative when calculating new Budget and Estimate pricing. Persisted compensation fields on Labour planning records remain available as import snapshots and compatibility fallbacks when an older Employee record does not define burden, benefits, or bonus. Pricing prepares these inputs once before calculating Labour cost, overhead recovery, and sell rates, so Budget Analysis and server-authorized Estimate pricing use the same values.
 
 ## Defaults for existing data
 
