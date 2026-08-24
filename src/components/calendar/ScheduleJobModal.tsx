@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { AlertTriangle } from 'lucide-react';
 import { Badge, Button, Input, Modal, Select, TextArea } from '../ui';
 import type { Crew, Customer, Division, Employee, EquipmentAsset, Job, ID } from '../../types';
+import { formatTimeOffType, getEmployeeTimeOffConflicts, type ScheduleTimeOff } from '../../utils/employeeAvailability.js';
 import {
   formatCustomerPropertyLabel,
   getAssignedEquipmentForJob,
@@ -49,6 +50,7 @@ interface Props {
   crews: Crew[];
   divisions: Division[];
   initialJobId?: string;
+  approvedTimeOff?: ScheduleTimeOff[];
   onClose: () => void;
   onSave: (payload: SchedulePayload) => Promise<boolean>;
 }
@@ -102,11 +104,15 @@ export default function ScheduleJobModal({
   crews,
   divisions,
   initialJobId,
+  approvedTimeOff = [],
   onClose,
   onSave,
 }: Props) {
   const [form, setForm] = useState<ScheduleFormState>(defaultForm());
   const [saving, setSaving] = useState(false);
+  const [confirmingTimeOff, setConfirmingTimeOff] = useState(false);
+  const [rangeTimeOff, setRangeTimeOff] = useState<ScheduleTimeOff[]>(approvedTimeOff);
+  const [timeOffLoading, setTimeOffLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -119,6 +125,19 @@ export default function ScheduleJobModal({
 
     setForm(formFromJob(selected, equipmentAssets));
   }, [equipmentAssets, initialJobId, jobs, open]);
+
+  useEffect(() => {
+    if (!open || !form.startDate) return;
+    const controller = new AbortController();
+    const endDate = form.endDate || form.startDate;
+    setTimeOffLoading(true);
+    void fetch(`/api/time-off-requests?action=schedule&startDate=${form.startDate}&endDate=${endDate}`, { credentials: 'include', signal: controller.signal })
+      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; items?: ScheduleTimeOff[] } }))
+      .then(({ response, payload }) => { if (response.ok && payload.ok) setRangeTimeOff(payload.items ?? []); })
+      .catch((error: Error) => { if (error.name !== 'AbortError') setRangeTimeOff([]); })
+      .finally(() => { if (!controller.signal.aborted) setTimeOffLoading(false); });
+    return () => controller.abort();
+  }, [form.endDate, form.startDate, open]);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === form.jobId) ?? null, [form.jobId, jobs]);
   const selectedCustomer = useMemo(
@@ -184,6 +203,25 @@ export default function ScheduleJobModal({
       assignedEquipmentIds: form.assignedEquipmentIds,
     });
   }, [draftScheduleWindow, form.assignedEmployeeIds, form.assignedEquipmentIds, form.crewId, jobs, selectedJob]);
+  const timeOffConflicts = useMemo(() => getEmployeeTimeOffConflicts({
+    employeeIds: form.assignedEmployeeIds,
+    crewId: form.crewId || undefined,
+    crews,
+    startDate: form.startDate,
+    endDate: form.endDate || form.startDate,
+    approvedTimeOff: rangeTimeOff,
+  }), [crews, form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate, rangeTimeOff]);
+  const employeeAvailability = useMemo(() => new Map(employees.map((employee) => [employee.id, getEmployeeTimeOffConflicts({
+    employeeIds: [employee.id],
+    crews,
+    startDate: form.startDate,
+    endDate: form.endDate || form.startDate,
+    approvedTimeOff: rangeTimeOff,
+  })])), [crews, employees, form.endDate, form.startDate, rangeTimeOff]);
+
+  useEffect(() => {
+    setConfirmingTimeOff(false);
+  }, [form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate]);
 
   const crewConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingCrewId);
   const employeeConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEmployeeIds.length > 0);
@@ -201,7 +239,7 @@ export default function ScheduleJobModal({
     return `${startLabel} - ${endLabel}`;
   };
 
-  const handleSave = async () => {
+  const performSave = async () => {
     if (!selectedJob || !form.startDate) return;
     setSaving(true);
     const saved = await onSave({
@@ -222,6 +260,15 @@ export default function ScheduleJobModal({
     if (saved) onClose();
   };
 
+  const handleSave = async () => {
+    if (timeOffLoading) return;
+    if (timeOffConflicts.length > 0) {
+      setConfirmingTimeOff(true);
+      return;
+    }
+    await performSave();
+  };
+
   return (
     <Modal
       open={open}
@@ -229,12 +276,7 @@ export default function ScheduleJobModal({
       title={title}
       wide
       footer={(
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!selectedJob || !form.startDate || saving}>
-            {saving ? 'Saving…' : 'Save Schedule'}
-          </Button>
-        </>
+        confirmingTimeOff ? <><Button variant="secondary" onClick={() => setConfirmingTimeOff(false)}>Go Back</Button><Button onClick={() => void performSave()} disabled={saving}>{saving ? 'Saving…' : 'Schedule Anyway'}</Button></> : <><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => void handleSave()} disabled={!selectedJob || !form.startDate || saving || timeOffLoading}>{saving ? 'Saving…' : timeOffLoading ? 'Checking availability…' : 'Save Schedule'}</Button></>
       )}
     >
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -284,14 +326,16 @@ export default function ScheduleJobModal({
             <div className="mt-3 flex flex-wrap gap-2">
               {employees.map((employee) => {
                 const selected = form.assignedEmployeeIds.includes(employee.id);
+                const unavailable = employeeAvailability.get(employee.id) ?? [];
                 return (
                   <button
                     key={employee.id}
                     type="button"
                     onClick={() => toggleEmployee(employee.id)}
-                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected ? 'border-brand-500 bg-brand-100 text-brand-800 dark:border-brand-300 dark:bg-brand-600 dark:text-brand-50' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
+                    className={`rounded-lg border px-3 py-1.5 text-left text-sm transition-colors ${selected ? 'border-brand-500 bg-brand-100 text-brand-800 dark:border-brand-300 dark:bg-brand-600 dark:text-brand-50' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
                   >
-                    {employee.name}
+                    <span className="block font-medium">{employee.name}</span>
+                    <span className={`block text-[11px] ${unavailable.length ? 'text-rose-700 dark:text-rose-200' : 'text-brand-400 dark:text-brand-300'}`}>{unavailable.length ? `${formatTimeOffType(unavailable[0].requestType)} · Unavailable` : 'Available'}</span>
                   </button>
                 );
               })}
@@ -300,6 +344,12 @@ export default function ScheduleJobModal({
         </div>
 
         <div className="space-y-4">
+          {confirmingTimeOff ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
+              <div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-700" /><div><h3 className="text-sm font-semibold">{timeOffConflicts.length} {timeOffConflicts.length === 1 ? 'employee is' : 'employees are'} unavailable</h3><p className="mt-1 text-xs text-rose-700">Approved Time Off overlaps this scheduled work. You can go back or acknowledge the conflict and schedule anyway.</p></div></div>
+              <div className="mt-3 space-y-2">{timeOffConflicts.map((conflict) => <div key={conflict.requestId} className="rounded-xl border border-rose-200 bg-white/70 p-3"><p className="text-sm font-semibold">{conflict.employeeName}</p><p className="mt-1 text-xs text-rose-700">{formatTimeOffType(conflict.requestType)} · {conflict.startDate === conflict.endDate ? conflict.startDate : `${conflict.startDate} - ${conflict.endDate}`}{conflict.fromCrew ? ' · Crew member' : ''}</p></div>)}</div>
+            </div>
+          ) : null}
           <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/70">
             <div className="flex flex-wrap items-start gap-2">
               <Badge label={selectedJob?.status ?? 'job'} className="bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-brand-100" />

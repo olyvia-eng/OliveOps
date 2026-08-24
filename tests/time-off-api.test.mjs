@@ -15,12 +15,14 @@ function harness({ session = { id: 'user-a', businessId: 'biz-a', employeeId: 'e
       { id: 'emp-a', userId: 'user-a', name: 'Alex', active: true },
       { id: 'emp-b', userId: 'user-b', name: 'Blair', active: true },
     ],
+    scheduleBusinessIds: [],
   };
   const handler = createTimeOffHandler({
     requireSession: async () => session,
     listEmployeesForBusiness: async () => state.employees,
     listUsersForBusiness: async () => [{ id: 'admin-a', name: 'Owner' }],
     listTimeOffRequestsForBusiness: async () => [...state.requests].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)),
+    listApprovedTimeOffOverlappingForBusiness: async (businessId, startDate, endDate) => { state.scheduleBusinessIds.push(businessId); return state.requests.filter((item) => item.status === 'approved' && item.startDate <= endDate && item.endDate >= startDate); },
     getTimeOffRequestForBusiness: async (_businessId, id) => state.requests.find((item) => item.id === id) ?? null,
     getTimeOffCreationIdempotency: async ({ employeeId, idempotencyKey }) => state.idempotency.get(`${employeeId}:${idempotencyKey}`) ?? null,
     createTimeOffRequestForBusiness: async ({ request, payloadFingerprint }) => {
@@ -89,6 +91,17 @@ test('employee list and detail return only the authenticated employee records', 
   assert.deepEqual(mine.body.items.map((item) => item.id), ['mine']);
   assert.equal((await call(handler, 'GET', 'detail', { query: { id: 'other' } })).statusCode, 404);
   assert.equal((await call(handler, 'GET', 'detail', { query: { id: 'mine' } })).statusCode, 200);
+});
+
+test('Schedule range derives tenant from session and returns approved overlap only with minimal fields', async () => {
+  const approved = { ...pending('approved'), status: 'approved', requestType: 'vacation', startDate: '2026-08-28', endDate: '2026-08-30' };
+  const { handler, state } = harness({ requests: [approved, pending('pending')] });
+  const result = await call(handler, 'GET', 'schedule', { query: { startDate: '2026-08-29', endDate: '2026-08-29' } });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.items, [{ id: 'approved', employeeId: 'emp-a', employeeName: 'Alex', requestType: 'vacation', startDate: '2026-08-28', endDate: '2026-08-30', status: 'approved' }]);
+  assert.equal('employeeNote' in result.body.items[0], false);
+  assert.deepEqual(state.scheduleBusinessIds, ['biz-a']);
+  assert.equal((await call(handler, 'GET', 'schedule', { query: { startDate: 'bad', endDate: '2026-08-29' } })).statusCode, 400);
 });
 
 test('employee cancellation is own pending only and stale cancellation returns authoritative state', async () => {

@@ -1,13 +1,14 @@
 import type { Budget, CalendarColourBy, CalendarPreferences, Crew, Division, ExternalCalendarEvent, ExternalCalendarProvider, GoogleCalendarEvent, Job } from '../types';
+import type { ScheduleTimeOff } from './employeeAvailability.js';
 import type { ScheduleColour } from '../config/scheduleColours.js';
 
 export const DEFAULT_CALENDAR_PREFERENCES: CalendarPreferences;
 export function normalizeCalendarPreferences(value?: Partial<CalendarPreferences> | null): CalendarPreferences;
 export function getEffectiveDivision(job: Job, divisions: Division[], budgets: Budget[]): Division | null;
-export function resolveScheduleColour(input: { source?: 'oliveops' | ExternalCalendarProvider; colourBy: CalendarColourBy; job?: { status: string }; crew?: Crew | null; division?: Division | null }): ScheduleColour;
+export function resolveScheduleColour(input: { source?: 'oliveops' | 'time_off' | ExternalCalendarProvider; colourBy: CalendarColourBy; job?: { status: string }; crew?: Crew | null; division?: Division | null }): ScheduleColour;
 
 export interface NormalizedScheduleEntry {
-  source: 'oliveops' | 'external';
+  source: 'oliveops' | 'external' | 'time_off';
   provider?: ExternalCalendarProvider;
   jobId?: string;
   googleEventId?: string;
@@ -28,6 +29,10 @@ export interface NormalizedScheduleEntry {
   division: Division | null;
   employeeIds: string[];
   equipmentIds: string[];
+  crewIds?: string[];
+  divisionIds?: string[];
+  timeOffRequestId?: string;
+  timeOffRequest?: ScheduleTimeOff;
   googleEvent?: GoogleCalendarEvent;
   externalEvent?: ExternalCalendarEvent;
 }

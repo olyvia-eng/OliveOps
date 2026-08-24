@@ -115,3 +115,11 @@ test('weekly spans pack overlaps into stable subrows', () => {
   const packed = packWeeklyScheduleSpans(spans);
   assert.deepEqual(packed.map((span) => [span.entry.jobId, span.row]), [['job-a', 0], ['job-b', 1], ['job-c', 0]]);
 });
+
+test('Time Off follows employee, crew, and employee-derived division filters without behaving like a Job', () => {
+  const timeOff = { source: 'time_off', status: 'approved', startKey: '2026-08-11', endKey: '2026-08-11', crew: null, division: null, crewIds: ['crew-a'], divisionIds: ['division-a', 'division-b'], employeeIds: ['employee-a'], equipmentIds: [] };
+  assert.deepEqual(filterScheduleEntries([timeOff], { employeeId: 'employee-a', divisionId: 'division-b', crewId: 'crew-a' }), [timeOff]);
+  assert.deepEqual(filterScheduleEntries([timeOff], { employeeId: 'employee-b' }), []);
+  assert.deepEqual(filterScheduleEntries([timeOff], { divisionId: 'division-c' }), []);
+  assert.deepEqual(filterScheduleEntries([timeOff], { jobId: 'job-a' }), []);
+});

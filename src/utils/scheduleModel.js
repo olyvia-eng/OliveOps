@@ -4,6 +4,7 @@ import {
   NEUTRAL_SCHEDULE_COLOUR,
   SCHEDULE_COLOUR_PALETTE,
   OUTLOOK_SCHEDULE_COLOUR,
+  TIME_OFF_SCHEDULE_COLOUR,
 } from '../config/scheduleColours.js';
 
 export const DEFAULT_CALENDAR_PREFERENCES = {
@@ -60,6 +61,7 @@ export function getEffectiveDivision(job, divisions, budgets) {
 }
 
 export function resolveScheduleColour({ source = 'oliveops', colourBy, job, crew, division }) {
+  if (source === 'time_off') return TIME_OFF_SCHEDULE_COLOUR;
   if (source === 'google') return GOOGLE_SCHEDULE_COLOUR;
   if (source === 'microsoft') return OUTLOOK_SCHEDULE_COLOUR;
   if (colourBy === 'status') return JOB_STATUS_COLOURS[job?.status] ?? NEUTRAL_SCHEDULE_COLOUR;
@@ -76,6 +78,20 @@ export function filterScheduleEntries(entries, filters) {
       if (entry.provider === 'google') return filters.showGoogleEvents !== false;
       if (entry.provider === 'microsoft') return filters.showOutlookEvents !== false;
       return false;
+    }
+    if (entry.source === 'time_off') {
+      if (filters.divisionId && filters.divisionId !== 'all' && !entry.divisionIds?.includes(filters.divisionId)) return false;
+      if (filters.crewId && filters.crewId !== 'all' && !entry.crewIds?.includes(filters.crewId)) return false;
+      if (filters.employeeId && filters.employeeId !== 'all' && !entry.employeeIds.includes(filters.employeeId)) return false;
+      if (filters.resourceId && filters.resourceId !== 'all') {
+        const [kind, id] = filters.resourceId.split(':');
+        if (kind === 'crew' && !entry.crewIds?.includes(id)) return false;
+        if (kind === 'employee' && !entry.employeeIds.includes(id)) return false;
+      }
+      if (filters.status && filters.status !== 'all') return false;
+      if (filters.jobId && filters.jobId !== 'all') return false;
+      if (filters.equipmentId && filters.equipmentId !== 'all') return false;
+      return true;
     }
     if (filters.divisionId && filters.divisionId !== 'all' && entry.division?.id !== filters.divisionId) return false;
     if (filters.resourceId && filters.resourceId !== 'all') {

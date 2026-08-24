@@ -7,12 +7,14 @@ import {
   getTimeOffCreationIdempotency,
   getTimeOffRequestForBusiness,
   listEmployeesForBusiness,
+  listApprovedTimeOffOverlappingForBusiness,
   listTimeOffRequestsForBusiness,
   listUsersForBusiness,
 } from './authRepo.js';
 import { requireSession } from './session.js';
 import {
   dateRangesOverlap,
+  isCalendarDate,
   normalizeTimeOffCreationInput,
   safeEmployeeTimeOffRequest,
   timeOffPayloadFingerprint,
@@ -44,6 +46,7 @@ export function createTimeOffHandler(overrides = {}) {
     listEmployeesForBusiness,
     listUsersForBusiness,
     listTimeOffRequestsForBusiness,
+    listApprovedTimeOffOverlappingForBusiness,
     getTimeOffRequestForBusiness,
     getTimeOffCreationIdempotency,
     createTimeOffRequestForBusiness,
@@ -96,6 +99,31 @@ export function createTimeOffHandler(overrides = {}) {
       if (!employee) return res.status(404).json({ ok: false, error: 'Active employee profile not found.' });
       const requests = (await deps.listTimeOffRequestsForBusiness(session.businessId)).filter((item) => item.employeeId === employee.id);
       return res.status(200).json({ ok: true, items: requests.map(safeEmployeeTimeOffRequest) });
+    }
+
+    if (req.method === 'GET' && action === 'schedule') {
+      const startDate = typeof req.query?.startDate === 'string' ? req.query.startDate : '';
+      const endDate = typeof req.query?.endDate === 'string' ? req.query.endDate : '';
+      if (!isCalendarDate(startDate) || !isCalendarDate(endDate) || endDate < startDate) {
+        return res.status(400).json({ ok: false, error: 'A valid Schedule date range is required.' });
+      }
+      const [requests, employees] = await Promise.all([
+        deps.listApprovedTimeOffOverlappingForBusiness(session.businessId, startDate, endDate),
+        deps.listEmployeesForBusiness(session.businessId),
+      ]);
+      const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+      const items = requests
+        .filter((request) => employeeById.has(request.employeeId))
+        .map((request) => ({
+          id: request.id,
+          employeeId: request.employeeId,
+          employeeName: employeeById.get(request.employeeId)?.name ?? 'Employee',
+          requestType: request.requestType,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          status: 'approved',
+        }));
+      return res.status(200).json({ ok: true, items });
     }
 
     if (req.method === 'GET' && action === 'detail') {

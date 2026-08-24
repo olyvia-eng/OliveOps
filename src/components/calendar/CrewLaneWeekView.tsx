@@ -28,7 +28,9 @@ function ScheduleBar({ span, colourBy, selected, hasConflict, canManage, onSelec
   onSelect: (entry: NormalizedScheduleEntry) => void;
 }) {
   const { entry } = span;
-  const colour = resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
+  const colour = entry.source === 'time_off'
+    ? resolveScheduleColour({ source: 'time_off', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division })
+    : resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
   const detail = [entry.crew?.name ?? (entry.source === 'oliveops' ? 'Unassigned crew' : ''), entry.summary, span.columnSpan > 2 ? entry.division?.name : ''].filter(Boolean).join(' · ');
   const time = entry.allDay ? '' : entry.timeLabel;
 
@@ -53,7 +55,7 @@ function ScheduleBar({ span, colourBy, selected, hasConflict, canManage, onSelec
       title={[entry.title, detail, time].filter(Boolean).join('\n')}
     >
       <span className="flex min-w-0 items-center gap-1">
-        {entry.source === 'external' ? <CalendarDays size={12} className="shrink-0" /> : null}
+        {entry.source !== 'oliveops' ? <CalendarDays size={12} className="shrink-0" /> : null}
         <span className="truncate text-xs font-semibold">{entry.title}</span>
         {hasConflict ? <AlertTriangle size={12} className="ml-auto shrink-0 text-amber-700" aria-label="Scheduling conflict" /> : null}
       </span>
@@ -75,7 +77,8 @@ export default function CrewLaneWeekView({ days, entries, activeCrews, colourBy,
   onShiftJob: (jobId: string, dayDelta: number) => void;
 }) {
   const oliveOpsEntries = entries.filter((entry) => entry.source === 'oliveops');
-  const googleEntries = entries.filter((entry) => entry.source === 'external');
+  const externalEntries = entries.filter((entry) => entry.source === 'external');
+  const timeOffEntries = entries.filter((entry) => entry.source === 'time_off');
   const usedCrewIds = new Set(oliveOpsEntries.map((entry) => entry.crew?.id).filter(Boolean));
   const crewsById = new Map(activeCrews.map((crew) => [crew.id, crew]));
   oliveOpsEntries.forEach((entry) => {
@@ -87,7 +90,8 @@ export default function CrewLaneWeekView({ days, entries, activeCrews, colourBy,
     .filter((lane) => activeCrews.some((crew) => `crew:${crew.id}` === lane.id) || usedCrewIds.has(lane.id.slice(5)));
   const unassigned = oliveOpsEntries.filter((entry) => !entry.crew);
   if (unassigned.length > 0) lanes.push({ id: 'unassigned', label: 'Unassigned', entries: unassigned });
-  if (googleEntries.length > 0) lanes.push({ id: 'external', label: 'External / Google', entries: googleEntries, external: true });
+  if (timeOffEntries.length > 0) lanes.unshift({ id: 'time-off', label: 'Time Off', entries: timeOffEntries, external: true });
+  if (externalEntries.length > 0) lanes.push({ id: 'external', label: 'External / Google', entries: externalEntries, external: true });
   const todayKey = dayKey(new Date());
 
   if (lanes.length === 0) {
@@ -116,7 +120,7 @@ export default function CrewLaneWeekView({ days, entries, activeCrews, colourBy,
                   const isToday = dayKey(day) === todayKey;
                   return <div key={dayKey(day)} className={`relative border-l border-brand-100 first:border-l-0 dark:border-brand-600 ${index > 4 ? 'bg-brand-50/60 dark:bg-brand-800/40' : ''} ${isToday ? 'bg-accent-50/70 dark:bg-accent-900/10' : ''}`} style={{ gridColumn: index + 1, gridRow: `1 / span ${rowCount}` }} onDragOver={(event) => { if (canManage) event.preventDefault(); }} onDrop={(event) => { const raw = event.dataTransfer.getData('application/x-oliveops-job'); if (!raw) return; const payload = JSON.parse(raw) as { jobId: string; startKey: string }; onShiftJob(payload.jobId, differenceInCalendarDays(day, parseISO(payload.startKey))); }} />;
                 })}
-                {spans.map((span) => <ScheduleBar key={`${span.entry.source}:${span.entry.jobId ?? span.entry.externalEventId}`} span={span} colourBy={colourBy} selected={span.entry.jobId === selectedJobId} hasConflict={Boolean(span.entry.jobId && conflictJobIds.has(span.entry.jobId))} canManage={canManage} onSelect={onSelect} />)}
+                {spans.map((span) => <ScheduleBar key={`${span.entry.source}:${span.entry.jobId ?? span.entry.externalEventId ?? span.entry.timeOffRequestId}`} span={span} colourBy={colourBy} selected={span.entry.jobId === selectedJobId} hasConflict={Boolean(span.entry.jobId && conflictJobIds.has(span.entry.jobId))} canManage={canManage} onSelect={onSelect} />)}
               </div>
             </div>
           );
