@@ -10,6 +10,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 import { DEFAULT_BUSINESS_TIME_ZONE, normalizeBusinessTimeZone } from './businessTime.js';
+import { approvedTimeOffOverlapping } from './timeOff.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -168,6 +169,15 @@ function timeEntrySk(entryId) {
 
 function timeCorrectionSk(correctionId) {
   return `TIME_CORRECTION#${correctionId}`;
+}
+
+function timeOffRequestSk(requestId) {
+  return `TIME_OFF_REQUEST#${requestId}`;
+}
+
+function timeOffIdempotencySk(employeeId, idempotencyKey) {
+  const scopedHash = createHash('sha256').update(`${employeeId}\0${idempotencyKey}`).digest('hex');
+  return `TIME_OFF_IDEMPOTENCY#${scopedHash}`;
 }
 
 function auditEventSk(eventId) {
@@ -4876,6 +4886,90 @@ export async function rejectTimeCorrectionForBusiness({
     throw error;
   }
 }
+
+function mapTimeOffRequestFromItem(item) {
+  return {
+    id: item.requestId,
+    businessId: item.businessId,
+    employeeId: item.employeeId,
+    requestType: item.requestType,
+    startDate: item.startDate,
+    endDate: item.endDate,
+    employeeNote: item.employeeNote ?? '',
+    status: item.status,
+    submittedAt: item.submittedAt,
+    reviewedAt: item.reviewedAt,
+    reviewedByUserId: item.reviewedByUserId,
+    reviewNote: item.reviewNote,
+    cancelledAt: item.cancelledAt,
+    idempotencyKey: item.idempotencyKey,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+export async function listTimeOffRequestsForBusiness(businessId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': 'TIME_OFF_REQUEST#' },
+  }));
+  return (result.Items ?? []).map(mapTimeOffRequestFromItem).sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt));
+}
+
+export async function listApprovedTimeOffOverlappingForBusiness(businessId, startDate, endDate) {
+  return approvedTimeOffOverlapping(await listTimeOffRequestsForBusiness(businessId), startDate, endDate);
+}
+
+export async function getTimeOffRequestForBusiness(businessId, requestId) {
+  const result = await ddb.send(new GetCommand({ TableName: tableName, Key: { PK: businessPk(businessId), SK: timeOffRequestSk(requestId) } }));
+  return result.Item ? mapTimeOffRequestFromItem(result.Item) : null;
+}
+
+export async function getTimeOffCreationIdempotency({ businessId, employeeId, idempotencyKey }) {
+  const result = await ddb.send(new GetCommand({ TableName: tableName, Key: { PK: businessPk(businessId), SK: timeOffIdempotencySk(employeeId, idempotencyKey) } }));
+  return result.Item ? { requestId: result.Item.requestId, payloadFingerprint: result.Item.payloadFingerprint } : null;
+}
+
+export async function createTimeOffRequestForBusiness({ businessId, request, payloadFingerprint, actor }) {
+  const eventId = `time-off-created:${request.id}`;
+  const ttl = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: timeOffIdempotencySk(request.employeeId, request.idempotencyKey), entityType: 'TIME_OFF_IDEMPOTENCY', businessId, employeeId: request.employeeId, idempotencyKey: request.idempotencyKey, requestId: request.id, payloadFingerprint, createdAt: request.createdAt, ttl }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: timeOffRequestSk(request.id), entityType: 'TIME_OFF_REQUEST', requestId: request.id, ...request }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: auditEventSk(eventId), entityType: 'AUDIT_EVENT', businessId, eventId, action: 'time_off_request_created', actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email ?? '', affectedEntryCount: 1, createdAt: request.createdAt, metadata: { requestId: request.id, employeeId: request.employeeId, fromStatus: null, toStatus: 'pending' } }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+    ] }));
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException') return { ok: false, code: 'CONFLICT' };
+    throw error;
+  }
+}
+
+async function transitionTimeOffRequest({ businessId, request, status, actor, reviewNote, transitionedAt, action }) {
+  const eventId = `${action}:${request.id}:${transitionedAt}`;
+  const isCancellation = status === 'cancelled';
+  const setExpression = isCancellation
+    ? 'SET #status = :status, #cancelledAt = :at, #updatedAt = :at'
+    : 'SET #status = :status, #reviewedAt = :at, #reviewedByUserId = :actorId, #reviewNote = :reviewNote, #updatedAt = :at';
+  const names = { '#status': 'status', '#updatedAt': 'updatedAt', ...(isCancellation ? { '#cancelledAt': 'cancelledAt' } : { '#reviewedAt': 'reviewedAt', '#reviewedByUserId': 'reviewedByUserId', '#reviewNote': 'reviewNote' }) };
+  const values = { ':pending': 'pending', ':status': status, ':at': transitionedAt, ...(isCancellation ? {} : { ':actorId': actor.id, ':reviewNote': reviewNote ?? '' }) };
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Update: { TableName: tableName, Key: { PK: businessPk(businessId), SK: timeOffRequestSk(request.id) }, UpdateExpression: setExpression, ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :pending', ExpressionAttributeNames: names, ExpressionAttributeValues: values } },
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: auditEventSk(eventId), entityType: 'AUDIT_EVENT', businessId, eventId, action, actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email ?? '', affectedEntryCount: 1, createdAt: transitionedAt, metadata: { requestId: request.id, employeeId: request.employeeId, fromStatus: 'pending', toStatus: status } }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+    ] }));
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException') return { ok: false, code: 'CONFLICT' };
+    throw error;
+  }
+}
+
+export const cancelTimeOffRequestForBusiness = (input) => transitionTimeOffRequest({ ...input, status: 'cancelled', action: 'time_off_request_cancelled' });
+export const approveTimeOffRequestForBusiness = (input) => transitionTimeOffRequest({ ...input, status: 'approved', action: 'time_off_request_approved' });
+export const denyTimeOffRequestForBusiness = (input) => transitionTimeOffRequest({ ...input, status: 'denied', action: 'time_off_request_denied' });
 
 export async function listAuditEventsForBusiness(businessId) {
   const result = await ddb.send(

@@ -51,7 +51,9 @@ test('profile exposes the requested architecture and honest unsupported states',
   assert.match(profileSource, /<EmployeeEditModal[\s\S]*employeeId=\{employee\.id\}/);
   assert.match(profileSource, /No composite score is calculated/);
   assert.match(profileSource, /Overtime Hours[\s\S]*Not tracked separately/);
-  assert.match(profileSource, /does not currently have a time-off request model/);
+  assert.match(profileSource, /time-off-requests\?action=list/);
+  assert.match(profileSource, /Pending Requests/);
+  assert.match(profileSource, /Upcoming Approved/);
   assert.match(profileSource, /Training records and assigned courses will appear here once Training is enabled/);
   assert.match(profileSource, /entityType=employee/);
 });

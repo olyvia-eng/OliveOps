@@ -691,6 +691,29 @@ export interface TimeCorrectionRequest {
   originalUnbillableCategoryName?: string;
 }
 
+export type TimeOffRequestType = 'vacation' | 'sick' | 'personal' | 'unpaid' | 'other';
+export type TimeOffRequestStatus = 'pending' | 'approved' | 'denied' | 'cancelled';
+
+export interface TimeOffRequest {
+  id: ID;
+  businessId?: ID;
+  employeeId: ID;
+  employeeName?: string;
+  requestType: TimeOffRequestType;
+  startDate: string;
+  endDate: string;
+  employeeNote: string;
+  status: TimeOffRequestStatus;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedByUserId?: ID;
+  reviewedByName?: string;
+  reviewNote?: string;
+  cancelledAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TimeEntry {
   id: ID;
   employeeId: ID;
