@@ -84,7 +84,7 @@ export interface EstimateLineItem {
   markup?: number;
 }
 
-export type EstimatePricingStatus = 'approved' | 'recommended_not_approved' | 'unavailable';
+export type EstimatePricingStatus = 'calculated' | 'approved' | 'recommended_not_approved' | 'unavailable';
 
 export interface EstimatePricingCatalogItem {
   type: LineItemCategory;
@@ -99,6 +99,8 @@ export interface EstimatePricingCatalogItem {
   costRate: number | null;
   recommendedRate: number | null;
   approvedRate: number | null;
+  sellRate: number | null;
+  pricingAvailable: boolean;
   pricingStatus: EstimatePricingStatus;
   pricingRateUpdatedAt?: string;
   pricingVersion?: number;

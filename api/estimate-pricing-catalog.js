@@ -3,6 +3,7 @@ import {
   getBudgetForBusiness,
   getBudgetDivisionForBusiness,
   getEstimateForBusiness,
+  listBudgetDivisionsForBusiness,
   listBudgetRatesForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
@@ -18,6 +19,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
     getBudgetForBusiness,
     getBudgetDivisionForBusiness,
     getEstimateForBusiness,
+    listBudgetDivisionsForBusiness,
     listBudgetRatesForBusiness,
     listEmployeesForBusiness,
     listEquipmentAssetsForBusiness,
@@ -53,15 +55,18 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Estimate Division is invalid.' });
       }
 
-      const [planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
+      const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
         deps.listDivisionPlanningItemsForBusiness(session.businessId),
+        deps.listBudgetDivisionsForBusiness(session.businessId),
         deps.listBudgetRatesForBusiness(session.businessId),
         deps.listEmployeesForBusiness(session.businessId),
         deps.listEquipmentAssetsForBusiness(session.businessId),
         deps.listMaterialCatalogItemsForBusiness(session.businessId),
       ]);
       const catalog = buildEstimatePricingCatalog({
+        budget,
         budgetId: budget.id,
+        divisions: budgetDivisions.filter((division) => division.budgetId === budget.id),
         divisionId,
         planningItems,
         budgetRates,

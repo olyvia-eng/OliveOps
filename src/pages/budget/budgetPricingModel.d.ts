@@ -14,6 +14,8 @@ export interface BudgetPricingRow {
   recoveredCostPerUnit: number;
   targetMarginPct: number;
   recommendedRate: number;
+  calculatedRate: number;
+  pricingAvailable: boolean;
   approvedRate: number;
   pricingStatus: 'approved' | 'recommended_not_approved' | 'unavailable';
   aggregateLabour?: boolean;

@@ -1,3 +1,5 @@
+import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
+
 const CATEGORY_MAP = {
   labour: 'labour',
   equipment: 'equipment',
@@ -45,18 +47,16 @@ const itemDivisionIds = (item) => {
   return item.divisionId ? [item.divisionId] : [];
 };
 
-export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
+export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
   const entities = {
     employees: new Map(employees.map((item) => [item.id, item])),
     equipment: new Map(equipmentAssets.map((item) => [item.id, item])),
     materials: new Map(materialCatalogItems.map((item) => [item.id, item])),
   };
   const rates = budgetRates.filter((rate) => rate.budgetId === budgetId && rate.active !== false);
-  const divisionLabourRates = new Map(rates.filter((rate) => rate.category === 'labour'
-    && rate.pricingVersion === 2
-    && typeof rate.divisionId === 'string'
-    && rate.budgetItemId === `average-labour:${rate.divisionId}`)
-    .map((rate) => [rate.divisionId, rate]));
+  const calculatedRows = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
+    ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates })
+    : [];
   const uniqueItems = new Map();
 
   for (const item of planningItems) {
@@ -81,30 +81,34 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
   const catalog = { labour: [], equipment: [], materials: [], subcontractors: [] };
   for (const { item, divisionId: itemDivisionId } of uniqueItems.values()) {
     const type = CATEGORY_MAP[item.category];
-    const usesDivisionLabourPricing = item.category === 'labour' && Boolean(itemDivisionId);
-    const matchingRate = usesDivisionLabourPricing
-      ? divisionLabourRates.get(itemDivisionId)
-      : rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
-        ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));
-    const approvedRate = matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : usesDivisionLabourPricing ? null : positiveNumber(item.approvedRate);
-    const recommendedRate = matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : usesDivisionLabourPricing ? null : positiveNumber(item.recommendedRate);
-    const costRate = matchingRate ? positiveNumber(matchingRate.unitCost) : usesDivisionLabourPricing ? null : positiveNumber(item.costRate);
-    const pricingStatus = approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable';
+    const calculatedRow = itemDivisionId ? calculatedRows.find((row) => row.divisionId === itemDivisionId
+      && row.type === type
+      && (item.category === 'labour' ? row.aggregateLabour : row.item.id === item.id)) : undefined;
+    const matchingRate = calculatedRow?.rate
+      ?? rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
+      ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));
+    const usesCalculatedPricing = Boolean(calculatedRow);
+    const recommendedRate = usesCalculatedPricing ? positiveNumber(calculatedRow.calculatedRate) : matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : positiveNumber(item.recommendedRate);
+    const approvedRate = usesCalculatedPricing ? null : matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : positiveNumber(item.approvedRate);
+    const sellRate = usesCalculatedPricing ? recommendedRate : approvedRate;
+    const costRate = usesCalculatedPricing ? positiveNumber(calculatedRow.costRate) : matchingRate ? positiveNumber(matchingRate.unitCost) : positiveNumber(item.costRate);
+    const pricingAvailable = usesCalculatedPricing ? calculatedRow.pricingAvailable : Boolean(sellRate);
+    const pricingStatus = usesCalculatedPricing ? pricingAvailable ? 'calculated' : 'unavailable' : approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable';
     const sourceId = sourceEntityId(item);
 
     catalog[item.category].push({
       type,
       sourceEntityId: sourceId,
       budgetItemId: item.id,
-      sourceRateId: matchingRate?.id,
-      pricingRateUpdatedAt: matchingRate?.updatedAt,
-      pricingVersion: matchingRate?.pricingVersion,
+      sourceRateId: usesCalculatedPricing ? undefined : matchingRate?.id,
+      pricingRateUpdatedAt: usesCalculatedPricing ? budget.updatedAt : matchingRate?.updatedAt,
+      pricingVersion: usesCalculatedPricing ? 2 : matchingRate?.pricingVersion,
       divisionId: itemDivisionId,
-      directCostPerUnit: matchingRate?.directCostPerUnit ?? costRate,
-      divisionOverheadRecoveryPerUnit: matchingRate?.divisionOverheadRecoveryPerUnit ?? null,
-      companyOverheadRecoveryPerUnit: matchingRate?.companyOverheadRecoveryPerUnit ?? null,
-      recoveredCostPerUnit: matchingRate?.recoveredCostPerUnit ?? null,
-      targetMarginPct: matchingRate?.targetMarginPercent ?? null,
+      directCostPerUnit: usesCalculatedPricing ? calculatedRow.costRate : matchingRate?.directCostPerUnit ?? costRate,
+      divisionOverheadRecoveryPerUnit: usesCalculatedPricing ? calculatedRow.divisionOverheadPerUnit : matchingRate?.divisionOverheadRecoveryPerUnit ?? null,
+      companyOverheadRecoveryPerUnit: usesCalculatedPricing ? 0 : matchingRate?.companyOverheadRecoveryPerUnit ?? null,
+      recoveredCostPerUnit: usesCalculatedPricing ? calculatedRow.recoveredCostPerUnit : matchingRate?.recoveredCostPerUnit ?? null,
+      targetMarginPct: usesCalculatedPricing ? calculatedRow.targetMarginPct : matchingRate?.targetMarginPercent ?? null,
       name: displayName(item, entities) || 'Unnamed item',
       description: item.description ?? '',
       costCode: item.costCode,
@@ -113,6 +117,8 @@ export function buildEstimatePricingCatalog({ budgetId, divisionId, includeAllDi
       costRate,
       recommendedRate,
       approvedRate,
+      sellRate,
+      pricingAvailable,
       pricingStatus,
     });
   }
@@ -178,14 +184,14 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
     }
     const pricing = pricingByBudgetItemId.get(`${item.divisionId ?? ''}:${item.sourceBudgetItemId}`)
       ?? pricingByBudgetItemId.get(`:${item.sourceBudgetItemId}`);
-    if (!pricing || pricing.pricingStatus !== 'approved' || !(pricing.approvedRate > 0)) {
-      return { ok: false, error: 'The selected Budget item does not have approved pricing.' };
+    if (!pricing?.pricingAvailable || !(pricing.sellRate > 0)) {
+      return { ok: false, error: 'The selected Budget item does not have calculated pricing.' };
     }
     if (item.sourceEntityId && item.sourceEntityId !== pricing.sourceEntityId) {
       return { ok: false, error: 'Estimate pricing source identity is invalid.' };
     }
     const unitCost = Math.max(0, pricing.costRate ?? 0);
-    const sellPrice = pricing.approvedRate;
+    const sellPrice = pricing.sellRate;
     const quantity = Math.max(0, Number(item.quantity ?? 0));
     return { ok: true, item: {
       ...item,

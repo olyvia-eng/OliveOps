@@ -7,13 +7,16 @@ const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const modelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
 
-test('Labour drawer presents Division pricing without employee-level approval language', () => {
+test('Labour drawer presents calculated Division pricing without approval language', () => {
   assert.match(builderSource, /Add \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);
   assert.match(builderSource, /pricingBudget\?\.name.*estimateDivision\.name/);
   assert.match(builderSource, /Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}/);
   assert.match(builderSource, /Labour pricing is incomplete for/);
-  assert.match(builderSource, /Division labour pricing incomplete/);
   assert.doesNotMatch(builderSource, /No approved labour rate/);
+  assert.doesNotMatch(builderSource, /Division labour pricing incomplete/);
+  assert.doesNotMatch(builderSource, /Complete Pricing/);
+  assert.doesNotMatch(builderSource, /Approve pricing in/);
+  assert.match(builderSource, /item\.pricingAvailable && item\.sellRate/);
 });
 
 test('Budget-priced Work Area rows expose quantity, snapshot rate, and total without cost or markup controls', () => {

@@ -33,6 +33,8 @@ test('Budget Analysis creates one Average Labour row and resolves its Division a
   assert.equal(labour.billableHours, 1600);
   assert.equal(labour.overheadPerUnit, 31.25);
   assert.equal(labour.recommendedRate, 95.3125);
+  assert.equal(labour.calculatedRate, 95.3125);
+  assert.equal(labour.pricingAvailable, true);
   assert.equal(labour.approvedRate, 80);
   assert.equal(labour.pricingStatus, 'approved');
 
@@ -73,6 +75,7 @@ test('Average Labour remains unavailable with zero planned billable hours', () =
   assert.equal(rows[0].billableHours, 0);
   assert.equal(rows[0].costRate, 0);
   assert.equal(rows[0].recommendedRate, 0);
+  assert.equal(rows[0].pricingAvailable, false);
   assert.equal(rows[0].pricingStatus, 'unavailable');
 });
 

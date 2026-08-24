@@ -39,24 +39,24 @@ function seedRate(store, rate) {
   put(store, 'biz-a', `BUDGET_RATE#${rate.id}`, { entityType: 'BUDGET_RATE', rateId: rate.id, itemName: rate.id, description: '', defaultMarkupPercent: 0, active: true, sortOrder: 0, createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z', ...rate });
 }
 
-test('Estimate pricing endpoint returns persisted shared Budget items and approved rates', async (t) => {
+test('Estimate pricing endpoint returns calculated Division rates without requiring approvals', async (t) => {
   const store = installDdb(t);
   put(store, 'biz-a', 'USER#admin-a', { entityType: 'USER', userId: 'admin-a', name: 'Admin', email: 'admin@example.com', role: 'admin', active: true, sessionVersion: 0 });
   await createMobileSessionForUser({ user: { id: 'admin-a', businessId: 'biz-a', name: 'Admin', email: 'admin@example.com', role: 'admin', businessName: 'OliveOps' }, accessToken: 'token-a', expiresInSeconds: 3600 });
-  put(store, 'biz-a', 'BUDGET_META#budget-2027', { entityType: 'BUDGET', budgetId: 'budget-2027', name: '2027 annual', fiscalYear: '2027', planningModel: 'divisions_v1', status: 'active' });
+  put(store, 'biz-a', 'BUDGET_META#budget-2027', { entityType: 'BUDGET', budgetId: 'budget-2027', name: '2027 annual', fiscalYear: '2027', planningModel: 'divisions_v1', targetMarginPct: 20, status: 'active' });
   put(store, 'biz-a', 'ESTIMATE#estimate-a', { entityType: 'ESTIMATE', estimateId: 'estimate-a', pricingBudgetId: 'budget-2027', divisionId: 'hardscape', title: 'Dig out area' });
-  put(store, 'biz-a', 'BUDGET_DIVISION#budget-2027#DIVISION#hardscape', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-2027', divisionId: 'hardscape', id: 'hardscape', status: 'active' });
+  put(store, 'biz-a', 'BUDGET_DIVISION#budget-2027#DIVISION#hardscape', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-2027', divisionId: 'hardscape', id: 'hardscape', name: 'Hardscape', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } } });
   for (const employee of [{ id: 'ryan', name: 'Ryan Field' }, { id: 'john', name: 'John Field' }]) put(store, 'biz-a', `EMPLOYEE#${employee.id}`, { entityType: 'EMPLOYEE', employeeId: employee.id, active: true, ...employee });
   for (const equipment of [{ id: 'bobcat', name: 'Bobcat E50' }, { id: 'truck', name: 'Dump Truck' }]) put(store, 'biz-a', `EQUIPMENT#${equipment.id}`, { entityType: 'EQUIPMENT', equipmentId: equipment.id, status: 'available', type: 'Equipment', ...equipment });
   put(store, 'biz-a', 'MATERIAL#gravel', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'gravel', id: 'gravel', name: 'A Gravel', unit: 'tonne', active: true });
 
   const items = [
-    { id: 'labour-ryan', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'ryan', name: 'Ryan Field', divisionAllocations: [{ divisionId: 'hardscape', percentage: 60 }, { divisionId: 'snow', percentage: 40 }] },
-    { id: 'labour-john', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'john', name: 'John Field', divisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }] },
-    { id: 'equipment-bobcat', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'equipment', equipmentId: 'bobcat', name: 'Bobcat E50' },
+    { id: 'labour-ryan', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'ryan', name: 'Ryan Field', compType: 'hourly', hourlyRate: 20, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
+    { id: 'labour-john', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'john', name: 'John Field', compType: 'hourly', hourlyRate: 40, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
+    { id: 'equipment-bobcat', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'equipment', equipmentId: 'bobcat', name: 'Bobcat E50', plannedAmount: 12000, sellableHoursPerYear: 1000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
     { id: 'equipment-truck', budgetId: 'budget-2027', divisionId: 'snow', category: 'equipment', equipmentId: 'truck', name: 'Dump Truck' },
-    { id: 'material-gravel', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'materials', materialCatalogItemId: 'gravel', name: 'A Gravel', unit: 'tonne' },
-    { id: 'sub-concrete', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'subcontractors', name: 'Concrete Co', unit: 'hr' },
+    { id: 'material-gravel', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'materials', materialCatalogItemId: 'gravel', name: 'A Gravel', unit: 'tonne', unitCost: 10, plannedQuantity: 100 },
+    { id: 'sub-concrete', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'subcontractors', name: 'Concrete Co', unit: 'job', rate: 100, plannedQuantity: 10 },
   ];
   items.forEach((item) => seedPlanningItem(store, item));
   [
@@ -72,11 +72,11 @@ test('Estimate pricing endpoint returns persisted shared Budget items and approv
 
   assert.equal(res.statusCode, 200, JSON.stringify(res.body));
   assert.equal(res.body.budget.name, '2027 annual');
-  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.approvedRate, item.costRate]), [['John Field', 58, 40], ['Ryan Field', 58, 40]]);
-  assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.approvedRate]), [['Bobcat E50', 95]]);
+  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.sellRate, item.costRate]), [['John Field', 37.5, 30], ['Ryan Field', 37.5, 30]]);
+  assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.sellRate]), [['Bobcat E50', 15]]);
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
-  assert.equal(res.body.catalog.materials[0].approvedRate, 46);
-  assert.equal(res.body.catalog.subcontractors[0].approvedRate, 135);
+  assert.equal(res.body.catalog.materials[0].sellRate, 12.5);
+  assert.equal(res.body.catalog.subcontractors[0].sellRate, 125);
   assert.equal(res.body.catalog.labour.filter((item) => item.sourceEntityId === 'ryan').length, 1);
 
   put(store, 'biz-b', 'ESTIMATE#foreign-estimate', { entityType: 'ESTIMATE', estimateId: 'foreign-estimate', pricingBudgetId: 'budget-2027', title: 'Foreign estimate' });

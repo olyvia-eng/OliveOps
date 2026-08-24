@@ -230,15 +230,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         displayName: item.name,
         description: item.description || item.costCode || CATEGORY_LABEL[category],
         unit: item.unit,
-        priceText: item.pricingStatus === 'approved' && item.approvedRate
-          ? `${formatCurrency(item.approvedRate)}/${item.unit}`
-          : item.pricingStatus === 'recommended_not_approved' && item.recommendedRate
-            ? `${formatCurrency(item.recommendedRate)}/${item.unit} recommended - not approved`
-            : category === 'labour' ? 'Division labour pricing incomplete' : category === 'equipment' ? 'No approved charge-out rate' : `No approved ${CATEGORY_LABEL[category].toLowerCase()} rate`,
+        priceText: item.pricingAvailable && item.sellRate
+          ? `${formatCurrency(item.sellRate)}/${item.unit}`
+          : 'Unavailable',
         pricingItem: item,
-        disabledReason: item.pricingStatus === 'approved' ? undefined : category === 'labour'
-          ? `Complete Labour pricing for ${estimateDivision?.name ?? 'this Division'} in Budget Analysis.`
-          : 'Approve pricing in the selected Budget Analysis before adding this item.',
+        disabledReason: item.pricingAvailable ? undefined : `${CATEGORY_LABEL[category]} pricing is unavailable for ${estimateDivision?.name ?? 'this Division'}.`,
         alreadyAdded: alreadyAddedBudgetItemIds.has(item.budgetItemId),
         source: 'budget' as const,
         searchText: `${item.name} ${item.description} ${item.costCode ?? ''} ${category} ${item.unit}`.toLowerCase(),
@@ -415,7 +411,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleAddFromCandidate = (candidate: CatalogCandidate) => {
-    if (candidate.alreadyAdded || (!candidate.rate && !candidate.equipment && candidate.pricingItem?.pricingStatus !== 'approved') || addingCandidateKey === candidate.key) return;
+    if (candidate.alreadyAdded || (!candidate.rate && !candidate.equipment && !candidate.pricingItem?.pricingAvailable) || addingCandidateKey === candidate.key) return;
 
     setAddingCandidateKey(candidate.key);
     setForm((current) => {
@@ -553,7 +549,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         <p className="py-6 text-center text-sm text-gray-500 dark:text-brand-300">Loading pricing from {pricingBudget?.name ?? 'the selected Budget'}...</p>
       ) : catalogError ? (
         <EmptyState title="Pricing catalog unavailable" description={catalogError} />
-      ) : pricingBudget?.planningModel === 'divisions_v1' && visibleCatalogCandidates.length > 0 && visibleCatalogCandidates.every((candidate) => candidate.pricingItem?.pricingStatus !== 'approved') ? (
+      ) : pricingBudget?.planningModel === 'divisions_v1' && visibleCatalogCandidates.length > 0 && visibleCatalogCandidates.every((candidate) => !candidate.pricingItem?.pricingAvailable) ? (
         <div className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm text-accent-800">
           {catalogCategory === 'labour'
             ? `Labour pricing is incomplete for ${estimateDivision?.name ?? 'this Division'}.`
@@ -574,7 +570,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       ) : !catalogLoading && !catalogError ? (
         <div className="space-y-3">
           {visibleCatalogCandidates.map((candidate) => {
-            const canAdd = candidate.pricingItem?.pricingStatus === 'approved' || Boolean(candidate.rate || candidate.equipment);
+            const canAdd = Boolean(candidate.pricingItem?.pricingAvailable || candidate.rate || candidate.equipment);
             return (
             <div key={candidate.key} className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-3">
               <div className="flex items-start justify-between gap-3">
@@ -591,20 +587,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     size="sm"
                     variant={canAdd ? 'secondary' : 'ghost'}
                     onClick={() => {
-                      if (canAdd) {
-                        handleAddFromCandidate(candidate);
-                        return;
-                      }
-
-                      if (estimate.pricingBudgetId) {
-                        navigate(`/budgets/${estimate.pricingBudgetId}?tab=analysis&category=${candidate.category}&item=${candidate.pricingItem?.budgetItemId ?? ''}`);
-                      }
+                      if (canAdd) handleAddFromCandidate(candidate);
                     }}
-                    disabled={candidate.alreadyAdded || (canAdd && addingCandidateKey === candidate.key)}
+                    disabled={!canAdd || candidate.alreadyAdded || addingCandidateKey === candidate.key}
                     className="mt-2"
                     title={candidate.disabledReason}
                   >
-                    {!candidate.alreadyAdded ? <Plus size={14} /> : null} {candidate.alreadyAdded ? 'Already added' : canAdd ? 'Add' : 'Complete Pricing'}
+                    {!candidate.alreadyAdded && canAdd ? <Plus size={14} /> : null} {candidate.alreadyAdded ? 'Already added' : 'Add'}
                   </Button>
                 </div>
               </div>

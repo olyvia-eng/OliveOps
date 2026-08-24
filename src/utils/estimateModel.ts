@@ -116,9 +116,9 @@ export function applyBudgetRateToEstimateLineItem(lineItem: EstimateLineItem, ra
 }
 
 export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budgetId: string, pricing: EstimatePricingCatalogItem): EstimateLineItem {
-  if (pricing.pricingStatus !== 'approved' || !(pricing.approvedRate && pricing.approvedRate > 0)) return lineItem;
+  if (!pricing.pricingAvailable || !(pricing.sellRate && pricing.sellRate > 0)) return lineItem;
   const unitCost = Math.max(0, pricing.costRate ?? 0);
-  const sellPrice = pricing.approvedRate;
+  const sellPrice = pricing.sellRate;
 
   return calculateEstimateLineItem({
     ...lineItem,
