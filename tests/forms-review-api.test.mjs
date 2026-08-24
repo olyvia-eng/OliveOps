@@ -20,6 +20,11 @@ function installDdb(t) {
       return {};
     }
     if (type === 'GetCommand') return { Item: store.get(recordKey(input.Key.PK, input.Key.SK)) };
+    if (type === 'QueryCommand') {
+      const pk = input.ExpressionAttributeValues[':pk'];
+      const prefix = input.ExpressionAttributeValues[':prefix'];
+      return { Items: [...store.values()].filter((item) => item.PK === pk && item.SK.startsWith(prefix)) };
+    }
     if (type === 'UpdateCommand') {
       const itemKey = recordKey(input.Key.PK, input.Key.SK);
       const item = store.get(itemKey);
@@ -45,6 +50,57 @@ async function request(token, id, status) {
   await reviewHandler({ method: 'PATCH', query: { id }, headers: { authorization: `Bearer ${token}` }, body: { status, employeeId: 'attacker-change' } }, res);
   return res;
 }
+
+async function getRequest(token, query) {
+  const res = response();
+  await reviewHandler({ method: 'GET', query, headers: { authorization: `Bearer ${token}` } }, res);
+  return res;
+}
+
+function seedJobFormContext(store) {
+  store.set(recordKey('BUSINESS#biz-a', 'JOB#job-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-a', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-a', title: 'Front Entrance Job', actualCosts: [], assignedEmployeeIds: [] });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM#form-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM#form-a', entityType: 'FORM', businessId: 'biz-a', formId: 'form-a', name: 'Interlock Checklist', description: 'Inspect completed interlock.', category: 'job_site', status: 'active', assignedTo: 'job', assignmentValue: 'job-a', trigger: ['after_clock_out'] });
+  store.set(recordKey('BUSINESS#biz-a', 'EMPLOYEE#employee-a'), { PK: 'BUSINESS#biz-a', SK: 'EMPLOYEE#employee-a', entityType: 'EMPLOYEE', businessId: 'biz-a', employeeId: 'employee-a', name: 'John Smith', role: 'crew_member', active: true });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#submission-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#submission-a', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'submission-a', formId: 'form-a', jobId: 'job-a', employeeId: 'employee-a', submittedAt: '2026-08-23T20:21:00.000Z', status: 'approved', divisionId: 'division-a' });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#other-job'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#other-job', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'other-job', formId: 'form-a', jobId: 'job-b', employeeId: 'employee-a', submittedAt: '2026-08-22T20:21:00.000Z', status: 'submitted' });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#other-form'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#other-form', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'other-form', formId: 'form-b', jobId: 'job-a', employeeId: 'employee-a', submittedAt: '2026-08-21T20:21:00.000Z', status: 'submitted' });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_FIELD#field-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_FIELD#field-a', entityType: 'FORM_FIELD', businessId: 'biz-a', formFieldId: 'field-a', formId: 'form-a', type: 'yes_no', label: 'Base compacted?', required: true, order: 0 });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_RESPONSE#response-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_RESPONSE#response-a', entityType: 'FORM_RESPONSE', businessId: 'biz-a', formResponseId: 'response-a', submissionId: 'submission-a', fieldId: 'field-a', value: 'Yes', employeeId: 'employee-a' });
+  store.set(recordKey('BUSINESS#biz-a', 'DIVISION#division-a'), { PK: 'BUSINESS#biz-a', SK: 'DIVISION#division-a', entityType: 'DIVISION', businessId: 'biz-a', divisionId: 'division-a', name: 'Hardscape', active: true });
+}
+
+test('job-scoped review list and detail return only the exact Form and Job submissions', async (t) => {
+  const store = installDdb(t);
+  await seedSession(store, { userId: 'admin-a', role: 'admin', token: 'admin-token' });
+  seedJobFormContext(store);
+
+  const list = await getRequest('admin-token', { jobId: 'job-a', formId: 'form-a' });
+  assert.equal(list.statusCode, 200);
+  assert.deepEqual(list.body.submissions.map((submission) => submission.id), ['submission-a']);
+  assert.equal(list.body.submissions[0].employeeName, 'John Smith');
+
+  const detail = await getRequest('admin-token', { jobId: 'job-a', formId: 'form-a', id: 'submission-a' });
+  assert.equal(detail.statusCode, 200);
+  assert.equal(detail.body.job.title, 'Front Entrance Job');
+  assert.equal(detail.body.submission.divisionName, 'Hardscape');
+  assert.deepEqual(detail.body.responses.map((answer) => [answer.fieldLabel, answer.value]), [['Base compacted?', 'Yes']]);
+
+  assert.equal((await getRequest('admin-token', { jobId: 'job-a', formId: 'form-a', id: 'other-job' })).statusCode, 404);
+  assert.equal((await getRequest('admin-token', { jobId: 'job-a', formId: 'form-a', id: 'other-form' })).statusCode, 404);
+});
+
+test('job-scoped submission reads require review roles and tenant-owned assigned context', async (t) => {
+  const store = installDdb(t);
+  await seedSession(store, { userId: 'crew-a', role: 'crew_member', token: 'crew-token' });
+  await seedSession(store, { userId: 'admin-a', role: 'admin', token: 'admin-token' });
+  seedJobFormContext(store);
+  store.set(recordKey('BUSINESS#biz-b', 'JOB#job-b'), { PK: 'BUSINESS#biz-b', SK: 'JOB#job-b', entityType: 'JOB', businessId: 'biz-b', jobId: 'job-b', title: 'Foreign Job' });
+  store.set(recordKey('BUSINESS#biz-b', 'FORM#form-b'), { PK: 'BUSINESS#biz-b', SK: 'FORM#form-b', entityType: 'FORM', businessId: 'biz-b', formId: 'form-b', assignedTo: 'job', assignmentValue: 'job-b' });
+
+  assert.equal((await getRequest('crew-token', { jobId: 'job-a', formId: 'form-a' })).statusCode, 403);
+  assert.equal((await getRequest('admin-token', { jobId: 'job-b', formId: 'form-b' })).statusCode, 404);
+  assert.equal((await getRequest('admin-token', { jobId: 'job-a', formId: 'form-b' })).statusCode, 404);
+});
 
 test('foreman can approve a submitted Form without changing its ownership', async (t) => {
   const store = installDdb(t);

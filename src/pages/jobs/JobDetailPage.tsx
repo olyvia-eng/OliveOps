@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Card, Button, Badge, EmptyState, Select } from '../../components/ui';
+import { Card, Button, Badge, EmptyState, Modal, Select } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
 import { ArrowLeft, ChevronRight, Trash2 } from 'lucide-react';
-import type { JobStatus, TimeEntry } from '../../types';
+import type { FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } from '../../types';
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
+type ScopedSubmission = FormSubmission & { employeeName: string; divisionName?: string };
+type ScopedResponse = FormResponse & { fieldLabel: string; fieldType?: string; fieldOrder: number };
+type SubmissionDetail = { job: { id: string; title: string }; form: FormRecord; submission: ScopedSubmission; responses: ScopedResponse[] };
 
 interface Props {
   currentUserRole: string;
@@ -57,6 +60,12 @@ export default function JobDetailPage({ currentUserRole }: Props) {
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
   const activeTab = (searchParams.get('tab') ?? 'info') as JobTab;
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
+  const [submissionForm, setSubmissionForm] = useState<FormRecord | null>(null);
+  const [scopedSubmissions, setScopedSubmissions] = useState<ScopedSubmission[]>([]);
+  const [submissionDetail, setSubmissionDetail] = useState<SubmissionDetail | null>(null);
+  const [submissionLoading, setSubmissionLoading] = useState(false);
+  const [submissionError, setSubmissionError] = useState('');
+  const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -239,6 +248,55 @@ export default function JobDetailPage({ currentUserRole }: Props) {
       return { label: 'Non-Billable', className: 'bg-brand-100 text-brand-700' };
     }
     return { label: 'Job Work', className: 'bg-brand-200 text-brand-800' };
+  };
+
+  const closeSubmissionWorkspace = () => {
+    setSubmissionForm(null);
+    setScopedSubmissions([]);
+    setSubmissionDetail(null);
+    setSubmissionError('');
+    setResponseFileUrls({});
+  };
+
+  const openSubmissionWorkspace = async (form: FormRecord) => {
+    if (!id) return;
+    setSubmissionForm(form);
+    setScopedSubmissions([]);
+    setSubmissionDetail(null);
+    setSubmissionError('');
+    setSubmissionLoading(true);
+    try {
+      const response = await fetch(`/api/forms-review?jobId=${encodeURIComponent(id)}&formId=${encodeURIComponent(form.id)}`, { credentials: 'include' });
+      const payload = await response.json() as { ok?: boolean; submissions?: ScopedSubmission[]; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Could not load Form submissions.');
+      setScopedSubmissions(payload.submissions ?? []);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : 'Could not load Form submissions.');
+    } finally {
+      setSubmissionLoading(false);
+    }
+  };
+
+  const openSubmissionDetail = async (submissionId: string) => {
+    if (!id || !submissionForm) return;
+    setSubmissionError('');
+    setSubmissionLoading(true);
+    try {
+      const response = await fetch(`/api/forms-review?jobId=${encodeURIComponent(id)}&formId=${encodeURIComponent(submissionForm.id)}&id=${encodeURIComponent(submissionId)}`, { credentials: 'include' });
+      const payload = await response.json() as ({ ok?: boolean; error?: string } & Partial<SubmissionDetail>);
+      if (!response.ok || !payload.ok || !payload.job || !payload.form || !payload.submission || !payload.responses) {
+        throw new Error(payload.error || 'Could not load the Form submission.');
+      }
+      const detail: SubmissionDetail = { job: payload.job, form: payload.form, submission: payload.submission, responses: payload.responses };
+      setSubmissionDetail(detail);
+      const fileIds = [...new Set(detail.responses.flatMap((answer) => answer.fileIds ?? []))];
+      const pairs = await Promise.all(fileIds.map(async (fileId) => [fileId, await resolveAttachmentUrl({ fileId })] as const));
+      setResponseFileUrls(Object.fromEntries(pairs));
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : 'Could not load the Form submission.');
+    } finally {
+      setSubmissionLoading(false);
+    }
   };
 
   if (!job) return <div className="p-8 text-gray-400">Job not found.</div>;
@@ -457,18 +515,6 @@ export default function JobDetailPage({ currentUserRole }: Props) {
 
       {activeTab === 'project-management' && (
         <div className="space-y-6">
-          <Card>
-            <div className="border-b border-gray-100 p-4"><h2 className="font-semibold">Time Entries</h2></div>
-            {jobTimeEntries.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
-              <ul className="divide-y divide-gray-50">{jobTimeEntries.map((entry) => {
-                const employee = employees.find((item) => item.id === entry.employeeId);
-                const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-                const typeMeta = timeEntryTypeMeta(entry);
-                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
-              })}</ul>
-            )}
-          </Card>
-
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-4">
               <h2 className="font-semibold">Notes</h2>
@@ -501,7 +547,19 @@ export default function JobDetailPage({ currentUserRole }: Props) {
             {assignedForms.length === 0 ? <p className="p-4 text-sm text-gray-400">No forms are assigned to this job.</p> : (
               <ul className="divide-y divide-gray-50">{assignedForms.map((form) => {
                 const submissionCount = jobFormSubmissionCounts[form.id] ?? 0;
-                return <li key={form.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-gray-900">{form.name}</p><Badge label={formatFormLabel(form.status)} className={form.status === 'active' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} /></div><p className="mt-1 text-sm text-gray-500">{form.description || `${formatFormLabel(form.category)} form`}</p><p className="mt-2 text-xs text-gray-400">{form.trigger.length > 0 ? form.trigger.map(formatFormLabel).join(' · ') : 'No trigger configured'}</p></div><div className="shrink-0 text-right"><p className="text-sm font-semibold text-gray-900">{submissionCount}</p><p className="text-xs text-gray-400">submission{submissionCount === 1 ? '' : 's'}</p></div></li>;
+                return <li key={form.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-gray-900">{form.name}</p><Badge label={formatFormLabel(form.status)} className={form.status === 'active' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} /></div><p className="mt-1 text-sm text-gray-500">{form.description || `${formatFormLabel(form.category)} form`}</p><p className="mt-2 text-xs text-gray-400">{form.trigger.length > 0 ? form.trigger.map(formatFormLabel).join(' · ') : 'No trigger configured'}</p></div><div className="shrink-0 text-right">{submissionCount > 0 ? <Button type="button" variant="secondary" size="sm" onClick={() => void openSubmissionWorkspace(form)}>View Submissions ({submissionCount}) <ChevronRight size={13} /></Button> : <><p className="text-sm font-semibold text-gray-900">0 submissions</p><p className="text-xs text-gray-400">No submissions yet</p></>}</div></li>;
+              })}</ul>
+            )}
+          </Card>
+
+          <Card>
+            <div className="border-b border-gray-100 p-4"><h2 className="font-semibold">Time Entries</h2></div>
+            {jobTimeEntries.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
+              <ul className="divide-y divide-gray-50">{jobTimeEntries.map((entry) => {
+                const employee = employees.find((item) => item.id === entry.employeeId);
+                const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+                const typeMeta = timeEntryTypeMeta(entry);
+                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
               })}</ul>
             )}
           </Card>
@@ -547,6 +605,31 @@ export default function JobDetailPage({ currentUserRole }: Props) {
           )}
         </Card>
       )}
+
+      <Modal
+        open={Boolean(submissionForm)}
+        onClose={closeSubmissionWorkspace}
+        title={submissionDetail ? 'Submission Details' : 'Form Submissions'}
+        wide
+        footer={<div className="flex flex-wrap justify-end gap-2">{submissionDetail ? <Button variant="secondary" onClick={() => { setSubmissionDetail(null); setResponseFileUrls({}); }}>Back to Submissions</Button> : null}<Link to="/operations/forms"><Button variant="secondary">Open Review Workflow</Button></Link><Button onClick={closeSubmissionWorkspace}>Close</Button></div>}
+      >
+        {submissionForm ? <div className="space-y-4">
+          <div><h2 className="text-lg font-semibold text-gray-900">{submissionForm.name}</h2><p className="text-sm text-gray-500">{job.title}</p></div>
+          {submissionError ? <p className="rounded-lg bg-accent-50 p-3 text-sm text-accent-700">{submissionError}</p> : null}
+          {submissionLoading ? <p className="py-8 text-center text-sm text-gray-500">Loading submission details...</p> : submissionDetail ? <>
+            <div className="grid grid-cols-1 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <p className="text-gray-500">Employee<br /><span className="font-medium text-gray-900">{submissionDetail.submission.employeeName}</span></p>
+              <p className="text-gray-500">Submitted<br /><span className="font-medium text-gray-900">{formatDateTime(submissionDetail.submission.submittedAt)}</span></p>
+              <p className="text-gray-500">Status<br /><span className="font-medium text-gray-900">{formatFormLabel(submissionDetail.submission.status)}</span></p>
+              <p className="text-gray-500">Submitted By<br /><span className="font-medium text-gray-900">{submissionDetail.submission.submittedBy ?? submissionDetail.submission.employeeName}</span></p>
+              <p className="text-gray-500">Division<br /><span className="font-medium text-gray-900">{submissionDetail.submission.divisionName ?? 'Not recorded'}</span></p>
+              <p className="text-gray-500">Trigger<br /><span className="font-medium text-gray-900">{submissionDetail.submission.trigger ? formatFormLabel(submissionDetail.submission.trigger) : 'Legacy submission'}</span></p>
+            </div>
+            <Card className="overflow-hidden"><div className="border-b border-gray-100 p-4"><h3 className="font-semibold text-gray-900">Completed Form</h3></div><div className="divide-y divide-gray-100">{submissionDetail.responses.map((answer) => <div key={answer.id} className="grid gap-2 p-4 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><p className="text-sm font-medium text-gray-600">{answer.fieldLabel}</p><div><p className="whitespace-pre-wrap text-sm text-gray-900">{answer.value || (answer.fileIds?.length ? '' : '—')}</p>{answer.fileIds?.length ? <div className="mt-2 flex flex-wrap gap-2">{answer.fileIds.map((fileId, index) => { const url = responseFileUrls[fileId]; return url ? (answer.fieldType === 'photo_upload' || answer.fieldType === 'signature' ? <a key={fileId} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`${answer.fieldLabel} ${index + 1}`} className="h-28 max-w-48 rounded-lg border border-gray-200 object-contain" /></a> : <a key={fileId} href={url} target="_blank" rel="noreferrer" className="text-sm font-medium text-brand-700 hover:text-brand-800">Open attachment {index + 1}</a>) : <span key={fileId} className="text-xs text-gray-400">Attachment unavailable</span>; })}</div> : null}</div></div>)}{submissionDetail.responses.length === 0 ? <p className="p-4 text-sm text-gray-500">No responses were saved for this submission.</p> : null}</div></Card>
+            <p className="text-xs text-gray-500">This view is read-only. Approval and rejection remain in Forms → Submissions.</p>
+          </> : scopedSubmissions.length === 0 ? <EmptyState title="No submissions yet" description="Completed submissions for this Job and Form will appear here." /> : <div className="space-y-2">{scopedSubmissions.map((submission) => <Card key={submission.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="font-medium text-gray-900">{submission.employeeName}</p><p className="mt-1 text-sm text-gray-500">{formatDateTime(submission.submittedAt)}</p><Badge label={formatFormLabel(submission.status)} className="mt-2 bg-gray-100 text-gray-700" /></div><Button variant="secondary" size="sm" onClick={() => void openSubmissionDetail(submission.id)}>View <ChevronRight size={13} /></Button></Card>)}</div>}
+        </div> : null}
+      </Modal>
 
       <ScheduleJobModal
         open={scheduleModalOpen}
