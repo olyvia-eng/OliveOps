@@ -22,6 +22,7 @@ const BudgetsOverviewPage = lazy(() => import('./pages/budget/BudgetsOverviewPag
 const BudgetWorkspacePage = lazy(() => import('./pages/budget/BudgetWorkspacePage'));
 const DivisionWorkspacePage = lazy(() => import('./pages/budget/DivisionWorkspacePage'));
 const EmployeesPage = lazy(() => import('./pages/employees/EmployeesPage'));
+const EmployeeProfilePage = lazy(() => import('./pages/employees/EmployeeProfilePage'));
 const DataCenterPage = lazy(() => import('./pages/datacenter/DataCenterPage'));
 const TimeReportsPage = lazy(() => import('./pages/reports/TimeReportsPage'));
 const EmployeePortalPage = lazy(() => import('./pages/employees/EmployeePortalPage'));
@@ -641,6 +642,7 @@ export default function App() {
               <Route path="budgets/:budgetId" element={<BudgetWorkspacePage currentUserRole={sessionUser.role} />} />
               <Route path="budget" element={<Navigate to="/budgets" replace />} />
               <Route path="employees" element={<EmployeesPage />} />
+              <Route path="employees/:employeeId" element={<EmployeeProfilePage currentUserRole={sessionUser.role} />} />
               <Route path="data-center" element={<DataCenterPage />} />
               <Route
                 path="time-reports"

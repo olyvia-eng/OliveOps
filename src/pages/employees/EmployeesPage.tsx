@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Card, Badge, Modal, Input, EmptyState } from '../../components/ui';
-import { Plus, Pencil, Trash2, Clock, LogOut, Users } from 'lucide-react';
+import { Plus, Clock, LogOut, Users } from 'lucide-react';
 import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { Employee, EmployeeRole } from '../../types';
 import ClockInModal from './ClockInModal';
-import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
 
 const EMPLOYEES_VIEW_MODE_STORAGE_KEY = 'oliveops.employees.viewMode';
@@ -49,10 +49,9 @@ const accountAccessMeta = (employee: Employee) => {
 };
 
 export default function EmployeesPage() {
-  const { employees, timeEntries, jobs, deleteEmployee, clockOut } = useStore();
+  const navigate = useNavigate();
+  const { employees, timeEntries, jobs, clockOut } = useStore();
   const [createEmployeeOpen, setCreateEmployeeOpen] = useState(false);
-  const [editEmployeeId, setEditEmployeeId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [clockInOpen, setClockInOpen] = useState(false);
   const [clockOutEntry, setClockOutEntry] = useState<string | null>(null);
   const [jobNotes, setJobNotes] = useState('');
@@ -97,7 +96,7 @@ export default function EmployeesPage() {
     const accessMeta = accountAccessMeta(emp);
 
     return (
-      <Card key={emp.id} className="p-4">
+      <Card key={emp.id} className="cursor-pointer p-4 transition-colors hover:border-brand-200" onClick={() => navigate(`/employees/${encodeURIComponent(emp.id)}`)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') navigate(`/employees/${encodeURIComponent(emp.id)}`); }} role="link" tabIndex={0}>
         <div className="flex items-start justify-between mb-2">
           <div>
             <p className="font-semibold text-gray-900">{emp.name}</p>
@@ -121,7 +120,7 @@ export default function EmployeesPage() {
             <p className="text-brand-700">{activeWorkLabel}</p>
             <p className="text-brand-600">Since {formatDateTime(activeEntry.clockIn)}</p>
             <button
-              onClick={() => setClockOutEntry(activeEntry.id)}
+              onClick={(event) => { event.stopPropagation(); setClockOutEntry(activeEntry.id); }}
               className="mt-2 flex items-center gap-1 text-accent-700 hover:text-accent-800 font-medium"
             >
               <LogOut size={12} /> Clock Out
@@ -130,11 +129,6 @@ export default function EmployeesPage() {
         ) : (
           <div className="mt-3 text-xs text-gray-400">Not clocked in</div>
         )}
-
-        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-          <Button variant="secondary" size="sm" onClick={() => setEditEmployeeId(emp.id)}><Pencil size={13} /> Edit</Button>
-          <Button variant="danger" size="sm" onClick={() => setConfirmDelete(emp.id)}><Trash2 size={13} /></Button>
-        </div>
       </Card>
     );
   };
@@ -144,7 +138,7 @@ export default function EmployeesPage() {
     const accessMeta = accountAccessMeta(emp);
 
     return (
-      <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50">
+      <tr key={emp.id} className="cursor-pointer border-b border-gray-100 hover:bg-gray-50" onClick={() => navigate(`/employees/${encodeURIComponent(emp.id)}`)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') navigate(`/employees/${encodeURIComponent(emp.id)}`); }} role="link" tabIndex={0}>
         <td className="px-4 py-3">
           <div>
             <p className="font-semibold text-gray-900">{emp.name}</p>
@@ -177,12 +171,6 @@ export default function EmployeesPage() {
           ) : (
             <span className="text-gray-400">Not clocked in</span>
           )}
-        </td>
-        <td className="px-4 py-3 text-right">
-          <div className="flex justify-end gap-1">
-            <Button variant="secondary" size="sm" onClick={() => setEditEmployeeId(emp.id)}><Pencil size={13} /></Button>
-            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(emp.id)}><Trash2 size={13} /></Button>
-          </div>
         </td>
       </tr>
     );
@@ -316,7 +304,6 @@ export default function EmployeesPage() {
                   <th className="px-4 py-3 font-medium">Labour</th>
                   <th className="px-4 py-3 font-medium text-right">Today</th>
                   <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -340,18 +327,6 @@ export default function EmployeesPage() {
       )}
 
       <EmployeeCreateModal open={createEmployeeOpen} onClose={() => setCreateEmployeeOpen(false)} />
-
-      {/* Delete confirm */}
-      <EmployeeEditModal open={Boolean(editEmployeeId)} employeeId={editEmployeeId} onClose={() => setEditEmployeeId(null)} />
-
-      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete Employee"
-        footer={<>
-          <Button variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => { deleteEmployee(confirmDelete!); setConfirmDelete(null); }}>Delete</Button>
-        </>}
-      >
-        <p className="text-gray-600">Delete this employee record?</p>
-      </Modal>
 
       {/* Clock Out confirm */}
       <Modal open={!!clockOutEntry} onClose={() => {
