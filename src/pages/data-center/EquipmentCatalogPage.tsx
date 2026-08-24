@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Package, PlusCircle, Search, Truck } from 'lucide-react';
+import { BriefcaseBusiness, Package, PlusCircle, Search, Truck, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, EmptyState, Modal, PageHeader } from '../../components/ui';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
@@ -23,14 +23,17 @@ import {
 import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
+import EmployeeCatalogSection from './EmployeeCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'pricing', 'budgets'];
-type CatalogTab = 'equipment' | 'materials';
+type CatalogTab = 'employees' | 'equipment' | 'materials' | 'subcontractors';
 
 const CATALOG_TABS: Array<{ key: CatalogTab; label: string; icon: typeof Truck }> = [
+  { key: 'employees', label: 'Employees', icon: Users },
   { key: 'equipment', label: 'Equipment', icon: Truck },
   { key: 'materials', label: 'Materials', icon: Package },
+  { key: 'subcontractors', label: 'Subcontractors', icon: BriefcaseBusiness },
 ];
 
 export default function EquipmentCatalogPage() {
@@ -55,7 +58,8 @@ export default function EquipmentCatalogPage() {
   const [equipmentTypeFilter, setEquipmentTypeFilter] = useState('all');
   const [equipmentStatusFilter, setEquipmentStatusFilter] = useState('all');
   const [equipmentBudgetFilter, setEquipmentBudgetFilter] = useState('all');
-  const activeCatalog: CatalogTab = searchParams.get('catalog') === 'materials' ? 'materials' : 'equipment';
+  const requestedCatalog = searchParams.get('catalog');
+  const activeCatalog: CatalogTab = CATALOG_TABS.some((tab) => tab.key === requestedCatalog) ? requestedCatalog as CatalogTab : 'employees';
 
   const setCatalogTab = (tab: CatalogTab) => {
     const next = new URLSearchParams(searchParams);
@@ -199,8 +203,8 @@ export default function EquipmentCatalogPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Materials & Equipment Catalog"
-        subtitle="What materials and assets are we standardizing so planning stays fast and cost decisions stay consistent?"
+        title="Catalog"
+        subtitle="What reusable resources and costs should every plan start from?"
       />
 
       <div className="overflow-x-auto">
@@ -213,6 +217,10 @@ export default function EquipmentCatalogPage() {
       </div>
 
       {activeCatalog === 'materials' ? <div id="materials-catalog-panel" role="tabpanel"><MaterialsCatalogSection /></div> : null}
+
+      {activeCatalog === 'employees' ? <div id="employees-catalog-panel" role="tabpanel"><EmployeeCatalogSection /></div> : null}
+
+      {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><Card className="p-5"><EmptyState title="Subcontractor Catalog is coming next" description="Subcontractor cost resources will live here without changing existing Budget records." /></Card></div> : null}
 
       {activeCatalog === 'equipment' ? <div id="equipment-catalog-panel" role="tabpanel">
       <DetailWorkspace

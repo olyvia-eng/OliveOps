@@ -15,6 +15,9 @@ type EmployeeForm = {
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
   labourType: EmployeeLabourType;
+  payrollBurdenPct: number;
+  benefitsExtraCost: number;
+  bonus: number;
   active: boolean;
 };
 
@@ -53,6 +56,9 @@ const emptyForm = (): EmployeeForm => ({
   hourlyRate: 30,
   compensationType: 'hourly',
   labourType: 'field_producing',
+  payrollBurdenPct: 18,
+  benefitsExtraCost: 0,
+  bonus: 0,
   active: true,
 });
 
@@ -87,6 +93,9 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
       hourlyRate: employee.hourlyRate,
       compensationType: employee.compensationType ?? 'hourly',
       labourType: employee.labourType ?? 'field_producing',
+      payrollBurdenPct: employee.payrollBurdenPct ?? 18,
+      benefitsExtraCost: employee.benefitsExtraCost ?? 0,
+      bonus: employee.bonus ?? 0,
       active: employee.active,
     });
     setAccessMode(employee.userId ? 'link_existing' : 'none');
@@ -193,6 +202,9 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
             hourlyRate: form.hourlyRate,
             compensationType: form.compensationType,
             labourType: form.labourType,
+            payrollBurdenPct: form.payrollBurdenPct,
+            benefitsExtraCost: form.benefitsExtraCost,
+            bonus: form.bonus,
             active: form.active,
           },
           accountAccess,
@@ -275,6 +287,12 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
           value={form.hourlyRate}
           onChange={(event) => setField('hourlyRate', Number(event.target.value))}
         />
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Input label="Payroll Burden (%)" type="number" min={0} value={form.payrollBurdenPct} onChange={(event) => setField('payrollBurdenPct', Number(event.target.value))} />
+          <Input label="Annual Benefits / Extra Cost ($)" type="number" min={0} value={form.benefitsExtraCost} onChange={(event) => setField('benefitsExtraCost', Number(event.target.value))} />
+          <Input label="Annual Bonus ($)" type="number" min={0} value={form.bonus} onChange={(event) => setField('bonus', Number(event.target.value))} />
+        </div>
 
         <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <p className="text-sm font-medium text-gray-700">Account Access</p>

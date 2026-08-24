@@ -6,6 +6,7 @@ import type { Budget, BudgetDivisionPlanningItem } from '../../types';
 import { formatCurrency } from '../../utils';
 import { buildBudgetPricingRows } from '../../pages/budget/budgetPricingModel.js';
 import { buildOverheadRecoveryModel } from '../../pages/budget/overheadRecoveryModel.js';
+import { applyEmployeeCostInputs } from '../../utils/employeeLabourCost';
 import OverheadRecoveryEditor from './OverheadRecoveryEditor';
 
 interface Props {
@@ -38,10 +39,11 @@ const unavailableCostReason = (category: BudgetDivisionPlanningItem['category'])
 };
 
 export default function BudgetPricingAnalysis({ budget, planningItems, canEdit }: Props) {
-  const { budgetRates, budgetDivisions, updateBudgetDivision } = useStore();
+  const { budgetRates, budgetDivisions, employees, updateBudgetDivision } = useStore();
   const divisions = useMemo(() => budgetDivisions.filter((division) => division.budgetId === budget.id && division.status === 'active'), [budget.id, budgetDivisions]);
-  const rows = useMemo(() => buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates }), [budget, budgetRates, divisions, planningItems]);
-  const recovery = useMemo(() => buildOverheadRecoveryModel({ budget, divisions, planningItems }), [budget, divisions, planningItems]);
+  const resolvedPlanningItems = useMemo(() => planningItems.map((item) => applyEmployeeCostInputs(item, employees.find((employee) => employee.id === item.employeeId))), [employees, planningItems]);
+  const rows = useMemo(() => buildBudgetPricingRows({ budget, divisions, planningItems: resolvedPlanningItems, budgetRates }), [budget, budgetRates, divisions, resolvedPlanningItems]);
+  const recovery = useMemo(() => buildOverheadRecoveryModel({ budget, divisions, planningItems: resolvedPlanningItems }), [budget, divisions, resolvedPlanningItems]);
   const recoveryWarnings = Object.values(recovery.divisions).flatMap((scope) => scope.warnings);
   const [activePricingTab, setActivePricingTab] = useState<PricingTab>('labour');
   const activeTab = pricingTabs.find((tab) => tab.key === activePricingTab) ?? pricingTabs[0];

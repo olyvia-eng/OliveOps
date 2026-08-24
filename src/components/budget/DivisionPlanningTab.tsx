@@ -10,6 +10,7 @@ import EquipmentInfoForm from '../equipment/EquipmentInfoForm';
 import { emptyEquipmentInfoFormValue, normalizeEquipmentInfoForm, type EquipmentInfoFormValue, validateEquipmentInfoForm } from '../equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
 import { overheadAllocatedAmount, overheadAllocationForDivision, overheadAllocationTotal, overheadAllocationsAreValid, splitOverheadAllocationsEvenly } from '../../pages/budget/overheadAllocationModel.js';
+import { resolveEmployeeCostInputs } from '../../utils/employeeLabourCost';
 
 const config = {
   labour: {
@@ -476,12 +477,15 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 disabled={editing !== 'new' && Boolean(draft.employeeId)}
                 onChange={(event) => {
                   const employee = employees.find((item) => item.id === event.target.value);
+                  const costInputs = employee ? resolveEmployeeCostInputs(employee) : null;
                   setDraft((current) => ({
                     ...current,
                     employeeId: event.target.value || undefined,
                     name: employee?.name ?? current.name,
                     role: employee?.role ?? current.role,
-                    hourlyRate: employee?.hourlyRate ?? current.hourlyRate,
+                    ...(costInputs ?? {}),
+                    labourClassification: employee ? (employee.labourType === 'overhead' ? 'overhead' : 'billable') : current.labourClassification,
+                    expectedBillablePct: employee?.labourType === 'overhead' ? 0 : current.expectedBillablePct,
                   }));
                 }}
               >

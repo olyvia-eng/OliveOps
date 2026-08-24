@@ -545,6 +545,20 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function validateEmployeeCostInputs(record) {
+  const fields = [
+    ['payrollBurdenPct', 'Employee payroll burden percent'],
+    ['benefitsExtraCost', 'Employee benefits/extra cost'],
+    ['bonus', 'Employee bonus'],
+  ];
+  for (const [field, label] of fields) {
+    if (record[field] !== undefined && record[field] !== null && (!isFiniteNumber(record[field]) || record[field] < 0)) {
+      return `${label} must be zero or greater.`;
+    }
+  }
+  return null;
+}
+
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -1651,6 +1665,8 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'employees') {
+      const validationError = validateEmployeeCostInputs(record);
+      if (validationError) return res.status(400).json({ ok: false, error: validationError });
       const accessPayload = req.body?.accountAccess;
       try {
         const created = await createEmployeeWithAccessForBusiness({
@@ -1749,6 +1765,10 @@ export default async function handler(req, res) {
       }
 
       let next = { ...baseRecord, ...sanitizedData };
+      if (entity === 'employees') {
+        const validationError = validateEmployeeCostInputs(next);
+        if (validationError) return res.status(400).json({ ok: false, error: validationError });
+      }
       if (entity === 'budget') {
         const allocated = applyEquipmentAllocationCost(next, req.body?.allocationMonths);
         if (!allocated.ok) return res.status(400).json({ ok: false, error: allocated.error });

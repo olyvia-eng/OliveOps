@@ -620,6 +620,9 @@ export interface Employee {
   hourlyRate: number;
   compensationType?: EmployeeCompensationType;
   labourType?: EmployeeLabourType;
+  payrollBurdenPct?: number;
+  benefitsExtraCost?: number;
+  bonus?: number;
   userId?: ID | null;
   active: boolean;
   createdAt: string;
