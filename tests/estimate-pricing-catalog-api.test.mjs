@@ -47,13 +47,14 @@ test('Estimate pricing endpoint returns calculated Division rates without requir
   put(store, 'biz-a', 'ESTIMATE#estimate-a', { entityType: 'ESTIMATE', estimateId: 'estimate-a', pricingBudgetId: 'budget-2027', divisionId: 'hardscape', title: 'Dig out area' });
   put(store, 'biz-a', 'BUDGET_DIVISION#budget-2027#DIVISION#hardscape', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-2027', divisionId: 'hardscape', id: 'hardscape', name: 'Hardscape', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } } });
   for (const employee of [{ id: 'ryan', name: 'Ryan Field', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 }, { id: 'john', name: 'John Field', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 }]) put(store, 'biz-a', `EMPLOYEE#${employee.id}`, { entityType: 'EMPLOYEE', employeeId: employee.id, active: true, ...employee });
-  for (const equipment of [{ id: 'bobcat', name: 'Bobcat E50' }, { id: 'truck', name: 'Dump Truck' }]) put(store, 'biz-a', `EQUIPMENT#${equipment.id}`, { entityType: 'EQUIPMENT', equipmentId: equipment.id, status: 'available', type: 'Equipment', ...equipment });
+  for (const equipment of [{ id: 'bobcat', name: 'Bobcat E50', equipmentClassification: 'billable' }, { id: 'truck', name: 'Dump Truck', equipmentClassification: 'billable' }, { id: 'crew-truck', name: 'Crew Truck', equipmentClassification: 'overhead' }]) put(store, 'biz-a', `EQUIPMENT#${equipment.id}`, { entityType: 'EQUIPMENT', equipmentId: equipment.id, status: 'available', type: 'Equipment', ...equipment });
   put(store, 'biz-a', 'MATERIAL#gravel', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'gravel', id: 'gravel', name: 'A Gravel', unit: 'tonne', active: true });
 
   const items = [
     { id: 'labour-ryan', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'ryan', name: 'Ryan Field', compType: 'hourly', hourlyRate: 20, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
     { id: 'labour-john', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'john', name: 'John Field', compType: 'hourly', hourlyRate: 40, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
     { id: 'equipment-bobcat', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'equipment', equipmentId: 'bobcat', name: 'Bobcat E50', plannedAmount: 12000, sellableHoursPerYear: 1000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+    { id: 'equipment-crew-truck', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'equipment', equipmentId: 'crew-truck', name: 'Crew Truck', classification: 'billable', plannedAmount: 10000, sellableHoursPerYear: 500, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
     { id: 'equipment-truck', budgetId: 'budget-2027', divisionId: 'snow', category: 'equipment', equipmentId: 'truck', name: 'Dump Truck' },
     { id: 'material-gravel', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'materials', materialCatalogItemId: 'gravel', name: 'A Gravel', unit: 'tonne', unitCost: 10, plannedQuantity: 100 },
     { id: 'sub-concrete', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'subcontractors', name: 'Concrete Co', unit: 'job', rate: 100, plannedQuantity: 10 },
@@ -74,6 +75,7 @@ test('Estimate pricing endpoint returns calculated Division rates without requir
   assert.equal(res.body.budget.name, '2027 annual');
   assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.sellRate, item.costRate]), [['John Field', 50, 40], ['Ryan Field', 25, 20]]);
   assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.sellRate]), [['Bobcat E50', 15]]);
+  assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Crew Truck'), false);
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
   assert.equal(res.body.catalog.materials[0].sellRate, 12.5);
   assert.equal(res.body.catalog.subcontractors[0].sellRate, 125);

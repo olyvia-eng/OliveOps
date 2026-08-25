@@ -54,8 +54,12 @@ test('overhead equipment has no charge-out workflow or new Estimate candidate', 
   const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
   const detailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
   const estimateSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
+  const estimateCatalogSource = readFileSync('api/_lib/estimatePricingCatalog.js', 'utf8');
 
   assert.match(budgetSource, /filter\(\(item\) => item\.equipmentClassification !== 'overhead'\)/);
   assert.match(detailSource, /Charge-out pricing is not available/);
   assert.match(estimateSource, /if \(asset\.equipmentClassification === 'overhead'\) continue/);
+  assert.match(estimateCatalogSource, /isOverheadEquipment\(item, entities\.equipment\)/);
+  assert.match(estimateSource, /visibleCatalogCandidates = useMemo/);
+  assert.match(estimateSource, /Custom \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);
 });

@@ -14,6 +14,7 @@ const calculatedPlanningItems = [
   { id: 'labour-ryan', budgetId, category: 'labour', employeeId: 'ryan', name: 'Ryan Field', compType: 'hourly', hourlyRate: 20, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
   { id: 'labour-john', budgetId, category: 'labour', employeeId: 'john', name: 'John Field', compType: 'hourly', hourlyRate: 40, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
   { id: 'equipment-bobcat', budgetId, category: 'equipment', divisionId: 'hardscape', equipmentId: 'bobcat', name: 'Bobcat E50', plannedAmount: 12000, sellableHoursPerYear: 1000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  { id: 'equipment-crew-truck', budgetId, category: 'equipment', divisionId: 'hardscape', equipmentId: 'crew-truck', name: 'Crew Truck', classification: 'billable', plannedAmount: 10000, sellableHoursPerYear: 500, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
   { id: 'material-gravel', budgetId, category: 'materials', divisionId: 'hardscape', materialCatalogItemId: 'gravel', name: 'A Gravel', unit: 'tonne', unitCost: 10, plannedQuantity: 100 },
   { id: 'sub-concrete', budgetId, category: 'subcontractors', divisionId: 'hardscape', vendorId: 'concrete-co', name: 'Concrete Co', unit: 'job', rate: 100, plannedQuantity: 10 },
 ];
@@ -29,7 +30,7 @@ const buildCalculated = (items = calculatedPlanningItems, rates = budgetRates) =
   planningItems: items,
   budgetRates: rates,
   employees: calculatedEmployees,
-  equipmentAssets: [{ id: 'bobcat', name: 'Bobcat E50' }],
+  equipmentAssets: [{ id: 'bobcat', name: 'Bobcat E50', equipmentClassification: 'billable' }, { id: 'crew-truck', name: 'Crew Truck', equipmentClassification: 'overhead' }],
   materialCatalogItems: [{ id: 'gravel', name: 'A Gravel' }],
 });
 const planningItems = [
@@ -162,6 +163,39 @@ test('generic Labour resources retain the Division average while named employees
     ['John Field', 'john', 50],
     ['Ryan Field', 'ryan', 25],
   ]);
+});
+
+test('Estimate equipment eligibility excludes overhead assets without altering historical snapshots', () => {
+  const catalog = buildCalculated(calculatedPlanningItems, []);
+  assert.deepEqual(catalog.equipment.map((item) => [item.name, item.pricingAvailable]), [['Bobcat E50', true]]);
+
+  const billableRequest = { id: 'line-bobcat-new', category: 'equipment', sourceBudgetId: budgetId, sourceBudgetItemId: 'equipment-bobcat', sourceEntityId: 'bobcat', divisionId: 'hardscape', quantity: 3 };
+  const added = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { pricingBudgetId: budgetId, lineItems: [billableRequest], workAreas: [] },
+    catalog,
+  });
+  assert.equal(added.ok, true);
+  assert.deepEqual([added.estimate.lineItems[0].itemName, added.estimate.lineItems[0].sellPrice], ['Bobcat E50', 15]);
+
+  const forgedOverhead = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { pricingBudgetId: budgetId, lineItems: [{ ...billableRequest, id: 'line-truck-new', sourceBudgetItemId: 'equipment-crew-truck', sourceEntityId: 'crew-truck' }], workAreas: [] },
+    catalog,
+  });
+  assert.equal(forgedOverhead.ok, false);
+
+  const historical = {
+    id: 'line-truck-existing', category: 'equipment', sourceBudgetId: budgetId, sourceBudgetItemId: 'equipment-crew-truck', sourceEntityId: 'crew-truck',
+    itemName: 'Crew Truck', description: 'Historical item', quantity: 2, unit: 'hr', unitCost: 20, sellPrice: 40, total: 80,
+  };
+  const preserved = applyAuthoritativeEstimatePricing({
+    existingEstimate: { pricingBudgetId: budgetId, lineItems: [historical], workAreas: [] },
+    nextEstimate: { pricingBudgetId: budgetId, lineItems: [{ ...historical, quantity: 4 }], workAreas: [] },
+    catalog,
+  });
+  assert.equal(preserved.ok, true);
+  assert.deepEqual([preserved.estimate.lineItems[0].itemName, preserved.estimate.lineItems[0].sellPrice, preserved.estimate.lineItems[0].quantity, preserved.estimate.lineItems[0].total], ['Crew Truck', 40, 4, 160]);
 });
 
 test('Budget Analysis and Estimate authorization use current Employee compensation over stale Labour plans', () => {

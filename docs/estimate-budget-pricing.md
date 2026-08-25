@@ -17,6 +17,8 @@ The server calls the same `buildBudgetPricingRows` model used by Budget Pricing.
 
 Equipment, Materials, and Subcontractors use the calculated row for their planning item in the selected Division. Display names are not an identity boundary.
 
+Equipment eligibility is resolved before the Estimate catalog is returned. Equipment whose tenant-owned catalog record is classified as `overhead` is excluded rather than returned as unavailable; unlinked/manual planning items use their saved planning classification. Billable equipment continues through the existing Division pricing readiness rules. This selection rule does not remove or reprice equipment already snapshotted on an Estimate.
+
 Labour distinguishes named employees from generic resources. An employee's allocated planning item determines whether that employee is eligible for the selected Division and produces that employee's charge-out rate from their canonical compensation inputs, Budget planned and billable hours, the Division overhead recovery rate, and the Budget target margin. Employees with different costs can therefore have different calculated rates. Generic resources such as Hardscape Labor continue to use the Division's calculated `average-labour:<divisionId>` row. Neither path falls back to legacy approvals when the current Budget calculation is incomplete.
 
 `GET /api/estimate-pricing-catalog?estimateId=<id>` derives the business and `pricingBudgetId` from the authenticated Estimate and returns one normalized catalog:

@@ -47,6 +47,9 @@ const itemDivisionIds = (item) => {
   return item.divisionId ? [item.divisionId] : [];
 };
 
+const isOverheadEquipment = (item, equipment) => item.category === 'equipment'
+  && (equipment.get(item.equipmentId)?.equipmentClassification ?? item.classification) === 'overhead';
+
 export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
   const entities = {
     employees: new Map(employees.map((item) => [item.id, item])),
@@ -61,6 +64,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
 
   for (const item of planningItems) {
     if (item.budgetId !== budgetId || !CATEGORY_MAP[item.category]) continue;
+    if (isOverheadEquipment(item, entities.equipment)) continue;
     const divisionIds = itemDivisionIds(item);
     if (!divisionId && !includeAllDivisions) {
       const key = dedupeKey(item);
