@@ -47,6 +47,17 @@ test('Division roll-ups use stored revenue targets and centralized financial cal
   assert.doesNotMatch(workspaceSource, /Contribution before Company/);
 });
 
+test('Division Overview edits the canonical Revenue Target without a duplicate field', () => {
+  assert.match(divisionSource, /aria-label="Edit Revenue Target"/);
+  assert.match(divisionSource, /setRevenueTargetDraft\(String\(division\.revenueTarget\)\)/);
+  assert.match(divisionSource, /updateBudgetDivision\(budget\.id, division\.id, \{ revenueTarget \}\)/);
+  assert.match(divisionSource, /if \(saved\) setEditingRevenueTarget\(false\)/);
+  assert.match(divisionSource, /Revenue target must be zero or greater\./);
+  assert.match(divisionSource, /onClick=\{cancelRevenueTargetEdit\}/);
+  assert.doesNotMatch(divisionSource, /updateBudget\(.*revenueTarget|revenueTarget: financials\.revenue/);
+  assert.match(storeSource, /budgetDivisions: state\.budgetDivisions\.map\(\(item\) => item\.id === id \? payload\.division as BudgetDivision : item\)/);
+});
+
 test('Analysis uses the financial statement before existing recovery and pricing', () => {
   assert.match(workspaceSource, /activeTab === 'analysis'[\s\S]*<BudgetAnalysisSummary[\s\S]*<BudgetPricingAnalysis/);
   assert.match(workspaceSource, /financials=\{financials\}/);

@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Pencil, Plus } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, EmptyState, PageHeader } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, PageHeader } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency, formatDate } from '../../utils';
 import DivisionPlanningTab from '../../components/budget/DivisionPlanningTab';
@@ -24,7 +24,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   const { budgetId, divisionId } = useParams<{ budgetId: string; divisionId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { budgets, budgetDivisions, budgetDivisionPlanningItems, migrateLegacyBudgetOverhead } = useStore();
+  const { budgets, budgetDivisions, budgetDivisionPlanningItems, migrateLegacyBudgetOverhead, updateBudgetDivision } = useStore();
   const budget = budgets.find((item) => item.id === budgetId);
   const division = budgetDivisions.find((item) => item.id === divisionId && item.budgetId === budgetId);
   const requestedTab = searchParams.get('tab') ?? 'overview';
@@ -32,7 +32,48 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   const activeTabLabel = tabs.find((item) => item.key === activeTab)?.label;
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
   const migrationStarted = useRef(false);
+  const [editingRevenueTarget, setEditingRevenueTarget] = useState(false);
+  const [revenueTargetDraft, setRevenueTargetDraft] = useState('');
+  const [revenueTargetError, setRevenueTargetError] = useState('');
+  const [savingRevenueTarget, setSavingRevenueTarget] = useState(false);
   const setTab = (tab: DivisionTab) => setSearchParams((previous) => { const next = new URLSearchParams(previous); next.set('tab', tab); return next; });
+
+  const startRevenueTargetEdit = () => {
+    if (!division) return;
+    setRevenueTargetDraft(String(division.revenueTarget));
+    setRevenueTargetError('');
+    setEditingRevenueTarget(true);
+  };
+
+  const cancelRevenueTargetEdit = () => {
+    setRevenueTargetDraft(division ? String(division.revenueTarget) : '');
+    setRevenueTargetError('');
+    setEditingRevenueTarget(false);
+  };
+
+  const saveRevenueTarget = async () => {
+    if (!budget || !division || savingRevenueTarget) return;
+    const revenueTarget = Number(revenueTargetDraft);
+    if (!revenueTargetDraft.trim() || !Number.isFinite(revenueTarget) || revenueTarget < 0) {
+      setRevenueTargetError('Revenue target must be zero or greater.');
+      return;
+    }
+    setSavingRevenueTarget(true);
+    setRevenueTargetError('');
+    try {
+      const saved = await updateBudgetDivision(budget.id, division.id, { revenueTarget });
+      if (saved) setEditingRevenueTarget(false);
+      else setRevenueTargetError('Revenue target could not be saved.');
+    } finally {
+      setSavingRevenueTarget(false);
+    }
+  };
+
+  useEffect(() => {
+    setEditingRevenueTarget(false);
+    setRevenueTargetDraft('');
+    setRevenueTargetError('');
+  }, [budgetId, divisionId]);
 
   useEffect(() => {
     const hasActiveDivision = budgetDivisions.some((item) => item.budgetId === budgetId && item.status === 'active');
@@ -57,7 +98,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
       <div className="mb-4 flex items-center gap-2"><Badge label="Division" className="bg-brand-100 text-brand-700" /><Badge label={division.status} className={division.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} /></div>
       <div className="mb-6 overflow-x-auto"><div className="inline-flex min-w-max rounded-xl border border-brand-100 bg-white p-1 dark:border-brand-600 dark:bg-brand-700" role="tablist">{tabs.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={activeTab === tab.key} onClick={() => setTab(tab.key)} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${activeTab === tab.key ? 'bg-brand-600 text-white' : 'text-gray-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-800'}`}>{tab.label}</button>)}</div></div>
 
-      {activeTab === 'overview' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Revenue Target" value={formatCurrency(financials.revenue)} /><Metric label="Direct Cost" value={financials.isComplete ? formatCurrency(financials.totalDirectCosts) : '—'} sub={financials.isComplete ? 'From Budget planning' : 'Budget incomplete'} /><Metric label="Gross Profit" value={financials.grossProfit === null ? '—' : formatCurrency(financials.grossProfit)} /><Metric label="Gross Margin" value={financials.grossMargin === null ? '—' : `${financials.grossMargin.toFixed(1)}%`} /></div><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Cost Breakdown</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">All values use the same allocation-aware financial calculation as Profit &amp; Loss.</p><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <button key={tab.key} type="button" onClick={() => setTab(tab.key)} className="border-y border-brand-100 px-3 py-3 text-left text-sm font-medium text-gray-700 hover:bg-brand-50 dark:border-brand-600 dark:text-brand-100 dark:hover:bg-brand-800">{tab.label}</button>)}</div></Card><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Quick Actions</h2><div className="mt-3 flex flex-wrap gap-2">{tabs.filter((tab) => tab.key !== 'overview' && tab.key !== 'profit-loss').map((tab) => <Button key={tab.key} variant="secondary" onClick={() => setTab(tab.key)}><Plus size={14} /> Add {tab.label.replace(/s$/, '')}</Button>)}</div></Card></div> : null}
+      {activeTab === 'overview' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Card className="p-4"><div className="flex items-start justify-between gap-2"><p className="text-xs font-medium uppercase text-gray-500 dark:text-brand-300">Revenue Target</p>{canEdit && !editingRevenueTarget ? <Button variant="ghost" size="sm" onClick={startRevenueTargetEdit} aria-label="Edit Revenue Target"><Pencil size={14} /></Button> : null}</div>{editingRevenueTarget ? <div className="mt-2 space-y-2"><Input aria-label="Revenue Target" type="number" min={0} step={1} inputMode="decimal" value={revenueTargetDraft} disabled={savingRevenueTarget} onChange={(event) => { setRevenueTargetDraft(event.target.value); setRevenueTargetError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') void saveRevenueTarget(); if (event.key === 'Escape') cancelRevenueTargetEdit(); }} autoFocus /><div className="flex gap-2"><Button size="sm" variant="secondary" onClick={cancelRevenueTargetEdit} disabled={savingRevenueTarget}>Cancel</Button><Button size="sm" onClick={() => void saveRevenueTarget()} disabled={savingRevenueTarget}>{savingRevenueTarget ? 'Saving...' : 'Save'}</Button></div>{revenueTargetError ? <p className="text-xs text-red-600">{revenueTargetError}</p> : null}</div> : <p className="mt-2 text-xl font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(financials.revenue)}</p>}</Card><Metric label="Direct Cost" value={financials.isComplete ? formatCurrency(financials.totalDirectCosts) : '—'} sub={financials.isComplete ? 'From Budget planning' : 'Budget incomplete'} /><Metric label="Gross Profit" value={financials.grossProfit === null ? '—' : formatCurrency(financials.grossProfit)} /><Metric label="Gross Margin" value={financials.grossMargin === null ? '—' : `${financials.grossMargin.toFixed(1)}%`} /></div><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Cost Breakdown</h2><p className="mt-1 text-sm text-gray-500 dark:text-brand-300">All values use the same allocation-aware financial calculation as Profit &amp; Loss.</p><div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">{tabs.filter((tab) => tab.key !== 'overview').map((tab) => <button key={tab.key} type="button" onClick={() => setTab(tab.key)} className="border-y border-brand-100 px-3 py-3 text-left text-sm font-medium text-gray-700 hover:bg-brand-50 dark:border-brand-600 dark:text-brand-100 dark:hover:bg-brand-800">{tab.label}</button>)}</div></Card><Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Quick Actions</h2><div className="mt-3 flex flex-wrap gap-2">{tabs.filter((tab) => tab.key !== 'overview' && tab.key !== 'profit-loss').map((tab) => <Button key={tab.key} variant="secondary" onClick={() => setTab(tab.key)}><Plus size={14} /> Add {tab.label.replace(/s$/, '')}</Button>)}</div></Card></div> : null}
 
       {activeTab === 'labour' || activeTab === 'equipment' || activeTab === 'materials' || activeTab === 'subcontractors' || activeTab === 'overhead' ? <DivisionPlanningTab budget={budget} division={division} category={activeTab} canEdit={canEdit} /> : null}
       {activeTab === 'profit-loss' ? <DivisionProfitLossView fiscalYear={budget.fiscalYear} financials={financials} /> : null}

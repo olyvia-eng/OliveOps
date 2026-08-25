@@ -348,6 +348,32 @@ test('Budget Divisions are isolated by parent Budget and business', async (t) =>
   assert.deepEqual(listRes.body.divisions.map((division) => division.name), ['Snow Removal']);
   assert.equal(listRes.body.divisions[0].costCode, 'DIV-SNOW');
 
+  const createSiblingRes = createMockRes();
+  await budgetDivisionsHandler({
+    method: 'POST',
+    query: { budgetId: 'budget-1' },
+    headers: { authorization: 'Bearer budget-token-a' },
+    body: { data: { id: 'division-landscape', budgetId: 'budget-1', name: 'Landscaping', costCode: 'DIV-LAND', description: '', revenueTarget: 300000, status: 'active', sortOrder: 1 } },
+  }, createSiblingRes);
+  assert.equal(createSiblingRes.statusCode, 200);
+
+  const updateTargetRes = createMockRes();
+  await budgetDivisionsHandler({
+    method: 'PATCH',
+    query: { budgetId: 'budget-1', id: 'division-snow' },
+    headers: { authorization: 'Bearer budget-token-a' },
+    body: { data: { revenueTarget: 625000 } },
+  }, updateTargetRes);
+  assert.equal(updateTargetRes.statusCode, 200);
+  assert.equal(updateTargetRes.body.division.revenueTarget, 625000);
+
+  const reloadRes = createMockRes();
+  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1' }, headers: { authorization: 'Bearer budget-token-a' } }, reloadRes);
+  assert.deepEqual(
+    reloadRes.body.divisions.sort((left, right) => left.sortOrder - right.sortOrder).map((division) => [division.id, division.revenueTarget]),
+    [['division-snow', 625000], ['division-landscape', 300000]],
+  );
+
   const wrongParentRes = createMockRes();
   await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-2', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-a' } }, wrongParentRes);
   assert.equal(wrongParentRes.statusCode, 404);
@@ -358,6 +384,10 @@ test('Budget Divisions are isolated by parent Budget and business', async (t) =>
   });
   await seedSessionToken({ userId: 'user-b', businessId: 'biz-b', email: 'admin-b@example.com', accessToken: 'budget-token-b' });
   const foreignBusinessRes = createMockRes();
-  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-b' } }, foreignBusinessRes);
+  await budgetDivisionsHandler({ method: 'PATCH', query: { budgetId: 'budget-1', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-b' }, body: { data: { revenueTarget: 1 } } }, foreignBusinessRes);
   assert.equal(foreignBusinessRes.statusCode, 404);
+
+  const ownerReloadRes = createMockRes();
+  await budgetDivisionsHandler({ method: 'GET', query: { budgetId: 'budget-1', id: 'division-snow' }, headers: { authorization: 'Bearer budget-token-a' } }, ownerReloadRes);
+  assert.equal(ownerReloadRes.body.division.revenueTarget, 625000);
 });

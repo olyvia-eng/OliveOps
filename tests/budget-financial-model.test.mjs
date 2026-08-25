@@ -62,6 +62,21 @@ test('overall P&L equals the roll-up of Division operating results', () => {
   assert.equal(result.operatingProfit, result.divisions.reduce((sum, division) => sum + division.operatingProfit, 0));
 });
 
+test('changing one Division revenue target recalculates its results and the overall Budget only once', () => {
+  const revisedDivisions = divisions.map((division) => division.id === 'hardscape' ? { ...division, revenueTarget: 1050000 } : division);
+  const hardscape = model.calculateDivisionFinancials({ divisions: revisedDivisions, planningItems }, 'hardscape');
+  const snow = model.calculateDivisionFinancials({ divisions: revisedDivisions, planningItems }, 'snow');
+  const budget = model.calculateBudgetFinancials({ divisions: revisedDivisions, planningItems });
+
+  assert.equal(hardscape.revenue, 1050000);
+  assert.equal(hardscape.grossProfit, 775000);
+  assert.equal(hardscape.grossMargin, 775000 / 1050000 * 100);
+  assert.equal(snow.revenue, 600000);
+  assert.equal(budget.revenue, 1650000);
+  assert.equal(budget.grossProfit, 1180000);
+  assert.equal(budget.operatingProfit, 1026000);
+});
+
 test('zero revenue and incomplete planning never present misleading profit', () => {
   const incomplete = model.calculateDivisionFinancials({ divisions: [{ ...divisions[0], revenueTarget: 0 }], planningItems: planningItems.filter((item) => item.category === 'labour') }, 'hardscape');
   assert.equal(incomplete.isComplete, false);
