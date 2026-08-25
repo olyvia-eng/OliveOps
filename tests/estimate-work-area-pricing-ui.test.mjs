@@ -19,13 +19,18 @@ test('Labour drawer presents calculated Division pricing without approval langua
   assert.match(builderSource, /item\.pricingAvailable && item\.sellRate/);
 });
 
-test('Budget-priced Work Area rows expose quantity, snapshot rate, and total without cost or markup controls', () => {
+test('Work Area resources use compact responsive rows with editable quantity and expandable notes', () => {
   assert.match(builderSource, /const isBudgetPriced = Boolean\(lineItem\.sourceBudgetItemId \|\| lineItem\.sourceRateId \|\| lineItem\.equipmentId\)/);
-  assert.match(builderSource, /'Labour Rate'/);
-  assert.match(builderSource, /'Equipment Rate'/);
-  assert.match(builderSource, /'Material Rate'/);
+  assert.match(builderSource, /sm:min-h-\[60px\] xl:flex-nowrap/);
+  assert.match(builderSource, /const usesHours = category === 'labour' \|\| category === 'equipment'/);
+  assert.match(builderSource, /const quantityLabel = usesHours \? 'Hours' : 'Quantity'/);
+  assert.match(builderSource, /setLineItem\(lineItem\.id, 'quantity', parseNumericInputValue\(event\.target\.value\)\)/);
+  assert.match(builderSource, /usesHours \|\| isBudgetPriced \? <span>\{lineItem\.unit\}<\/span>/);
   assert.match(builderSource, /formatCurrency\(lineItem\.sellPrice\).*lineItem\.unit/);
   assert.match(builderSource, /formatCurrency\(lineItem\.total\)/);
+  assert.match(builderSource, /title=\{isExpanded \? 'Collapse item details' : 'Edit description and notes'\}/);
+  assert.match(builderSource, /isExpanded \? <div[^>]*>\s*<label[^>]*>Description \/ Notes/);
+  assert.doesNotMatch(builderSource, /Budget pricing snapshot/);
   assert.doesNotMatch(builderSource, /Markup %/);
   assert.doesNotMatch(builderSource, />Unit Cost</);
 });

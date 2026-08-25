@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
@@ -126,6 +126,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [savingWorkArea, setSavingWorkArea] = useState(false);
   const [deletingWorkArea, setDeletingWorkArea] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [expandedLineItemIds, setExpandedLineItemIds] = useState<Set<string>>(() => new Set());
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
   const [customItem, setCustomItem] = useState({
@@ -623,52 +624,51 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         {items.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
         ) : (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-brand-100 overflow-hidden rounded-lg border border-brand-100 dark:divide-brand-600 dark:border-brand-600">
             {items.map((lineItem) => {
               const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId);
               const usesHours = category === 'labour' || category === 'equipment';
-              const rateLabel = category === 'labour' ? 'Labour Rate' : category === 'equipment' ? 'Equipment Rate' : category === 'material' ? 'Material Rate' : 'Rate';
+              const quantityLabel = usesHours ? 'Hours' : 'Quantity';
+              const isExpanded = expandedLineItemIds.has(lineItem.id);
               return (
-              <div key={lineItem.id} className="rounded-lg border border-brand-100 bg-brand-50/40 p-3 dark:border-brand-600 dark:bg-brand-900/20">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">{CATEGORY_ADD_LABEL[category]}{estimateDivision ? ` · ${estimateDivision.name}` : ''}{isBudgetPriced ? ' · Budget pricing snapshot' : ' · Custom item'}</p>
+              <div key={lineItem.id} className="bg-brand-50/40 dark:bg-brand-900/20">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 sm:min-h-[60px] xl:flex-nowrap">
+                  <div className="min-w-[220px] flex-1 basis-full xl:basis-auto">
+                    <p className="truncate font-semibold text-gray-900 dark:text-brand-50">
+                      {lineItem.itemName || lineItem.description || 'Untitled Item'}
+                      {estimateDivision ? <span className="ml-2 text-xs font-normal text-gray-500 dark:text-brand-300">· {estimateDivision.name}</span> : null}
+                    </p>
                   </div>
-                  <button type="button" title="Delete item" onClick={() => deleteLineItem(lineItem.id)} className="rounded p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-
-                <div className={`mt-3 grid grid-cols-1 gap-3 ${usesHours ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">{usesHours ? 'Hours' : 'Quantity'}</label>
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-brand-300">
+                    <span className="sr-only">{quantityLabel}</span>
                     <input
+                      aria-label={`${quantityLabel} for ${lineItem.itemName || lineItem.description || 'item'}`}
                       type="text"
                       inputMode="decimal"
                       value={formatNumericDisplayValue(lineItem.quantity)}
                       onChange={(event) => setLineItem(lineItem.id, 'quantity', parseNumericInputValue(event.target.value))}
                       onFocus={(event) => event.currentTarget.select()}
-                      className="mt-1 h-10 w-full rounded-lg border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-700 px-3 text-sm text-right text-brand-900 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-accent-500/40"
+                      className="h-9 w-20 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"
                     />
+                    {usesHours || isBudgetPriced ? <span>{lineItem.unit}</span> : <input aria-label={`Unit for ${lineItem.itemName || lineItem.description || 'item'}`} value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
+                  </label>
+                  <div className="shrink-0 text-sm text-gray-600 dark:text-brand-200">
+                    {isBudgetPriced ? <span className="font-medium tabular-nums">{formatCurrency(lineItem.sellPrice)}/{lineItem.unit}</span> : <label className="flex items-center gap-1.5"><span className="sr-only">Rate</span><input aria-label={`Rate for ${lineItem.itemName || lineItem.description || 'item'}`} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="h-9 w-24 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /><span>/{lineItem.unit}</span></label>}
                   </div>
-                  {!usesHours ? <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">Unit</label>
-                    {isBudgetPriced ? <p className="mt-1 flex h-10 items-center text-sm font-medium text-gray-900 dark:text-brand-50">{lineItem.unit}</p> : <input value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
-                  </div> : null}
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 dark:text-brand-200">{rateLabel}</label>
-                    {isBudgetPriced ? <p className="mt-1 flex h-10 items-center text-sm font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.sellPrice)}/{lineItem.unit}</p> : <input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-600 dark:text-brand-200">Total</p>
-                    <p className="mt-1 flex h-10 items-center text-base font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.total)}</p>
+                  <p className="min-w-24 shrink-0 text-right text-base font-semibold tabular-nums text-gray-900 dark:text-brand-50" aria-label="Total">{formatCurrency(lineItem.total)}</p>
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <button type="button" title={isExpanded ? 'Collapse item details' : 'Edit description and notes'} aria-expanded={isExpanded} onClick={() => setExpandedLineItemIds((current) => { const next = new Set(current); if (next.has(lineItem.id)) next.delete(lineItem.id); else next.add(lineItem.id); return next; })} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-brand-700 dark:hover:bg-brand-700 dark:hover:text-brand-100">
+                      <Pencil size={14} />
+                    </button>
+                    <button type="button" title="Delete item" onClick={() => deleteLineItem(lineItem.id)} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
-
-                <label className="mt-3 block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes</label>
-                <textarea rows={1} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />
-                {!isBudgetPriced ? <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium text-gray-600 dark:text-brand-200">Costing</summary><div className="mt-2 max-w-48"><label className="text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}</label><input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></div></details> : null}
+                {isExpanded ? <div className="grid gap-3 border-t border-brand-100 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_12rem] dark:border-brand-600">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes<textarea rows={2} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>
+                  {!isBudgetPriced ? <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}<input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label> : <div />}
+                </div> : null}
               </div>
             );})}
           </div>
