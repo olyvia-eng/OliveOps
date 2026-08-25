@@ -94,8 +94,9 @@ test('Budget screens use the parent workspace without exposing legacy compatibil
 test('Budget list rows open Info and hide legacy roll-ups', () => {
   assert.match(budgetsSource, /onClick=\{\(\) => navigate\(`\/budgets\/\$\{budget\.id\}\?tab=info`\)\}/);
   assert.match(budgetsSource, /<button[\s\S]*type="button"[\s\S]*hover:bg-brand-50/);
+  assert.match(budgetsSource, /Ellipsis[\s\S]*Delete Budget/);
   assert.doesNotMatch(budgetsSource, /Legacy budget roll-ups|budgets\/groups/);
-  assert.doesNotMatch(budgetsSource, /Pencil|Trash2|saveInlineBudgetNameEdit|dissolveBudgetGroup/);
+  assert.doesNotMatch(budgetsSource, /Pencil|saveInlineBudgetNameEdit|dissolveBudgetGroup/);
 });
 
 test('job workspace preserves operational tabs and scopes related invoices to the job', () => {

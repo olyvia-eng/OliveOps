@@ -428,14 +428,16 @@ export async function repairBudgetGroupMembershipForDeletion({ businessId, budge
   if (!group) return;
   const remainingBudgetIds = group.budgetIds.filter((id) => id !== budgetId);
   if (remainingBudgetIds.length === 0) {
-    await dissolveBudgetGroupForBusiness({ businessId, groupId: group.id });
+    const result = await dissolveBudgetGroupForBusiness({ businessId, groupId: group.id });
+    if (!result.ok) throw new Error(result.error ?? 'Budget Group could not be removed.');
     return;
   }
-  await saveBudgetGroupForBusiness({
+  const result = await saveBudgetGroupForBusiness({
     businessId,
     group: { ...group, budgetIds: remainingBudgetIds },
     confirmAllocationMove: true,
   });
+  if (!result.ok) throw new Error(result.error ?? 'Budget Group membership could not be updated.');
 }
 
 export async function findBudgetGroupContext({ businessId, budgetId, equipmentId }) {

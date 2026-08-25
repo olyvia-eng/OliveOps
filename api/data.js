@@ -131,10 +131,10 @@ import { applyAuthoritativeEstimatePricing, buildEstimatePricingCatalog } from '
 import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
   deleteEquipmentBudgetAllocationForItem,
-  repairBudgetGroupMembershipForDeletion,
   saveEquipmentBudgetAllocationForItem,
 } from './_lib/budgetGroups.js';
 import { getHomeDashboardPreferencesForUser } from './_lib/homeDashboardPreferences.js';
+import { deleteBudgetCascadeForBusiness } from './_lib/budgetDeletion.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -2028,7 +2028,9 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'budgets') {
-        await repairBudgetGroupMembershipForDeletion({ businessId: session.businessId, budgetId: id });
+        const result = await deleteBudgetCascadeForBusiness({ businessId: session.businessId, budgetId: id, budget: existing });
+        if (!result.ok) return res.status(result.status).json(result);
+        return res.status(200).json(result);
       }
       await config.remove(session.businessId, id);
       if (entity === 'budget') {

@@ -19,6 +19,19 @@ test('new Budget creation installs one persisted record before workspace navigat
   assert.match(storeSource, /budgets: \[\.\.\.state\.budgets\.filter/);
 });
 
+test('Budget deletion requires confirmation and updates state only after server success', () => {
+  assert.match(overviewSource, /aria-label=\{`More actions for \$\{budget\.name\}`\}/);
+  assert.match(overviewSource, /Delete Budget/);
+  assert.match(overviewSource, /This will permanently delete this Budget and its Budget-specific planning data/);
+  assert.match(overviewSource, /variant="danger"[\s\S]*Delete Budget/);
+  assert.match(overviewSource, /const result = await deleteBudget\(budgetToDelete\.id\)/);
+  assert.match(overviewSource, /if \(!result\.ok\)[\s\S]*setDeleteError/);
+  assert.match(overviewSource, /onClick=\{\(\) => \{ setBudgetToDelete\(null\); setDeleteError\(null\); \}\}/);
+  assert.match(storeSource, /if \(!response\.ok \|\| !payload\.ok\)[\s\S]*return \{ ok: false/);
+  assert.match(storeSource, /budgets: state\.budgets\.filter\(\(budget\) => budget\.id !== id\)/);
+  assert.doesNotMatch(storeSource, /deleteBudget: async \(id\) => \{[\s\S]{0,250}set\(/);
+});
+
 test('stale bootstrap cannot remove a Budget or Division inserted while in flight', () => {
   const existing = { id: 'old', updatedAt: '2027-01-01T00:00:00.000Z' };
   const created = { id: 'new', updatedAt: '2027-01-01T00:00:00.000Z' };

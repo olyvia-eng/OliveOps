@@ -210,7 +210,7 @@ interface AppState {
   // Budget
   addBudget: (budget: Omit<Budget, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Budget | null>;
   updateBudget: (id: ID, data: Partial<Budget>) => Promise<Budget | null>;
-  deleteBudget: (id: ID) => void;
+  deleteBudget: (id: ID) => Promise<{ ok: boolean; code?: string; error?: string; dependencies?: { estimates: number } }>;
   addBudgetDivision: (division: Omit<BudgetDivision, 'id' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivision | null>;
   updateBudgetDivision: (budgetId: ID, id: ID, data: Partial<BudgetDivision>) => Promise<BudgetDivision | null>;
   addBudgetDivisionPlanningItem: (input: Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivisionPlanningItem | null>;
@@ -1868,20 +1868,36 @@ export const useStore = create<AppState>()((set, get) => ({
           return { ok: false, importedCount: 0, skippedCount: 0, error: errorMessage(error, 'Planning items could not be imported.') };
         }
       },
-      deleteBudget: (id) => {
-        const previous = get().budgets;
-        // TODO: Cascade-delete budget-scoped records (budgetItems/labour plans/revenue goals) when budget deletion UX is added.
-        set((s) => ({ budgets: s.budgets.filter((budget) => budget.id !== id) }));
-
-        void ensureOk(fetch(dataUrl('budgets', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).then(() => {
-          void get().refreshBudgetGroups();
-        }).catch((error: unknown) => {
-          set({ budgets: previous });
-          emitAppToast({ tone: 'error', message: errorMessage(error, 'Budget could not be deleted.') });
-        });
+      deleteBudget: async (id) => {
+        try {
+          const response = await fetch(dataUrl('budgets', id), { method: 'DELETE', credentials: 'include' });
+          const payload = await response.json() as { ok?: boolean; code?: string; error?: string; dependencies?: { estimates: number } };
+          if (!response.ok || !payload.ok) {
+            const error = payload.error ?? 'Budget could not be deleted.';
+            emitAppToast({ tone: 'error', message: error });
+            return { ok: false, code: payload.code, error, dependencies: payload.dependencies };
+          }
+          set((state) => ({
+            budgets: state.budgets.filter((budget) => budget.id !== id),
+            budgetDivisions: state.budgetDivisions.filter((division) => division.budgetId !== id),
+            budgetDivisionPlanningItems: state.budgetDivisionPlanningItems.filter((item) => item.budgetId !== id),
+            budgetItems: state.budgetItems.filter((item) => item.budgetId !== id),
+            budgetRates: state.budgetRates.filter((rate) => rate.budgetId !== id),
+            labourBudgetPlans: state.labourBudgetPlans.filter((plan) => plan.budgetId !== id),
+            labourHoursSalesGoals: state.labourHoursSalesGoals.filter((goal) => goal.budgetId !== id),
+            revenueSalesGoals: state.revenueSalesGoals.filter((goal) => goal.budgetId !== id),
+            equipmentBudgetAllocations: state.equipmentBudgetAllocations.filter((allocation) => allocation.budgetId !== id),
+            budgetGroups: state.budgetGroups
+              .map((group) => ({ ...group, budgetIds: group.budgetIds.filter((budgetId) => budgetId !== id) }))
+              .filter((group) => group.budgetIds.length > 0),
+          }));
+          emitAppToast({ tone: 'success', message: 'Budget deleted.' });
+          return { ok: true };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Budget could not be deleted.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
       },
       refreshBudgetGroups: async () => {
         const response = await fetch('/api/budget-groups', { credentials: 'include' });
