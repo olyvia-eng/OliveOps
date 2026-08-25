@@ -514,6 +514,62 @@ test('cross-tenant link attempt is rejected', async (t) => {
   assert.match(res.body.error, /not found/i);
 });
 
+test('employee cost inputs persist for hourly and salaried compensation while foreign writes fail closed', async (t) => {
+  installDdbMock(t);
+  const owner = await createUserEmployeePair({
+    businessId: 'biz-costs', name: 'Cost Owner', email: 'owner@costs.test', password: 'costowner123', role: 'owner',
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-costs',
+    employee: {
+      id: 'employee-costs', name: 'Cost Employee', email: '', phone: '', role: 'crew_member', hourlyRate: 25,
+      compensationType: 'hourly', labourType: 'field_producing', active: true, createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-foreign',
+    employee: {
+      id: 'foreign-employee', name: 'Foreign Employee', email: '', phone: '', role: 'crew_member', hourlyRate: 99,
+      compensationType: 'hourly', labourType: 'field_producing', active: true, createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  });
+  await createBearerTokenForUser({
+    businessId: 'biz-costs', userId: owner.user.id, role: 'owner', email: owner.user.email, employeeId: null, token: 'token-cost-owner',
+  });
+
+  const patch = async (id, data) => {
+    const res = createMockRes();
+    await dataHandler({
+      method: 'PATCH', query: { entity: 'employees', id }, headers: { authorization: 'Bearer token-cost-owner' }, body: { data },
+    }, res);
+    return res;
+  };
+
+  const hourly = await patch('employee-costs', {
+    hourlyRate: 32.5, compensationType: 'hourly', payrollBurdenPct: 24, benefitsExtraCost: 2500, bonus: 1000,
+  });
+  assert.equal(hourly.statusCode, 200);
+  assert.deepEqual({
+    hourlyRate: hourly.body.employee.hourlyRate,
+    compensationType: hourly.body.employee.compensationType,
+    payrollBurdenPct: hourly.body.employee.payrollBurdenPct,
+    benefitsExtraCost: hourly.body.employee.benefitsExtraCost,
+    bonus: hourly.body.employee.bonus,
+  }, { hourlyRate: 32.5, compensationType: 'hourly', payrollBurdenPct: 24, benefitsExtraCost: 2500, bonus: 1000 });
+
+  const salary = await patch('employee-costs', { hourlyRate: 90000, compensationType: 'salary' });
+  assert.equal(salary.statusCode, 200);
+  assert.equal(salary.body.employee.hourlyRate, 90000);
+  assert.equal(salary.body.employee.compensationType, 'salary');
+  assert.equal(salary.body.employee.payrollBurdenPct, 24);
+
+  const invalid = await patch('employee-costs', { hourlyRate: -1 });
+  assert.equal(invalid.statusCode, 400);
+  const foreign = await patch('foreign-employee', { hourlyRate: 1 });
+  assert.equal(foreign.statusCode, 404);
+  assert.equal((await getEmployeeForBusiness('biz-foreign', 'foreign-employee')).hourlyRate, 99);
+});
+
 test('authenticateUser resolves linked employee by explicit userId first', async (t) => {
   const store = installDdbMock(t);
   seedBusinessProfile(store, 'biz-auth-link');

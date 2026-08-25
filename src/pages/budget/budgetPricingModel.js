@@ -1,5 +1,5 @@
 import { annualLabourCost, buildOverheadRecoveryModel, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
-import { applyEmployeeCostInputs } from '../../utils/employeeLabourCost.js';
+import { applyEmployeeCostInputs, calculateLabourCostFromInputs } from '../../utils/employeeLabourCost.js';
 
 const number = (value) => {
   const result = Number(value ?? 0);
@@ -7,13 +7,21 @@ const number = (value) => {
 };
 
 const labourCost = (item) => {
-  const hours = number(item.plannedHours);
-  const regular = item.compType === 'salaried' ? number(item.annualSalary) : number(item.hourlyRate) * hours;
-  const overtime = item.compType === 'salaried' ? 0 : number(item.hourlyRate) * number(item.overtimeHours) * Math.max(1, number(item.overtimeMultiplier) || 1.5);
-  const burden = (regular + overtime) * (number(item.payrollBurdenPct ?? item.labourBurdenPct) / 100);
-  const annual = regular + overtime + burden + number(item.benefitsExtraCost) + number(item.bonus);
-  const billableHours = item.labourClassification === 'overhead' ? 0 : hours * Math.min(100, number(item.expectedBillablePct)) / 100;
-  return { annual, units: billableHours, perUnit: billableHours > 0 ? annual / billableHours : 0 };
+  const calculated = calculateLabourCostFromInputs({
+    compType: item.compType === 'salaried' ? 'salaried' : 'hourly',
+    hourlyRate: number(item.hourlyRate),
+    annualSalary: number(item.annualSalary),
+    payrollBurdenPct: number(item.payrollBurdenPct ?? item.labourBurdenPct),
+    benefitsExtraCost: number(item.benefitsExtraCost),
+    bonus: number(item.bonus),
+  }, {
+    regularHours: number(item.plannedHours),
+    overtimeHours: number(item.overtimeHours),
+    overtimeMultiplier: Math.max(1, number(item.overtimeMultiplier) || 1.5),
+    expectedBillablePct: Math.min(100, number(item.expectedBillablePct)),
+    classification: item.labourClassification === 'overhead' ? 'overhead' : 'billable',
+  });
+  return { annual: calculated.annualLabourCost, units: calculated.expectedBillableHours, perUnit: calculated.directCostPerBillableHour };
 };
 
 const identity = (item) => {
@@ -169,7 +177,9 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
   });
 
   const itemRows = uniqueItems
-    .filter((item) => item.category !== 'labour' && item.classification !== 'overhead')
+    .filter((item) => (item.category !== 'labour' || Boolean(item.employeeId))
+      && item.labourClassification !== 'overhead'
+      && item.classification !== 'overhead')
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
       const type = typeForCategory(item.category);
       const costRate = costs.get(item.id) ?? 0;

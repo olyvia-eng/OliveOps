@@ -83,7 +83,9 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
     const type = CATEGORY_MAP[item.category];
     const calculatedRow = itemDivisionId ? calculatedRows.find((row) => row.divisionId === itemDivisionId
       && row.type === type
-      && (item.category === 'labour' ? row.aggregateLabour : row.item.id === item.id)) : undefined;
+      && (item.category === 'labour'
+        ? item.employeeId ? !row.aggregateLabour && row.item.id === item.id : row.aggregateLabour
+        : row.item.id === item.id)) : undefined;
     const matchingRate = calculatedRow?.rate
       ?? rates.find((rate) => rate.pricingVersion === 2 && rate.divisionId === itemDivisionId && rate.category === type && sourceRateMatches(item, rate))
       ?? rates.find((rate) => rate.pricingVersion !== 2 && !rate.divisionId && rate.category === type && sourceRateMatches(item, rate));

@@ -31,12 +31,19 @@ test('Employee Division availability supports multiple Crew-derived Divisions wi
   assert.doesNotMatch(employeeSource, /divisionAllocations|allocationPercent/);
 });
 
-test('Employee detail is cost-only and links to the canonical Employee Profile', () => {
+test('Employee detail edits canonical cost inputs and links to the canonical Employee Profile', () => {
   assert.match(employeeSource, /calculateEmployeeLabourCost/);
+  assert.match(employeeSource, /method: 'PATCH'/);
+  assert.match(employeeSource, /Compensation type/);
+  assert.match(employeeSource, /Payroll burden \(%\)/);
+  assert.match(employeeSource, /Annual benefits \/ extra/);
+  assert.match(employeeSource, /Annual bonus/);
+  assert.match(employeeSource, />Cancel</);
+  assert.match(employeeSource, /'Saving\.\.\.' : 'Save'/);
   assert.match(employeeSource, /Employer cost \/ paid hour/);
   assert.match(employeeSource, /Labour cost \/ paid hour/);
   assert.match(employeeSource, /View Employee Profile/);
-  assert.match(employeeSource, /to=\{`\/employees\/\$\{selectedEmployee\.id\}`\}/);
+  assert.match(employeeSource, /to=\{`\/employees\/\$\{employee\.id\}`\}/);
   for (const excluded of ['Time Off', 'Training', 'Documents', 'Emergency Contact', 'Sell Rate', 'Approved Rate']) assert.doesNotMatch(employeeSource, new RegExp(excluded, 'i'));
 });
 

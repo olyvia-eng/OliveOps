@@ -21,7 +21,34 @@ test('Employee Catalog and Budget planning use the same canonical labour cost in
   assert.equal(catalog.employerCostPerPaidHour, 8);
   assert.equal(catalog.labourCostPerPaidHour, 33);
   assert.equal(budgetDirectCost, catalog.directCostPerBillableHour);
-  assert.deepEqual(resolved.divisionAllocations, item.divisionAllocations);
+  assert.deepEqual({
+    plannedHours: resolved.plannedHours,
+    overtimeHours: resolved.overtimeHours,
+    overtimeMultiplier: resolved.overtimeMultiplier,
+    expectedBillablePct: resolved.expectedBillablePct,
+    divisionAllocations: resolved.divisionAllocations,
+  }, {
+    plannedHours: item.plannedHours,
+    overtimeHours: item.overtimeHours,
+    overtimeMultiplier: item.overtimeMultiplier,
+    expectedBillablePct: item.expectedBillablePct,
+    divisionAllocations: item.divisionAllocations,
+  });
+});
+
+test('salary, burden, benefits, and bonus changes recalculate Budget cost without replacing planning assumptions', () => {
+  const salaryEmployee = { ...employee, compensationType: 'salary', hourlyRate: 90000, payrollBurdenPct: 12, benefitsExtraCost: 6000, bonus: 4000 };
+  const plan = {
+    id: 'salary-plan', budgetId: 'budget-1', category: 'labour', employeeId: employee.id,
+    compType: 'salaried', annualSalary: 85000, plannedHours: 1800, expectedBillablePct: 75,
+    overtimeHours: 120, overtimeMultiplier: 2, divisionAllocations: [{ divisionId: 'division-1', hours: 1200 }, { divisionId: 'division-2', hours: 600 }],
+  };
+  const resolved = applyEmployeeCostInputs(plan, salaryEmployee);
+  assert.equal(annualLabourCost(resolved), 110800);
+  assert.equal(plannedBillableLabourHours(resolved), 1350);
+  assert.deepEqual(resolved.divisionAllocations, plan.divisionAllocations);
+  assert.equal(resolved.overtimeHours, 120);
+  assert.equal(resolved.overtimeMultiplier, 2);
 });
 
 test('legacy Budget cost inputs remain readable until Employee Catalog costing is configured', () => {

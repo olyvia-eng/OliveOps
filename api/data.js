@@ -549,6 +549,7 @@ function isNonEmptyString(value) {
 
 function validateEmployeeCostInputs(record) {
   const fields = [
+    ['hourlyRate', 'Employee base compensation'],
     ['payrollBurdenPct', 'Employee payroll burden percent'],
     ['benefitsExtraCost', 'Employee benefits/extra cost'],
     ['bonus', 'Employee bonus'],
@@ -557,6 +558,12 @@ function validateEmployeeCostInputs(record) {
     if (record[field] !== undefined && record[field] !== null && (!isFiniteNumber(record[field]) || record[field] < 0)) {
       return `${label} must be zero or greater.`;
     }
+  }
+  if (record.compensationType !== undefined && record.compensationType !== 'hourly' && record.compensationType !== 'salary') {
+    return 'Employee compensation type is invalid.';
+  }
+  if (record.labourType !== undefined && record.labourType !== 'field_producing' && record.labourType !== 'overhead') {
+    return 'Employee labour classification is invalid.';
   }
   return null;
 }

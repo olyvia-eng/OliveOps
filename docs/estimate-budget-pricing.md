@@ -17,7 +17,7 @@ The server calls the same `buildBudgetPricingRows` model used by Budget Pricing.
 
 Equipment, Materials, and Subcontractors use the calculated row for their planning item in the selected Division. Display names are not an identity boundary.
 
-Labour is different: an employee's allocated planning item determines whether that employee is eligible for the selected Division, but customer pricing always comes from the Division's calculated `average-labour:<divisionId>` row. Every eligible employee receives the same calculated labour selling rate and average direct-cost basis. Employee wages contribute to Budget Pricing and job costing; they are not individual customer-facing Estimate rates. If the Division Average Labour calculation is incomplete, all employee choices remain unavailable without falling back to employee selling rates or legacy approvals.
+Labour distinguishes named employees from generic resources. An employee's allocated planning item determines whether that employee is eligible for the selected Division and produces that employee's charge-out rate from their canonical compensation inputs, Budget planned and billable hours, the Division overhead recovery rate, and the Budget target margin. Employees with different costs can therefore have different calculated rates. Generic resources such as Hardscape Labor continue to use the Division's calculated `average-labour:<divisionId>` row. Neither path falls back to legacy approvals when the current Budget calculation is incomplete.
 
 `GET /api/estimate-pricing-catalog?estimateId=<id>` derives the business and `pricingBudgetId` from the authenticated Estimate and returns one normalized catalog:
 

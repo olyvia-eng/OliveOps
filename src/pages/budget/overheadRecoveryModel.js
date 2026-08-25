@@ -1,4 +1,5 @@
 import { overheadAllocatedAmount } from './overheadAllocationModel.js';
+import { calculateLabourCostFromInputs } from '../../utils/employeeLabourCost.js';
 
 const CATEGORIES = ['labour', 'equipment', 'materials', 'subcontractors'];
 
@@ -7,13 +8,22 @@ const nonNegative = (value) => {
   return Number.isFinite(number) && number > 0 ? number : 0;
 };
 
-export const annualLabourCost = (item) => {
-  const hours = nonNegative(item.plannedHours);
-  const regular = item.compType === 'salaried' ? nonNegative(item.annualSalary) : nonNegative(item.hourlyRate) * hours;
-  const overtime = item.compType === 'salaried' ? 0 : nonNegative(item.hourlyRate) * nonNegative(item.overtimeHours) * Math.max(1, nonNegative(item.overtimeMultiplier) || 1.5);
-  const burden = (regular + overtime) * (nonNegative(item.payrollBurdenPct ?? item.labourBurdenPct) / 100);
-  return regular + overtime + burden + nonNegative(item.benefitsExtraCost) + nonNegative(item.bonus);
-};
+const labourCost = (item) => calculateLabourCostFromInputs({
+  compType: item.compType === 'salaried' ? 'salaried' : 'hourly',
+  hourlyRate: nonNegative(item.hourlyRate),
+  annualSalary: nonNegative(item.annualSalary),
+  payrollBurdenPct: nonNegative(item.payrollBurdenPct ?? item.labourBurdenPct),
+  benefitsExtraCost: nonNegative(item.benefitsExtraCost),
+  bonus: nonNegative(item.bonus),
+}, {
+  regularHours: nonNegative(item.plannedHours),
+  overtimeHours: nonNegative(item.overtimeHours),
+  overtimeMultiplier: Math.max(1, nonNegative(item.overtimeMultiplier) || 1.5),
+  expectedBillablePct: Math.min(100, nonNegative(item.expectedBillablePct)),
+  classification: item.labourClassification === 'overhead' ? 'overhead' : 'billable',
+});
+
+export const annualLabourCost = (item) => labourCost(item).annualLabourCost;
 
 export const labourDivisionShare = (item, divisionId) => {
   const allocation = item.divisionAllocations?.find((value) => value.divisionId === divisionId);
@@ -22,9 +32,7 @@ export const labourDivisionShare = (item, divisionId) => {
   return item.divisionId === divisionId ? 1 : 0;
 };
 
-export const plannedBillableLabourHours = (item) => item.labourClassification === 'overhead'
-  ? 0
-  : nonNegative(item.plannedHours) * Math.min(100, nonNegative(item.expectedBillablePct)) / 100;
+export const plannedBillableLabourHours = (item) => labourCost(item).expectedBillableHours;
 
 export const equipmentAnnualCost = (item) => item.plannedAmount !== undefined
   ? nonNegative(item.plannedAmount)

@@ -72,7 +72,7 @@ test('Estimate pricing endpoint returns calculated Division rates without requir
 
   assert.equal(res.statusCode, 200, JSON.stringify(res.body));
   assert.equal(res.body.budget.name, '2027 annual');
-  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.sellRate, item.costRate]), [['John Field', 37.5, 30], ['Ryan Field', 37.5, 30]]);
+  assert.deepEqual(res.body.catalog.labour.map((item) => [item.name, item.sellRate, item.costRate]), [['John Field', 50, 40], ['Ryan Field', 25, 20]]);
   assert.deepEqual(res.body.catalog.equipment.map((item) => [item.name, item.sellRate]), [['Bobcat E50', 15]]);
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
   assert.equal(res.body.catalog.materials[0].sellRate, 12.5);

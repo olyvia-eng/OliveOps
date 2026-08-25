@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ExternalLink, Maximize2, Minimize2, Search, UserRound, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ExternalLink, Maximize2, Minimize2, Pencil, Search, UserRound, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
 import {
@@ -8,12 +8,114 @@ import {
   readDetailWorkspaceQuery,
   setDetailWorkspaceMode,
 } from '../../components/detail-workspace/detailWorkspaceQuery';
-import { Badge, Button, Card, EmptyState } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Select } from '../../components/ui';
 import { useStore } from '../../store';
+import type { Employee, EmployeeLabourType, EmployeeRole } from '../../types';
 import { formatCurrency } from '../../utils';
 import { calculateEmployeeLabourCost } from '../../utils/employeeLabourCost';
 
 const EMPLOYEE_WORKSPACE_QUERY = { recordParam: 'employee', tabParam: 'employeeTab', defaultTab: 'cost' } as const;
+const EMPLOYEE_ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
+
+const optionLabel = (value: string) => value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+
+function EmployeeCatalogDrawerContent({ employee, divisionNames }: { employee: Employee; divisionNames: string[] }) {
+  const [draft, setDraft] = useState(employee);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setDraft(employee);
+    setEditing(false);
+    setError('');
+  }, [employee]);
+
+  const cost = calculateEmployeeLabourCost(draft);
+  const cancel = () => {
+    setDraft(employee);
+    setEditing(false);
+    setError('');
+  };
+  const save = async () => {
+    const numericInputs = [draft.hourlyRate, draft.payrollBurdenPct ?? 0, draft.benefitsExtraCost ?? 0, draft.bonus ?? 0];
+    if (numericInputs.some((value) => !Number.isFinite(value) || value < 0)) {
+      setError('Compensation, burden, benefits, and bonus must be zero or greater.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/data?entity=employees&id=${encodeURIComponent(employee.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          data: {
+            hourlyRate: draft.hourlyRate,
+            compensationType: draft.compensationType ?? 'hourly',
+            payrollBurdenPct: draft.payrollBurdenPct ?? 0,
+            benefitsExtraCost: draft.benefitsExtraCost ?? 0,
+            bonus: draft.bonus ?? 0,
+            role: draft.role,
+            active: draft.active,
+            labourType: draft.labourType ?? 'field_producing',
+          },
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : 'Could not save employee changes.');
+      const updated = (payload as { employee?: Employee }).employee;
+      if (!updated) throw new Error('The employee update did not return a saved record.');
+      useStore.setState((state) => ({
+        employees: state.employees.map((item) => item.id === updated.id ? updated : item),
+      }));
+      setDraft(updated);
+      setEditing(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save employee changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="space-y-6 p-5">
+    {editing ? <>
+      <section className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Select label="Compensation type" value={draft.compensationType ?? 'hourly'} onChange={(event) => setDraft((current) => ({ ...current, compensationType: event.target.value as 'hourly' | 'salary' }))}>
+            <option value="hourly">Hourly</option><option value="salary">Salary</option>
+          </Select>
+          <Input label={draft.compensationType === 'salary' ? 'Base compensation / year' : 'Base compensation / hour'} type="number" min={0} step={0.01} value={draft.hourlyRate} onChange={(event) => setDraft((current) => ({ ...current, hourlyRate: Number(event.target.value) }))} />
+          <Input label="Payroll burden (%)" type="number" min={0} step={0.1} value={draft.payrollBurdenPct ?? 0} onChange={(event) => setDraft((current) => ({ ...current, payrollBurdenPct: Number(event.target.value) }))} />
+          <Input label="Annual benefits / extra" type="number" min={0} step={0.01} value={draft.benefitsExtraCost ?? 0} onChange={(event) => setDraft((current) => ({ ...current, benefitsExtraCost: Number(event.target.value) }))} />
+          <Input label="Annual bonus" type="number" min={0} step={0.01} value={draft.bonus ?? 0} onChange={(event) => setDraft((current) => ({ ...current, bonus: Number(event.target.value) }))} />
+          <Select label="Role" value={draft.role} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value as EmployeeRole }))}>
+            {EMPLOYEE_ROLES.map((role) => <option key={role} value={role}>{optionLabel(role)}</option>)}
+          </Select>
+          <Select label="Classification" value={draft.labourType ?? 'field_producing'} onChange={(event) => setDraft((current) => ({ ...current, labourType: event.target.value as EmployeeLabourType }))}>
+            <option value="field_producing">Field Producing</option><option value="overhead">Overhead</option>
+          </Select>
+          <label className="flex items-center gap-2 self-end pb-2 text-sm text-gray-700 dark:text-brand-100">
+            <input type="checkbox" checked={draft.active} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.checked }))} /> Active employee
+          </label>
+        </div>
+        {error && <p className="text-sm text-accent-700">{error}</p>}
+        <div className="flex justify-end gap-2"><Button variant="secondary" onClick={cancel} disabled={saving}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button></div>
+      </section>
+    </> : <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2"><Badge label={employee.active ? 'Active' : 'Inactive'} className={employee.active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} /><Badge label={employee.labourType === 'overhead' ? 'Overhead' : 'Field Producing'} className="bg-brand-50 text-brand-700" /></div>
+        <Button size="sm" variant="secondary" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</Button>
+      </div>
+      <section><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Cost Inputs</h3><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-gray-500">Base compensation</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{cost.compType === 'salaried' ? `${formatCurrency(cost.annualSalary)}/year` : `${formatCurrency(cost.hourlyRate)}/hour`}</dd></div><div><dt className="text-gray-500">Payroll burden</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{cost.payrollBurdenPct.toFixed(1)}%</dd></div><div><dt className="text-gray-500">Annual benefits / extra</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{formatCurrency(cost.benefitsExtraCost)}</dd></div><div><dt className="text-gray-500">Annual bonus</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{formatCurrency(cost.bonus)}</dd></div></dl></section>
+    </>}
+    <section className="border-y border-brand-100 py-4 dark:border-brand-600"><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Calculated Cost</h3><dl className="mt-3 grid grid-cols-2 gap-3"><div><dt className="text-xs text-gray-500">Employer cost / paid hour</dt><dd className="mt-1 text-xl font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(cost.employerCostPerPaidHour)}</dd></div><div><dt className="text-xs text-gray-500">Labour cost / paid hour</dt><dd className="mt-1 text-xl font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(cost.labourCostPerPaidHour)}</dd></div></dl><p className="mt-3 text-xs text-gray-500">Budget pricing applies these saved inputs to each Budget's planned hours, overtime, billable assumptions, Division allocation, overhead recovery, and margin.</p></section>
+    <section><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Available Divisions</h3><p className="mt-2 text-sm text-gray-600 dark:text-brand-100">{divisionNames.length ? divisionNames.join(', ') : 'No Division assigned through an active Crew.'}</p></section>
+    <Link to={`/employees/${employee.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:text-brand-900 dark:text-brand-100"><ExternalLink size={15} />View Employee Profile</Link>
+  </div>;
+}
 
 export default function EmployeeCatalogSection() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -91,16 +193,10 @@ export default function EmployeeCatalogSection() {
     </Card>
   );
 
-  const selectedCost = selectedEmployee ? calculateEmployeeLabourCost(selectedEmployee) : null;
   const selectedDivisionNames = selectedEmployee ? divisionNamesFor(selectedEmployee.id) : [];
-  const detail = selectedEmployee && selectedCost ? <div className="min-h-full bg-white dark:bg-brand-700">
+  const detail = selectedEmployee ? <div className="min-h-full bg-white dark:bg-brand-700">
     <div className="flex items-start justify-between gap-3 border-b border-brand-100 p-5 dark:border-brand-600"><div><div className="flex items-center gap-2"><UserRound size={18} className="text-brand-600" /><h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">{selectedEmployee.name}</h2></div><p className="mt-1 text-sm text-gray-500 dark:text-brand-200">{selectedEmployee.role} · Labour cost resource</p></div><div className="flex gap-1"><button type="button" title={workspace.mode === 'expanded' ? 'Show panel' : 'Expand'} onClick={() => setSearchParams(setDetailWorkspaceMode(searchParams, EMPLOYEE_WORKSPACE_QUERY, workspace.mode === 'expanded' ? 'panel' : 'expanded'))} className="rounded p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-brand-600">{workspace.mode === 'expanded' ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button><button type="button" title="Close" onClick={closeEmployee} className="rounded p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-brand-600"><X size={18} /></button></div></div>
-    <div className="space-y-6 p-5"><div className="flex flex-wrap gap-2"><Badge label={selectedEmployee.active ? 'Active' : 'Inactive'} className={selectedEmployee.active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} /><Badge label={selectedEmployee.labourType === 'overhead' ? 'Overhead' : 'Field Producing'} className="bg-brand-50 text-brand-700" /></div>
-      <section><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Cost Inputs</h3><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm"><div><dt className="text-gray-500">Base compensation</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{selectedCost.compType === 'salaried' ? `${formatCurrency(selectedCost.annualSalary)}/year` : `${formatCurrency(selectedCost.hourlyRate)}/hour`}</dd></div><div><dt className="text-gray-500">Payroll burden</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{selectedCost.payrollBurdenPct.toFixed(1)}%</dd></div><div><dt className="text-gray-500">Annual benefits / extra</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{formatCurrency(selectedCost.benefitsExtraCost)}</dd></div><div><dt className="text-gray-500">Annual bonus</dt><dd className="font-medium text-gray-900 dark:text-brand-50">{formatCurrency(selectedCost.bonus)}</dd></div></dl></section>
-      <section className="border-y border-brand-100 py-4 dark:border-brand-600"><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Calculated Cost</h3><dl className="mt-3 grid grid-cols-2 gap-3"><div><dt className="text-xs text-gray-500">Employer cost / paid hour</dt><dd className="mt-1 text-xl font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(selectedCost.employerCostPerPaidHour)}</dd></div><div><dt className="text-xs text-gray-500">Labour cost / paid hour</dt><dd className="mt-1 text-xl font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(selectedCost.labourCostPerPaidHour)}</dd></div></dl><p className="mt-3 text-xs text-gray-500">Uses 2,080 paid hours for this Catalog view. Budget pricing uses the same inputs with that Budget's planned hours, overtime, and billable assumptions.</p></section>
-      <section><h3 className="text-sm font-semibold text-gray-900 dark:text-brand-50">Available Divisions</h3><p className="mt-2 text-sm text-gray-600 dark:text-brand-100">{selectedDivisionNames.length ? selectedDivisionNames.join(', ') : 'No Division assigned through an active Crew.'}</p></section>
-      <Link to={`/employees/${selectedEmployee.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-brand-700 hover:text-brand-900 dark:text-brand-100"><ExternalLink size={15} />View Employee Profile</Link>
-    </div>
+    <EmployeeCatalogDrawerContent employee={selectedEmployee} divisionNames={selectedDivisionNames} />
   </div> : <div className="p-6"><p className="text-sm text-gray-500">Employee not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeEmployee}>Close</Button></div>;
 
   return <DetailWorkspace open={Boolean(workspace.recordId)} expanded={workspace.mode === 'expanded'} detailKey={workspace.recordId} list={list} detail={detail} />;

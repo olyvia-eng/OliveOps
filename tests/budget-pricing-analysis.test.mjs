@@ -17,7 +17,7 @@ const planningItems = [
   { id: 'shared-overhead', budgetId: budget.id, divisionId: 'hardscape', category: 'overhead', name: 'Office', plannedAmount: 100000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }] },
 ];
 
-test('Budget Analysis creates one Average Labour row and resolves its Division approval', () => {
+test('Budget Analysis creates Average and employee-specific Labour rows', () => {
   const rows = buildBudgetPricingRows({
     budget,
     divisions,
@@ -25,8 +25,7 @@ test('Budget Analysis creates one Average Labour row and resolves its Division a
     budgetRates: [{ id: 'rate-average-labour', budgetId: budget.id, budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2, category: 'labour', defaultSellPrice: 80 }],
   });
 
-  assert.equal(rows.length, 4);
-  assert.equal(rows.some((row) => row.item.employeeId), false);
+  assert.equal(rows.length, 5);
   const labour = rows.find((row) => row.item.id === 'average-labour:hardscape');
   assert.equal(labour.item.name, 'Average Labour');
   assert.equal(labour.costRate, 45);
@@ -37,6 +36,11 @@ test('Budget Analysis creates one Average Labour row and resolves its Division a
   assert.equal(labour.pricingAvailable, true);
   assert.equal(labour.approvedRate, 80);
   assert.equal(labour.pricingStatus, 'approved');
+
+  const employeeLabour = rows.find((row) => row.item.employeeId === 'employee-ryan');
+  assert.equal(employeeLabour.aggregateLabour, undefined);
+  assert.equal(employeeLabour.costRate, 45);
+  assert.equal(employeeLabour.calculatedRate, 95.3125);
 
   const equipment = rows.find((row) => row.item.id === 'bobcat');
   assert.ok(Math.abs(equipment.costRate - 43.3333333333) < 0.000001);

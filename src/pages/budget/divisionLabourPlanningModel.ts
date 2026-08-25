@@ -1,4 +1,5 @@
 import type { BudgetDivisionPlanningItem, LabourDivisionAllocation } from '../../types';
+import { calculateLabourCostFromInputs } from '../../utils/employeeLabourCost.js';
 
 const finiteNonNegative = (value: number | undefined, fallback = 0) => (
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
@@ -12,35 +13,35 @@ export function calculateDivisionLabour(item: Partial<BudgetDivisionPlanningItem
   const classification = labourClassification(item);
   const plannedHours = finiteNonNegative(item.plannedHours);
   const hourlyRate = finiteNonNegative(item.hourlyRate);
-  const regularWageCost = item.compType === 'salaried'
-    ? finiteNonNegative(item.annualSalary)
-    : hourlyRate * plannedHours;
   const overtimeHours = finiteNonNegative(item.overtimeHours);
   const overtimeMultiplier = finiteNonNegative(item.overtimeMultiplier, 1.5);
-  const overtimeWageCost = item.compType === 'salaried' ? 0 : hourlyRate * overtimeHours * overtimeMultiplier;
   const payrollBurdenPct = finiteNonNegative(item.payrollBurdenPct ?? item.labourBurdenPct);
-  const payrollBurdenCost = (regularWageCost + overtimeWageCost) * (payrollBurdenPct / 100);
-  const employerCosts = finiteNonNegative(item.benefitsExtraCost) + finiteNonNegative(item.bonus);
-  const annualLabourCost = regularWageCost + overtimeWageCost + payrollBurdenCost + employerCosts;
   const expectedBillablePct = classification === 'billable'
     ? Math.min(100, finiteNonNegative(item.expectedBillablePct))
     : 0;
-  const expectedBillableHours = classification === 'billable' ? plannedHours * (expectedBillablePct / 100) : 0;
-  const directCostPerBillableHour = expectedBillableHours > 0 ? annualLabourCost / expectedBillableHours : 0;
+  const calculated = calculateLabourCostFromInputs({
+    compType: item.compType === 'salaried' ? 'salaried' : 'hourly',
+    hourlyRate,
+    annualSalary: finiteNonNegative(item.annualSalary),
+    payrollBurdenPct,
+    benefitsExtraCost: finiteNonNegative(item.benefitsExtraCost),
+    bonus: finiteNonNegative(item.bonus),
+  }, { regularHours: plannedHours, overtimeHours, overtimeMultiplier, expectedBillablePct, classification });
+  const employerCosts = finiteNonNegative(item.benefitsExtraCost) + finiteNonNegative(item.bonus);
 
   return {
     classification,
     plannedHours,
-    regularWageCost,
-    overtimeWageCost,
-    payrollBurdenCost,
+    regularWageCost: calculated.regularWageCost,
+    overtimeWageCost: calculated.overtimeWageCost,
+    payrollBurdenCost: calculated.payrollBurdenCost,
     employerCosts,
-    annualLabourCost,
+    annualLabourCost: calculated.annualLabourCost,
     expectedBillablePct,
-    expectedBillableHours,
-    directCostPerBillableHour,
-    directLabourCost: classification === 'billable' ? annualLabourCost : 0,
-    overheadLabourCost: classification === 'overhead' ? annualLabourCost : 0,
+    expectedBillableHours: calculated.expectedBillableHours,
+    directCostPerBillableHour: calculated.directCostPerBillableHour,
+    directLabourCost: classification === 'billable' ? calculated.annualLabourCost : 0,
+    overheadLabourCost: classification === 'overhead' ? calculated.annualLabourCost : 0,
   };
 }
 

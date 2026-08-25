@@ -26,18 +26,17 @@ export function applyEmployeeCostInputs(item, employee) {
   return { ...item, ...resolveEmployeeCostInputs(employee, item) };
 }
 
-export function calculateEmployeeLabourCost(employee, context = {}) {
+export function calculateLabourCostFromInputs(inputs, context = {}) {
   const regularHours = nonNegative(context.regularHours, DEFAULT_ANNUAL_PAID_HOURS);
   const overtimeHours = nonNegative(context.overtimeHours);
   const overtimeMultiplier = Math.max(1, nonNegative(context.overtimeMultiplier, 1.5));
   const expectedBillablePct = Math.min(100, nonNegative(context.expectedBillablePct, 100));
-  const inputs = resolveEmployeeCostInputs(employee);
   const regularWageCost = inputs.compType === 'salaried' ? inputs.annualSalary : inputs.hourlyRate * regularHours;
   const overtimeWageCost = inputs.compType === 'salaried' ? 0 : inputs.hourlyRate * overtimeHours * overtimeMultiplier;
   const payrollBurdenCost = (regularWageCost + overtimeWageCost) * (inputs.payrollBurdenPct / 100);
   const employerCost = payrollBurdenCost + inputs.benefitsExtraCost + inputs.bonus;
   const annualLabourCost = regularWageCost + overtimeWageCost + employerCost;
-  const expectedBillableHours = regularHours * (expectedBillablePct / 100);
+  const expectedBillableHours = context.classification === 'overhead' ? 0 : regularHours * (expectedBillablePct / 100);
 
   return {
     ...inputs,
@@ -52,4 +51,8 @@ export function calculateEmployeeLabourCost(employee, context = {}) {
     expectedBillableHours,
     directCostPerBillableHour: expectedBillableHours > 0 ? annualLabourCost / expectedBillableHours : 0,
   };
+}
+
+export function calculateEmployeeLabourCost(employee, context = {}) {
+  return calculateLabourCostFromInputs(resolveEmployeeCostInputs(employee), context);
 }
