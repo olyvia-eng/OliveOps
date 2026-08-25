@@ -324,6 +324,7 @@ export function buildClockOutTransaction({
   workType,
   clockIn,
   employeeName = '',
+  workflowFinalizationItems = [],
 }) {
   const eventOccurredAt = clockOutAt ?? nowIso();
   const receivedAt = serverReceivedAt ?? nowIso();
@@ -501,6 +502,7 @@ export function buildClockOutTransaction({
           ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
         },
       },
+      ...workflowFinalizationItems,
     ],
   };
 }

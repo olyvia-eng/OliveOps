@@ -118,7 +118,7 @@ export function getFormConfigurationWarnings(form) {
   if (getScheduleTriggers(form.trigger).length > 1) {
     warnings.push('This legacy form has multiple recurring schedules. Choose one schedule to simplify it, or leave it unchanged to preserve the existing configuration.');
   }
-  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).length > 0) {
+  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).some((trigger) => trigger !== 'after_clock_out')) {
     warnings.push('Required workflow enforcement is not yet available for this trigger. Employees are still allowed to continue.');
   }
   if (form.trigger.includes('after_completing_job')) {
@@ -139,8 +139,11 @@ export function describeFormConfiguration(form, labels = {}) {
   if (workflow.length) access.push(workflow.join(' and '));
   if (schedules.length) access.push(schedules.length === 1 ? `on a ${schedules[0]} schedule` : `on ${schedules.join(' and ')} schedules`);
   const availability = access.length ? `will be shown to ${assignment} ${access.join(' and ')}` : `is not currently presented automatically to ${assignment}`;
+  const workflowTriggers = getWorkflowTriggers(form.trigger);
   const requirement = (form.completionRequirement ?? 'reminder') === 'required'
-    ? 'It is configured as required, but workflow enforcement remains advisory until the employee workflow supports blocking.'
+    ? workflowTriggers.includes('after_clock_out') && workflowTriggers.every((trigger) => trigger === 'after_clock_out')
+      ? 'It is required and employees must submit it before clock-out can be finalized.'
+      : 'It is configured as required, but enforcement remains advisory for workflow triggers other than After Clock Out.'
     : 'It is a reminder, so employees may continue and complete it later.';
   const onDemand = form.trigger.includes('on_demand') ? ' Employees can also open it manually from Forms.' : '';
   return `${name} ${availability}. ${requirement}${onDemand}`;

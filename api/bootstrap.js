@@ -38,6 +38,7 @@ import {
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
+import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from './_lib/mandatoryClockOut.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -60,6 +61,9 @@ export default async function handler(req, res) {
       : null;
     const activeTimeEntry = activeShift?.activeEntryId
       ? await getTimeEntryForBusiness(session.businessId, activeShift.activeEntryId)
+      : null;
+    const pendingClockOutWorkflow = typeof session.employeeId === 'string'
+      ? await getPendingClockOutWorkflowForEmployee(session.businessId, session.employeeId)
       : null;
     const possibleForgottenClockOut = activeTimeEntry?.clockIn
       ? isPossiblyForgottenClockOut({
@@ -108,6 +112,7 @@ export default async function handler(req, res) {
       ok: true,
       capabilities: {
         paidDriveTime: Boolean(sessionEmployee),
+        requiredAfterClockOutForms: true,
       },
       timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
       forms: filterRecordsForSession(session, 'forms', forms),
@@ -141,6 +146,7 @@ export default async function handler(req, res) {
       timeEntries: filterRecordsForSession(session, 'time-entries', timeEntries),
       timeCorrections: filterRecordsForSession(session, 'time-corrections', timeCorrections),
       currentActiveEntryId: activeShift?.activeEntryId ?? null,
+      pendingClockOutWorkflow: pendingClockOutWorkflow ? clockOutWorkflowStatus(pendingClockOutWorkflow) : null,
       activeShiftWarnings: {
         possibleForgottenClockOut,
         thresholdHours: DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS,

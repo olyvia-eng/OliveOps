@@ -1,5 +1,7 @@
 # Offline Clocking API Change
 
+When Required `after_clock_out` forms apply, the accepted clock-out event time is persisted as the workflow's intended clock-out time and used during delayed finalization. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md). Offline clients must not treat the shift as finalized until the server returns `clock_out_completed` or `clock_out_already_finalized`.
+
 ## Scope
 
 This change adds backend support for replaying employee clocking events captured offline. It does not implement a mobile queue.

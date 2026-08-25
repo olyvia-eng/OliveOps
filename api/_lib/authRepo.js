@@ -2350,6 +2350,8 @@ export async function listFormSubmissionsForBusiness(businessId) {
     submittedBy: item.submittedBy,
     submittedByUserId: item.submittedByUserId,
     clientSubmissionId: item.clientSubmissionId,
+    workflowOccurrenceId: item.workflowOccurrenceId,
+    workflowRequirementId: item.workflowRequirementId,
   }));
 }
 
@@ -2398,6 +2400,8 @@ export async function getFormSubmissionForBusiness(businessId, formSubmissionId)
         submittedBy: result.Item.submittedBy,
         submittedByUserId: result.Item.submittedByUserId,
         clientSubmissionId: result.Item.clientSubmissionId,
+        workflowOccurrenceId: result.Item.workflowOccurrenceId,
+        workflowRequirementId: result.Item.workflowRequirementId,
       }
     : null;
 }
@@ -2467,8 +2471,8 @@ export async function getEmployeeFormSubmissionIdempotency({ businessId, employe
   } : null;
 }
 
-export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency }) {
-  const maximumResponses = idempotency ? 98 : 99;
+export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency, workflowCompletion }) {
+  const maximumResponses = 100 - 1 - (idempotency ? 1 : 0) - (workflowCompletion ? 1 : 0);
   if (!Array.isArray(responses) || responses.length > maximumResponses) {
     throw new RangeError(`A form submission can contain at most ${maximumResponses} answers.`);
   }
@@ -2521,6 +2525,7 @@ export async function createEmployeeFormSubmissionForBusiness({ businessId, subm
         ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
       },
     })),
+    ...(workflowCompletion ? [workflowCompletion] : []),
   ];
   await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
   return { ok: true };

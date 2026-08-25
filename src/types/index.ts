@@ -857,6 +857,8 @@ export interface FormSubmission {
   submittedBy?: string;
   submittedByUserId?: ID;
   clientSubmissionId?: string;
+  workflowOccurrenceId?: string;
+  workflowRequirementId?: string;
 }
 
 export interface FormResponse {

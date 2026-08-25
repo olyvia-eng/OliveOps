@@ -22,11 +22,23 @@ import {
   getJobForBusiness,
   getTimeEntryForBusiness,
   getUnbillableTimeCategoryForBusiness,
+  listEquipmentAssetsForBusiness,
+  listFormsForBusiness,
+  listJobsForBusiness,
   listTimeEntriesForBusiness,
   listUnbillableTimeCategoriesForBusiness,
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, canClockForEmployee } from './_lib/authorization.js';
-import { listCrewsForBusiness } from './_lib/schedulingConfig.js';
+import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
+import {
+  buildWorkflowFinalizationItems,
+  clockOutWorkflowStatus,
+  createClockOutOccurrenceId,
+  createPendingClockOutWorkflow,
+  getClockOutWorkflowForBusiness,
+  getPendingClockOutWorkflowForEmployee,
+  resolveAfterClockOutForms,
+} from './_lib/mandatoryClockOut.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -47,6 +59,10 @@ function replayClockingRequest(res, existing, hashedPayload) {
     return res.status(409).json({ ok: false, code: 'clock_idempotency_conflict', error: 'Clocking idempotency key was reused with a different request.' });
   }
   return res.status(200).json({ ok: true, timeEntry: existing.response });
+}
+
+function pendingClockOutResponse(res, workflow) {
+  return res.status(202).json({ ok: true, blocked: true, ...clockOutWorkflowStatus(workflow) });
 }
 
 function clockingError(res, result) {
@@ -182,11 +198,109 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, items: activeItems });
   }
 
+  if (req.method === 'GET' && action === 'pending-clock-out') {
+    const employeeId = typeof req.query.employeeId === 'string' && req.query.employeeId.trim()
+      ? req.query.employeeId.trim()
+      : session.employeeId;
+    const validation = ensureClockingEmployee(session, employeeId);
+    if (!validation.ok) return res.status(validation.status).json({ ok: false, error: validation.error });
+    const employee = await getEmployeeForBusiness(session.businessId, employeeId);
+    if (!employee?.active) return res.status(404).json({ ok: false, code: 'employee_not_found', error: 'Active employee profile not found.' });
+    const workflow = await getPendingClockOutWorkflowForEmployee(session.businessId, employeeId);
+    if (!workflow) return res.status(200).json({ ok: true, blocked: false, status: 'no_pending_clock_out', workflow: null });
+    return res.status(200).json({ ok: true, blocked: true, ...clockOutWorkflowStatus(workflow) });
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
   const clockingAction = req.query.action;
+  if (clockingAction === 'clock-out-finalize') {
+    const workflowOccurrenceId = typeof req.body?.workflowOccurrenceId === 'string' ? req.body.workflowOccurrenceId.trim() : '';
+    if (!workflowOccurrenceId) {
+      return res.status(400).json({ ok: false, code: 'workflow_occurrence_required', error: 'Clock-out workflow occurrence is required.' });
+    }
+    const workflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+    if (!workflow) {
+      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
+    }
+    if (!canClockForEmployee(session, workflow.employeeId)) {
+      return res.status(403).json({ ok: false, code: 'clock_out_workflow_forbidden', error: 'Forbidden' });
+    }
+    if (workflow.status === 'finalized') {
+      return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_already_finalized', timeEntry: workflow.timeEntry });
+    }
+
+    const workflowState = clockOutWorkflowStatus(workflow);
+    if (workflowState.remainingRequiredFormCount > 0) {
+      return res.status(409).json({ ok: false, blocked: true, code: 'required_forms_outstanding', ...workflowState });
+    }
+
+    const activeEntry = await getTimeEntryForBusiness(session.businessId, workflow.timeEntryId);
+    if (!activeEntry || activeEntry.employeeId !== workflow.employeeId) {
+      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
+    }
+    const activeShift = await getActiveShiftForEmployee({ businessId: session.businessId, employeeId: workflow.employeeId });
+    const activeShiftState = resolveClockOutActiveShift({ activeShift, requestedEntryId: workflow.timeEntryId });
+    if (!activeShiftState.ok || activeEntry.status !== 'clocked_in') {
+      return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: activeShiftState.error ?? 'No active shift found.' });
+    }
+
+    const employee = await getEmployeeForBusiness(session.businessId, workflow.employeeId);
+    const finalData = workflow.finalizationData;
+    const timeEntry = {
+      id: workflow.timeEntryId,
+      employeeId: workflow.employeeId,
+      jobId: finalData.jobId,
+      jobIds: finalData.jobIds,
+      workType: finalData.workType,
+      clockIn: finalData.clockIn,
+      clockOut: workflow.intendedClockOutAt,
+      breakMinutes: finalData.breakMinutes,
+      notes: finalData.notes,
+      photoAttachmentFileIds: finalData.photoAttachmentFileIds,
+      clockOutPhotoFileIds: finalData.photoAttachmentFileIds,
+      photoAttachmentFileId: finalData.photoAttachmentFileId,
+      clockOutPhotoFileId: finalData.photoAttachmentFileId,
+      photoAttachmentUrl: finalData.photoAttachmentUrl,
+      unbillableCategoryId: finalData.unbillableCategoryId,
+      unbillableCategoryName: finalData.unbillableCategoryName,
+      status: 'clocked_out',
+    };
+    const finalizedAt = nowIso();
+    const workflowFinalizationItems = buildWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt, timeEntry });
+    const tx = buildClockOutTransaction({
+      businessId: session.businessId,
+      employeeId: workflow.employeeId,
+      userId: session.id,
+      timeEntryId: workflow.timeEntryId,
+      clockOutAt: workflow.intendedClockOutAt,
+      serverReceivedAt: workflow.serverReceivedAt,
+      timestampSource: workflow.timestampSource,
+      requestId: workflow.requestId,
+      idempotencyKey: workflow.idempotencyKey,
+      payloadHash: workflow.payloadHash,
+      source: workflow.source,
+      auditEventId: `${session.id}:${workflow.requestId}:clock-out`,
+      ...finalData,
+      employeeName: employee?.name ?? '',
+      workflowFinalizationItems,
+    });
+
+    try {
+      await ddb.send(new TransactWriteCommand(tx));
+      return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_completed', workflowOccurrenceId, timeEntry });
+    } catch (error) {
+      const currentWorkflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+      if (currentWorkflow?.status === 'finalized') {
+        return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_already_finalized', timeEntry: currentWorkflow.timeEntry });
+      }
+      const response = getClockingFailureResponse('clock-out', error);
+      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
+    }
+  }
+
   if (clockingAction === 'clock-in') {
     const validation = ensureClockingEmployee(session, req.body?.employeeId);
     if (!validation.ok) {
@@ -453,6 +567,80 @@ export default async function handler(req, res) {
 
     const employee = await getEmployeeForBusiness(session.businessId, activeEntry.employeeId);
     const clockOutAt = eventTime.eventOccurredAt;
+    const forms = await listFormsForBusiness(session.businessId);
+    if (forms.some((form) => form.status === 'active' && form.completionRequirement === 'required' && form.trigger?.includes('after_clock_out'))) {
+      if (!employee?.active) {
+        return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
+      }
+      const [jobs, equipment, crews, divisions] = await Promise.all([
+        listJobsForBusiness(session.businessId),
+        listEquipmentAssetsForBusiness(session.businessId),
+        listCrewsForBusiness(session.businessId),
+        listDivisionsForBusiness(session.businessId),
+      ]);
+      const entryJobIds = Array.isArray(activeEntry.jobIds) && activeEntry.jobIds.length > 0
+        ? activeEntry.jobIds
+        : activeEntry.jobId ? [activeEntry.jobId] : [];
+      const entryJobs = jobs.filter((job) => entryJobIds.includes(job.id));
+      const applicableForms = resolveAfterClockOutForms({ forms, employee, crews, divisions, jobs: entryJobs, equipment });
+      if (applicableForms.requiredForms.length > 0) {
+        const existingWorkflow = await getPendingClockOutWorkflowForEmployee(session.businessId, activeEntry.employeeId);
+        if (existingWorkflow) {
+          if (existingWorkflow.timeEntryId !== entryId) {
+            return res.status(409).json({ ok: false, code: 'pending_clock_out_exists', error: 'Another clock-out workflow is already pending.' });
+          }
+          if (existingWorkflow.idempotencyKey === idempotencyKey && existingWorkflow.payloadHash !== hashedPayload) {
+            return res.status(409).json({ ok: false, code: 'clock_idempotency_conflict', error: 'Clocking idempotency key was reused with a different request.' });
+          }
+          return pendingClockOutResponse(res, existingWorkflow);
+        }
+
+        const workflowOccurrenceId = createClockOutOccurrenceId({
+          businessId: session.businessId,
+          employeeId: activeEntry.employeeId,
+          timeEntryId: entryId,
+          idempotencyKey: clientIdempotencyKey,
+        });
+        const workflow = {
+          workflowOccurrenceId,
+          employeeId: activeEntry.employeeId,
+          timeEntryId: entryId,
+          intendedClockOutAt: clockOutAt,
+          serverReceivedAt: eventTime.serverReceivedAt,
+          timestampSource: eventTime.timestampSource,
+          source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'web',
+          requestId,
+          idempotencyKey,
+          payloadHash: hashedPayload,
+          requiredForms: applicableForms.requiredForms,
+          reminderForms: applicableForms.reminderForms,
+          finalizationData: {
+            breakMinutes: req.body?.breakMinutes ?? 0,
+            notes: req.body?.notes ?? '',
+            photoAttachmentFileIds: attachmentValidation.fileIds?.length ? attachmentValidation.fileIds : undefined,
+            photoAttachmentFileId: attachmentValidation.fileId ?? undefined,
+            photoAttachmentUrl: req.body?.photoAttachmentUrl ?? undefined,
+            unbillableCategoryId: activeEntry.unbillableCategoryId,
+            unbillableCategoryName: activeEntry.unbillableCategoryName,
+            jobId: activeEntry.jobId,
+            jobIds: activeEntry.jobIds,
+            workType: activeEntry.workType,
+            clockIn: activeEntry.clockIn,
+          },
+          createdAt: eventTime.serverReceivedAt,
+        };
+        try {
+          const created = await createPendingClockOutWorkflow({ businessId: session.businessId, workflow });
+          return pendingClockOutResponse(res, created);
+        } catch (error) {
+          if (error?.name === 'TransactionCanceledException') {
+            const concurrent = await getPendingClockOutWorkflowForEmployee(session.businessId, activeEntry.employeeId);
+            if (concurrent?.timeEntryId === entryId) return pendingClockOutResponse(res, concurrent);
+          }
+          throw error;
+        }
+      }
+    }
     const tx = buildClockOutTransaction({
       businessId: session.businessId,
       employeeId: activeEntry.employeeId,

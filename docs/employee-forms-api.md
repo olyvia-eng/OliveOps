@@ -1,5 +1,7 @@
 # Employee Forms API
 
+Required forms using `after_clock_out` are server-enforced through a persisted clock-out occurrence. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md) for initiation, submission correlation, recovery, and finalization contracts. Other workflow triggers remain advisory.
+
 Phase 1 exposes the existing OliveOps Forms definitions and submissions to employee clients. The Forms builder remains the source of `FormRecord` and `FormField` data. Mobile clients must use `/api/employee`; they must not read or write Forms through `/api/data`.
 
 ## Employee bootstrap timezone

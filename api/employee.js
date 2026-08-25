@@ -26,6 +26,11 @@ import {
   validateEmployeeFormResponses,
 } from './_lib/formsEngine.js';
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
+import {
+  buildWorkflowCompletionUpdate,
+  findWorkflowRequirement,
+  getClockOutWorkflowForBusiness,
+} from './_lib/mandatoryClockOut.js';
 
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -142,7 +147,8 @@ function packageFor({ form, trigger, context, data, instant }) {
   const submission = data.submissions.filter((candidate) => candidate.employeeId === data.employee.id).find((candidate) => isSubmissionSatisfiedForScope({ submission: candidate, employeeId: data.employee.id, scope, timeZone: data.timeZone }));
   return {
     id: form.id, name: form.name, description: form.description, category: form.category, trigger,
-    required: trigger !== 'on_demand', completionRequirement: form.completionRequirement ?? 'reminder', enforcement: 'advisory',
+    required: trigger !== 'on_demand', completionRequirement: form.completionRequirement ?? 'reminder',
+    enforcement: trigger === 'after_clock_out' && form.completionRequirement === 'required' ? 'blocking' : 'advisory',
     periodKey: scope.periodKey, context: safeContext(context), fields: safeFields(form.id, data),
     submissionState: { completed: Boolean(submission), submissionId: submission?.id, submittedAt: submission?.submittedAt, status: submission?.status },
   };
@@ -184,6 +190,7 @@ function completedSubmissions(data) {
     .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt)).slice(0, 50).map((submission) => ({
       submissionId: submission.id, formId: submission.formId, formName: formsById.get(submission.formId)?.name ?? 'Archived form',
       clientSubmissionId: submission.clientSubmissionId ?? null, submittedAt: submission.submittedAt, status: submission.status, trigger: submission.trigger,
+      workflowOccurrenceId: submission.workflowOccurrenceId ?? null, workflowRequirementId: submission.workflowRequirementId ?? null,
       context: { jobId: submission.jobId, jobName: jobsById.get(submission.jobId)?.title, equipmentId: submission.equipmentId, equipmentName: equipmentById.get(submission.equipmentId)?.name, divisionId: submission.divisionId },
     }));
 }
@@ -202,12 +209,31 @@ function requestedContext(req, data) {
   return { job, equipment, division };
 }
 
-function deterministicSubmissionId({ employeeId, scope }) {
-  const key = [employeeId, scope.formId, scope.trigger, scope.periodKey, scope.jobId, scope.equipmentId, scope.divisionId].filter(Boolean).join('|');
+function workflowRequirementContext(requirement, data) {
+  const context = requirement.context ?? {};
+  const job = context.jobId ? data.authorizedJobs.find((candidate) => candidate.id === context.jobId) : undefined;
+  if (context.jobId && !job) return { error: 'Workflow job context is no longer available to this employee.' };
+  const equipment = context.equipmentId ? data.equipment.find((candidate) => candidate.id === context.equipmentId) : undefined;
+  if (context.equipmentId && (!equipment || !job?.assignedEquipmentIds?.includes(equipment.id))) return { error: 'Workflow equipment context is no longer available to this employee.' };
+  const division = context.divisionId ? data.divisions.find((candidate) => candidate.id === context.divisionId) : undefined;
+  if (context.divisionId && !division) return { error: 'Workflow Division context is no longer available.' };
+  return { job, equipment, division };
+}
+
+function workflowContextMatchesPayload(requirement, payload) {
+  const expected = requirement.context ?? {};
+  return ['jobId', 'equipmentId', 'divisionId'].every((field) => {
+    const supplied = text(payload?.[field]);
+    return !supplied || supplied === text(expected[field]);
+  });
+}
+
+function deterministicSubmissionId({ employeeId, scope, workflowOccurrenceId, workflowRequirementId }) {
+  const key = [employeeId, scope.formId, scope.trigger, scope.periodKey, scope.jobId, scope.equipmentId, scope.divisionId, workflowOccurrenceId, workflowRequirementId].filter(Boolean).join('|');
   return `form-${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
 }
 
-function submissionPayloadFingerprint({ formId, trigger, scope, responses }) {
+function submissionPayloadFingerprint({ formId, trigger, scope, responses, workflowOccurrenceId, workflowRequirementId }) {
   const canonical = {
     formId,
     trigger,
@@ -216,6 +242,8 @@ function submissionPayloadFingerprint({ formId, trigger, scope, responses }) {
       equipmentId: scope.equipmentId ?? null,
       divisionId: scope.divisionId ?? null,
     },
+    workflowOccurrenceId: workflowOccurrenceId ?? null,
+    workflowRequirementId: workflowRequirementId ?? null,
     responses: responses
       .map((response) => ({ fieldId: response.fieldId, value: response.value }))
       .sort((left, right) => left.fieldId.localeCompare(right.fieldId)),
@@ -284,7 +312,33 @@ export default async function handler(req, res) {
     if (form.status !== 'active') return res.status(409).json({ ok: false, error: 'This form is not active.' });
     const trigger = text(payload?.trigger) || (form.trigger?.includes('on_demand') ? 'on_demand' : form.trigger?.[0]);
     if (!FORM_TRIGGERS.has(trigger) || !form.trigger?.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
-    const context = requestedContext(req, data);
+    const requiresClockOutWorkflow = trigger === 'after_clock_out' && form.completionRequirement === 'required';
+    const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
+    const workflowRequirementId = text(payload?.workflowRequirementId);
+    if (requiresClockOutWorkflow && !workflowOccurrenceId) {
+      return res.status(409).json({ ok: false, code: 'workflow_occurrence_required', error: 'A pending clock-out workflow is required for this form.' });
+    }
+    if (requiresClockOutWorkflow && !workflowRequirementId) {
+      return res.status(400).json({ ok: false, code: 'workflow_requirement_required', error: 'A clock-out workflow requirement is required.' });
+    }
+    const workflow = requiresClockOutWorkflow
+      ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+      : null;
+    if (requiresClockOutWorkflow && (!workflow || workflow.employeeId !== data.employee.id)) {
+      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
+    }
+    const workflowRequirement = requiresClockOutWorkflow
+      ? findWorkflowRequirement(workflow, { formId: form.id, requirementId: workflowRequirementId })
+      : null;
+    if (requiresClockOutWorkflow && !workflowRequirement) {
+      return res.status(404).json({ ok: false, code: 'workflow_requirement_not_found', error: 'Required form is not part of this clock-out workflow.' });
+    }
+    if (workflowRequirement && !workflowContextMatchesPayload(workflowRequirement, payload)) {
+      return res.status(403).json({ ok: false, code: 'workflow_context_mismatch', error: 'Form context does not match the clock-out workflow.' });
+    }
+    const context = workflowRequirement
+      ? workflowRequirementContext(workflowRequirement, data)
+      : requestedContext(req, data);
     if (context.error) return res.status(403).json({ ok: false, error: context.error });
     if (!isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) return res.status(403).json({ ok: false, error: 'This form is not assigned or available to this employee.' });
     const fields = data.fields.filter((field) => field.formId === form.id);
@@ -294,7 +348,7 @@ export default async function handler(req, res) {
     const submittedAt = new Date().toISOString();
     const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
     const payloadFingerprint = clientSubmissionId
-      ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses })
+      ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses, workflowOccurrenceId, workflowRequirementId })
       : undefined;
     if (clientSubmissionId) {
       const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
@@ -303,12 +357,17 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
       }
     }
-    if (trigger !== 'on_demand' && data.submissions.some((submission) => isSubmissionSatisfiedForScope({ submission, employeeId: data.employee.id, scope, timeZone: data.timeZone }))) return res.status(409).json({ ok: false, error: 'This required form has already been completed for the current period and context.' });
+    if (requiresClockOutWorkflow && workflow.status !== 'pending_required_forms') {
+      return res.status(409).json({ ok: false, code: 'clock_out_workflow_already_finalized', error: 'This clock-out workflow has already been finalized.' });
+    }
+    if (!requiresClockOutWorkflow && trigger !== 'on_demand' && data.submissions.some((submission) => isSubmissionSatisfiedForScope({ submission, employeeId: data.employee.id, scope, timeZone: data.timeZone }))) return res.status(409).json({ ok: false, error: 'This required form has already been completed for the current period and context.' });
     const submission = {
-      id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope }),
+      id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope, workflowOccurrenceId, workflowRequirementId }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
       trigger, periodKey: scope.periodKey, submittedAt, status: 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
       clientSubmissionId: clientSubmissionId || undefined,
+      workflowOccurrenceId: workflowRequirement ? workflowOccurrenceId : undefined,
+      workflowRequirementId: workflowRequirement ? workflowRequirementId : undefined,
     };
     const responses = validation.responses.map((response) => ({ id: generateId(), submissionId: submission.id, ...response }));
     const submissionResponse = { ...submission, responsesCreated: responses.length };
@@ -323,12 +382,25 @@ export default async function handler(req, res) {
           submission: submissionResponse,
           expiresAt: new Date(Date.parse(submittedAt) + FORM_IDEMPOTENCY_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
         } : undefined,
+        workflowCompletion: workflowRequirement ? buildWorkflowCompletionUpdate({
+          businessId: session.businessId,
+          employeeId: data.employee.id,
+          workflowOccurrenceId,
+          requirementId: workflowRequirementId,
+          updatedAt: submittedAt,
+        }) : undefined,
       });
     } catch (error) {
       if (error?.name === 'TransactionCanceledException' && clientSubmissionId) {
         const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
         if (existing?.payloadFingerprint === payloadFingerprint) return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
         if (existing) return idempotencyConflict(res);
+      }
+      if (error?.name === 'TransactionCanceledException' && workflowRequirement) {
+        const currentWorkflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+        if (new Set(currentWorkflow?.completedRequirementIds ?? []).has(workflowRequirementId)) {
+          return res.status(409).json({ ok: false, code: 'workflow_requirement_already_completed', error: 'This required form has already been submitted for the clock-out workflow.' });
+        }
       }
       if (error?.name === 'TransactionCanceledException') return res.status(409).json({ ok: false, error: 'This form was already submitted. Refresh Forms and try again.' });
       throw error;
