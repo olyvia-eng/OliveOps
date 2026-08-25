@@ -2,6 +2,8 @@
 
 OliveOps stores overhead as budget-scoped Division planning items. Each overhead item has one annual amount and an exact 100% allocation across one or more active Divisions. Division P&L and Analysis use only each Division's allocated share, so a shared item is counted once in the overall Budget.
 
+Division and overall Budget P&Ls expose the contributing overhead planning items by name, grouped as Labour, Equipment, and Other Overhead. Each displayed amount comes from the same labour-share, equipment-month, or overhead-percentage calculation used for the financial total; zero-share items are omitted and the displayed rows reconcile exactly to Total Overhead. A legacy or unitemized reconciliation row is retained only when a historical financial payload has a positive total without matching item detail.
+
 Allocation and recovery are separate:
 
 - Allocation answers which Divisions own an overhead cost.

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { formatCurrency } from '../../utils';
 import type { Budget, BudgetDivision } from '../../types';
-import type { BudgetFinancials, DivisionFinancials } from '../../pages/budget/budgetFinancialModel';
+import type { BudgetFinancials, DivisionFinancials, OverheadDetailCategory, OverheadDetailItem } from '../../pages/budget/budgetFinancialModel';
 import DivisionMonthlyComparison from './DivisionMonthlyComparison';
 
 const amount = (value: number | null) => value === null ? '—' : formatCurrency(value);
@@ -26,6 +26,31 @@ function MarginRow({ label, value }: { label: string; value: number | null }) {
   return <tr className="font-medium text-gray-700 dark:text-brand-100"><td className="px-5 pb-4 pl-8 pt-1">{label}</td><td className="px-5 pb-4 pt-1 text-right tabular-nums">{percentage(value)}</td></tr>;
 }
 
+const overheadGroups: Array<{ category: OverheadDetailCategory; label: string }> = [
+  { category: 'labour', label: 'Labour' },
+  { category: 'equipment', label: 'Equipment' },
+  { category: 'other', label: 'Other Overhead' },
+];
+
+function OverheadRows({ items, total }: { items: OverheadDetailItem[] | undefined; total: number }) {
+  const detailItems = items ?? [];
+  const detailTotal = detailItems.reduce((sum, item) => sum + item.amount, 0);
+  const unitemizedAmount = total - detailTotal;
+
+  return <>
+    {overheadGroups.map((group) => {
+      const groupItems = detailItems.filter((item) => item.category === group.category);
+      if (groupItems.length === 0) return null;
+      return <Fragment key={group.category}>
+        <tr><td colSpan={2} className="px-8 pb-1 pt-3 text-xs font-semibold text-gray-500 dark:text-brand-300">{group.label}</td></tr>
+        {groupItems.map((item) => <Row key={`${item.category}:${item.itemId}`} label={item.name} value={item.amount} />)}
+      </Fragment>;
+    })}
+    {unitemizedAmount > 0.005 && <Row label="Legacy / unitemized overhead" value={unitemizedAmount} muted />}
+    <Row label="Total Overhead" value={total} total />
+  </>;
+}
+
 export function DivisionProfitLossView({ fiscalYear, financials }: { fiscalYear: string; financials: DivisionFinancials }) {
   return <div className="space-y-5">
     <div><p className="text-sm text-gray-500 dark:text-brand-300">{fiscalYear} Budget</p><h2 className="mt-1 text-2xl font-semibold text-gray-950 dark:text-brand-50">Profit &amp; Loss</h2></div>
@@ -34,7 +59,7 @@ export function DivisionProfitLossView({ fiscalYear, financials }: { fiscalYear:
       <SectionHeading>Revenue</SectionHeading><Row label="Budgeted Revenue" value={financials.revenue} /><Row label="Total Revenue" value={financials.revenue} total />
       <SectionHeading>Direct Costs</SectionHeading><Row label="Labour" value={financials.directLabour} /><Row label="Equipment" value={financials.directEquipment} /><Row label="Materials" value={financials.materials} /><Row label="Subcontractors" value={financials.subcontractors} /><Row label="Total Direct Costs" value={financials.totalDirectCosts} total />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
-      <SectionHeading>Overhead</SectionHeading><Row label="Overhead Labour" value={financials.overheadLabour} /><Row label="Overhead Equipment" value={financials.overheadEquipment} /><Row label="Allocated Overhead" value={financials.allocatedOverhead} /><Row label="Total Overhead" value={financials.totalOverhead} total />
+      <SectionHeading>Overhead</SectionHeading><OverheadRows items={financials.overheadItems} total={financials.totalOverhead} />
       <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />
     </tbody></table></Card>
   </div>;
@@ -50,7 +75,7 @@ export function BudgetProfitLossView({ budget, divisions, financials }: { budget
       <SectionHeading>Revenue</SectionHeading>{financials.divisions.map((division) => <Row key={division.divisionId} label={division.divisionName} value={division.revenue} />)}<Row label="Total Revenue" value={financials.revenue} total />
       <SectionHeading>Direct Costs</SectionHeading><Row label="Labour" value={financials.directLabour} /><Row label="Equipment" value={financials.directEquipment} /><Row label="Materials" value={financials.materials} /><Row label="Subcontractors" value={financials.subcontractors} /><Row label="Total Direct Costs" value={financials.totalDirectCosts} total />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
-      <SectionHeading>Overhead</SectionHeading><Row label="Overhead Labour" value={financials.overheadLabour} /><Row label="Overhead Equipment" value={financials.overheadEquipment} /><Row label="Allocated Overhead" value={financials.allocatedOverhead} /><Row label="Total Overhead" value={financials.totalOverhead} total />
+      <SectionHeading>Overhead</SectionHeading><OverheadRows items={financials.overheadItems} total={financials.totalOverhead} />
       <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />
     </tbody></table></Card>
     <DivisionMonthlyComparison open={compareOpen} onClose={() => setCompareOpen(false)} budget={budget} divisions={divisions} />

@@ -33,7 +33,7 @@ test('all financial surfaces consume the centralized calculation layer', () => {
   assert.doesNotMatch(statement, /revenue\s*-\s*|grossProfit\s*-\s*|\/\s*revenue/);
 });
 
-test('financial statements show hierarchy and division-allocated overhead', () => {
+test('financial statements show hierarchy and reusable item-level overhead detail', () => {
   assert.doesNotMatch(statement, /function Kpis|function Kpi|lg:grid-cols-5/);
   assert.match(statement, /Total Revenue/);
   assert.match(statement, /Total Direct Costs/);
@@ -43,7 +43,11 @@ test('financial statements show hierarchy and division-allocated overhead', () =
   assert.match(statement, /Net Profit Margin/);
   assert.doesNotMatch(statement, /Operating Profit|Operating Margin/);
   assert.match(statement, /Budget incomplete/);
-  assert.match(statement, /Allocated Overhead/);
+  assert.match(statement, /function OverheadRows/);
+  assert.match(statement, /financials\.overheadItems/);
+  assert.match(statement, /Labour[\s\S]*Equipment[\s\S]*Other Overhead/);
+  assert.match(statement, /Legacy \/ unitemized overhead/);
+  assert.doesNotMatch(statement, /label="Overhead Labour"|label="Overhead Equipment"|label="Allocated Overhead"/);
   assert.doesNotMatch(statement, /before Company Overhead|Company Overhead is not allocated/);
   assert.doesNotMatch(statement, /Division Breakdown/);
   assert.match(statement, />Compare</);
