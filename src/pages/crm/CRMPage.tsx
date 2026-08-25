@@ -15,6 +15,7 @@ import {
 } from '../../components/detail-workspace/detailWorkspaceQuery';
 import ClientDetailPanel, { type ClientDetailTab } from './ClientDetailPanel';
 import { selectClientDetailSummary } from './clientDetailSelectors';
+import AddressAutocomplete from '../../components/address/AddressAutocomplete';
 
 const STATUSES: CustomerStatus[] = ['lead', 'prospect', 'active', 'inactive'];
 const CRM_VIEW_MODE_STORAGE_KEY = 'oliveops.crm.viewMode';
@@ -186,6 +187,13 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
       ...current,
       properties: current.properties.map((property, propertyIndex) => (
         propertyIndex === index ? { ...property, [key]: value } : property
+      )),
+    }));
+  const setPropertyAddress = (index: number, address: Address) =>
+    setForm((current) => ({
+      ...current,
+      properties: current.properties.map((property, propertyIndex) => (
+        propertyIndex === index ? { ...property, ...address } : property
       )),
     }));
 
@@ -496,7 +504,11 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
                       onChange={(e) => setProperty(index, 'nickname', e.target.value)}
                       placeholder="e.g. Main Office"
                     />
-                    <Input label="Street" value={property.street} onChange={(e) => setProperty(index, 'street', e.target.value)} />
+                    <AddressAutocomplete
+                      value={property.street}
+                      onChange={(value) => setProperty(index, 'street', value)}
+                      onAddressSelect={(address) => setPropertyAddress(index, address)}
+                    />
                     <div className="grid grid-cols-2 gap-3">
                       <Input label="City" value={property.city} onChange={(e) => setProperty(index, 'city', e.target.value)} />
                       <Input label="Province" value={property.province} onChange={(e) => setProperty(index, 'province', e.target.value)} />

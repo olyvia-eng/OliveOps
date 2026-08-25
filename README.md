@@ -87,6 +87,7 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 - `GOOGLE_CLIENT_SECRET` (Google OAuth web client secret)
 - `GOOGLE_REDIRECT_URI` (exact registered OAuth callback URL)
 - `GOOGLE_TOKEN_ENCRYPTION_KEY` (stable base64-encoded 32-byte key)
+- `VITE_GOOGLE_MAPS_API_KEY` (HTTP-referrer-restricted browser key for optional Canadian address autocomplete)
 - `MICROSOFT_CLIENT_ID` (Microsoft Entra Application client ID)
 - `MICROSOFT_CLIENT_SECRET` (Microsoft Entra Web client secret)
 - `MICROSOFT_REDIRECT_URI` (exact registered callback URL ending in `/api/integrations/microsoft/callback`)
@@ -100,6 +101,8 @@ In your Vercel project, go to Settings -> Environment Variables and add:
 Add them for Production (and Preview/Development if needed), then redeploy.
 
 See [Google Calendar Integration](docs/google-calendar-integration.md) for OAuth setup, scopes, encryption, and synchronization behavior.
+
+See [Google Places Address Autocomplete](docs/google-places-address-autocomplete.md) for required APIs, browser-key restrictions, local setup, and fallback behavior.
 
 See [Microsoft 365 Calendar Integration](docs/microsoft-calendar-integration.md) for Entra registration, Graph permissions, redirect URIs, encryption, and synchronization behavior.
 
