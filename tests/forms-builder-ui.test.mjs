@@ -130,10 +130,15 @@ test('legacy forms default to reminder and generated guidance reflects draft con
 
   const inaccessible = { ...legacy.form, trigger: [], assignedTo: 'division', assignmentValue: '', completionRequirement: 'required' };
   assert.equal(getFormConfigurationWarnings(inaccessible).length, 2);
-  assert.match(getFormConfigurationWarnings({ ...inaccessible, trigger: ['before_clock_in'] }).join(' '), /enforcement is not yet available/);
-  assert.doesNotMatch(getFormConfigurationWarnings({ ...inaccessible, assignedTo: 'everyone', trigger: ['after_clock_out'] }).join(' '), /enforcement is not yet available/);
+  for (const trigger of ['before_clock_in', 'after_clock_out']) {
+    assert.doesNotMatch(getFormConfigurationWarnings({ ...inaccessible, assignedTo: 'everyone', trigger: [trigger] }).join(' '), /enforcement is not yet available/);
+  }
+  for (const trigger of ['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']) {
+    assert.match(getFormConfigurationWarnings({ ...inaccessible, assignedTo: 'everyone', trigger: [trigger] }).join(' '), /enforcement is not yet available/);
+  }
   assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['after_clock_out'] }), /must submit it before clock-out can be finalized/);
-  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['before_clock_in'] }), /advisory for workflow triggers other than After Clock Out/);
+  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['before_clock_in'] }), /must submit it before clock-in can be finalized/);
+  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['before_starting_job'] }), /advisory for workflow triggers other than Before Clock In and After Clock Out/);
 });
 
 test('field configuration is contextual and option editing is structured', async () => {

@@ -312,16 +312,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'invalid_client_submission_id' });
     }
     const formId = text(payload?.formId ?? req.query.formId);
-    const form = data.forms.find((candidate) => candidate.id === formId);
+    const sourceForm = data.forms.find((candidate) => candidate.id === formId);
+    const requestedTrigger = text(payload?.trigger);
+    const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
+    const workflowRequirementId = text(payload?.workflowRequirementId);
+    const candidateClockInWorkflow = requestedTrigger === 'before_clock_in' && workflowOccurrenceId
+      ? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+      : null;
+    const candidateClockInRequirement = candidateClockInWorkflow?.employeeId === data.employee.id
+      ? findClockInWorkflowRequirement(candidateClockInWorkflow, { formId, requirementId: workflowRequirementId })
+      : null;
+    let form = candidateClockInRequirement?.form ?? sourceForm;
     if (!form) return res.status(404).json({ ok: false, error: 'Form not found.' });
-    if (form.status !== 'active') return res.status(409).json({ ok: false, error: 'This form is not active.' });
-    const trigger = text(payload?.trigger) || (form.trigger?.includes('on_demand') ? 'on_demand' : form.trigger?.[0]);
-    if (!FORM_TRIGGERS.has(trigger) || !form.trigger?.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
+    const configuredTriggers = Array.isArray(form.trigger) ? form.trigger : [form.trigger].filter(Boolean);
+    const trigger = requestedTrigger || (configuredTriggers.includes('on_demand') ? 'on_demand' : configuredTriggers[0]);
+    if (!FORM_TRIGGERS.has(trigger) || !configuredTriggers.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
     const requiresClockOutWorkflow = trigger === 'after_clock_out' && form.completionRequirement === 'required';
     const requiresClockInWorkflow = trigger === 'before_clock_in' && form.completionRequirement === 'required';
     const requiresMandatoryWorkflow = requiresClockOutWorkflow || requiresClockInWorkflow;
-    const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
-    const workflowRequirementId = text(payload?.workflowRequirementId);
     if (requiresMandatoryWorkflow && !workflowOccurrenceId) {
       return res.status(409).json({ ok: false, code: 'workflow_occurrence_required', error: `A pending ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow is required for this form.` });
     }
@@ -329,7 +337,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, code: 'workflow_requirement_required', error: `A ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow requirement is required.` });
     }
     const workflow = requiresClockInWorkflow
-      ? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+      ? candidateClockInWorkflow ?? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
       : requiresClockOutWorkflow
         ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
         : null;
@@ -345,6 +353,8 @@ export default async function handler(req, res) {
     if (requiresMandatoryWorkflow && !workflowRequirement) {
       return res.status(404).json({ ok: false, code: 'workflow_requirement_not_found', error: `Required form is not part of this ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow.` });
     }
+    if (requiresClockInWorkflow && workflowRequirement?.form) form = workflowRequirement.form;
+    if (!workflowRequirement && form.status !== 'active') return res.status(409).json({ ok: false, error: 'This form is not active.' });
     if (workflowRequirement && !workflowContextMatchesPayload(workflowRequirement, payload)) {
       return res.status(403).json({ ok: false, code: 'workflow_context_mismatch', error: 'Form context does not match the clock-out workflow.' });
     }
@@ -352,9 +362,13 @@ export default async function handler(req, res) {
       ? workflowRequirementContext(workflowRequirement, data)
       : requestedContext(req, data);
     if (context.error) return res.status(403).json({ ok: false, error: context.error });
-    if (!isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) return res.status(403).json({ ok: false, error: 'This form is not assigned or available to this employee.' });
-    const fields = data.fields.filter((field) => field.formId === form.id);
-    const choicesByFieldId = Object.fromEntries(safeFields(form.id, data).filter((field) => field.choices).map((field) => [field.id, field.choices]));
+    if (!workflowRequirement && !isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) return res.status(403).json({ ok: false, error: 'This form is not assigned or available to this employee.' });
+    const fields = requiresClockInWorkflow && workflowRequirement?.form?.fields
+      ? workflowRequirement.form.fields
+      : data.fields.filter((field) => field.formId === form.id);
+    const choicesByFieldId = requiresClockInWorkflow && workflowRequirement?.form?.fields
+      ? Object.fromEntries(fields.filter((field) => field.choices).map((field) => [field.id, field.choices]))
+      : Object.fromEntries(safeFields(form.id, data).filter((field) => field.choices).map((field) => [field.id, field.choices]));
     const validation = validateEmployeeFormResponses({ fields, responses: payload?.responses, choicesByFieldId });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.error, fieldId: validation.fieldId });
     const submittedAt = new Date().toISOString();

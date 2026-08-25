@@ -18,11 +18,13 @@ import { ddb } from './_lib/db.js';
 import { TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import {
   getEmployeeForBusiness,
+  listCustomersForBusiness,
   getFileForBusiness,
   getJobForBusiness,
   getTimeEntryForBusiness,
   getUnbillableTimeCategoryForBusiness,
   listEquipmentAssetsForBusiness,
+  listFormFieldsForBusiness,
   listFormsForBusiness,
   listJobsForBusiness,
   listTimeEntriesForBusiness,
@@ -540,14 +542,16 @@ export default async function handler(req, res) {
       if (!employee?.active) {
         return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
       }
-      const [jobs, equipment, crews, divisions] = await Promise.all([
+      const [jobs, equipment, crews, divisions, fields, customers] = await Promise.all([
         listJobsForBusiness(session.businessId),
         listEquipmentAssetsForBusiness(session.businessId),
         listCrewsForBusiness(session.businessId),
         listDivisionsForBusiness(session.businessId),
+        listFormFieldsForBusiness(session.businessId),
+        listCustomersForBusiness(session.businessId),
       ]);
       const selectedJobs = jobs.filter((job) => requestedJobIds.includes(job.id));
-      const applicableForms = resolveBeforeClockInForms({ forms, employee, crews, divisions, jobs: selectedJobs, equipment });
+      const applicableForms = resolveBeforeClockInForms({ forms, fields, employee, crews, divisions, jobs: selectedJobs, equipment, customers });
       if (applicableForms.requiredForms.length > 0) {
         const workflowOccurrenceId = createClockInOccurrenceId({
           businessId: session.businessId,
