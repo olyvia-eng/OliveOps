@@ -117,6 +117,7 @@ export function buildClockInTransaction({
   unbillableCategoryId,
   unbillableCategoryName,
   employeeName = '',
+  workflowFinalizationItems = [],
 }) {
   const eventOccurredAt = clockInAt ?? nowIso();
   const receivedAt = serverReceivedAt ?? nowIso();
@@ -237,6 +238,7 @@ export function buildClockInTransaction({
           ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
         },
       },
+      ...workflowFinalizationItems,
     ],
   };
 }

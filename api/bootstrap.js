@@ -39,6 +39,7 @@ import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulin
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
 import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from './_lib/mandatoryClockOut.js';
+import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -64,6 +65,9 @@ export default async function handler(req, res) {
       : null;
     const pendingClockOutWorkflow = typeof session.employeeId === 'string'
       ? await getPendingClockOutWorkflowForEmployee(session.businessId, session.employeeId)
+      : null;
+    const pendingClockInWorkflow = typeof session.employeeId === 'string'
+      ? await getPendingClockInWorkflowForEmployee(session.businessId, session.employeeId)
       : null;
     const possibleForgottenClockOut = activeTimeEntry?.clockIn
       ? isPossiblyForgottenClockOut({
@@ -112,6 +116,7 @@ export default async function handler(req, res) {
       ok: true,
       capabilities: {
         paidDriveTime: Boolean(sessionEmployee),
+        requiredBeforeClockInForms: true,
         requiredAfterClockOutForms: true,
       },
       timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
@@ -146,6 +151,7 @@ export default async function handler(req, res) {
       timeEntries: filterRecordsForSession(session, 'time-entries', timeEntries),
       timeCorrections: filterRecordsForSession(session, 'time-corrections', timeCorrections),
       currentActiveEntryId: activeShift?.activeEntryId ?? null,
+      pendingClockInWorkflow: pendingClockInWorkflow ? clockInWorkflowStatus(pendingClockInWorkflow) : null,
       pendingClockOutWorkflow: pendingClockOutWorkflow ? clockOutWorkflowStatus(pendingClockOutWorkflow) : null,
       activeShiftWarnings: {
         possibleForgottenClockOut,

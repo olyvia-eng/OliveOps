@@ -48,6 +48,7 @@ export function isFormBuilderDirty(baseline, draft) {
 
 const WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
 const SCHEDULE_TRIGGERS = new Set(['daily', 'weekly', 'monthly']);
+const ENFORCED_WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out']);
 
 const WORKFLOW_LABELS = {
   before_clock_in: 'before clocking in',
@@ -118,7 +119,7 @@ export function getFormConfigurationWarnings(form) {
   if (getScheduleTriggers(form.trigger).length > 1) {
     warnings.push('This legacy form has multiple recurring schedules. Choose one schedule to simplify it, or leave it unchanged to preserve the existing configuration.');
   }
-  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).some((trigger) => trigger !== 'after_clock_out')) {
+  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).some((trigger) => !ENFORCED_WORKFLOW_TRIGGERS.has(trigger))) {
     warnings.push('Required workflow enforcement is not yet available for this trigger. Employees are still allowed to continue.');
   }
   if (form.trigger.includes('after_completing_job')) {
@@ -140,10 +141,15 @@ export function describeFormConfiguration(form, labels = {}) {
   if (schedules.length) access.push(schedules.length === 1 ? `on a ${schedules[0]} schedule` : `on ${schedules.join(' and ')} schedules`);
   const availability = access.length ? `will be shown to ${assignment} ${access.join(' and ')}` : `is not currently presented automatically to ${assignment}`;
   const workflowTriggers = getWorkflowTriggers(form.trigger);
+  const onlyEnforcedWorkflowTriggers = workflowTriggers.length > 0 && workflowTriggers.every((trigger) => ENFORCED_WORKFLOW_TRIGGERS.has(trigger));
   const requirement = (form.completionRequirement ?? 'reminder') === 'required'
-    ? workflowTriggers.includes('after_clock_out') && workflowTriggers.every((trigger) => trigger === 'after_clock_out')
-      ? 'It is required and employees must submit it before clock-out can be finalized.'
-      : 'It is configured as required, but enforcement remains advisory for workflow triggers other than After Clock Out.'
+    ? onlyEnforcedWorkflowTriggers
+      ? workflowTriggers.includes('before_clock_in') && workflowTriggers.includes('after_clock_out')
+        ? 'It is required and employees must submit it before clock-in or clock-out can be finalized.'
+        : workflowTriggers.includes('before_clock_in')
+          ? 'It is required and employees must submit it before clock-in can be finalized.'
+          : 'It is required and employees must submit it before clock-out can be finalized.'
+      : 'It is configured as required, but enforcement remains advisory for workflow triggers other than Before Clock In and After Clock Out.'
     : 'It is a reminder, so employees may continue and complete it later.';
   const onDemand = form.trigger.includes('on_demand') ? ' Employees can also open it manually from Forms.' : '';
   return `${name} ${availability}. ${requirement}${onDemand}`;

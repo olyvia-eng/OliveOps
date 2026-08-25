@@ -31,6 +31,11 @@ import {
   findWorkflowRequirement,
   getClockOutWorkflowForBusiness,
 } from './_lib/mandatoryClockOut.js';
+import {
+  buildClockInWorkflowCompletionUpdate,
+  findClockInWorkflowRequirement,
+  getClockInWorkflowForBusiness,
+} from './_lib/mandatoryClockIn.js';
 
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -148,7 +153,7 @@ function packageFor({ form, trigger, context, data, instant }) {
   return {
     id: form.id, name: form.name, description: form.description, category: form.category, trigger,
     required: trigger !== 'on_demand', completionRequirement: form.completionRequirement ?? 'reminder',
-    enforcement: trigger === 'after_clock_out' && form.completionRequirement === 'required' ? 'blocking' : 'advisory',
+    enforcement: ['before_clock_in', 'after_clock_out'].includes(trigger) && form.completionRequirement === 'required' ? 'blocking' : 'advisory',
     periodKey: scope.periodKey, context: safeContext(context), fields: safeFields(form.id, data),
     submissionState: { completed: Boolean(submission), submissionId: submission?.id, submittedAt: submission?.submittedAt, status: submission?.status },
   };
@@ -313,25 +318,32 @@ export default async function handler(req, res) {
     const trigger = text(payload?.trigger) || (form.trigger?.includes('on_demand') ? 'on_demand' : form.trigger?.[0]);
     if (!FORM_TRIGGERS.has(trigger) || !form.trigger?.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
     const requiresClockOutWorkflow = trigger === 'after_clock_out' && form.completionRequirement === 'required';
+    const requiresClockInWorkflow = trigger === 'before_clock_in' && form.completionRequirement === 'required';
+    const requiresMandatoryWorkflow = requiresClockOutWorkflow || requiresClockInWorkflow;
     const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
     const workflowRequirementId = text(payload?.workflowRequirementId);
-    if (requiresClockOutWorkflow && !workflowOccurrenceId) {
-      return res.status(409).json({ ok: false, code: 'workflow_occurrence_required', error: 'A pending clock-out workflow is required for this form.' });
+    if (requiresMandatoryWorkflow && !workflowOccurrenceId) {
+      return res.status(409).json({ ok: false, code: 'workflow_occurrence_required', error: `A pending ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow is required for this form.` });
     }
-    if (requiresClockOutWorkflow && !workflowRequirementId) {
-      return res.status(400).json({ ok: false, code: 'workflow_requirement_required', error: 'A clock-out workflow requirement is required.' });
+    if (requiresMandatoryWorkflow && !workflowRequirementId) {
+      return res.status(400).json({ ok: false, code: 'workflow_requirement_required', error: `A ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow requirement is required.` });
     }
-    const workflow = requiresClockOutWorkflow
-      ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
-      : null;
-    if (requiresClockOutWorkflow && (!workflow || workflow.employeeId !== data.employee.id)) {
-      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
+    const workflow = requiresClockInWorkflow
+      ? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+      : requiresClockOutWorkflow
+        ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+        : null;
+    if (requiresMandatoryWorkflow && (!workflow || workflow.employeeId !== data.employee.id)) {
+      const workflowName = requiresClockInWorkflow ? 'Clock-in' : 'Clock-out';
+      return res.status(404).json({ ok: false, code: requiresClockInWorkflow ? 'clock_in_workflow_not_found' : 'clock_out_workflow_not_found', error: `${workflowName} workflow not found.` });
     }
-    const workflowRequirement = requiresClockOutWorkflow
-      ? findWorkflowRequirement(workflow, { formId: form.id, requirementId: workflowRequirementId })
-      : null;
-    if (requiresClockOutWorkflow && !workflowRequirement) {
-      return res.status(404).json({ ok: false, code: 'workflow_requirement_not_found', error: 'Required form is not part of this clock-out workflow.' });
+    const workflowRequirement = requiresClockInWorkflow
+      ? findClockInWorkflowRequirement(workflow, { formId: form.id, requirementId: workflowRequirementId })
+      : requiresClockOutWorkflow
+        ? findWorkflowRequirement(workflow, { formId: form.id, requirementId: workflowRequirementId })
+        : null;
+    if (requiresMandatoryWorkflow && !workflowRequirement) {
+      return res.status(404).json({ ok: false, code: 'workflow_requirement_not_found', error: `Required form is not part of this ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow.` });
     }
     if (workflowRequirement && !workflowContextMatchesPayload(workflowRequirement, payload)) {
       return res.status(403).json({ ok: false, code: 'workflow_context_mismatch', error: 'Form context does not match the clock-out workflow.' });
@@ -357,10 +369,14 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
       }
     }
-    if (requiresClockOutWorkflow && workflow.status !== 'pending_required_forms') {
-      return res.status(409).json({ ok: false, code: 'clock_out_workflow_already_finalized', error: 'This clock-out workflow has already been finalized.' });
+    if (requiresMandatoryWorkflow && workflow.status !== 'pending_required_forms') {
+      return res.status(409).json({
+        ok: false,
+        code: requiresClockInWorkflow ? 'clock_in_workflow_already_finalized' : 'clock_out_workflow_already_finalized',
+        error: `This ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow has already been finalized.`,
+      });
     }
-    if (!requiresClockOutWorkflow && trigger !== 'on_demand' && data.submissions.some((submission) => isSubmissionSatisfiedForScope({ submission, employeeId: data.employee.id, scope, timeZone: data.timeZone }))) return res.status(409).json({ ok: false, error: 'This required form has already been completed for the current period and context.' });
+    if (!requiresMandatoryWorkflow && trigger !== 'on_demand' && data.submissions.some((submission) => isSubmissionSatisfiedForScope({ submission, employeeId: data.employee.id, scope, timeZone: data.timeZone }))) return res.status(409).json({ ok: false, error: 'This required form has already been completed for the current period and context.' });
     const submission = {
       id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope, workflowOccurrenceId, workflowRequirementId }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
@@ -382,7 +398,7 @@ export default async function handler(req, res) {
           submission: submissionResponse,
           expiresAt: new Date(Date.parse(submittedAt) + FORM_IDEMPOTENCY_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
         } : undefined,
-        workflowCompletion: workflowRequirement ? buildWorkflowCompletionUpdate({
+        workflowCompletion: workflowRequirement ? (requiresClockInWorkflow ? buildClockInWorkflowCompletionUpdate : buildWorkflowCompletionUpdate)({
           businessId: session.businessId,
           employeeId: data.employee.id,
           workflowOccurrenceId,
@@ -397,9 +413,11 @@ export default async function handler(req, res) {
         if (existing) return idempotencyConflict(res);
       }
       if (error?.name === 'TransactionCanceledException' && workflowRequirement) {
-        const currentWorkflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+        const currentWorkflow = requiresClockInWorkflow
+          ? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+          : await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
         if (new Set(currentWorkflow?.completedRequirementIds ?? []).has(workflowRequirementId)) {
-          return res.status(409).json({ ok: false, code: 'workflow_requirement_already_completed', error: 'This required form has already been submitted for the clock-out workflow.' });
+          return res.status(409).json({ ok: false, code: 'workflow_requirement_already_completed', error: `This required form has already been submitted for the ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow.` });
         }
       }
       if (error?.name === 'TransactionCanceledException') return res.status(409).json({ ok: false, error: 'This form was already submitted. Refresh Forms and try again.' });
