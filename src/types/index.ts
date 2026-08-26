@@ -624,6 +624,17 @@ export type EmployeeRole = 'admin' | 'foreman' | 'crew_member';
 export type EmployeeCompensationType = 'hourly' | 'salary';
 export type EmployeeLabourType = 'field_producing' | 'overhead';
 
+export interface LabourClass {
+  id: ID;
+  businessId?: ID;
+  name: string;
+  description?: string;
+  active: boolean;
+  customRates?: Record<ID, number | null>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Employee {
   id: ID;
   name: string;
@@ -633,6 +644,7 @@ export interface Employee {
   hourlyRate: number;
   compensationType?: EmployeeCompensationType;
   labourType?: EmployeeLabourType;
+  labourClassId?: ID | null;
   payrollBurdenPct?: number;
   benefitsExtraCost?: number;
   bonus?: number;

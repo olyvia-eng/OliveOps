@@ -7,9 +7,10 @@ const employeeSource = readFileSync('src/pages/data-center/EmployeeCatalogSectio
 const employeeTypeSource = readFileSync('src/types/index.ts', 'utf8');
 const repositorySource = readFileSync('api/_lib/authRepo.js', 'utf8');
 
-test('Catalog presents the unified resource library without replacing existing sections', () => {
-  for (const tab of ["key: 'employees'", "key: 'equipment'", "key: 'materials'", "key: 'subcontractors'"]) assert.match(catalogSource, new RegExp(tab));
-  assert.match(catalogSource, /<EmployeeCatalogSection \/>/);
+test('Catalog presents Labour Classes as the primary labour resource alongside existing sections', () => {
+  for (const tab of ["key: 'labour'", "key: 'equipment'", "key: 'materials'", "key: 'subcontractors'"]) assert.match(catalogSource, new RegExp(tab));
+  assert.match(catalogSource, /<LabourCatalogSection \/>/);
+  assert.doesNotMatch(catalogSource, /<EmployeeCatalogSection \/>/);
   assert.match(catalogSource, /<MaterialsCatalogSection \/>/);
   assert.match(catalogSource, /<EquipmentDetailPanel/);
   assert.match(catalogSource, /Subcontractor Catalog is coming next/);

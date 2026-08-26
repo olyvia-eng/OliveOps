@@ -26,6 +26,7 @@ import type {
   BudgetItem,
   LabourBudgetPlan,
   LabourHoursSalesGoal,
+  LabourClass,
   RevenueSalesGoal,
   TimeCorrectionRequest,
   Task,
@@ -107,6 +108,7 @@ interface AppState {
   invoices: Invoice[];
   jobs: Job[];
   employees: Employee[];
+  labourClasses: LabourClass[];
   timeEntries: TimeEntry[];
   timeCorrections: TimeCorrectionRequest[];
   tasks: Task[];
@@ -171,6 +173,9 @@ interface AppState {
   addEmployee: (e: Omit<Employee, 'id' | 'createdAt'>) => void;
   updateEmployee: (id: ID, data: Partial<Employee>) => void;
   deleteEmployee: (id: ID) => void;
+  addLabourClass: (data: Pick<LabourClass, 'name' | 'description'>) => Promise<LabourClass | null>;
+  updateLabourClass: (id: ID, data: Partial<LabourClass>) => Promise<LabourClass | null>;
+  archiveLabourClass: (id: ID) => Promise<boolean>;
 
   // Scheduling setup
   saveCrew: (crew: Omit<Crew, 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; error?: string }>;
@@ -274,6 +279,7 @@ export const useStore = create<AppState>()((set, get) => ({
       invoices: [],
       jobs: [],
       employees: [],
+      labourClasses: [],
       timeEntries: [],
       timeCorrections: [],
       tasks: [],
@@ -985,6 +991,42 @@ export const useStore = create<AppState>()((set, get) => ({
           set({ employees: previous });
           emitAppToast({ tone: 'error', message: 'Employee could not be deleted.' });
         });
+      },
+      addLabourClass: async (data) => {
+        const instant = nowISO();
+        const labourClass: LabourClass = { id: generateId(), name: data.name.trim(), description: data.description?.trim() ?? '', active: true, customRates: {}, createdAt: instant, updatedAt: instant };
+        try {
+          const response = await ensureOk(fetch(dataUrl('labour-classes'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: labourClass }) }));
+          const payload = await response.json() as { labourClass?: LabourClass };
+          const saved = payload.labourClass ?? labourClass;
+          set((state) => ({ labourClasses: [...state.labourClasses, saved] }));
+          return saved;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Labour Class could not be saved.') });
+          return null;
+        }
+      },
+      updateLabourClass: async (id, data) => {
+        try {
+          const response = await ensureOk(fetch(dataUrl('labour-classes', id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data }) }));
+          const payload = await response.json() as { labourClass?: LabourClass };
+          if (!payload.labourClass) return null;
+          set((state) => ({ labourClasses: state.labourClasses.map((item) => item.id === id ? payload.labourClass! : item) }));
+          return payload.labourClass;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Labour Class changes could not be saved.') });
+          return null;
+        }
+      },
+      archiveLabourClass: async (id) => {
+        try {
+          await ensureOk(fetch(dataUrl('labour-classes', id), { method: 'DELETE', credentials: 'include' }));
+          set((state) => ({ labourClasses: state.labourClasses.map((item) => item.id === id ? { ...item, active: false, updatedAt: nowISO() } : item) }));
+          return true;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Labour Class could not be archived.') });
+          return false;
+        }
       },
 
       // ── Scheduling Setup ──────────────────────────────────────────────────

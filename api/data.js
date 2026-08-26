@@ -20,6 +20,7 @@ import {
   createRevenueSalesGoalForBusiness,
   createLabourHoursSalesGoalForBusiness,
   createLabourBudgetPlanForBusiness,
+  createLabourClassForBusiness,
   createTemplateForBusiness,
   createTimeEntryForBusiness,
   createTaskForBusiness,
@@ -43,6 +44,7 @@ import {
   deleteRevenueSalesGoalForBusiness,
   deleteLabourHoursSalesGoalForBusiness,
   deleteLabourBudgetPlanForBusiness,
+  archiveLabourClassForBusiness,
   deleteTemplateForBusiness,
   deleteTimeEntryForBusiness,
   deleteTaskForBusiness,
@@ -67,6 +69,7 @@ import {
   getRevenueSalesGoalForBusiness,
   getLabourHoursSalesGoalForBusiness,
   getLabourBudgetPlanForBusiness,
+  getLabourClassForBusiness,
   getTemplateForBusiness,
   getTimeEntryForBusiness,
   getTaskForBusiness,
@@ -93,6 +96,7 @@ import {
   listRevenueSalesGoalsForBusiness,
   listLabourHoursSalesGoalsForBusiness,
   listLabourBudgetPlansForBusiness,
+  listLabourClassesForBusiness,
   listTemplatesForBusiness,
   listTimeEntriesForBusiness,
   listTasksForBusiness,
@@ -117,6 +121,7 @@ import {
   updateRevenueSalesGoalForBusiness,
   updateLabourHoursSalesGoalForBusiness,
   updateLabourBudgetPlanForBusiness,
+  updateLabourClassForBusiness,
   updateTemplateForBusiness,
   updateTimeEntryForBusiness,
   updateTaskForBusiness,
@@ -371,6 +376,19 @@ const ENTITY_CONFIG = {
     createArgKey: 'employee',
     updateArgKey: 'employee',
   },
+  'labour-classes': {
+    readRoles: null,
+    writeRoles: ['owner', 'admin'],
+    list: listLabourClassesForBusiness,
+    get: getLabourClassForBusiness,
+    create: createLabourClassForBusiness,
+    update: updateLabourClassForBusiness,
+    remove: archiveLabourClassForBusiness,
+    payloadKey: 'labourClass',
+    idParam: 'labourClassId',
+    createArgKey: 'labourClass',
+    updateArgKey: 'labourClass',
+  },
   'equipment-assets': {
     readRoles: null,
     writeRoles: ['owner', 'admin', 'foreman'],
@@ -565,6 +583,27 @@ function validateEmployeeCostInputs(record) {
   if (record.labourType !== undefined && record.labourType !== 'field_producing' && record.labourType !== 'overhead') {
     return 'Employee labour classification is invalid.';
   }
+  return null;
+}
+
+function validateLabourClassRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Labour Class id is required.';
+  if (!isNonEmptyString(record.name)) return 'Labour Class name is required.';
+  if (record.name.trim().length > 100) return 'Labour Class name must be 100 characters or fewer.';
+  if (record.description !== undefined && typeof record.description !== 'string') return 'Labour Class description is invalid.';
+  if (record.active !== undefined && typeof record.active !== 'boolean') return 'Labour Class status is invalid.';
+  if (record.customRates !== undefined && (record.customRates === null || typeof record.customRates !== 'object' || Array.isArray(record.customRates))) return 'Labour Class custom rates are invalid.';
+  for (const value of Object.values(record.customRates ?? {})) {
+    if (value !== null && (!isFiniteNumber(value) || value < 0)) return 'Labour Class custom rates must be zero or greater.';
+  }
+  return null;
+}
+
+async function validateEmployeeLabourClass(businessId, employee) {
+  if (employee.labourClassId === undefined || employee.labourClassId === null || employee.labourClassId === '') return null;
+  if (typeof employee.labourClassId !== 'string') return 'Employee Labour Class is invalid.';
+  const labourClass = await getLabourClassForBusiness(businessId, employee.labourClassId.trim());
+  if (!labourClass || !labourClass.active) return 'Select an active Labour Class from this business.';
   return null;
 }
 
@@ -1643,6 +1682,11 @@ export default async function handler(req, res) {
       }
     }
 
+    if (entity === 'labour-classes') {
+      const validationError = validateLabourClassRecord(record);
+      if (validationError) return res.status(400).json({ ok: false, error: validationError });
+    }
+
     if (entity === 'forms') {
       const validationError = validateFormRecord(record) ?? await validateFormRelationships({ businessId: session.businessId, record });
       if (validationError) {
@@ -1680,7 +1724,7 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'employees') {
-      const validationError = validateEmployeeCostInputs(record);
+      const validationError = validateEmployeeCostInputs(record) ?? await validateEmployeeLabourClass(session.businessId, record);
       if (validationError) return res.status(400).json({ ok: false, error: validationError });
       const accessPayload = req.body?.accountAccess;
       try {
@@ -1723,6 +1767,10 @@ export default async function handler(req, res) {
       if (entity === 'budgets') {
         const persistedBudget = await config.get(session.businessId, record.id);
         return res.status(200).json({ ok: true, budget: persistedBudget });
+      }
+      if (entity === 'labour-classes') {
+        const persistedLabourClass = await config.get(session.businessId, record.id);
+        return res.status(200).json({ ok: true, labourClass: persistedLabourClass });
       }
       return res.status(200).json({ ok: true });
     } catch {
@@ -1781,7 +1829,11 @@ export default async function handler(req, res) {
 
       let next = { ...baseRecord, ...sanitizedData };
       if (entity === 'employees') {
-        const validationError = validateEmployeeCostInputs(next);
+        const validationError = validateEmployeeCostInputs(next) ?? await validateEmployeeLabourClass(session.businessId, next);
+        if (validationError) return res.status(400).json({ ok: false, error: validationError });
+      }
+      if (entity === 'labour-classes') {
+        const validationError = validateLabourClassRecord(next);
         if (validationError) return res.status(400).json({ ok: false, error: validationError });
       }
       if (entity === 'budget') {
@@ -1997,6 +2049,10 @@ export default async function handler(req, res) {
       if (entity === 'budgets') {
         const persistedBudget = await config.get(session.businessId, id);
         return res.status(200).json({ ok: true, budget: persistedBudget });
+      }
+      if (entity === 'labour-classes') {
+        const persistedLabourClass = await config.get(session.businessId, id);
+        return res.status(200).json({ ok: true, labourClass: persistedLabourClass });
       }
       return res.status(200).json({ ok: true });
     } catch {

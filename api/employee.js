@@ -59,6 +59,7 @@ function buildEmployeeResponse(employee) {
     hourlyRate: employee.hourlyRate,
     compensationType: employee.compensationType ?? 'hourly',
     labourType: employee.labourType ?? 'field_producing',
+    labourClassId: employee.labourClassId ?? null,
     payrollBurdenPct: employee.payrollBurdenPct,
     benefitsExtraCost: employee.benefitsExtraCost,
     bonus: employee.bonus,

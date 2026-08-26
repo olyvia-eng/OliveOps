@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
-import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, JobTaskHeading, LabourBudgetPlan, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
+import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetGroup, BudgetItem, BudgetRate, Crew, Customer, Division, Employee, EquipmentAsset, EquipmentBudgetAllocation, Estimate, EstimateTemplate, Expense, FormField, FormRecord, FormResponse, FormSubmission, Invoice, Job, JobTaskHeading, LabourBudgetPlan, LabourClass, LabourHoursSalesGoal, MaterialCatalogItem, RevenueSalesGoal, Task, TimeCorrectionRequest, TimeEntry, UnbillableTimeCategory } from './types';
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
 import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
@@ -57,7 +57,7 @@ function clearBusinessDataStore() {
     forms: [], formFields: [], formSubmissions: [], formResponses: [], budgets: [], budgetDivisions: [],
     budgetDivisionPlanningItems: [], budgetGroups: [], equipmentBudgetAllocations: [], crews: [], divisions: [],
     budgetRates: [], customers: [], estimates: [], expenses: [], equipmentAssets: [], unbillableTimeCategories: [],
-    materialCatalogItems: [], invoices: [], templates: [], jobs: [], employees: [], tasks: [], jobTaskHeadings: [], timeEntries: [],
+    materialCatalogItems: [], labourClasses: [], invoices: [], templates: [], jobs: [], employees: [], tasks: [], jobTaskHeadings: [], timeEntries: [],
     timeCorrections: [], budgetItems: [], labourBudgetPlans: [], labourHoursSalesGoals: [], revenueSalesGoals: [],
   });
 }
@@ -134,6 +134,7 @@ export default function App() {
         equipmentAssets?: EquipmentAsset[];
         unbillableTimeCategories?: UnbillableTimeCategory[];
         materialCatalogItems?: MaterialCatalogItem[];
+        labourClasses?: LabourClass[];
         templates?: EstimateTemplate[];
         budgetItems?: BudgetItem[];
         budgetRates?: BudgetRate[];
@@ -179,6 +180,7 @@ export default function App() {
         equipmentAssets: payload.equipmentAssets ?? [],
         unbillableTimeCategories: payload.unbillableTimeCategories ?? [],
         materialCatalogItems: payload.materialCatalogItems ?? [],
+        labourClasses: payload.labourClasses ?? [],
         templates: payload.templates ?? [],
         budgetItems: payload.budgetItems ?? [],
         budgetRates: payload.budgetRates ?? [],

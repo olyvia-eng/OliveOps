@@ -16,7 +16,9 @@ test('materials route uses the dedicated catalog workspace and removes the legac
 });
 
 test('catalog exposes URL-backed resource tabs instead of stacked sections', () => {
-  assert.match(routeSource, /type CatalogTab = 'employees' \| 'equipment' \| 'materials' \| 'subcontractors'/);
+  assert.match(routeSource, /type CatalogTab = 'labour' \| 'equipment' \| 'materials' \| 'subcontractors'/);
+  assert.match(routeSource, /\{ key: 'labour', label: 'Labour'/);
+  assert.match(routeSource, /activeCatalog === 'labour'[\s\S]*<LabourCatalogSection \/>/);
   assert.match(routeSource, /const requestedCatalog = searchParams\.get\('catalog'\)/);
   assert.match(routeSource, /role="tablist" aria-label="Catalog type"/);
   assert.match(routeSource, /role="tab" aria-selected=\{activeCatalog === tab\.key\}/);

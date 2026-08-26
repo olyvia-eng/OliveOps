@@ -23,14 +23,14 @@ import {
 import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
-import EmployeeCatalogSection from './EmployeeCatalogSection';
+import LabourCatalogSection from './LabourCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'pricing', 'budgets'];
-type CatalogTab = 'employees' | 'equipment' | 'materials' | 'subcontractors';
+type CatalogTab = 'labour' | 'equipment' | 'materials' | 'subcontractors';
 
 const CATALOG_TABS: Array<{ key: CatalogTab; label: string; icon: typeof Truck }> = [
-  { key: 'employees', label: 'Employees', icon: Users },
+  { key: 'labour', label: 'Labour', icon: Users },
   { key: 'equipment', label: 'Equipment', icon: Truck },
   { key: 'materials', label: 'Materials', icon: Package },
   { key: 'subcontractors', label: 'Subcontractors', icon: BriefcaseBusiness },
@@ -59,7 +59,7 @@ export default function EquipmentCatalogPage() {
   const [equipmentStatusFilter, setEquipmentStatusFilter] = useState('all');
   const [equipmentBudgetFilter, setEquipmentBudgetFilter] = useState('all');
   const requestedCatalog = searchParams.get('catalog');
-  const activeCatalog: CatalogTab = CATALOG_TABS.some((tab) => tab.key === requestedCatalog) ? requestedCatalog as CatalogTab : 'employees';
+  const activeCatalog: CatalogTab = CATALOG_TABS.some((tab) => tab.key === requestedCatalog) ? requestedCatalog as CatalogTab : 'labour';
 
   const setCatalogTab = (tab: CatalogTab) => {
     const next = new URLSearchParams(searchParams);
@@ -218,7 +218,7 @@ export default function EquipmentCatalogPage() {
 
       {activeCatalog === 'materials' ? <div id="materials-catalog-panel" role="tabpanel"><MaterialsCatalogSection /></div> : null}
 
-      {activeCatalog === 'employees' ? <div id="employees-catalog-panel" role="tabpanel"><EmployeeCatalogSection /></div> : null}
+      {activeCatalog === 'labour' ? <div id="labour-catalog-panel" role="tabpanel"><LabourCatalogSection /></div> : null}
 
       {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><Card className="p-5"><EmptyState title="Subcontractor Catalog is coming next" description="Subcontractor cost resources will live here without changing existing Budget records." /></Card></div> : null}
 

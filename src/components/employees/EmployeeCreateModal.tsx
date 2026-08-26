@@ -15,6 +15,7 @@ type EmployeeForm = {
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
   labourType: EmployeeLabourType;
+  labourClassId: string;
   active: boolean;
 };
 
@@ -43,10 +44,12 @@ const emptyForm = (): EmployeeForm => ({
   hourlyRate: 30,
   compensationType: 'hourly',
   labourType: 'field_producing',
+  labourClassId: '',
   active: true,
 });
 
 export default function EmployeeCreateModal({ open, onClose, onCreated }: Props) {
+  const labourClasses = useStore((state) => state.labourClasses);
   const [form, setForm] = useState<EmployeeForm>(emptyForm());
   const [accessMode, setAccessMode] = useState<AccountAccessMode>('none');
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -174,6 +177,7 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             hourlyRate: form.hourlyRate,
             compensationType: form.compensationType,
             labourType: form.labourType,
+            labourClassId: form.labourClassId || null,
             active: form.active,
           },
           accountAccess,
@@ -217,6 +221,14 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
         <div className="grid grid-cols-2 gap-3">
           <Input label="First Name *" required value={form.firstName} onChange={(event) => setField('firstName', event.target.value)} />
           <Input label="Last Name *" required value={form.lastName} onChange={(event) => setField('lastName', event.target.value)} />
+        </div>
+
+        <div>
+          <Select label="Labour Class" value={form.labourClassId} onChange={(event) => setField('labourClassId', event.target.value)}>
+            <option value="">Unassigned</option>
+            {labourClasses.filter((labourClass) => labourClass.active).sort((left, right) => left.name.localeCompare(right.name)).map((labourClass) => <option key={labourClass.id} value={labourClass.id}>{labourClass.name}</option>)}
+          </Select>
+          <p className="mt-1 text-xs text-gray-500">Used to group employees for estimating and average labour pricing.</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

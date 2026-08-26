@@ -82,6 +82,10 @@ function materialCatalogSk(materialId) {
   return `MATERIAL#${materialId}`;
 }
 
+function labourClassSk(labourClassId) {
+  return `LABOUR_CLASS#${labourClassId}`;
+}
+
 function unbillableTimeCategorySk(categoryId) {
   return `UNBILLABLE_CATEGORY#${categoryId}`;
 }
@@ -261,6 +265,7 @@ function normalizeEmployeeAccountRecord(employee) {
     hourlyRate: employee.hourlyRate,
     compensationType: employee.compensationType ?? 'hourly',
     labourType: employee.labourType ?? 'field_producing',
+    labourClassId: typeof employee.labourClassId === 'string' && employee.labourClassId.trim() ? employee.labourClassId.trim() : null,
     payrollBurdenPct: employee.payrollBurdenPct,
     benefitsExtraCost: employee.benefitsExtraCost,
     bonus: employee.bonus,
@@ -284,6 +289,7 @@ function normalizeEmployeeForWrite(employee) {
     hourlyRate: Number.isFinite(employee.hourlyRate) ? employee.hourlyRate : 0,
     compensationType: employee.compensationType === 'salary' ? 'salary' : 'hourly',
     labourType: employee.labourType === 'overhead' ? 'overhead' : 'field_producing',
+    labourClassId: typeof employee.labourClassId === 'string' && employee.labourClassId.trim() ? employee.labourClassId.trim() : null,
     payrollBurdenPct: Number.isFinite(employee.payrollBurdenPct) && employee.payrollBurdenPct >= 0 ? employee.payrollBurdenPct : undefined,
     benefitsExtraCost: Number.isFinite(employee.benefitsExtraCost) && employee.benefitsExtraCost >= 0 ? employee.benefitsExtraCost : undefined,
     bonus: Number.isFinite(employee.bonus) && employee.bonus >= 0 ? employee.bonus : undefined,
@@ -2862,6 +2868,63 @@ export async function deleteMaterialCatalogItemForBusiness(businessId, materialI
   return { ok: true };
 }
 
+function normalizeLabourClass(labourClass) {
+  return {
+    id: labourClass.id ?? labourClass.labourClassId,
+    businessId: labourClass.businessId,
+    name: typeof labourClass.name === 'string' ? labourClass.name.trim() : '',
+    description: typeof labourClass.description === 'string' ? labourClass.description.trim() : '',
+    active: labourClass.active !== false,
+    customRates: labourClass.customRates && typeof labourClass.customRates === 'object' ? labourClass.customRates : {},
+    createdAt: labourClass.createdAt,
+    updatedAt: labourClass.updatedAt,
+  };
+}
+
+export async function listLabourClassesForBusiness(businessId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': 'LABOUR_CLASS#' },
+  }));
+  return (result.Items ?? []).map(normalizeLabourClass);
+}
+
+export async function getLabourClassForBusiness(businessId, labourClassId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: labourClassSk(labourClassId) },
+  }));
+  return result.Item ? normalizeLabourClass(result.Item) : null;
+}
+
+export async function createLabourClassForBusiness({ businessId, labourClass }) {
+  const instant = nowIso();
+  const normalized = normalizeLabourClass({ ...labourClass, businessId, createdAt: labourClass.createdAt || instant, updatedAt: instant });
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: { PK: businessPk(businessId), SK: labourClassSk(normalized.id), entityType: 'LABOUR_CLASS', labourClassId: normalized.id, ...normalized },
+    ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+  }));
+  return { ok: true };
+}
+
+export async function updateLabourClassForBusiness({ businessId, labourClass }) {
+  const normalized = normalizeLabourClass({ ...labourClass, businessId, updatedAt: nowIso() });
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: { PK: businessPk(businessId), SK: labourClassSk(normalized.id), entityType: 'LABOUR_CLASS', labourClassId: normalized.id, ...normalized },
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+  }));
+  return { ok: true };
+}
+
+export async function archiveLabourClassForBusiness(businessId, labourClassId) {
+  const labourClass = await getLabourClassForBusiness(businessId, labourClassId);
+  if (!labourClass) return { ok: false, error: 'Labour Class not found.' };
+  return updateLabourClassForBusiness({ businessId, labourClass: { ...labourClass, active: false } });
+}
+
 export async function listUnbillableTimeCategoriesForBusiness(businessId) {
   const result = await ddb.send(
     new QueryCommand({
@@ -4256,6 +4319,7 @@ export async function listEmployeesForBusiness(businessId) {
     hourlyRate: item.hourlyRate,
     compensationType: item.compensationType ?? 'hourly',
     labourType: item.labourType ?? 'field_producing',
+    labourClassId: typeof item.labourClassId === 'string' && item.labourClassId.trim() ? item.labourClassId.trim() : null,
     payrollBurdenPct: item.payrollBurdenPct,
     benefitsExtraCost: item.benefitsExtraCost,
     bonus: item.bonus,
@@ -4327,6 +4391,7 @@ export async function getEmployeeForBusiness(businessId, employeeId) {
         hourlyRate: result.Item.hourlyRate,
         compensationType: result.Item.compensationType ?? 'hourly',
         labourType: result.Item.labourType ?? 'field_producing',
+        labourClassId: typeof result.Item.labourClassId === 'string' && result.Item.labourClassId.trim() ? result.Item.labourClassId.trim() : null,
         payrollBurdenPct: result.Item.payrollBurdenPct,
         benefitsExtraCost: result.Item.benefitsExtraCost,
         bonus: result.Item.bonus,

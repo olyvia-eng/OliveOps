@@ -570,6 +570,51 @@ test('employee cost inputs persist for hourly and salaried compensation while fo
   assert.equal((await getEmployeeForBusiness('biz-foreign', 'foreign-employee')).hourlyRate, 99);
 });
 
+test('Labour Classes are tenant-scoped, soft archived, and assigned independently from employee role', async (t) => {
+  installDdbMock(t);
+  const ownerA = await createUserEmployeePair({ businessId: 'biz-labour-a', name: 'Owner A', email: 'owner-a@labour.test', password: 'password123', role: 'owner' });
+  const ownerB = await createUserEmployeePair({ businessId: 'biz-labour-b', name: 'Owner B', email: 'owner-b@labour.test', password: 'password123', role: 'owner' });
+  await createBearerTokenForUser({ businessId: 'biz-labour-a', userId: ownerA.user.id, role: 'owner', email: ownerA.user.email, token: 'token-labour-a' });
+  await createBearerTokenForUser({ businessId: 'biz-labour-b', userId: ownerB.user.id, role: 'owner', email: ownerB.user.email, token: 'token-labour-b' });
+
+  const createClass = createMockRes();
+  await dataHandler({ method: 'POST', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { id: 'class-foreman', name: 'Foreman', description: 'Field leadership', active: true, customRates: {}, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' } } }, createClass);
+  assert.equal(createClass.statusCode, 200, JSON.stringify(createClass.body));
+  assert.equal(createClass.body.labourClass.name, 'Foreman');
+
+  const tenantAList = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-a' } }, tenantAList);
+  assert.deepEqual(tenantAList.body.items.map((item) => item.id), ['class-foreman']);
+  const tenantBList = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-b' } }, tenantBList);
+  assert.deepEqual(tenantBList.body.items, []);
+
+  await createEmployeeForBusiness({ businessId: 'biz-labour-a', employee: { id: 'employee-foreman', name: 'Matt Jones', email: '', phone: '', role: 'foreman', hourlyRate: 40, compensationType: 'hourly', labourType: 'field_producing', active: true } });
+  await createEmployeeForBusiness({ businessId: 'biz-labour-a', employee: { id: 'employee-legacy', name: 'Legacy Employee', email: '', phone: '', role: 'crew_member', hourlyRate: 25, compensationType: 'hourly', labourType: 'field_producing', active: true } });
+  const assign = createMockRes();
+  await dataHandler({ method: 'PATCH', query: { entity: 'employees', id: 'employee-foreman' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { labourClassId: 'class-foreman' } } }, assign);
+  assert.equal(assign.statusCode, 200);
+  assert.equal(assign.body.employee.role, 'foreman');
+  assert.equal(assign.body.employee.labourClassId, 'class-foreman');
+  assert.equal((await getEmployeeForBusiness('biz-labour-a', 'employee-legacy')).labourClassId, null);
+
+  const archive = createMockRes();
+  await dataHandler({ method: 'DELETE', query: { entity: 'labour-classes', id: 'class-foreman' }, headers: { authorization: 'Bearer token-labour-a' }, body: {} }, archive);
+  assert.equal(archive.statusCode, 200);
+  const archivedList = createMockRes();
+  await dataHandler({ method: 'GET', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-a' } }, archivedList);
+  assert.equal(archivedList.body.items[0].active, false);
+  assert.equal((await getEmployeeForBusiness('biz-labour-a', 'employee-foreman')).labourClassId, 'class-foreman');
+
+  const inactiveAssignment = createMockRes();
+  await dataHandler({ method: 'PATCH', query: { entity: 'employees', id: 'employee-legacy' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { labourClassId: 'class-foreman' } } }, inactiveAssignment);
+  assert.equal(inactiveAssignment.statusCode, 400);
+  assert.match(inactiveAssignment.body.error, /active Labour Class/);
+  const foreignAssignment = createMockRes();
+  await dataHandler({ method: 'PATCH', query: { entity: 'employees', id: 'employee-legacy' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { labourClassId: 'class-from-another-business' } } }, foreignAssignment);
+  assert.equal(foreignAssignment.statusCode, 400);
+});
+
 test('authenticateUser resolves linked employee by explicit userId first', async (t) => {
   const store = installDdbMock(t);
   seedBusinessProfile(store, 'biz-auth-link');

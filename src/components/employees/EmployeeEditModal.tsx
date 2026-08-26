@@ -15,6 +15,7 @@ type EmployeeForm = {
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
   labourType: EmployeeLabourType;
+  labourClassId: string;
   payrollBurdenPct: number;
   benefitsExtraCost: number;
   bonus: number;
@@ -56,6 +57,7 @@ const emptyForm = (): EmployeeForm => ({
   hourlyRate: 30,
   compensationType: 'hourly',
   labourType: 'field_producing',
+  labourClassId: '',
   payrollBurdenPct: 18,
   benefitsExtraCost: 0,
   bonus: 0,
@@ -64,6 +66,7 @@ const emptyForm = (): EmployeeForm => ({
 
 export default function EmployeeEditModal({ open, employeeId, onClose }: Props) {
   const employees = useStore((state) => state.employees);
+  const labourClasses = useStore((state) => state.labourClasses);
   const employee = useMemo(
     () => (employeeId ? employees.find((value) => value.id === employeeId) ?? null : null),
     [employeeId, employees]
@@ -93,6 +96,7 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
       hourlyRate: employee.hourlyRate,
       compensationType: employee.compensationType ?? 'hourly',
       labourType: employee.labourType ?? 'field_producing',
+      labourClassId: employee.labourClassId ?? '',
       payrollBurdenPct: employee.payrollBurdenPct ?? 18,
       benefitsExtraCost: employee.benefitsExtraCost ?? 0,
       bonus: employee.bonus ?? 0,
@@ -202,6 +206,7 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
             hourlyRate: form.hourlyRate,
             compensationType: form.compensationType,
             labourType: form.labourType,
+            labourClassId: form.labourClassId || null,
             payrollBurdenPct: form.payrollBurdenPct,
             benefitsExtraCost: form.benefitsExtraCost,
             bonus: form.bonus,
@@ -248,6 +253,14 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
         <div className="grid grid-cols-2 gap-3">
           <Input label="First Name *" required value={form.firstName} onChange={(event) => setField('firstName', event.target.value)} />
           <Input label="Last Name *" required value={form.lastName} onChange={(event) => setField('lastName', event.target.value)} />
+        </div>
+
+        <div>
+          <Select label="Labour Class" value={form.labourClassId} onChange={(event) => setField('labourClassId', event.target.value)}>
+            <option value="">Unassigned</option>
+            {labourClasses.filter((labourClass) => labourClass.active || labourClass.id === form.labourClassId).sort((left, right) => left.name.localeCompare(right.name)).map((labourClass) => <option key={labourClass.id} value={labourClass.id}>{labourClass.name}{labourClass.active ? '' : ' (Inactive)'}</option>)}
+          </Select>
+          <p className="mt-1 text-xs text-gray-500">Used to group employees for estimating and average labour pricing.</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
