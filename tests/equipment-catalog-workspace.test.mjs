@@ -5,6 +5,7 @@ import { buildEquipmentCatalogPricingRows } from '../src/pages/data-center/equip
 
 const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
+const priceSheetSource = readFileSync('src/pages/data-center/CatalogPriceSheet.tsx', 'utf8');
 
 test('equipment pricing deduplicates semantic Budget and Division rows', () => {
   const rows = buildEquipmentCatalogPricingRows({
@@ -81,11 +82,11 @@ test('equipment detail workspace provides overview, pricing, and budgets tabs', 
 
 test('allocation and pricing detail stays inside workspace tabs', () => {
   assert.match(detailSource, /Equipment Cost/);
-  assert.match(detailSource, /Overhead Recovery/);
-  assert.match(detailSource, /Breakeven/);
+  assert.match(priceSheetSource, /Overhead Recovery/);
+  assert.match(priceSheetSource, /Breakeven/);
   assert.match(detailSource, /Calculated Rate/);
   assert.match(detailSource, /Custom Rate/);
-  assert.match(detailSource, /divisionName/);
+  assert.match(priceSheetSource, /divisionName/);
   assert.doesNotMatch(detailSource, /average|reduce\(.*recommended/i);
   assert.match(detailSource, /Annual Cost Allocation/);
   assert.match(detailSource, /Annual Allocation/);

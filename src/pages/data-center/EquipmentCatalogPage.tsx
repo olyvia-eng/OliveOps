@@ -24,6 +24,8 @@ import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../..
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
 import LabourCatalogSection from './LabourCatalogSection';
+import { useCatalogPricing } from './useCatalogPricing';
+import SubcontractorCatalogSection from './SubcontractorCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'pricing', 'budgets'];
@@ -40,7 +42,6 @@ export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const equipmentAssets = useStore((state) => state.equipmentAssets);
   const budgets = useStore((state) => state.budgets);
-  const budgetDivisions = useStore((state) => state.budgetDivisions);
   const budgetGroups = useStore((state) => state.budgetGroups);
   const budgetItems = useStore((state) => state.budgetItems);
   const equipmentBudgetAllocations = useStore((state) => state.equipmentBudgetAllocations);
@@ -48,6 +49,7 @@ export default function EquipmentCatalogPage() {
   const addEquipmentAsset = useStore((state) => state.addEquipmentAsset);
   const updateEquipmentAsset = useStore((state) => state.updateEquipmentAsset);
   const deleteEquipmentAsset = useStore((state) => state.deleteEquipmentAsset);
+  const catalogPricing = useCatalogPricing();
 
   const [form, setForm] = useState<EquipmentInfoFormValue>(emptyEquipmentInfoFormValue());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -78,15 +80,6 @@ export default function EquipmentCatalogPage() {
     : 'overview';
   const selectedAllocations = selectedEquipment
     ? equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === selectedEquipment.id)
-    : [];
-  const selectedPricingRates = selectedEquipment
-    ? budgetRates
-      .filter((rate) => {
-        if (!rate.active || rate.category !== 'equipment') return false;
-        if (rate.equipmentId) return rate.equipmentId === selectedEquipment.id;
-        return rate.itemName.trim().toLowerCase() === selectedEquipment.name.trim().toLowerCase();
-      })
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     : [];
   const equipmentTypes = useMemo(() => Array.from(new Set(equipmentAssets.map((asset) => asset.type).filter(Boolean))).sort(), [equipmentAssets]);
   const visibleEquipment = useMemo(() => {
@@ -216,11 +209,11 @@ export default function EquipmentCatalogPage() {
         </div>
       </div>
 
-      {activeCatalog === 'materials' ? <div id="materials-catalog-panel" role="tabpanel"><MaterialsCatalogSection /></div> : null}
+      {activeCatalog === 'materials' ? <div id="materials-catalog-panel" role="tabpanel"><MaterialsCatalogSection pricing={catalogPricing.pricing} pricingLoading={catalogPricing.loading} onSaveCustomRate={catalogPricing.saveCustomRate} /></div> : null}
 
-      {activeCatalog === 'labour' ? <div id="labour-catalog-panel" role="tabpanel"><LabourCatalogSection /></div> : null}
+      {activeCatalog === 'labour' ? <div id="labour-catalog-panel" role="tabpanel"><LabourCatalogSection pricing={catalogPricing.pricing} pricingLoading={catalogPricing.loading} onSaveCustomRate={catalogPricing.saveCustomRate} /></div> : null}
 
-      {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><Card className="p-5"><EmptyState title="Subcontractor Catalog is coming next" description="Subcontractor cost resources will live here without changing existing Budget records." /></Card></div> : null}
+      {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><SubcontractorCatalogSection pricing={catalogPricing.pricing} pricingLoading={catalogPricing.loading} onSaveCustomRate={catalogPricing.saveCustomRate} /></div> : null}
 
       {activeCatalog === 'equipment' ? <div id="equipment-catalog-panel" role="tabpanel">
       <DetailWorkspace
@@ -332,11 +325,12 @@ export default function EquipmentCatalogPage() {
             activeTab={equipmentDetailTab}
             expanded={workspace.mode === 'expanded'}
             budgets={budgets}
-            budgetDivisions={budgetDivisions}
             budgetGroups={budgetGroups}
             budgetItems={budgetItems}
             allocations={selectedAllocations}
-            pricingRates={selectedPricingRates}
+            catalogPricing={catalogPricing.pricing}
+            catalogPricingLoading={catalogPricing.loading}
+            onSaveCustomRate={catalogPricing.saveCustomRate}
             onTabChange={setEquipmentTab}
             onEdit={() => startEditing(selectedEquipment)}
             onDelete={() => handleDelete(selectedEquipment)}

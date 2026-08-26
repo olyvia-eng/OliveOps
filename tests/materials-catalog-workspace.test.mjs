@@ -8,7 +8,7 @@ const detailSource = readFileSync('src/pages/data-center/MaterialDetailPanel.tsx
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 test('materials route uses the dedicated catalog workspace and removes the legacy analytics UI', () => {
-  assert.match(routeSource, /<MaterialsCatalogSection\s*\/>/);
+  assert.match(routeSource, /<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
   for (const retiredText of ['Total Planned + Spent', 'Most Referenced', 'Active Material Rows', 'Highest Value']) {
     assert.doesNotMatch(routeSource, new RegExp(retiredText.replaceAll('+', '\\+')));
   }
@@ -18,11 +18,11 @@ test('materials route uses the dedicated catalog workspace and removes the legac
 test('catalog exposes URL-backed resource tabs instead of stacked sections', () => {
   assert.match(routeSource, /type CatalogTab = 'labour' \| 'equipment' \| 'materials' \| 'subcontractors'/);
   assert.match(routeSource, /\{ key: 'labour', label: 'Labour'/);
-  assert.match(routeSource, /activeCatalog === 'labour'[\s\S]*<LabourCatalogSection \/>/);
+  assert.match(routeSource, /activeCatalog === 'labour'[\s\S]*<LabourCatalogSection pricing=\{catalogPricing\.pricing\}/);
   assert.match(routeSource, /const requestedCatalog = searchParams\.get\('catalog'\)/);
   assert.match(routeSource, /role="tablist" aria-label="Catalog type"/);
   assert.match(routeSource, /role="tab" aria-selected=\{activeCatalog === tab\.key\}/);
-  assert.match(routeSource, /activeCatalog === 'materials'[\s\S]*<MaterialsCatalogSection \/>/);
+  assert.match(routeSource, /activeCatalog === 'materials'[\s\S]*<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
   assert.match(routeSource, /activeCatalog === 'equipment'[\s\S]*<DetailWorkspace/);
 });
 
@@ -55,7 +55,9 @@ test('material rows open a URL-backed DetailWorkspace with selection state', () 
   assert.match(catalogSource, /setDetailWorkspaceTab/);
   assert.match(catalogSource, /aria-selected=\{workspace\.recordId === material\.id\}/);
   assert.match(detailSource, /'overview', label: 'Overview'/);
+  assert.match(detailSource, /'pricing', label: 'Pricing'/);
   assert.match(detailSource, /'budgets', label: 'Budgets'/);
+  assert.match(detailSource, /<CatalogPriceSheet/);
 });
 
 test('add and edit use a modal containing only supported material fields', () => {

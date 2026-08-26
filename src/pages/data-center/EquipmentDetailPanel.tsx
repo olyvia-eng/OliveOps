@@ -2,9 +2,10 @@ import { Pencil, Trash2 } from 'lucide-react';
 import DetailWorkspaceHeader from '../../components/detail-workspace/DetailWorkspaceHeader';
 import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspaceTabs';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
-import type { Budget, BudgetDivision, BudgetGroup, BudgetItem, BudgetRate, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
+import type { Budget, BudgetGroup, BudgetItem, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
 import { formatCurrency } from '../../utils';
-import { buildEquipmentCatalogPricingRows } from './equipmentCatalogPricingModel.js';
+import CatalogPriceSheet from './CatalogPriceSheet';
+import type { CatalogPricingItem, CatalogPricingPayload } from './catalogPricing';
 
 export type EquipmentDetailTab = 'overview' | 'pricing' | 'budgets';
 
@@ -13,11 +14,12 @@ interface EquipmentDetailPanelProps {
   activeTab: EquipmentDetailTab;
   expanded: boolean;
   budgets: Budget[];
-  budgetDivisions: BudgetDivision[];
   budgetGroups: BudgetGroup[];
   budgetItems: BudgetItem[];
   allocations: EquipmentBudgetAllocation[];
-  pricingRates: BudgetRate[];
+  catalogPricing: CatalogPricingPayload;
+  catalogPricingLoading: boolean;
+  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
   onTabChange: (tab: EquipmentDetailTab) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -40,11 +42,12 @@ export default function EquipmentDetailPanel({
   activeTab,
   expanded,
   budgets,
-  budgetDivisions,
   budgetGroups,
   budgetItems,
   allocations,
-  pricingRates,
+  catalogPricing,
+  catalogPricingLoading,
+  onSaveCustomRate,
   onTabChange,
   onEdit,
   onDelete,
@@ -52,7 +55,6 @@ export default function EquipmentDetailPanel({
   onCollapse,
   onClose,
 }: EquipmentDetailPanelProps) {
-  const pricingRows = buildEquipmentCatalogPricingRows({ pricingRates, budgetDivisions, budgets });
   const isOverheadEquipment = equipment.equipmentClassification === 'overhead';
   const allocatedRows = allocations.map((allocation) => {
     const budget = budgets.find((value) => value.id === allocation.budgetId);
@@ -141,14 +143,15 @@ export default function EquipmentDetailPanel({
         {activeTab === 'pricing' ? (
           isOverheadEquipment ? (
             <EmptyState title="Charge-out pricing is not available" description="Overhead equipment costs are recovered through overhead rather than estimate charge-out rates." />
-          ) : pricingRows.length > 0 ? (
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-sm"><thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Equipment Cost</th><th className="px-4 py-3 text-right font-medium">Overhead Recovery</th><th className="px-4 py-3 text-right font-medium">Breakeven</th><th className="px-4 py-3 text-right font-medium">Target Profit</th><th className="px-4 py-3 text-right font-medium">Profit</th><th className="px-4 py-3 text-right font-medium">Calculated Rate</th><th className="px-4 py-3 text-right font-medium">Custom Rate</th><th className="px-4 py-3 text-right font-medium">Estimate Rate</th></tr></thead><tbody className="divide-y divide-gray-100">{pricingRows.map((row) => <tr key={`${row.rate.budgetId}:${row.rate.divisionId ?? 'legacy'}`}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{row.divisionName}</td><td className="px-4 py-3 text-right">{row.cost !== null && row.cost > 0 ? `${formatCurrency(row.cost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.overheadRecovery !== null ? `${formatCurrency(row.overheadRecovery)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.breakeven !== null ? `${formatCurrency(row.breakeven)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.targetMarginPct !== null ? `${row.targetMarginPct.toFixed(2)}%` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.profit !== null ? `${formatCurrency(row.profit)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.calculatedRate !== null && row.calculatedRate > 0 ? `${formatCurrency(row.calculatedRate)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.customRate !== null ? `${formatCurrency(row.customRate)}/hr` : '—'}</td><td className="px-4 py-3 text-right font-semibold">{row.estimateRate !== null ? `${formatCurrency(row.estimateRate)}/hr` : 'Unavailable'}</td></tr>)}</tbody></table></div>
-            </Card>
           ) : (
-            <EmptyState
-              title="Equipment pricing has not been calculated yet"
-              description="Complete the Budget overhead and target profit setup to calculate an Estimate rate."
+            <CatalogPriceSheet
+              pricing={catalogPricing}
+              loading={catalogPricingLoading}
+              items={(catalogPricing.catalog?.equipment ?? []).filter((item) => item.sourceEntityId === equipment.id)}
+              labels={{ cost: 'Equipment Cost', calculated: 'Calculated Rate', custom: 'Custom Rate', estimate: 'Estimate Rate' }}
+              onSaveCustomRate={onSaveCustomRate}
+              emptyTitle="Equipment pricing has not been calculated yet"
+              emptyDescription="Add this equipment to the selected Pricing Budget and complete its Division planning inputs."
             />
           )
         ) : null}

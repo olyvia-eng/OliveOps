@@ -73,7 +73,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       if (!uniqueItems.has(key)) uniqueItems.set(key, { item, divisionId: undefined });
       continue;
     }
-    if (includeAllDivisions) {
+    if (includeAllDivisions && budget?.planningModel !== 'divisions_v1') {
       const legacyKey = `legacy:${dedupeKey(item)}`;
       if (!uniqueItems.has(legacyKey)) uniqueItems.set(legacyKey, { item, divisionId: undefined });
     }
@@ -124,6 +124,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
           overheadRecoveryPerHour: pricing.overheadRecovery,
           breakevenRate: pricing.breakeven,
           targetMargin: pricing.targetMarginPct,
+          profit: pricing.profit,
           calculatedRate: pricing.calculatedRate,
           customRate: pricing.customRate,
           estimateRate,
@@ -164,7 +165,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       type,
       sourceEntityId: sourceId,
       budgetItemId: item.id,
-      sourceRateId: usesCalculatedPricing ? undefined : matchingRate?.id,
+      sourceRateId: usesCalculatedPricing ? calculatedRow?.rate?.id : matchingRate?.id,
       pricingRateUpdatedAt: usesCalculatedPricing ? budget.updatedAt : matchingRate?.updatedAt,
       pricingVersion: usesCalculatedPricing ? 2 : matchingRate?.pricingVersion,
       divisionId: itemDivisionId,
@@ -173,6 +174,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       companyOverheadRecoveryPerUnit: usesCalculatedPricing ? 0 : matchingRate?.companyOverheadRecoveryPerUnit ?? null,
       recoveredCostPerUnit: usesCalculatedPricing ? calculatedRow.recoveredCostPerUnit : matchingRate?.recoveredCostPerUnit ?? null,
       targetMarginPct: usesCalculatedPricing ? calculatedRow.targetMarginPct : matchingRate?.targetMarginPercent ?? null,
+      profit: usesCalculatedPricing ? calculatedRow.profit : null,
       name: displayName(item, entities) || 'Unnamed item',
       description: item.description ?? '',
       costCode: item.costCode,

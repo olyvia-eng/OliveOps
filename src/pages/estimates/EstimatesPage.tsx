@@ -212,6 +212,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [creatingEstimate, setCreatingEstimate] = useState(false);
   const [createForm, setCreateForm] = useState<CreateEstimateFormState>(defaultCreateForm());
+  const [companyPricingBudgetId, setCompanyPricingBudgetId] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmConvert, setConfirmConvert] = useState<string | null>(null);
   const [convertForm, setConvertForm] = useState({
@@ -287,6 +288,16 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const canCreateEstimate = Boolean(createForm.customerId && createForm.pricingBudgetId && selectedDivisionIsValid);
 
   useEffect(() => {
+    void fetch('/api/business', { credentials: 'include' }).then(async (response) => {
+      const payload = await response.json() as { business?: { pricingBudgetId?: string | null } };
+      if (!response.ok) return;
+      const configuredId = payload.business?.pricingBudgetId ?? '';
+      const eligible = budgets.some((budget) => budget.id === configuredId && budget.status === 'active' && budget.planningModel === 'divisions_v1' && budget.budgetType === 'operating');
+      setCompanyPricingBudgetId(eligible ? configuredId : '');
+    }).catch(() => undefined);
+  }, [budgets]);
+
+  useEffect(() => {
     setCreateForm((current) => {
       const divisionId = resolveEstimateDivisionId(current.divisionId, pricingDivisions);
       return divisionId === current.divisionId ? current : { ...current, divisionId };
@@ -318,6 +329,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     setCreateForm({
       ...defaultCreateForm(),
       customerId: customerId ?? '',
+      pricingBudgetId: companyPricingBudgetId,
     });
     setCreateModalOpen(true);
   };

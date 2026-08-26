@@ -48,6 +48,7 @@ const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/Unbilla
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
 const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
 const CompanySettingsPage = lazy(() => import('./pages/settings/CompanySettingsPage'));
+const PricingSettingsPage = lazy(() => import('./pages/settings/PricingSettingsPage'));
 const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
@@ -718,6 +719,10 @@ export default function App() {
               <Route
                 path="settings/company"
                 element={canManageUsers ? <CompanySettingsPage /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="settings/pricing"
+                element={canManageUsers ? <PricingSettingsPage /> : <Navigate to="/" replace />}
               />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

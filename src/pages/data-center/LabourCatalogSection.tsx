@@ -41,6 +41,8 @@ import {
   shouldOfferLabourClassSetup,
   type LabourClassSetupDraft,
 } from "./labourClassSetupModel.js";
+import CatalogPriceSheet from "./CatalogPriceSheet";
+import type { CatalogPricingItem, CatalogPricingPayload } from "./catalogPricing";
 
 const WORKSPACE_QUERY = {
   recordParam: "labourClass",
@@ -67,7 +69,9 @@ function LabourClassDetail({
   onArchive,
   onClose,
   onModeChange,
-  onSaveRate,
+  pricing,
+  pricingLoading,
+  onSaveCustomRate,
 }: {
   row: LabourClassCatalogRow;
   tab: LabourTab;
@@ -77,9 +81,10 @@ function LabourClassDetail({
   onArchive: () => void;
   onClose: () => void;
   onModeChange: () => void;
-  onSaveRate: (divisionId: string, value: number | null) => Promise<void>;
+  pricing: CatalogPricingPayload;
+  pricingLoading: boolean;
+  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
 }) {
-  const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
   return (
     <div className="min-h-full bg-white dark:bg-brand-700">
       <div className="flex items-start justify-between gap-3 border-b border-brand-100 p-5 dark:border-brand-600">
@@ -218,133 +223,20 @@ function LabourClassDetail({
         ) : null}
         {tab === "pricing" ? (
           <section className="space-y-5">
-            {row.pricing.length ? (
-              row.pricing.map((pricing) => {
-                const draft =
-                  rateDrafts[pricing.divisionId] ??
-                  (pricing.customRate === null
-                    ? ""
-                    : String(pricing.customRate));
-                return (
-                  <div
-                    key={`${pricing.budgetId}:${pricing.divisionId}`}
-                    className="border-b border-brand-100 pb-5 last:border-0 dark:border-brand-600"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-semibold text-gray-900 dark:text-brand-50">
-                          {pricing.divisionName}
-                        </h3>
-                        <p className="text-xs text-gray-500">
-                          {pricing.budgetName}
-                        </p>
-                      </div>
-                      <Badge
-                        label={
-                          pricing.pricingAvailable
-                            ? "Calculated"
-                            : "Unavailable"
-                        }
-                        className={
-                          pricing.pricingAvailable
-                            ? "bg-green-50 text-green-700"
-                            : "bg-amber-50 text-amber-700"
-                        }
-                      />
-                    </div>
-                    {pricing.pricingAvailable ? (
-                      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                        <div>
-                          <dt className="text-gray-500">Weighted Labour Cost</dt>
-                          <dd className="font-medium">
-                            {rate(pricing.averageLabourCost)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Overhead Recovery</dt>
-                          <dd className="font-medium">
-                            {rate(pricing.overheadRecovery)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Breakeven</dt>
-                          <dd className="font-medium">
-                            {rate(pricing.breakeven)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Target Profit</dt>
-                          <dd className="font-medium">
-                            {pricing.targetMarginPct === null
-                              ? "Not calculated"
-                              : `${pricing.targetMarginPct.toFixed(2)}%`}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Profit</dt>
-                          <dd className="font-medium">
-                            {rate(pricing.profit)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Calculated Rate</dt>
-                          <dd className="font-medium">
-                            {rate(pricing.calculatedRate)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-gray-500">Estimate Rate</dt>
-                          <dd className="font-semibold">
-                            {rate(pricing.estimateRate)}
-                          </dd>
-                        </div>
-                      </dl>
-                    ) : (
-                      <p className="mt-3 text-sm text-gray-500">
-                        {pricing.unavailableReason ||
-                          "Pricing is not calculated."}
-                      </p>
-                    )}
-                    <div className="mt-4 flex items-end gap-2">
-                      <Input
-                        label="Custom Rate"
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={draft}
-                        placeholder="Calculated rate"
-                        onChange={(event) =>
-                          setRateDrafts((current) => ({
-                            ...current,
-                            [pricing.divisionId]: event.target.value,
-                          }))
-                        }
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={() =>
-                          void onSaveRate(
-                            pricing.divisionId,
-                            draft.trim() ? Number(draft) : null,
-                          )
-                        }
-                      >
-                        Save
-                      </Button>
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Overrides the calculated rate used when adding this Labour
-                      Class to an Estimate.
-                    </p>
-                  </div>
-                );
-              })
-            ) : (
-              <EmptyState
-                title="Pricing not calculated"
-                description="Create an active Budget with Division labour plans to calculate class pricing."
-              />
-            )}
+            {pricing.labourDiagnostics?.unassignedEmployees.length ? (
+              <div className="border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">
+                Some active Employees do not have a Labour Class. Valid pricing below includes assigned Employees only.
+              </div>
+            ) : null}
+            <CatalogPriceSheet
+              pricing={pricing}
+              loading={pricingLoading}
+              items={(pricing.catalog?.labour ?? []).filter((item) => item.labourClassId === row.id || item.sourceEntityId === row.id)}
+              labels={{ cost: 'Weighted Labour Cost', calculated: 'Calculated Rate', custom: 'Custom Rate', estimate: 'Estimate Rate' }}
+              onSaveCustomRate={onSaveCustomRate}
+              emptyTitle={row.employeeCount === 0 ? 'No Employees assigned' : 'Labour pricing has not been calculated yet'}
+              emptyDescription={row.employeeCount === 0 ? 'Assign Employees to this Labour Class before using it for estimating.' : 'Plan this Labour Class in a Division of the selected Pricing Budget.'}
+            />
           </section>
         ) : null}
       </div>
@@ -352,7 +244,11 @@ function LabourClassDetail({
   );
 }
 
-export default function LabourCatalogSection() {
+export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCustomRate }: {
+  pricing: CatalogPricingPayload;
+  pricingLoading: boolean;
+  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
+}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -706,11 +602,9 @@ export default function LabourCatalogSection() {
           ),
         )
       }
-      onSaveRate={async (divisionId, value) => {
-        await updateLabourClass(selected.id, {
-          customRates: { ...(selected.customRates ?? {}), [divisionId]: value },
-        });
-      }}
+      pricing={pricing}
+      pricingLoading={pricingLoading}
+      onSaveCustomRate={onSaveCustomRate}
     />
   ) : (
     <div className="p-6">

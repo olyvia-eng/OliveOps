@@ -587,6 +587,7 @@ export async function getBusinessProfile(businessId) {
     id: result.Item.businessId,
     name: result.Item.name,
     timezone: normalizeBusinessTimeZone(result.Item.timezone),
+    pricingBudgetId: typeof result.Item.pricingBudgetId === 'string' && result.Item.pricingBudgetId.trim() ? result.Item.pricingBudgetId.trim() : null,
     createdAt: result.Item.createdAt,
     updatedAt: result.Item.updatedAt ?? result.Item.createdAt,
   };
@@ -594,13 +595,17 @@ export async function getBusinessProfile(businessId) {
 
 export async function updateBusinessProfile({ businessId, profile }) {
   const updatedAt = nowIso();
+  const pricingBudgetId = typeof profile.pricingBudgetId === 'string' && profile.pricingBudgetId.trim()
+    ? profile.pricingBudgetId.trim()
+    : null;
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, pricingBudgetId = :pricingBudgetId, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
+      ':pricingBudgetId': pricingBudgetId,
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',

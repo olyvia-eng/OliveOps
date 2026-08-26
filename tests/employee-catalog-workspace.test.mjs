@@ -10,11 +10,11 @@ const repositorySource = readFileSync('api/_lib/authRepo.js', 'utf8');
 
 test('Catalog presents Labour Classes as the primary labour resource alongside existing sections', () => {
   for (const tab of ["key: 'labour'", "key: 'equipment'", "key: 'materials'", "key: 'subcontractors'"]) assert.match(catalogSource, new RegExp(tab));
-  assert.match(catalogSource, /<LabourCatalogSection \/>/);
+  assert.match(catalogSource, /<LabourCatalogSection pricing=\{catalogPricing\.pricing\}/);
   assert.doesNotMatch(catalogSource, /<EmployeeCatalogSection \/>/);
-  assert.match(catalogSource, /<MaterialsCatalogSection \/>/);
+  assert.match(catalogSource, /<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
   assert.match(catalogSource, /<EquipmentDetailPanel/);
-  assert.match(catalogSource, /Subcontractor Catalog is coming next/);
+  assert.match(catalogSource, /<SubcontractorCatalogSection pricing=\{catalogPricing\.pricing\}/);
 });
 
 test('Labour Catalog empty setup is actionable and assignments remain explicit', () => {

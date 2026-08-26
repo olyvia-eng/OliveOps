@@ -140,6 +140,7 @@ export default function Sidebar({
     return [
       { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
       { label: 'Company Settings', path: '/settings/company', visible: canManageCompanySetup },
+      { label: 'Pricing', path: '/settings/pricing', visible: canManageCompanySetup },
       { label: 'Scheduling', path: '/settings/scheduling', visible: canManageCompanySetup },
       { label: 'Users & Access', path: '/user-access', visible: canManageCompanySetup },
       { label: 'Integrations', path: '/settings/integrations', visible: canManageCompanySetup },

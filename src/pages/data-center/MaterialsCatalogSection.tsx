@@ -9,15 +9,20 @@ import type { MaterialCatalogItem } from '../../types';
 import { formatCurrency } from '../../utils';
 import { emitAppToast } from '../../toast';
 import MaterialDetailPanel, { type MaterialAllocationView, type MaterialDetailTab } from './MaterialDetailPanel';
+import type { CatalogPricingItem, CatalogPricingPayload } from './catalogPricing';
 
 const MATERIAL_WORKSPACE_QUERY = { recordParam: 'material', tabParam: 'materialTab', defaultTab: 'overview' } as const;
-const MATERIAL_DETAIL_TABS: MaterialDetailTab[] = ['overview', 'budgets'];
+const MATERIAL_DETAIL_TABS: MaterialDetailTab[] = ['overview', 'pricing', 'budgets'];
 
 type MaterialForm = Pick<MaterialCatalogItem, 'name' | 'unit' | 'defaultUnitCost' | 'notes'>;
 
 const emptyForm = (): MaterialForm => ({ name: '', unit: 'unit', defaultUnitCost: 0, notes: '' });
 
-export default function MaterialsCatalogSection() {
+export default function MaterialsCatalogSection({ pricing, pricingLoading, onSaveCustomRate }: {
+  pricing: CatalogPricingPayload;
+  pricingLoading: boolean;
+  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const materialCatalogItems = useStore((state) => state.materialCatalogItems);
   const budgetDivisionPlanningItems = useStore((state) => state.budgetDivisionPlanningItems);
@@ -182,7 +187,7 @@ export default function MaterialsCatalogSection() {
           </table>
         </div>}
       </Card>}
-      detail={selectedMaterial ? <MaterialDetailPanel material={selectedMaterial} allocations={selectedAllocations} activeTab={activeTab} expanded={workspace.mode === 'expanded'} onTabChange={setMaterialTab} onEdit={() => openEdit(selectedMaterial)} onDelete={() => deleteMaterial(selectedMaterial)} onExpand={() => setWorkspaceMode('expanded')} onCollapse={() => setWorkspaceMode('panel')} onClose={closeMaterial} /> : <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Material not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeMaterial}>Close</Button></div>}
+      detail={selectedMaterial ? <MaterialDetailPanel material={selectedMaterial} allocations={selectedAllocations} activeTab={activeTab} expanded={workspace.mode === 'expanded'} pricing={pricing} pricingLoading={pricingLoading} onSaveCustomRate={onSaveCustomRate} onTabChange={setMaterialTab} onEdit={() => openEdit(selectedMaterial)} onDelete={() => deleteMaterial(selectedMaterial)} onExpand={() => setWorkspaceMode('expanded')} onCollapse={() => setWorkspaceMode('panel')} onClose={closeMaterial} /> : <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Material not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeMaterial}>Close</Button></div>}
     />
 
     <Modal open={modalOpen} onClose={closeModal} title={editingId ? `Edit Material - ${form.name || 'Material'}` : 'Add Material'} footer={<><Button variant="secondary" onClick={closeModal} disabled={saveStatus === 'saving'}>Cancel</Button><Button type="submit" form="material-modal-form" disabled={saveStatus === 'saving'}>{saveStatus === 'saving' ? 'Saving...' : editingId ? 'Save Changes' : 'Add to Catalog'}</Button></>}>

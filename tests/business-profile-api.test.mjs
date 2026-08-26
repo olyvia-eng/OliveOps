@@ -19,7 +19,7 @@ function installDdb(t) {
       const itemKey = key(input.Key.PK, input.Key.SK);
       const existing = store.get(itemKey);
       if (!existing) throw Object.assign(new Error('missing'), { name: 'ConditionalCheckFailedException' });
-      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
+      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], pricingBudgetId: input.ExpressionAttributeValues[':pricingBudgetId'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
       store.set(itemKey, next);
       return {};
     }
@@ -65,4 +65,26 @@ test('crew members cannot read or change company timezone', async (t) => {
   await seedUser(store, { userId: 'crew-a', role: 'crew_member', token: 'crew-token' });
   assert.equal((await request('crew-token', 'GET')).statusCode, 403);
   assert.equal((await request('crew-token', 'PATCH', { timezone: 'UTC' })).statusCode, 403);
+});
+
+test('owner can select only a tenant-owned active operating Division Budget for Catalog pricing', async (t) => {
+  const store = installDdb(t);
+  store.set(key('BUSINESS#biz-a', 'PROFILE'), { PK: 'BUSINESS#biz-a', SK: 'PROFILE', entityType: 'BUSINESS', businessId: 'biz-a', name: 'Olive Test', timezone: 'America/Toronto', createdAt: '2026-01-01T00:00:00.000Z' });
+  store.set(key('BUSINESS#biz-a', 'BUDGET_META#operating-a'), { PK: 'BUSINESS#biz-a', SK: 'BUDGET_META#operating-a', entityType: 'BUDGET', businessId: 'biz-a', budgetId: 'operating-a', id: 'operating-a', name: '2027 Operating Budget', budgetType: 'operating', planningModel: 'divisions_v1', status: 'active' });
+  store.set(key('BUSINESS#biz-a', 'BUDGET_META#capital-a'), { PK: 'BUSINESS#biz-a', SK: 'BUDGET_META#capital-a', entityType: 'BUDGET', businessId: 'biz-a', budgetId: 'capital-a', id: 'capital-a', name: 'Capital', budgetType: 'capital', planningModel: 'divisions_v1', status: 'active' });
+  store.set(key('BUSINESS#biz-b', 'BUDGET_META#foreign'), { PK: 'BUSINESS#biz-b', SK: 'BUDGET_META#foreign', entityType: 'BUDGET', businessId: 'biz-b', budgetId: 'foreign', id: 'foreign', name: 'Foreign', budgetType: 'operating', planningModel: 'divisions_v1', status: 'active' });
+  await seedUser(store, { userId: 'owner-pricing', role: 'owner', token: 'owner-pricing-token' });
+
+  for (const invalidId of ['capital-a', 'foreign', 'missing']) {
+    const invalid = await request('owner-pricing-token', 'PATCH', { timezone: 'America/Toronto', pricingBudgetId: invalidId });
+    assert.equal(invalid.statusCode, 400);
+  }
+  const saved = await request('owner-pricing-token', 'PATCH', { timezone: 'America/Toronto', pricingBudgetId: 'operating-a' });
+  assert.equal(saved.statusCode, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.business.pricingBudgetId, 'operating-a');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).pricingBudgetId, 'operating-a');
+
+  const cleared = await request('owner-pricing-token', 'PATCH', { timezone: 'America/Toronto', pricingBudgetId: null });
+  assert.equal(cleared.statusCode, 200);
+  assert.equal(cleared.body.business.pricingBudgetId, null);
 });
