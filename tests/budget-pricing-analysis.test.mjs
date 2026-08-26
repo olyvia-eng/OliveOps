@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
+import { buildBudgetLabourPricingDiagnostics, buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
 
 const pricingSource = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
+const labourPlannerSource = readFileSync('src/components/budget/DivisionPlanningTab.tsx', 'utf8');
 
 const budget = {
   id: 'budget-2027', targetMarginPct: 20,
@@ -46,6 +47,67 @@ test('Budget Analysis creates Labour Class rows without Average or Employee pric
   assert.ok(Math.abs(equipment.costRate - 43.3333333333) < 0.000001);
   assert.equal(equipment.overheadPerUnit, 25);
   assert.ok(Math.abs(equipment.recommendedRate - 85.4166666667) < 0.000001);
+});
+
+test('Snow Removal employee plans group into weighted Labour Class pricing rows', () => {
+  const snowBudget = { id: 'budget-snow', targetMarginPct: 20 };
+  const snowDivisions = [{ id: 'snow', budgetId: snowBudget.id, name: 'Snow Removal', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } } }];
+  const snowClasses = [{ id: 'labourer', name: 'Labourer', active: true, customRates: {} }, { id: 'foreman', name: 'Foreman', active: true, customRates: {} }];
+  const snowEmployees = [
+    { id: 'john', name: 'John Smith', labourClassId: 'labourer', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0 },
+    { id: 'mike', name: 'Mike White', labourClassId: 'labourer', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0 },
+    { id: 'matt', name: 'Matt Jones', labourClassId: 'foreman', compensationType: 'hourly', hourlyRate: 50, payrollBurdenPct: 0 },
+  ];
+  const snowPlans = snowEmployees.map((employee) => ({ id: `plan-${employee.id}`, budgetId: snowBudget.id, divisionId: 'snow', category: 'labour', employeeId: employee.id, name: employee.name, compType: 'hourly', plannedHours: 1000, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 1000 }] }));
+
+  const rows = buildBudgetPricingRows({ budget: snowBudget, divisions: snowDivisions, planningItems: snowPlans, budgetRates: [], employees: snowEmployees, labourClasses: snowClasses });
+  const labourRows = rows.filter((row) => row.type === 'labour');
+
+  assert.deepEqual(labourRows.map((row) => [row.item.name, row.divisionName, row.contributors.map((item) => item.name)]), [
+    ['Foreman', 'Snow Removal', ['Matt Jones']],
+    ['Labourer', 'Snow Removal', ['John Smith', 'Mike White']],
+  ]);
+  assert.deepEqual(labourRows.map((row) => [row.item.name, row.annualCost, row.billableHours, row.costRate]), [
+    ['Foreman', 50000, 800, 62.5],
+    ['Labourer', 60000, 1600, 37.5],
+  ]);
+});
+
+test('planned Employees without active Labour Classes are reported instead of silently discarded', () => {
+  const unassignedEmployees = [
+    { id: 'john', name: 'John Smith', compensationType: 'hourly', hourlyRate: 20 },
+    { id: 'mike', name: 'Mike White', labourClassId: 'missing-class', compensationType: 'hourly', hourlyRate: 30 },
+  ];
+  const unassignedPlans = unassignedEmployees.map((employee) => ({ id: `plan-${employee.id}`, budgetId: budget.id, category: 'labour', employeeId: employee.id, name: employee.name, compType: 'hourly', plannedHours: 1000, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }] }));
+  const diagnostics = buildBudgetLabourPricingDiagnostics({ budget, divisions, planningItems: unassignedPlans, employees: unassignedEmployees, labourClasses });
+  const rows = buildBudgetPricingRows({ budget, divisions, planningItems: unassignedPlans, budgetRates: [], employees: unassignedEmployees, labourClasses });
+
+  assert.equal(diagnostics.hasPlannedLabour, true);
+  assert.equal(diagnostics.plannedEmployeeCount, 2);
+  assert.deepEqual(diagnostics.unassignedEmployees.map((item) => item.employeeName), ['John Smith', 'Mike White']);
+  assert.equal(rows.filter((row) => row.type === 'labour').length, 0);
+  assert.match(pricingSource, /Labour is planned, but no planned employees are assigned to active Labour Classes/);
+  assert.match(pricingSource, /not assigned to an active Labour Class/);
+  assert.match(pricingSource, /Manage Labour Classes/);
+});
+
+test('no Budget labour rows remains distinct from unassigned planned labour', () => {
+  const diagnostics = buildBudgetLabourPricingDiagnostics({ budget, divisions, planningItems: [], employees, labourClasses });
+  assert.equal(diagnostics.hasPlannedLabour, false);
+  assert.equal(diagnostics.plannedEmployeeCount, 0);
+  assert.deepEqual(diagnostics.unassignedEmployees, []);
+  assert.match(pricingSource, /title=\{`No \$\{activeTab\.label\.toLowerCase\(\)\} planned`\}/);
+});
+
+test('Labour pricing excludes plans from another Budget and leaves the Employee-based planner unchanged', () => {
+  const foreignPlan = { ...planningItems[0], id: 'foreign-plan', budgetId: 'foreign-budget' };
+  const rows = buildBudgetPricingRows({ budget, divisions, planningItems: [foreignPlan], budgetRates: [], employees, labourClasses });
+  const diagnostics = buildBudgetLabourPricingDiagnostics({ budget, divisions, planningItems: [foreignPlan], employees, labourClasses });
+  assert.equal(rows.length, 0);
+  assert.equal(diagnostics.hasPlannedLabour, false);
+  assert.match(labourPlannerSource, /value=\{draft\.employeeId \?\? ''\}/);
+  assert.match(labourPlannerSource, /employeeId: event\.target\.value \|\| undefined/);
+  assert.doesNotMatch(labourPlannerSource, /labourClassId/);
 });
 
 test('Labour Class cost is weighted by allocated billable hours and excludes overhead employees', () => {

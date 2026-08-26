@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { HardHat, Package, Truck, Users } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Card, EmptyState } from "../ui";
 import { useStore } from "../../store";
 import type { Budget, BudgetDivisionPlanningItem } from "../../types";
 import { formatCurrency } from "../../utils";
 import {
   buildBudgetPricingRows,
+  buildBudgetLabourPricingDiagnostics,
   prepareBudgetPricingInputs,
 } from "../../pages/budget/budgetPricingModel.js";
 import { formatTargetMarginPercent } from "../../pages/budget/budgetAnalysisSummaryModel.js";
@@ -131,6 +133,10 @@ export default function BudgetPricingAnalysis({
         labourClasses,
       }),
     [budget, budgetRates, divisions, employees, labourClasses, planningItems],
+  );
+  const labourDiagnostics = useMemo(
+    () => buildBudgetLabourPricingDiagnostics({ budget, divisions, planningItems, employees, labourClasses }),
+    [budget, divisions, employees, labourClasses, planningItems],
   );
   const recovery = useMemo(
     () =>
@@ -369,15 +375,7 @@ export default function BudgetPricingAnalysis({
         ) : null}
       </section>
 
-      {rows.length === 0 ? (
-        <Card>
-          <EmptyState
-            title="No pricing items yet"
-            description="Add Labour, Equipment, Materials, or Subcontractors to this Budget to calculate customer pricing."
-          />
-        </Card>
-      ) : (
-        <section className="space-y-3">
+      <section className="space-y-3">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">
               Pricing
@@ -438,16 +436,41 @@ export default function BudgetPricingAnalysis({
               </h3>
             </div>
             {activeRows.length > 0 ? (
-              pricingTable(activeRows, activeTab.costLabel, activeTab.rateLabel)
+              <>
+                {activePricingTab === "labour" && labourDiagnostics.unassignedEmployees.length > 0 ? (
+                  <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+                    <p className="font-semibold">
+                      {labourDiagnostics.unassignedEmployees.length} planned {labourDiagnostics.unassignedEmployees.length === 1 ? "employee is" : "employees are"} not assigned to an active Labour Class.
+                    </p>
+                    <p className="mt-1">
+                      {labourDiagnostics.unassignedEmployees.map((item) => item.employeeName).join(", ")}. Assign a Labour Class to include {labourDiagnostics.unassignedEmployees.length === 1 ? "this employee" : "these employees"} in pricing. {" "}
+                      <Link className="font-semibold underline" to="/materials/catalog?catalog=labour">Manage Labour Classes</Link>
+                    </p>
+                  </div>
+                ) : null}
+                {pricingTable(activeRows, activeTab.costLabel, activeTab.rateLabel)}
+              </>
             ) : (
-              <EmptyState
-                title={`No ${activeTab.label.toLowerCase()} planned`}
-                description={`Add ${activeTab.label} to a Division to calculate pricing.`}
-              />
+              activePricingTab === "labour" && labourDiagnostics.hasPlannedLabour && labourDiagnostics.unassignedEmployees.length === labourDiagnostics.plannedEmployeeCount ? (
+                <EmptyState
+                  title="Labour is planned, but no planned employees are assigned to active Labour Classes"
+                  description={`${labourDiagnostics.unassignedEmployees.map((item) => item.employeeName).join(", ") || "Planned employees"}. Assign Labour Classes to include this labour in pricing.`}
+                  action={<Link className="font-semibold text-brand-700 underline" to="/materials/catalog?catalog=labour">Manage Labour Classes</Link>}
+                />
+              ) : activePricingTab === "labour" && labourDiagnostics.hasPlannedLabour && !labourDiagnostics.hasAssignedProductiveLabour ? (
+                <EmptyState
+                  title="Labour is planned, but no billable labour hours are available for pricing"
+                  description="Review the planned hours, billable percentage, and Division allocation for these Employees."
+                />
+              ) : (
+                <EmptyState
+                  title={`No ${activeTab.label.toLowerCase()} planned`}
+                  description={`Add ${activeTab.label} to a Division to calculate pricing.`}
+                />
+              )
             )}
           </Card>
-        </section>
-      )}
+      </section>
     </div>
   );
 }

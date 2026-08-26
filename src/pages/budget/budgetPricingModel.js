@@ -40,6 +40,39 @@ export function prepareBudgetPricingInputs({ planningItems, employees = [] }) {
   return planningItems.map((item) => applyEmployeeCostInputs(item, employeesById.get(item.employeeId)));
 }
 
+export function buildBudgetLabourPricingDiagnostics({ budget, divisions = [], planningItems, employees = [], labourClasses = [] }) {
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+  const activeClassIds = new Set(labourClasses.filter((labourClass) => labourClass.active !== false).map((labourClass) => labourClass.id));
+  const activeDivisions = divisions.filter((division) => division.status === 'active');
+  const planned = prepareBudgetPricingInputs({ planningItems, employees })
+    .filter((item) => item.budgetId === budget.id && item.category === 'labour' && item.labourClassification !== 'overhead')
+    .flatMap((item) => activeDivisions.flatMap((division) => {
+      const share = labourDivisionShare(item, division.id);
+      const allocatedHours = number(item.plannedHours) * share;
+      const allocatedCost = annualLabourCost(item) * share;
+      if (share <= 0 || (allocatedHours <= 0 && allocatedCost <= 0)) return [];
+      const employee = employeeById.get(item.employeeId);
+      const labourClassId = employee?.labourClassId;
+      return [{
+        employeeId: item.employeeId,
+        employeeName: employee?.name || item.name || item.description || 'Unlinked labour plan',
+        divisionId: division.id,
+        divisionName: division.name,
+        labourClassId,
+        billableHours: plannedBillableLabourHours(item) * share,
+        assigned: Boolean(labourClassId && activeClassIds.has(labourClassId)),
+      }];
+    }));
+  const plannedEmployees = [...new Map(planned.map((item) => [item.employeeId || item.employeeName, item])).values()];
+  const unassignedEmployees = plannedEmployees.filter((item) => !item.assigned);
+  return {
+    hasPlannedLabour: planned.length > 0,
+    plannedEmployeeCount: plannedEmployees.length,
+    hasAssignedProductiveLabour: planned.some((item) => item.assigned && item.billableHours > 0),
+    unassignedEmployees,
+  };
+}
+
 const divisionIdsForItem = (item) => {
   if (item.category === 'labour' && Array.isArray(item.divisionAllocations)) return item.divisionAllocations.filter((allocation) => number(allocation.hours ?? allocation.percentage) > 0).map((allocation) => allocation.divisionId);
   if (item.category === 'equipment' && Array.isArray(item.equipmentDivisionAllocations)) return item.equipmentDivisionAllocations.filter((allocation) => number(allocation.months) > 0).map((allocation) => allocation.divisionId);

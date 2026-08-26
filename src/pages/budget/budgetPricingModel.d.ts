@@ -48,3 +48,26 @@ export function prepareBudgetPricingInputs(input: {
   planningItems: BudgetDivisionPlanningItem[];
   employees?: Employee[];
 }): BudgetDivisionPlanningItem[];
+
+export interface BudgetLabourPricingDiagnosticEmployee {
+  employeeId?: string;
+  employeeName: string;
+  divisionId: string;
+  divisionName: string;
+  labourClassId?: string | null;
+  billableHours: number;
+  assigned: boolean;
+}
+
+export function buildBudgetLabourPricingDiagnostics(input: {
+  budget: Budget;
+  divisions?: BudgetDivision[];
+  planningItems: BudgetDivisionPlanningItem[];
+  employees?: Employee[];
+  labourClasses?: LabourClass[];
+}): {
+  hasPlannedLabour: boolean;
+  plannedEmployeeCount: number;
+  hasAssignedProductiveLabour: boolean;
+  unassignedEmployees: BudgetLabourPricingDiagnosticEmployee[];
+};
