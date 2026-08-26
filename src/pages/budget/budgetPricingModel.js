@@ -33,7 +33,7 @@ const identity = (item) => {
 };
 
 const typeForCategory = (category) => category === 'materials' ? 'material' : category === 'subcontractors' ? 'subcontractor' : category;
-const averageLabourItemId = (divisionId) => `average-labour:${divisionId}`;
+const labourClassItemId = (labourClassId) => `labour-class:${labourClassId}`;
 
 export function prepareBudgetPricingInputs({ planningItems, employees = [] }) {
   const employeesById = new Map(employees.map((employee) => [employee.id, employee]));
@@ -102,7 +102,7 @@ const buildLegacyRows = ({ budget, uniqueItems, budgetRates }) => {
   }).sort((left, right) => (left.item.name || left.item.description || '').localeCompare(right.item.name || right.item.description || ''));
 };
 
-export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees = [] }) {
+export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees = [], labourClasses = [] }) {
   const preparedPlanningItems = prepareBudgetPricingInputs({ planningItems, employees });
   const uniqueItems = [...new Map(preparedPlanningItems
     .filter((item) => item.budgetId === budget.id && ['labour', 'equipment', 'materials', 'subcontractors'].includes(item.category))
@@ -121,63 +121,70 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
     else costs.set(item.id, number(item.rate));
   }
 
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
   const labourItems = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification !== 'overhead');
-  const labourRows = divisions.filter((division) => division.status === 'active').map((division) => {
-    const contributors = labourItems.map((item) => {
-      const share = labourDivisionShare(item, division.id);
-      return {
-        id: item.id,
-        name: item.name || item.description || 'Labour plan',
-        billableHours: plannedBillableLabourHours(item) * share,
-        annualCost: annualLabourCost(item) * share,
-      };
-    }).filter((item) => item.billableHours > 0);
-    const billableHours = contributors.reduce((sum, item) => sum + item.billableHours, 0);
-    const annualCost = contributors.reduce((sum, item) => sum + item.annualCost, 0);
-    const costRate = billableHours > 0 ? annualCost / billableHours : 0;
-    const scope = recovery.divisions[division.id];
-    const divisionOverheadPerUnit = recoveryPerUnit(scope, 'labour', costRate);
-    const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
-    const recoveryConfigurationUnavailable = Boolean(scope && !scope.valid && scope.totalOverhead > 0);
-    const recoveryDenominatorUnavailable = Boolean(scope?.valid && (scope.pools.labour ?? 0) > 0 && (scope.denominators.labour ?? 0) <= 0);
-    const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
-    const recommendedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
-    const item = { id: averageLabourItemId(division.id), budgetId: budget.id, divisionId: division.id, category: 'labour', name: 'Average Labour' };
-    const rate = matchingRate(budgetRates, budget.id, item, 'labour', division.id);
-    return {
-      item,
-      key: `${division.id}:${item.id}`,
-      divisionId: division.id,
-      divisionName: division.name,
-      type: 'labour',
-      rate,
-      unit: 'hr',
-      costRate,
-      overheadPerUnit: divisionOverheadPerUnit,
-      divisionOverheadPerUnit,
-      recoveredCostPerUnit,
-      targetMarginPct: margin,
-      recommendedRate,
-      calculatedRate: recommendedRate,
-      pricingAvailable: recommendedRate > 0,
-      approvedRate: number(rate?.defaultSellPrice),
-      pricingStatus: number(rate?.defaultSellPrice) > 0 ? 'approved' : recommendedRate > 0 ? 'recommended_not_approved' : 'unavailable',
-      billableHours,
-      annualCost,
-      divisionOverhead: scope?.totalOverhead ?? 0,
-      recoveryAllocationPct: scope?.allocation.labourPercent ?? 0,
-      overheadPool: scope?.pools.labour ?? 0,
-      recoveryDenominator: scope?.denominators.labour ?? 0,
-      recoveryRate: scope?.rates.labour ?? 0,
-      recoveryUnavailable,
-      recoveryUnavailableReason: recoveryConfigurationUnavailable ? 'configuration' : recoveryDenominatorUnavailable ? 'denominator' : undefined,
-      contributors,
-      aggregateLabour: true,
-    };
+  const labourRows = labourClasses.filter((labourClass) => labourClass.active !== false).flatMap((labourClass) => {
+    const classItems = labourItems.filter((item) => employeeById.get(item.employeeId)?.labourClassId === labourClass.id);
+    return divisions.filter((division) => division.status === 'active').flatMap((division) => {
+      const contributors = classItems.map((item) => {
+        const share = labourDivisionShare(item, division.id);
+        return {
+          id: item.id,
+          employeeId: item.employeeId,
+          name: employeeById.get(item.employeeId)?.name || item.name || item.description || 'Employee',
+          billableHours: plannedBillableLabourHours(item) * share,
+          annualCost: annualLabourCost(item) * share,
+        };
+      }).filter((item) => item.billableHours > 0);
+      if (contributors.length === 0) return [];
+      const billableHours = contributors.reduce((sum, item) => sum + item.billableHours, 0);
+      const annualCost = contributors.reduce((sum, item) => sum + item.annualCost, 0);
+      const costRate = billableHours > 0 ? annualCost / billableHours : 0;
+      const scope = recovery.divisions[division.id];
+      const divisionOverheadPerUnit = recoveryPerUnit(scope, 'labour', costRate);
+      const recoveredCostPerUnit = costRate + divisionOverheadPerUnit;
+      const recoveryConfigurationUnavailable = Boolean(scope && !scope.valid && scope.totalOverhead > 0);
+      const recoveryDenominatorUnavailable = Boolean(scope?.valid && (scope.pools.labour ?? 0) > 0 && (scope.denominators.labour ?? 0) <= 0);
+      const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
+      const calculatedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
+      const customRate = number(labourClass.customRates?.[division.id]) || null;
+      const item = { id: labourClassItemId(labourClass.id), labourClassId: labourClass.id, budgetId: budget.id, divisionId: division.id, category: 'labour', name: labourClass.name };
+      return [{
+        item,
+        key: `${division.id}:${item.id}`,
+        divisionId: division.id,
+        divisionName: division.name,
+        type: 'labour',
+        unit: 'hr',
+        costRate,
+        overheadPerUnit: divisionOverheadPerUnit,
+        divisionOverheadPerUnit,
+        recoveredCostPerUnit,
+        breakeven: recoveredCostPerUnit,
+        targetMarginPct: margin,
+        profit: calculatedRate - recoveredCostPerUnit,
+        recommendedRate: calculatedRate,
+        calculatedRate,
+        customRate,
+        estimateRate: customRate ?? calculatedRate,
+        pricingAvailable: calculatedRate > 0,
+        billableHours,
+        annualCost,
+        divisionOverhead: scope?.totalOverhead ?? 0,
+        recoveryAllocationPct: scope?.allocation.labourPercent ?? 0,
+        overheadPool: scope?.pools.labour ?? 0,
+        recoveryDenominator: scope?.denominators.labour ?? 0,
+        recoveryRate: scope?.rates.labour ?? 0,
+        recoveryUnavailable,
+        recoveryUnavailableReason: recoveryConfigurationUnavailable ? 'configuration' : recoveryDenominatorUnavailable ? 'denominator' : undefined,
+        contributors,
+        labourClassPricing: true,
+      }];
+    });
   });
 
   const itemRows = uniqueItems
-    .filter((item) => (item.category !== 'labour' || Boolean(item.employeeId))
+    .filter((item) => item.category !== 'labour'
       && item.labourClassification !== 'overhead'
       && item.classification !== 'overhead')
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
@@ -204,9 +211,13 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         overheadPerUnit: divisionOverheadPerUnit,
         divisionOverheadPerUnit,
         recoveredCostPerUnit,
+        breakeven: recoveredCostPerUnit,
         targetMarginPct: margin,
+        profit: recommendedRate - recoveredCostPerUnit,
         recommendedRate,
         calculatedRate: recommendedRate,
+        customRate: number(rate?.defaultSellPrice) || null,
+        estimateRate: number(rate?.defaultSellPrice) || recommendedRate,
         pricingAvailable: recommendedRate > 0,
         divisionOverhead: scope?.totalOverhead ?? 0,
         recoveryAllocationPct: scope?.allocation[`${item.category}Percent`] ?? 0,

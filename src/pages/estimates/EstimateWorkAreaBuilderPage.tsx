@@ -589,7 +589,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">{candidate.description}</p>
                   {candidate.category === 'labour' && candidate.pricingItem ? (
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-brand-300">
-                      {candidate.pricingItem.averageLabourCost != null ? <span>Average Labour Cost: {formatCurrency(candidate.pricingItem.averageLabourCost)}/hr</span> : null}
+                      {candidate.pricingItem.averageLabourCost != null ? <span>Weighted Labour Cost: {formatCurrency(candidate.pricingItem.averageLabourCost)}/hr</span> : null}
                       {candidate.pricingItem.breakevenRate != null ? <span>Breakeven: {formatCurrency(candidate.pricingItem.breakevenRate)}/hr</span> : null}
                       {candidate.pricingItem.divisionName ? <span>{candidate.pricingItem.divisionName}</span> : null}
                     </div>

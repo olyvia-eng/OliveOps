@@ -32,13 +32,14 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
   const summary = useMemo(() => buildBudgetAnalysisSummary(financials, canonicalMargin), [canonicalMargin, financials]);
   const displayTarget = (nextMode: AnalysisValueMode, margin = canonicalMargin) => nextMode === 'percent'
     ? String(Number(margin.toFixed(2)))
-    : String(Number((summary.revenue * margin / 100).toFixed(2)));
+    : String(Number((summary.totalPlannedCosts / (1 - margin / 100) - summary.totalPlannedCosts).toFixed(2)));
 
   useEffect(() => {
     const next = normalizeTargetMargin(targetMarginPct);
     setCanonicalMargin(next);
-    setDraft(mode === 'percent' ? String(Number(next.toFixed(2))) : String(Number((financials.revenue * next / 100).toFixed(2))));
-  }, [financials.revenue, mode, targetMarginPct]);
+    const target = buildBudgetAnalysisSummary(financials, next);
+    setDraft(mode === 'percent' ? String(Number(next.toFixed(2))) : String(Number(target.targetNetProfit.toFixed(2))));
+  }, [financials, mode, targetMarginPct]);
 
   const changeMode = (nextMode: AnalysisValueMode) => {
     if (nextMode === mode) return;
@@ -54,7 +55,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
     }
     const nextMargin = mode === 'percent'
       ? normalizeTargetMargin(parsed)
-      : targetMarginFromDollars(parsed, summary.revenue);
+      : targetMarginFromDollars(parsed, summary.totalPlannedCosts);
     setCanonicalMargin(nextMargin);
     setDraft(mode === 'percent' ? String(Number(nextMargin.toFixed(2))) : String(Number((summary.revenue * nextMargin / 100).toFixed(2))));
     if (Math.abs(nextMargin - normalizeTargetMargin(targetMarginPct)) < 0.0001) return;
@@ -86,9 +87,9 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
         <dl className="mt-5 divide-y divide-gray-200 dark:divide-brand-600">
           {statementLines.map((line) => <div key={line.key} className={`flex items-center justify-between gap-4 py-2.5 ${line.key === 'revenue' ? 'pb-4 pt-0' : ''}`}><dt className={line.key === 'revenue' ? 'font-semibold text-gray-950 dark:text-brand-50' : 'text-sm text-gray-600 dark:text-brand-200'}>{line.label}</dt><dd className={`tabular-nums ${line.key === 'revenue' ? 'text-lg font-semibold text-gray-950 dark:text-brand-50' : 'text-sm font-medium text-gray-800 dark:text-brand-100'}`}>{valueFor(line.amount, line.percentOfRevenue)}</dd></div>)}
           <div className="flex items-center justify-between gap-4 border-t-2 border-gray-300 py-3 dark:border-brand-500">
-            <div><dt className="font-semibold text-brand-800 dark:text-brand-100">Net Profit</dt><dd className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Target margin used by Pricing</dd></div>
+            <div><dt className="font-semibold text-brand-800 dark:text-brand-100">Target Profit Margin</dt><dd className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Configured margin used by Pricing</dd></div>
             <div className="w-36">
-              <Input aria-label={`Target Net Profit in ${mode}`} type="number" min={0} max={mode === 'percent' ? 95 : undefined} step={mode === 'percent' ? 0.1 : 1} value={draft} disabled={!canEdit || saving || (mode === 'dollars' && summary.revenue <= 0)} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commitTarget()} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+              <Input aria-label={`Target Profit Margin in ${mode}`} type="number" min={0} max={mode === 'percent' ? 95 : undefined} step={mode === 'percent' ? 0.1 : 1} value={draft} disabled={!canEdit || saving || (mode === 'dollars' && summary.totalPlannedCosts <= 0)} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commitTarget()} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
               <p className="mt-1 text-right text-xs font-medium text-brand-700 dark:text-brand-200">{mode === 'dollars' ? formatPercent(targetLine?.percentOfRevenue ?? null) : formatCurrency(targetLine?.amount ?? 0)}</p>
             </div>
           </div>
@@ -130,7 +131,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
           {summary.surplusAfterTarget > 0 ? <div><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="font-medium text-gray-600 dark:text-brand-200">Above target</span><span className="tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.surplusAfterTarget)}</span></div><div className="h-3 overflow-hidden rounded-sm bg-gray-200 dark:bg-brand-700"><div className="h-full bg-gray-300 dark:bg-brand-600" style={{ width: `${summary.surplusAfterTarget / summary.chartTotal * 100}%` }} /></div></div> : null}
           {summary.shortfall > 0 ? <p className="text-right text-[11px] font-semibold text-gray-600 dark:text-brand-200">Dashed marker: Revenue limit</p> : null}
         </div>}
-        {summary.shortfall > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.shortfall)} revenue gap.</span> Planned costs plus Target Net Profit require {formatCurrency(summary.requiredRevenue)}.</p></div> : null}
+        {summary.shortfall > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.shortfall)} revenue gap.</span> Planned costs at the configured Target Profit Margin require {formatCurrency(summary.requiredRevenue)}.</p></div> : null}
       </section>
     </div>
   </Card>;

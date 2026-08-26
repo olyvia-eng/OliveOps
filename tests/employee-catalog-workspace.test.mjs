@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
 const employeeSource = readFileSync('src/pages/data-center/EmployeeCatalogSection.tsx', 'utf8');
+const labourCatalogSource = readFileSync('src/pages/data-center/LabourCatalogSection.tsx', 'utf8');
 const employeeTypeSource = readFileSync('src/types/index.ts', 'utf8');
 const repositorySource = readFileSync('api/_lib/authRepo.js', 'utf8');
 
@@ -14,6 +15,22 @@ test('Catalog presents Labour Classes as the primary labour resource alongside e
   assert.match(catalogSource, /<MaterialsCatalogSection \/>/);
   assert.match(catalogSource, /<EquipmentDetailPanel/);
   assert.match(catalogSource, /Subcontractor Catalog is coming next/);
+});
+
+test('Labour Catalog empty setup is actionable and assignments remain explicit', () => {
+  assert.match(labourCatalogSource, /title="No Labour Classes yet"/);
+  assert.match(labourCatalogSource, /Add Labour Class/);
+  assert.match(labourCatalogSource, /Employees needing a Labour Class/);
+  assert.match(labourCatalogSource, /Assign existing Employees explicitly/);
+  assert.match(labourCatalogSource, /aria-label=\{`Assign Labour Class to \$\{employee\.name\}`\}/);
+  assert.match(labourCatalogSource, /if \(event\.target\.value\) updateEmployee/);
+});
+
+test('Labour Class role suggestions are display-only and never silently persisted', () => {
+  assert.match(labourCatalogSource, /Role-based suggestions are never saved automatically/);
+  assert.match(labourCatalogSource, /Suggested: \$\{suggestion\.name\}/);
+  assert.doesNotMatch(labourCatalogSource, /updateEmployee\([^)]*suggestion\.id/);
+  assert.match(labourCatalogSource, /filter\(\(employee\) => employee\.active && !employee\.labourClassId\)/);
 });
 
 test('Employee Catalog consumes canonical employees and supports decision-focused filters', () => {

@@ -7,8 +7,10 @@ export const normalizeTargetMargin = (value) => Math.min(95, nonNegative(value ?
 
 export const formatTargetMarginPercent = (value) => `${Number(nonNegative(value).toFixed(2))}%`;
 
-export function targetMarginFromDollars(targetProfit, revenue) {
-  return revenue > 0 ? normalizeTargetMargin(nonNegative(targetProfit) / revenue * 100) : 0;
+export function targetMarginFromDollars(targetProfit, plannedCosts) {
+  const profit = nonNegative(targetProfit);
+  const costs = nonNegative(plannedCosts);
+  return profit + costs > 0 ? normalizeTargetMargin(profit / (profit + costs) * 100) : 0;
 }
 
 export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
@@ -22,8 +24,8 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
   const currentProfit = revenue - totalPlannedCosts;
   const currentProfitMarginPct = revenue > 0 ? currentProfit / revenue * 100 : null;
   const targetNetProfitPct = normalizeTargetMargin(targetMarginPct);
-  const targetNetProfit = revenue * targetNetProfitPct / 100;
-  const requiredRevenue = totalPlannedCosts + targetNetProfit;
+  const requiredRevenue = totalPlannedCosts / (1 - targetNetProfitPct / 100);
+  const targetNetProfit = requiredRevenue - totalPlannedCosts;
   const shortfall = Math.max(0, requiredRevenue - revenue);
   const surplusAfterTarget = Math.max(0, revenue - requiredRevenue);
   const chartTotal = Math.max(revenue, requiredRevenue, 1);

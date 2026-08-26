@@ -18,7 +18,7 @@ test('Labour drawer presents calculated Division pricing without approval langua
   assert.doesNotMatch(builderSource, /Approve pricing in/);
   assert.match(builderSource, /item\.pricingAvailable && item\.sellRate/);
   assert.match(builderSource, /item\.pricingReason/);
-  assert.match(builderSource, /Average Labour Cost:/);
+  assert.match(builderSource, /Weighted Labour Cost:/);
   assert.match(builderSource, /Breakeven:/);
   assert.match(builderSource, /candidate\.pricingItem\.divisionName/);
   assert.match(builderSource, /No Labour Classes configured/);

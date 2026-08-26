@@ -228,7 +228,7 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             <option value="">Unassigned</option>
             {labourClasses.filter((labourClass) => labourClass.active).sort((left, right) => left.name.localeCompare(right.name)).map((labourClass) => <option key={labourClass.id} value={labourClass.id}>{labourClass.name}</option>)}
           </Select>
-          <p className="mt-1 text-xs text-gray-500">Used to group employees for estimating and average labour pricing.</p>
+          <p className="mt-1 text-xs text-gray-500">Used to group employees for Labour Class pricing and estimating.</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

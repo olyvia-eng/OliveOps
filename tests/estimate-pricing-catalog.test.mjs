@@ -234,6 +234,7 @@ test('Budget Analysis and Estimate authorization use current Employee compensati
     planningItems: calculatedPlanningItems,
     budgetRates: [],
     employees,
+    labourClasses: calculatedLabourClasses,
   });
   const catalog = buildEstimatePricingCatalog({
     budget: calculatedBudget,
@@ -245,7 +246,7 @@ test('Budget Analysis and Estimate authorization use current Employee compensati
     employees,
     labourClasses: calculatedLabourClasses,
   });
-  const labourRow = rows.find((row) => row.aggregateLabour);
+  const labourRow = rows.find((row) => row.item.labourClassId === 'class-labourer');
 
   assert.equal(labourRow.costRate, 40);
   assert.equal(labourRow.sellRate, undefined);

@@ -279,8 +279,8 @@ export default function EquipmentCatalogPage() {
                       <th className="px-4 py-3 font-medium">ID / SKU</th>
                       <th className="px-4 py-3 font-medium">Type</th>
                       <th className="px-4 py-3 text-right font-medium">Cost / Hour</th>
-                      <th className="px-4 py-3 text-right font-medium">Recommended Rate</th>
-                      <th className="px-4 py-3 text-right font-medium">Approved Rate</th>
+                      <th className="px-4 py-3 text-right font-medium">Calculated Rate</th>
+                      <th className="px-4 py-3 text-right font-medium">Custom Rate</th>
                       <th className="px-4 py-3 font-medium">Status</th>
                       <th className="px-4 py-3 font-medium">Allocated To</th>
                     </tr>
@@ -292,7 +292,7 @@ export default function EquipmentCatalogPage() {
                       const recommendedRates = pricingRates.filter((rate) => (rate.recommendedSellPrice ?? 0) > 0);
                       const approvedRates = pricingRates.filter((rate) => rate.defaultSellPrice > 0);
                       const recommendedSummary = recommendedRates.length > 1 ? `${recommendedRates.length} division rates` : recommendedRates.length === 1 ? `${formatCurrency(recommendedRates[0].recommendedSellPrice ?? 0)}/hr` : 'Not calculated';
-                      const approvedSummary = approvedRates.length > 1 ? `${approvedRates.length} division rates` : approvedRates.length === 1 ? `${formatCurrency(approvedRates[0].defaultSellPrice)}/hr` : asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)}/hr` : 'Not approved';
+                      const approvedSummary = approvedRates.length > 1 ? `${approvedRates.length} division rates` : approvedRates.length === 1 ? `${formatCurrency(approvedRates[0].defaultSellPrice)}/hr` : asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)}/hr` : 'No custom rate';
                       const allocatedBudgetIds = Array.from(new Set(equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === asset.id).map((allocation) => allocation.budgetId)));
                       const allocatedNames = allocatedBudgetIds.map((budgetId) => budgets.find((budget) => budget.id === budgetId)?.name).filter((name): name is string => Boolean(name));
                       const allocationSummary = allocatedNames.length === 0

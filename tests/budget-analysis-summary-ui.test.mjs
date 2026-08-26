@@ -26,11 +26,11 @@ test('financial values come from the centralized Budget financial model', () => 
 test('dollar and percent modes derive from one canonical target margin', () => {
   assert.match(summarySource, /useState<AnalysisValueMode>\('dollars'\)/);
   assert.match(summarySource, /normalizeTargetMargin\(targetMarginPct\)/);
-  assert.match(summarySource, /targetMarginFromDollars\(parsed, summary\.revenue\)/);
+  assert.match(summarySource, /targetMarginFromDollars\(parsed, summary\.totalPlannedCosts\)/);
   assert.match(summarySource, /setCanonicalMargin\(nextMargin\)/);
   assert.match(summarySource, /onTargetMarginChange\(nextMargin\)/);
   assert.match(summarySource, /value === 'dollars' \? '\$' : '%'/);
-  assert.match(summaryModelSource, /amount \/ revenue \* 100/);
+  assert.match(summaryModelSource, /profit \/ \(profit \+ costs\) \* 100/);
 });
 
 test('chart consumes summary segments and exposes rather than normalizes shortfall', () => {
@@ -49,7 +49,8 @@ test('chart consumes summary segments and exposes rather than normalizes shortfa
 
 test('current profit stays distinct from target profit and Pricing reads the same margin', () => {
   assert.match(summaryModelSource, /currentProfit = revenue - totalPlannedCosts/);
-  assert.match(summaryModelSource, /targetNetProfit = revenue \* targetNetProfitPct \/ 100/);
+  assert.match(summaryModelSource, /requiredRevenue = totalPlannedCosts \/ \(1 - targetNetProfitPct \/ 100\)/);
+  assert.match(summaryModelSource, /targetNetProfit = requiredRevenue - totalPlannedCosts/);
   assert.match(summarySource, /Current Budget Profit/);
   assert.match(workspaceSource, /targetMarginPct=\{budget\.targetMarginPct\}/);
   assert.match(pricingModelSource, /budget\.targetMarginPct \?\? 20/);
@@ -58,7 +59,7 @@ test('current profit stays distinct from target profit and Pricing reads the sam
 test('existing Overhead Recovery and Pricing remain below the financial summary', () => {
   assert.match(workspaceSource, /<BudgetAnalysisSummary[\s\S]*<BudgetPricingAnalysis/);
   const pricingSource = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
-  assert.match(pricingSource, />Overhead Recovery<\/h2>/);
-  assert.match(pricingSource, />Pricing<\/h2>/);
-  for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: '${label}'`));
+  assert.match(pricingSource, />\s*Overhead Recovery\s*<\/h2>/);
+  assert.match(pricingSource, />\s*Pricing\s*<\/h2>/);
+  for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: ["']${label}["']`));
 });

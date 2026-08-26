@@ -4,6 +4,7 @@ import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspa
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
 import type { Budget, BudgetDivision, BudgetGroup, BudgetItem, BudgetRate, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
 import { formatCurrency } from '../../utils';
+import { buildEquipmentCatalogPricingRows } from './equipmentCatalogPricingModel.js';
 
 export type EquipmentDetailTab = 'overview' | 'pricing' | 'budgets';
 
@@ -51,15 +52,7 @@ export default function EquipmentDetailPanel({
   onCollapse,
   onClose,
 }: EquipmentDetailPanelProps) {
-  const pricingRows = pricingRates.map((rate) => ({
-    rate,
-    divisionName: budgetDivisions.find((division) => division.id === rate.divisionId)?.name ?? 'Legacy / Unassigned',
-    directCost: rate.directCostPerUnit ?? rate.unitCost,
-    overheadRecovery: rate.divisionOverheadRecoveryPerUnit ?? rate.overheadRecoveryPerUnit,
-    recoveredCost: rate.recoveredCostPerUnit,
-    recommendedRate: rate.recommendedSellPrice,
-    approvedRate: rate.defaultSellPrice,
-  }));
+  const pricingRows = buildEquipmentCatalogPricingRows({ pricingRates, budgetDivisions, budgets });
   const isOverheadEquipment = equipment.equipmentClassification === 'overhead';
   const allocatedRows = allocations.map((allocation) => {
     const budget = budgets.find((value) => value.id === allocation.budgetId);
@@ -150,12 +143,12 @@ export default function EquipmentDetailPanel({
             <EmptyState title="Charge-out pricing is not available" description="Overhead equipment costs are recovered through overhead rather than estimate charge-out rates." />
           ) : pricingRows.length > 0 ? (
             <Card className="overflow-hidden">
-              <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Direct Cost / Hour</th><th className="px-4 py-3 text-right font-medium">Overhead Recovery</th><th className="px-4 py-3 text-right font-medium">Recovered Cost</th><th className="px-4 py-3 text-right font-medium">Recommended Rate</th><th className="px-4 py-3 text-right font-medium">Approved Rate</th></tr></thead><tbody className="divide-y divide-gray-100">{pricingRows.map((row) => <tr key={row.rate.id}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{row.divisionName}</td><td className="px-4 py-3 text-right">{row.directCost > 0 ? `${formatCurrency(row.directCost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.overheadRecovery !== undefined ? `${formatCurrency(row.overheadRecovery)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.recoveredCost !== undefined ? `${formatCurrency(row.recoveredCost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.recommendedRate && row.recommendedRate > 0 ? `${formatCurrency(row.recommendedRate)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.approvedRate > 0 ? `${formatCurrency(row.approvedRate)}/hr` : 'Not approved'}</td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-sm"><thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Equipment Cost</th><th className="px-4 py-3 text-right font-medium">Overhead Recovery</th><th className="px-4 py-3 text-right font-medium">Breakeven</th><th className="px-4 py-3 text-right font-medium">Target Profit</th><th className="px-4 py-3 text-right font-medium">Profit</th><th className="px-4 py-3 text-right font-medium">Calculated Rate</th><th className="px-4 py-3 text-right font-medium">Custom Rate</th><th className="px-4 py-3 text-right font-medium">Estimate Rate</th></tr></thead><tbody className="divide-y divide-gray-100">{pricingRows.map((row) => <tr key={`${row.rate.budgetId}:${row.rate.divisionId ?? 'legacy'}`}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{row.divisionName}</td><td className="px-4 py-3 text-right">{row.cost !== null && row.cost > 0 ? `${formatCurrency(row.cost)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.overheadRecovery !== null ? `${formatCurrency(row.overheadRecovery)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.breakeven !== null ? `${formatCurrency(row.breakeven)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.targetMarginPct !== null ? `${row.targetMarginPct.toFixed(2)}%` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.profit !== null ? `${formatCurrency(row.profit)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right font-semibold">{row.calculatedRate !== null && row.calculatedRate > 0 ? `${formatCurrency(row.calculatedRate)}/hr` : 'Unavailable'}</td><td className="px-4 py-3 text-right">{row.customRate !== null ? `${formatCurrency(row.customRate)}/hr` : '—'}</td><td className="px-4 py-3 text-right font-semibold">{row.estimateRate !== null ? `${formatCurrency(row.estimateRate)}/hr` : 'Unavailable'}</td></tr>)}</tbody></table></div>
             </Card>
           ) : (
             <EmptyState
-              title="Recommended pricing has not been calculated yet"
-              description="Complete the budget overhead and target margin setup to generate a recommendation."
+              title="Equipment pricing has not been calculated yet"
+              description="Complete the Budget overhead and target profit setup to calculate an Estimate rate."
             />
           )
         ) : null}

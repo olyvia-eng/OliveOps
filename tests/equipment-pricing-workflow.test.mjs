@@ -109,14 +109,13 @@ test('equipment cost entry contains no sell rate and pricing is owned by Analysi
   assert.match(budgetSource, /Below recommended rate/);
 });
 
-test('approved rate is saved to budget pricing and synchronized to the catalog', () => {
+test('custom rate is saved to budget pricing and synchronized to the catalog', () => {
   assert.match(budgetSource, /recommendedSellPrice: pricing\.recommendedSellRate/);
   assert.match(budgetSource, /defaultSellPrice: chargeOutRate/);
   assert.match(budgetSource, /updateEquipmentAsset\(row\.asset\.id/);
-  assert.match(catalogDetailSource, /Direct Cost \/ Hour/);
-  assert.match(catalogDetailSource, /Recommended Rate/);
-  assert.match(catalogDetailSource, /Approved Rate/);
-  assert.match(catalogDetailSource, /pricingRates\.map/);
+  for (const label of ['Equipment Cost', 'Overhead Recovery', 'Breakeven', 'Target Profit', 'Profit', 'Calculated Rate', 'Custom Rate', 'Estimate Rate']) assert.match(catalogDetailSource, new RegExp(label));
+  for (const removed of ['Direct Cost / Hour', 'Recovered Cost', 'Recommended Rate', 'Approved Rate']) assert.doesNotMatch(catalogDetailSource, new RegExp(removed));
+  assert.match(catalogDetailSource, /buildEquipmentCatalogPricingRows/);
   assert.match(repoSource, /costRateHourly: Number\(item\.costRateHourly \?\? item\.hourlyCost \?\? 0\)/);
   assert.match(repoSource, /chargeOutRate: Number\(item\.chargeOutRate \?\? item\.recommendedSellRate \?\? 0\)/);
 });

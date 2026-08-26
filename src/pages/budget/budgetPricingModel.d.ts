@@ -1,7 +1,7 @@
-import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, Employee, LineItemCategory } from '../../types';
+import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, Employee, LabourClass, LineItemCategory } from '../../types';
 
 export interface BudgetPricingRow {
-  item: BudgetDivisionPlanningItem;
+  item: BudgetDivisionPlanningItem & { labourClassId?: string };
   key: string;
   divisionId?: string;
   divisionName?: string;
@@ -12,13 +12,17 @@ export interface BudgetPricingRow {
   overheadPerUnit: number;
   divisionOverheadPerUnit: number;
   recoveredCostPerUnit: number;
+  breakeven: number;
   targetMarginPct: number;
+  profit: number;
   recommendedRate: number;
   calculatedRate: number;
+  customRate: number | null;
+  estimateRate: number;
   pricingAvailable: boolean;
-  approvedRate: number;
-  pricingStatus: 'approved' | 'recommended_not_approved' | 'unavailable';
-  aggregateLabour?: boolean;
+  approvedRate?: number;
+  pricingStatus?: 'approved' | 'recommended_not_approved' | 'unavailable';
+  labourClassPricing?: boolean;
   billableHours?: number;
   annualCost?: number;
   divisionOverhead?: number;
@@ -28,7 +32,7 @@ export interface BudgetPricingRow {
   recoveryRate?: number;
   recoveryUnavailable?: boolean;
   recoveryUnavailableReason?: 'configuration' | 'denominator';
-  contributors?: Array<{ id: string; name: string; billableHours: number; annualCost: number }>;
+  contributors?: Array<{ id: string; employeeId?: string; name: string; billableHours: number; annualCost: number }>;
 }
 
 export function buildBudgetPricingRows(input: {
@@ -37,6 +41,7 @@ export function buildBudgetPricingRows(input: {
   planningItems: BudgetDivisionPlanningItem[];
   budgetRates: BudgetRate[];
   employees?: Employee[];
+  labourClasses?: LabourClass[];
 }): BudgetPricingRow[];
 
 export function prepareBudgetPricingInputs(input: {

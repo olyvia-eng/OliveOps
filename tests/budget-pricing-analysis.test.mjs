@@ -9,6 +9,8 @@ const budget = {
   id: 'budget-2027', targetMarginPct: 20,
 };
 const divisions = [{ id: 'hardscape', budgetId: budget.id, name: 'Hardscaping', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 50, equipmentPercent: 30, materialsPercent: 20, subcontractorsPercent: 0 } } }];
+const labourClasses = [{ id: 'labourer', name: 'Labourer', active: true, customRates: {} }];
+const employees = [{ id: 'employee-ryan', name: 'Ryan', labourClassId: 'labourer', compensationType: 'hourly', hourlyRate: 30, payrollBurdenPct: 20 }];
 const planningItems = [
   { id: 'ryan', budgetId: budget.id, divisionId: 'hardscape', category: 'labour', employeeId: 'employee-ryan', name: 'Ryan', compType: 'hourly', hourlyRate: 30, plannedHours: 2000, expectedBillablePct: 80, payrollBurdenPct: 20, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] },
   { id: 'bobcat', budgetId: budget.id, divisionId: 'hardscape', category: 'equipment', equipmentId: 'equipment-bobcat', name: 'Bobcat E50', plannedAmount: 52000, sellableHoursPerYear: 1200, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12, sellableHours: 1200 }] },
@@ -17,30 +19,28 @@ const planningItems = [
   { id: 'shared-overhead', budgetId: budget.id, divisionId: 'hardscape', category: 'overhead', name: 'Office', plannedAmount: 100000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 100 }] },
 ];
 
-test('Budget Analysis creates Average and employee-specific Labour rows', () => {
+test('Budget Analysis creates Labour Class rows without Average or Employee pricing rows', () => {
   const rows = buildBudgetPricingRows({
     budget,
     divisions,
     planningItems,
-    budgetRates: [{ id: 'rate-average-labour', budgetId: budget.id, budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2, category: 'labour', defaultSellPrice: 80 }],
+    budgetRates: [],
+    employees,
+    labourClasses,
   });
 
-  assert.equal(rows.length, 5);
-  const labour = rows.find((row) => row.item.id === 'average-labour:hardscape');
-  assert.equal(labour.item.name, 'Average Labour');
+  assert.equal(rows.length, 4);
+  const labour = rows.find((row) => row.item.labourClassId === 'labourer');
+  assert.equal(labour.item.name, 'Labourer');
   assert.equal(labour.costRate, 45);
   assert.equal(labour.billableHours, 1600);
   assert.equal(labour.overheadPerUnit, 31.25);
   assert.equal(labour.recommendedRate, 95.3125);
   assert.equal(labour.calculatedRate, 95.3125);
   assert.equal(labour.pricingAvailable, true);
-  assert.equal(labour.approvedRate, 80);
-  assert.equal(labour.pricingStatus, 'approved');
-
-  const employeeLabour = rows.find((row) => row.item.employeeId === 'employee-ryan');
-  assert.equal(employeeLabour.aggregateLabour, undefined);
-  assert.equal(employeeLabour.costRate, 45);
-  assert.equal(employeeLabour.calculatedRate, 95.3125);
+  assert.equal(labour.estimateRate, labour.calculatedRate);
+  assert.equal(rows.some((row) => row.item.name === 'Average Labour'), false);
+  assert.equal(rows.some((row) => row.item.employeeId === 'employee-ryan'), false);
 
   const equipment = rows.find((row) => row.item.id === 'bobcat');
   assert.ok(Math.abs(equipment.costRate - 43.3333333333) < 0.000001);
@@ -48,21 +48,26 @@ test('Budget Analysis creates Average and employee-specific Labour rows', () => 
   assert.ok(Math.abs(equipment.recommendedRate - 85.4166666667) < 0.000001);
 });
 
-test('Average Labour is weighted by allocated billable hours and excludes overhead employees', () => {
+test('Labour Class cost is weighted by allocated billable hours and excludes overhead employees', () => {
   const twoDivisions = [
     divisions[0],
     { id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } } },
   ];
   const items = [
-    { id: 'senior', budgetId: budget.id, category: 'labour', name: 'Senior', compType: 'hourly', hourlyRate: 40, plannedHours: 1000, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 750 }, { divisionId: 'snow', hours: 250 }] },
-    { id: 'junior', budgetId: budget.id, category: 'labour', name: 'Junior', compType: 'hourly', hourlyRate: 20, plannedHours: 3000, expectedBillablePct: 50, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 1500 }, { divisionId: 'snow', hours: 1500 }] },
-    { id: 'manager', budgetId: budget.id, category: 'labour', name: 'Manager', compType: 'salaried', annualSalary: 60000, plannedHours: 2000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }, { divisionId: 'snow', hours: 1000 }] },
+    { id: 'senior', budgetId: budget.id, category: 'labour', employeeId: 'senior', name: 'Senior', compType: 'hourly', hourlyRate: 40, plannedHours: 1000, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 750 }, { divisionId: 'snow', hours: 250 }] },
+    { id: 'junior', budgetId: budget.id, category: 'labour', employeeId: 'junior', name: 'Junior', compType: 'hourly', hourlyRate: 20, plannedHours: 3000, expectedBillablePct: 50, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 1500 }, { divisionId: 'snow', hours: 1500 }] },
+    { id: 'manager', budgetId: budget.id, category: 'labour', employeeId: 'manager', name: 'Manager', compType: 'salaried', annualSalary: 60000, plannedHours: 2000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }, { divisionId: 'snow', hours: 1000 }] },
     { id: 'office', budgetId: budget.id, category: 'overhead', plannedAmount: 20000, overheadDivisionAllocations: [{ divisionId: 'hardscape', percentage: 50 }, { divisionId: 'snow', percentage: 50 }] },
     { id: 'loader', budgetId: budget.id, category: 'equipment', equipmentId: 'loader', name: 'Loader', plannedAmount: 48000, sellableHoursPerYear: 1200, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 6, sellableHours: 600 }, { divisionId: 'snow', months: 6, sellableHours: 600 }] },
   ];
-  const rows = buildBudgetPricingRows({ budget, divisions: twoDivisions, planningItems: items, budgetRates: [] });
-  const hardscape = rows.find((row) => row.item.id === 'average-labour:hardscape');
-  assert.equal(rows.filter((row) => row.aggregateLabour).length, 2);
+  const classEmployees = [
+    { id: 'senior', name: 'Senior', labourClassId: 'labourer', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0 },
+    { id: 'junior', name: 'Junior', labourClassId: 'labourer', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0 },
+    { id: 'manager', name: 'Manager', labourClassId: 'labourer', compensationType: 'salary', hourlyRate: 60000, payrollBurdenPct: 0 },
+  ];
+  const rows = buildBudgetPricingRows({ budget, divisions: twoDivisions, planningItems: items, budgetRates: [], employees: classEmployees, labourClasses });
+  const hardscape = rows.find((row) => row.item.labourClassId === 'labourer' && row.divisionId === 'hardscape');
+  assert.equal(rows.filter((row) => row.labourClassPricing).length, 2);
   assert.equal(rows.some((row) => ['senior', 'junior', 'manager'].includes(row.item.id)), false);
   assert.equal(hardscape.billableHours, 1500);
   assert.equal(hardscape.annualCost, 60000);
@@ -73,14 +78,9 @@ test('Average Labour is weighted by allocated billable hours and excludes overhe
   assert.equal(rows.filter((row) => row.item.id === 'loader').length, 2);
 });
 
-test('Average Labour remains unavailable with zero planned billable hours', () => {
-  const rows = buildBudgetPricingRows({ budget, divisions, planningItems: [{ id: 'manager', budgetId: budget.id, category: 'labour', compType: 'salaried', annualSalary: 60000, plannedHours: 2000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] }], budgetRates: [] });
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].billableHours, 0);
-  assert.equal(rows[0].costRate, 0);
-  assert.equal(rows[0].recommendedRate, 0);
-  assert.equal(rows[0].pricingAvailable, false);
-  assert.equal(rows[0].pricingStatus, 'unavailable');
+test('Labour Class pricing is omitted when no productive Employee plan exists', () => {
+  const rows = buildBudgetPricingRows({ budget, divisions, planningItems: [{ id: 'manager', employeeId: 'manager', budgetId: budget.id, category: 'labour', compType: 'salaried', annualSalary: 60000, plannedHours: 2000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] }], budgetRates: [], employees: [{ id: 'manager', labourClassId: 'labourer' }], labourClasses });
+  assert.equal(rows.length, 0);
 });
 
 test('Budget Analysis leaves recommendations unavailable when pricing units are missing', () => {
@@ -91,20 +91,20 @@ test('Budget Analysis leaves recommendations unavailable when pricing units are 
 });
 
 test('Pricing uses four client-side tabs and defaults to Labour', () => {
-  assert.match(pricingSource, /type PricingTab = 'labour' \| 'equipment' \| 'materials' \| 'subcontractors'/);
-  assert.match(pricingSource, /useState<PricingTab>\('labour'\)/);
-  assert.match(pricingSource, /role="tablist" aria-label="Pricing category"/);
-  assert.match(pricingSource, /role="tab" aria-selected=\{activePricingTab === tab\.key\}/);
+  assert.match(pricingSource, /type PricingTab = ["']labour["'] \| ["']equipment["'] \| ["']materials["'] \| ["']subcontractors["']/);
+  assert.match(pricingSource, /useState<PricingTab>\(["']labour["']\)/);
+  assert.match(pricingSource, /role="tablist"\s+aria-label="Pricing category"/);
+  assert.match(pricingSource, /role="tab"\s+aria-selected=\{activePricingTab === tab\.key\}/);
   assert.match(pricingSource, /onClick=\{\(\) => setActivePricingTab\(tab\.key\)\}/);
   assert.match(pricingSource, /const activeRows = rows\.filter\(\(row\) => row\.type === activeTab\.rowType\)/);
-  for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: '${label}'`));
+  for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: ["']${label}["']`));
 });
 
 test('Pricing uses contractor-facing labels and renders no approval workflow', () => {
-  for (const label of ['Labour Cost', 'Labour Rate', 'Equipment Cost', 'Equipment Rate', 'Material Cost', 'Material Rate', 'Subcontractor Cost', 'Subcontractor Rate']) assert.match(pricingSource, new RegExp(label));
-  assert.match(pricingSource, />Target Net Profit</);
-  assert.match(pricingSource, />Pricing<\/h2>/);
-  assert.match(pricingSource, /Review Budget-calculated rates by Division/);
+  for (const label of ['Labour Cost', 'Equipment Cost', 'Material Cost', 'Subcontractor Cost', 'Overhead Recovery', 'Breakeven', 'Target Profit', 'Profit', 'Calculated', 'Custom', 'Estimate']) assert.match(pricingSource, new RegExp(label));
+  assert.doesNotMatch(pricingSource, /Target Net Profit/);
+  assert.match(pricingSource, />\s*Pricing\s*<\/h2>/);
+  assert.match(pricingSource, /Review Budget-calculated pricing by Division/);
   for (const removed of ['Approved Rate', 'Saved ✓', 'Custom rate', 'Not approved', 'Using recommended rate', 'addBudgetRate', 'updateBudgetRate']) assert.doesNotMatch(pricingSource, new RegExp(removed));
 });
 
@@ -116,11 +116,10 @@ test('overhead and final rates disclose actual source values and margin formula'
   assert.match(pricingSource, /Division Overhead:/);
   assert.match(pricingSource, /Allocation:/);
   assert.match(pricingSource, /Overhead Recovery:/);
-  assert.match(pricingSource, /Breakeven Rate:/);
-  assert.match(pricingSource, /Cost After OH Recovery:/);
-  assert.match(pricingSource, /÷ \(1 - \{formatTargetMarginPercent\(row\.targetMarginPct\)\}\)/);
+  assert.match(pricingSource, /Breakeven:/);
+  assert.match(pricingSource, /÷ \(1 -/);
+  assert.match(pricingSource, /formatTargetMarginPercent\(row\.targetMarginPct\)/);
   assert.doesNotMatch(pricingSource, /targetMarginPct\.toFixed\(0\)/);
-  assert.match(pricingSource, /× \(1 \+ \{\(\(row\.recoveryRate \?\? 0\) \* 100\)\.toFixed\(2\)\}%\)/);
   assert.doesNotMatch(pricingSource, /\* 1\.2|× 1\.20/);
 });
 
@@ -159,7 +158,6 @@ test('zero subcontractor allocation safely applies margin with zero overhead rec
 
 test('positive recovery pools with missing denominators are unavailable, not zero-overhead pricing', () => {
   const cases = [
-    ['labour', { category: 'labour', compType: 'hourly', hourlyRate: 30, plannedHours: 1000, expectedBillablePct: 0, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'division', hours: 1000 }] }],
     ['equipment', { category: 'equipment', plannedAmount: 0, sellableHoursPerYear: 100, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'division', months: 12, sellableHours: 100 }] }],
     ['materials', { category: 'materials', divisionId: 'division', unitCost: 25, plannedQuantity: 0 }],
     ['subcontractors', { category: 'subcontractors', divisionId: 'division', rate: 75, plannedQuantity: 0 }],
@@ -168,7 +166,7 @@ test('positive recovery pools with missing denominators are unavailable, not zer
     const missingBudget = { id: `missing-${category}`, targetMarginPct: 20 };
     const division = { id: 'division', budgetId: missingBudget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: category === 'labour' ? 100 : 0, equipmentPercent: category === 'equipment' ? 100 : 0, materialsPercent: category === 'materials' ? 100 : 0, subcontractorsPercent: category === 'subcontractors' ? 100 : 0 } } };
     const rows = buildBudgetPricingRows({ budget: missingBudget, divisions: [division], planningItems: [{ id: category, budgetId: missingBudget.id, ...item }, { id: 'overhead', budgetId: missingBudget.id, category: 'overhead', plannedAmount: 1000, overheadDivisionAllocations: [{ divisionId: 'division', percentage: 100 }] }], budgetRates: [] });
-    const row = rows.find((value) => value.item.id === category || value.aggregateLabour);
+    const row = rows.find((value) => value.item.id === category);
     assert.equal(row.recoveryUnavailable, true, category);
     assert.equal(row.recommendedRate, 0, category);
     assert.equal(row.overheadPool, 1000, category);
@@ -177,16 +175,16 @@ test('positive recovery pools with missing denominators are unavailable, not zer
     assert.equal(Number.isFinite(row.recommendedRate), true, category);
   }
   assert.match(pricingSource, /No \{terms\.missing\} is planned/);
-  assert.match(pricingSource, /cannot currently be recovered/);
+  assert.match(pricingSource, /cannot currently be\s+recovered/);
 });
 
-test('persisted approved rates remain readable but are not rendered or changed by tabs', () => {
-  const persistedRates = [{ id: 'rate-average', budgetId: budget.id, budgetItemId: 'average-labour:hardscape', divisionId: 'hardscape', pricingVersion: 2, category: 'labour', defaultSellPrice: 62.5 }];
-  const firstRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: persistedRates });
-  const reloadedRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: structuredClone(persistedRates) });
+test('persisted Labour Class custom rates remain readable and are not changed by tabs', () => {
+  const classesWithCustomRate = [{ ...labourClasses[0], customRates: { hardscape: 62.5 } }];
+  const firstRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: [], employees, labourClasses: classesWithCustomRate });
+  const reloadedRender = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: [], employees, labourClasses: structuredClone(classesWithCustomRate) });
 
-  assert.equal(firstRender.find((row) => row.item.id === 'average-labour:hardscape').approvedRate, 62.5);
-  assert.equal(reloadedRender.find((row) => row.item.id === 'average-labour:hardscape').approvedRate, 62.5);
+  assert.equal(firstRender.find((row) => row.item.labourClassId === 'labourer').customRate, 62.5);
+  assert.equal(reloadedRender.find((row) => row.item.labourClassId === 'labourer').estimateRate, 62.5);
   assert.match(pricingSource, /onClick=\{\(\) => setActivePricingTab\(tab\.key\)\}/);
   assert.doesNotMatch(pricingSource, /defaultSellPrice|approvedRate/);
 });
