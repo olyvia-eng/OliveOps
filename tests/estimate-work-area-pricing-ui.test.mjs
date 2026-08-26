@@ -17,6 +17,15 @@ test('Labour drawer presents calculated Division pricing without approval langua
   assert.doesNotMatch(builderSource, /Complete Pricing/);
   assert.doesNotMatch(builderSource, /Approve pricing in/);
   assert.match(builderSource, /item\.pricingAvailable && item\.sellRate/);
+  assert.match(builderSource, /item\.pricingReason/);
+  assert.match(builderSource, /Average Labour Cost:/);
+  assert.match(builderSource, /Breakeven:/);
+  assert.match(builderSource, /candidate\.pricingItem\.divisionName/);
+  assert.match(builderSource, /No Labour Classes configured/);
+  assert.match(builderSource, /Set up Labour Classes in Catalog/);
+  assert.match(builderSource, /\/materials\/catalog\?catalog=labour/);
+  assert.doesNotMatch(builderSource, /employees\.find/);
+  assert.doesNotMatch(builderSource, /employeeName/);
 });
 
 test('Work Area resources use compact responsive rows with editable quantity and expandable notes', () => {

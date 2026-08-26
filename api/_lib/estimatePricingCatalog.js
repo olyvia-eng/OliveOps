@@ -1,4 +1,5 @@
 import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
+import { buildLabourClassCatalog } from '../../src/pages/data-center/labourClassPricingModel.js';
 
 const CATEGORY_MAP = {
   labour: 'labour',
@@ -50,7 +51,7 @@ const itemDivisionIds = (item) => {
 const isOverheadEquipment = (item, equipment) => item.category === 'equipment'
   && (equipment.get(item.equipmentId)?.equipmentClassification ?? item.classification) === 'overhead';
 
-export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], materialCatalogItems = [] }) {
+export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], labourClasses = [], materialCatalogItems = [] }) {
   const entities = {
     employees: new Map(employees.map((item) => [item.id, item])),
     equipment: new Map(equipmentAssets.map((item) => [item.id, item])),
@@ -64,6 +65,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
 
   for (const item of planningItems) {
     if (item.budgetId !== budgetId || !CATEGORY_MAP[item.category]) continue;
+    if (budget?.planningModel === 'divisions_v1' && item.category === 'labour') continue;
     if (isOverheadEquipment(item, entities.equipment)) continue;
     const divisionIds = itemDivisionIds(item);
     if (!divisionId && !includeAllDivisions) {
@@ -83,6 +85,60 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
   }
 
   const catalog = { labour: [], equipment: [], materials: [], subcontractors: [] };
+  if (budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)) {
+    const divisionById = new Map(divisions.map((division) => [division.id, division]));
+    const labourClassRows = buildLabourClassCatalog({
+      labourClasses: labourClasses.filter((labourClass) => labourClass.active !== false),
+      employees,
+      budgets: [budget],
+      divisions,
+      planningItems,
+      budgetRates,
+    });
+    for (const labourClass of labourClassRows) {
+      for (const pricing of labourClass.pricing) {
+        if (pricing.budgetId !== budgetId) continue;
+        if (divisionId && pricing.divisionId !== divisionId) continue;
+        if (!divisionId && !includeAllDivisions) continue;
+        const estimateRate = Number.isFinite(pricing.estimateRate) ? pricing.estimateRate : null;
+        const pricingAvailable = pricing.pricingAvailable && estimateRate !== null && estimateRate > 0;
+        catalog.labour.push({
+          type: 'labour',
+          sourceEntityId: labourClass.id,
+          labourClassId: labourClass.id,
+          budgetItemId: `labour-class:${labourClass.id}`,
+          pricingRateUpdatedAt: labourClass.updatedAt ?? budget.updatedAt,
+          pricingVersion: 2,
+          divisionId: pricing.divisionId,
+          divisionName: pricing.divisionName ?? divisionById.get(pricing.divisionId)?.name,
+          directCostPerUnit: pricing.averageLabourCost,
+          divisionOverheadRecoveryPerUnit: pricing.overheadRecovery,
+          companyOverheadRecoveryPerUnit: 0,
+          recoveredCostPerUnit: pricing.breakeven,
+          targetMarginPct: pricing.targetMarginPct,
+          name: labourClass.name,
+          description: labourClass.description ?? '',
+          unit: 'hr',
+          costRate: pricing.averageLabourCost,
+          averageLabourCost: pricing.averageLabourCost,
+          overheadRecoveryPerHour: pricing.overheadRecovery,
+          breakevenRate: pricing.breakeven,
+          targetMargin: pricing.targetMarginPct,
+          calculatedRate: pricing.calculatedRate,
+          customRate: pricing.customRate,
+          estimateRate,
+          recommendedRate: pricing.calculatedRate,
+          approvedRate: null,
+          sellRate: estimateRate,
+          pricingAvailable,
+          pricingStatus: pricingAvailable ? 'calculated' : 'unavailable',
+          pricingReason: pricingAvailable
+            ? undefined
+            : pricing.unavailableReason ?? `Pricing unavailable for ${pricing.divisionName ?? divisionById.get(pricing.divisionId)?.name ?? 'this Division'}.`,
+        });
+      }
+    }
+  }
   for (const { item, divisionId: itemDivisionId } of uniqueItems.values()) {
     const type = CATEGORY_MAP[item.category];
     const calculatedRow = itemDivisionId ? calculatedRows.find((row) => row.divisionId === itemDivisionId
@@ -159,6 +215,15 @@ const preservePricingSnapshot = (existing, next) => {
     recoveredCostPerUnit: existing.recoveredCostPerUnit,
     targetMarginPct: existing.targetMarginPct,
     recommendedRateAtEstimate: existing.recommendedRateAtEstimate,
+    labourClassId: existing.labourClassId,
+    labourClassName: existing.labourClassName,
+    divisionName: existing.divisionName,
+    averageLabourCost: existing.averageLabourCost,
+    overheadRecoveryPerHour: existing.overheadRecoveryPerHour,
+    breakevenRate: existing.breakevenRate,
+    calculatedRateAtEstimate: existing.calculatedRateAtEstimate,
+    customRateAtEstimate: existing.customRateAtEstimate,
+    estimateRateAtEstimate: existing.estimateRateAtEstimate,
     equipmentId: existing.equipmentId,
     equipmentName: existing.equipmentName,
     itemName: existing.itemName,
@@ -215,6 +280,17 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       recoveredCostPerUnit: pricing.recoveredCostPerUnit ?? undefined,
       targetMarginPct: pricing.targetMarginPct ?? undefined,
       recommendedRateAtEstimate: pricing.recommendedRate ?? undefined,
+      labourClassId: pricing.type === 'labour' ? pricing.labourClassId : undefined,
+      labourClassName: pricing.type === 'labour' ? pricing.name : undefined,
+      employeeId: pricing.type === 'labour' ? undefined : item.employeeId,
+      employeeName: pricing.type === 'labour' ? undefined : item.employeeName,
+      divisionName: pricing.divisionName,
+      averageLabourCost: pricing.type === 'labour' ? pricing.averageLabourCost ?? unitCost : undefined,
+      overheadRecoveryPerHour: pricing.type === 'labour' ? pricing.overheadRecoveryPerHour ?? undefined : undefined,
+      breakevenRate: pricing.type === 'labour' ? pricing.breakevenRate ?? undefined : undefined,
+      calculatedRateAtEstimate: pricing.type === 'labour' ? pricing.calculatedRate ?? undefined : undefined,
+      customRateAtEstimate: pricing.type === 'labour' ? pricing.customRate ?? null : undefined,
+      estimateRateAtEstimate: pricing.type === 'labour' ? pricing.estimateRate ?? sellPrice : undefined,
       equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,

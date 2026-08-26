@@ -52,6 +52,10 @@ export interface LineItem {
 export interface EstimateLineItem {
   id: ID;
   category: LineItemCategory;
+  labourClassId?: ID;
+  labourClassName?: string;
+  employeeId?: ID;
+  employeeName?: string;
   sourceBudgetId?: ID;
   sourceBudgetItemId?: ID;
   sourceEntityId?: ID;
@@ -65,6 +69,13 @@ export interface EstimateLineItem {
   recoveredCostPerUnit?: number;
   targetMarginPct?: number;
   recommendedRateAtEstimate?: number;
+  divisionName?: string;
+  averageLabourCost?: number;
+  overheadRecoveryPerHour?: number;
+  breakevenRate?: number;
+  calculatedRateAtEstimate?: number;
+  customRateAtEstimate?: number | null;
+  estimateRateAtEstimate?: number;
   sourceCategory?: LineItemCategory;
   equipmentId?: ID;
   equipmentName?: string;
@@ -89,6 +100,7 @@ export type EstimatePricingStatus = 'calculated' | 'approved' | 'recommended_not
 export interface EstimatePricingCatalogItem {
   type: LineItemCategory;
   sourceEntityId?: ID;
+  labourClassId?: ID;
   budgetItemId: ID;
   sourceRateId?: ID;
   name: string;
@@ -105,11 +117,20 @@ export interface EstimatePricingCatalogItem {
   pricingRateUpdatedAt?: string;
   pricingVersion?: number;
   divisionId?: ID;
+  divisionName?: string;
   directCostPerUnit?: number | null;
   divisionOverheadRecoveryPerUnit?: number | null;
   companyOverheadRecoveryPerUnit?: number | null;
   recoveredCostPerUnit?: number | null;
   targetMarginPct?: number | null;
+  averageLabourCost?: number | null;
+  overheadRecoveryPerHour?: number | null;
+  breakevenRate?: number | null;
+  targetMargin?: number | null;
+  calculatedRate?: number | null;
+  customRate?: number | null;
+  estimateRate?: number | null;
+  pricingReason?: string;
 }
 
 export interface EstimatePricingCatalog {
@@ -417,6 +438,19 @@ export interface JobWorkAreaLineItem {
   id: ID;
   sourceEstimateLineItemId?: ID;
   sourceEstimateWorkAreaId?: ID;
+  labourClassId?: ID;
+  labourClassName?: string;
+  employeeId?: ID;
+  employeeName?: string;
+  divisionId?: ID;
+  divisionName?: string;
+  averageLabourCost?: number;
+  overheadRecoveryPerHour?: number;
+  breakevenRate?: number;
+  targetMarginPct?: number;
+  calculatedRateAtEstimate?: number;
+  customRateAtEstimate?: number | null;
+  estimateRateAtEstimate?: number;
   equipmentId?: ID;
   equipmentName?: string;
   costRateAtEstimate?: number;

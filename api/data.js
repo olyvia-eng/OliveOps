@@ -1115,15 +1115,16 @@ async function authorizeEstimatePricing({ businessId, existing, estimate }) {
   if (!hasBudgetSources) return { ok: true, estimate };
   const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
   if (!budget || budget.planningModel !== 'divisions_v1') return { ok: false, error: 'Estimate Pricing Budget is invalid.' };
-  const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
+  const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems] = await Promise.all([
     listDivisionPlanningItemsForBusiness(businessId),
     listBudgetDivisionsForBusiness(businessId),
     listBudgetRatesForBusiness(businessId),
     listEmployeesForBusiness(businessId),
     listEquipmentAssetsForBusiness(businessId),
+    listLabourClassesForBusiness(businessId),
     listMaterialCatalogItemsForBusiness(businessId),
   ]);
-  const catalog = buildEstimatePricingCatalog({ budget, budgetId: budget.id, divisions: budgetDivisions.filter((division) => division.budgetId === budget.id), includeAllDivisions: true, planningItems, budgetRates, employees, equipmentAssets, materialCatalogItems });
+  const catalog = buildEstimatePricingCatalog({ budget, budgetId: budget.id, divisions: budgetDivisions.filter((division) => division.budgetId === budget.id), includeAllDivisions: true, planningItems, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems });
   return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
 }
 

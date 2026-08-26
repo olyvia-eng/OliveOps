@@ -5,7 +5,7 @@ import { createEstimatePricingCatalogHandler } from '../api/estimate-pricing-cat
 import { buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
 
 const budgetId = 'budget-2027';
-const calculatedBudget = { id: budgetId, name: '2027', planningModel: 'divisions_v1', targetMarginPct: 20, updatedAt: '2026-08-24T00:00:00.000Z' };
+const calculatedBudget = { id: budgetId, name: '2027', status: 'active', planningModel: 'divisions_v1', targetMarginPct: 20, updatedAt: '2026-08-24T00:00:00.000Z' };
 const calculatedDivisions = [{
   id: 'hardscape', budgetId, name: 'Hardscape', status: 'active',
   overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 100, equipmentPercent: 0, materialsPercent: 0, subcontractorsPercent: 0 } },
@@ -19,9 +19,10 @@ const calculatedPlanningItems = [
   { id: 'sub-concrete', budgetId, category: 'subcontractors', divisionId: 'hardscape', vendorId: 'concrete-co', name: 'Concrete Co', unit: 'job', rate: 100, plannedQuantity: 10 },
 ];
 const calculatedEmployees = [
-  { id: 'ryan', name: 'Ryan Field', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 },
-  { id: 'john', name: 'John Field', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 },
+  { id: 'ryan', name: 'Ryan Field', labourClassId: 'class-labourer', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 },
+  { id: 'john', name: 'John Field', labourClassId: 'class-labourer', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 },
 ];
+const calculatedLabourClasses = [{ id: 'class-labourer', name: 'Labourer', description: 'General field labour', active: true, customRates: {}, updatedAt: '2026-08-24T00:00:00.000Z' }];
 const buildCalculated = (items = calculatedPlanningItems, rates = budgetRates) => buildEstimatePricingCatalog({
   budget: calculatedBudget,
   budgetId,
@@ -30,6 +31,7 @@ const buildCalculated = (items = calculatedPlanningItems, rates = budgetRates) =
   planningItems: items,
   budgetRates: rates,
   employees: calculatedEmployees,
+  labourClasses: calculatedLabourClasses,
   equipmentAssets: [{ id: 'bobcat', name: 'Bobcat E50', equipmentClassification: 'billable' }, { id: 'crew-truck', name: 'Crew Truck', equipmentClassification: 'overhead' }],
   materialCatalogItems: [{ id: 'gravel', name: 'A Gravel' }],
 });
@@ -109,9 +111,9 @@ test('legacy catalog items snapshot authoritative saved values and reject cross-
   assert.match(crossBudget.error, /selected Pricing Budget/);
 });
 
-test('existing Estimate snapshots do not silently reprice when a legacy saved rate changes', () => {
+test('existing Estimate snapshots do not silently reprice or lose legacy employee identity', () => {
   const rateA = build();
-  const existingLine = { id: 'line-bobcat', category: 'equipment', sourceBudgetId: budgetId, sourceBudgetItemId: 'equipment-bobcat', sourceEntityId: 'bobcat', sourceRateId: 'rate-bobcat', itemName: 'Bobcat E50', description: '', quantity: 8, unit: 'hr', unitCost: 55, sellPrice: 95, total: 760 };
+  const existingLine = { id: 'line-ryan', category: 'labour', employeeId: 'ryan', employeeName: 'Ryan Field', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', sourceRateId: 'rate-ryan', itemName: 'Ryan Field', description: '', quantity: 8, unit: 'hr', unitCost: 42, sellPrice: 72, total: 576 };
   const rateB = build(budgetRates.map((rate) => rate.id === 'rate-bobcat' ? { ...rate, defaultSellPrice: 120 } : rate));
   assert.equal(rateA.equipment.find((item) => item.sourceEntityId === 'bobcat').approvedRate, 95);
   assert.equal(rateB.equipment.find((item) => item.sourceEntityId === 'bobcat').approvedRate, 120);
@@ -122,47 +124,71 @@ test('existing Estimate snapshots do not silently reprice when a legacy saved ra
     catalog: rateB,
   });
   assert.equal(result.ok, true);
-  assert.equal(result.estimate.lineItems[0].sellPrice, 95);
-  assert.equal(result.estimate.lineItems[0].unitCost, 55);
+  assert.equal(result.estimate.lineItems[0].sellPrice, 72);
+  assert.equal(result.estimate.lineItems[0].unitCost, 42);
   assert.equal(result.estimate.lineItems[0].quantity, 10);
   assert.equal(result.estimate.lineItems[0].description, 'Ten planned hours');
-  assert.equal(result.estimate.lineItems[0].total, 950);
+  assert.equal(result.estimate.lineItems[0].total, 720);
+  assert.equal(result.estimate.lineItems[0].employeeId, 'ryan');
+  assert.equal(result.estimate.lineItems[0].employeeName, 'Ryan Field');
 });
 
-test('calculated Division Labour pricing uses each eligible employee cost without a saved approval', () => {
+test('calculated Division Labour pricing exposes a class without employee identities', () => {
   const catalog = buildCalculated();
-  assert.deepEqual(catalog.labour.map((item) => [item.name, item.sellRate, item.costRate, item.pricingStatus, item.sourceRateId]), [
-    ['John Field', 50, 40, 'calculated', undefined],
-    ['Ryan Field', 25, 20, 'calculated', undefined],
+  assert.deepEqual(catalog.labour.map((item) => [item.name, item.labourClassId, item.sellRate, item.costRate, item.pricingStatus]), [
+    ['Labourer', 'class-labourer', 37.5, 30, 'calculated'],
   ]);
+  assert.equal(JSON.stringify(catalog.labour).includes('Ryan Field'), false);
+  assert.equal(JSON.stringify(catalog.labour).includes('John Field'), false);
 
-  const requested = { id: 'line-average', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-john', sourceEntityId: 'john', itemName: '', description: '', quantity: 10, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
+  const requested = { id: 'line-average', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-class:class-labourer', sourceEntityId: 'class-labourer', itemName: '', description: '', quantity: 10, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
   const result = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-average', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
   assert.equal(result.ok, true);
-  assert.equal(result.estimate.lineItems[0].itemName, 'John Field');
-  assert.equal(result.estimate.lineItems[0].unitCost, 40);
-  assert.equal(result.estimate.lineItems[0].sellPrice, 50);
-  assert.equal(result.estimate.lineItems[0].total, 500);
+  assert.equal(result.estimate.lineItems[0].itemName, 'Labourer');
+  assert.equal(result.estimate.lineItems[0].labourClassId, 'class-labourer');
+  assert.equal(result.estimate.lineItems[0].unitCost, 30);
+  assert.equal(result.estimate.lineItems[0].sellPrice, 37.5);
+  assert.equal(result.estimate.lineItems[0].total, 375);
   assert.equal(result.estimate.lineItems[0].markupPercent, 0);
 
-  const authorizationCatalog = buildEstimatePricingCatalog({ budget: calculatedBudget, budgetId, divisions: calculatedDivisions, includeAllDivisions: true, planningItems: calculatedPlanningItems, budgetRates });
+  const forgedClass = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { id: 'estimate-forged', pricingBudgetId: budgetId, lineItems: [{ ...requested, id: 'line-forged', sourceEntityId: 'class-from-another-business' }], workAreas: [] },
+    catalog,
+  });
+  assert.equal(forgedClass.ok, false);
+  assert.match(forgedClass.error, /source identity is invalid/);
+
+  const authorizationCatalog = buildEstimatePricingCatalog({ budget: calculatedBudget, budgetId, divisions: calculatedDivisions, includeAllDivisions: true, planningItems: calculatedPlanningItems, budgetRates, employees: calculatedEmployees, labourClasses: calculatedLabourClasses });
   const authorized = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-average', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog: authorizationCatalog });
   assert.equal(authorized.ok, true);
   assert.equal(authorized.estimate.lineItems[0].sourceRateId, undefined);
-  assert.equal(authorized.estimate.lineItems[0].sellPrice, 50);
+  assert.equal(authorized.estimate.lineItems[0].sellPrice, 37.5);
 });
 
-test('generic Labour resources retain the Division average while named employees use individual rates', () => {
-  const generic = {
-    id: 'generic-hardscape-labour', budgetId, category: 'labour', name: 'Hardscape Labor', compType: 'hourly', hourlyRate: 30,
-    plannedHours: 1000, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 1000 }],
-  };
-  const catalog = buildCalculated([...calculatedPlanningItems, generic], []);
-  assert.deepEqual(catalog.labour.map((item) => [item.name, item.sourceEntityId, item.sellRate]), [
-    ['Hardscape Labor', undefined, 37.5],
-    ['John Field', 'john', 50],
-    ['Ryan Field', 'ryan', 25],
-  ]);
+test('Labour Class custom rate overrides calculated rate without truthiness fallback', () => {
+  const catalog = buildEstimatePricingCatalog({
+    budget: calculatedBudget, budgetId, divisions: calculatedDivisions, divisionId: 'hardscape', planningItems: calculatedPlanningItems,
+    budgetRates: [], employees: calculatedEmployees, labourClasses: [{ ...calculatedLabourClasses[0], customRates: { hardscape: 68 } }],
+  });
+  assert.deepEqual([catalog.labour[0].calculatedRate, catalog.labour[0].customRate, catalog.labour[0].estimateRate, catalog.labour[0].sellRate], [37.5, 68, 68, 68]);
+});
+
+test('the selected Division resolves its own rate for the same Labour Class', () => {
+  const snowDivision = { ...calculatedDivisions[0], id: 'snow', name: 'Snow Removal' };
+  const sharedPlans = calculatedPlanningItems.map((item) => item.category === 'labour'
+    ? { ...item, plannedHours: 1000, divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }, { divisionId: 'snow', hours: 500 }] }
+    : item);
+  const labourClasses = [{ ...calculatedLabourClasses[0], customRates: { hardscape: 68, snow: 97 } }];
+  const buildForDivision = (selectedDivisionId) => buildEstimatePricingCatalog({
+    budget: calculatedBudget, budgetId, divisions: [...calculatedDivisions, snowDivision], divisionId: selectedDivisionId,
+    planningItems: sharedPlans, budgetRates: [], employees: calculatedEmployees, labourClasses,
+  });
+
+  const hardscape = buildForDivision('hardscape');
+  const snow = buildForDivision('snow');
+  assert.deepEqual(hardscape.labour.map((item) => [item.name, item.divisionId, item.estimateRate]), [['Labourer', 'hardscape', 68]]);
+  assert.deepEqual(snow.labour.map((item) => [item.name, item.divisionId, item.estimateRate]), [['Labourer', 'snow', 97]]);
 });
 
 test('Estimate equipment eligibility excludes overhead assets without altering historical snapshots', () => {
@@ -217,22 +243,20 @@ test('Budget Analysis and Estimate authorization use current Employee compensati
     planningItems: calculatedPlanningItems,
     budgetRates: [],
     employees,
+    labourClasses: calculatedLabourClasses,
   });
   const labourRow = rows.find((row) => row.aggregateLabour);
-  const ryanRow = rows.find((row) => row.item.employeeId === 'ryan');
-  const johnRow = rows.find((row) => row.item.employeeId === 'john');
 
   assert.equal(labourRow.costRate, 40);
   assert.equal(labourRow.sellRate, undefined);
   assert.deepEqual(catalog.labour.map((item) => [item.sourceEntityId, item.costRate, item.sellRate]), [
-    ['john', johnRow.costRate, johnRow.calculatedRate],
-    ['ryan', ryanRow.costRate, ryanRow.calculatedRate],
+    ['class-labourer', 40, 50],
   ]);
 
-  const requested = { id: 'line-current', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', quantity: 2 };
+  const requested = { id: 'line-current', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-class:class-labourer', sourceEntityId: 'class-labourer', quantity: 2 };
   const added = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
   assert.equal(added.ok, true);
-  assert.deepEqual([added.estimate.lineItems[0].unitCost, added.estimate.lineItems[0].sellPrice], [60, 75]);
+  assert.deepEqual([added.estimate.lineItems[0].unitCost, added.estimate.lineItems[0].sellPrice], [40, 50]);
 
   const changedCatalog = buildEstimatePricingCatalog({
     budget: calculatedBudget,
@@ -242,9 +266,10 @@ test('Budget Analysis and Estimate authorization use current Employee compensati
     planningItems: calculatedPlanningItems,
     budgetRates: [],
     employees: employees.map((employee) => ({ ...employee, hourlyRate: 100 })),
+    labourClasses: calculatedLabourClasses,
   });
   const preserved = applyAuthoritativeEstimatePricing({ existingEstimate: added.estimate, nextEstimate: structuredClone(added.estimate), catalog: changedCatalog });
-  assert.deepEqual([preserved.estimate.lineItems[0].unitCost, preserved.estimate.lineItems[0].sellPrice], [60, 75]);
+  assert.deepEqual([preserved.estimate.lineItems[0].unitCost, preserved.estimate.lineItems[0].sellPrice], [40, 50]);
 });
 
 test('true financial-model incompleteness does not fall back to legacy employee approvals', () => {
@@ -254,9 +279,9 @@ test('true financial-model incompleteness does not fall back to legacy employee 
   const catalog = buildCalculated(noBillableLabour);
 
   assert.deepEqual(catalog.labour.map((item) => [item.name, item.sellRate, item.pricingAvailable, item.pricingStatus]), [
-    ['John Field', null, false, 'unavailable'],
-    ['Ryan Field', null, false, 'unavailable'],
+    ['Labourer', null, false, 'unavailable'],
   ]);
+  assert.match(catalog.labour[0].pricingReason, /No planned billable hours/);
 });
 
 test('all Division categories use calculated pricing without saved approval records', () => {
@@ -267,7 +292,7 @@ test('all Division categories use calculated pricing without saved approval reco
     materials: catalog.materials.map((item) => item.sellRate),
     subcontractors: catalog.subcontractors.map((item) => item.sellRate),
   }, {
-    labour: [50, 25],
+    labour: [37.5],
     equipment: [15],
     materials: [12.5],
     subcontractors: [125],
@@ -276,7 +301,7 @@ test('all Division categories use calculated pricing without saved approval reco
     .flat().every((item) => item.pricingAvailable && item.pricingStatus === 'calculated' && item.approvedRate === null), true);
 
   const requested = [
-    ['line-john', 'labour-john', 'john', 8],
+    ['line-labourer', 'labour-class:class-labourer', 'class-labourer', 8],
     ['line-bobcat', 'equipment-bobcat', 'bobcat', 8],
     ['line-gravel', 'material-gravel', 'gravel', 20],
     ['line-concrete', 'sub-concrete', 'concrete-co', 1],
@@ -291,7 +316,7 @@ test('all Division categories use calculated pricing without saved approval reco
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.estimate.lineItems.map((item) => [item.category, item.unitCost, item.sellPrice, item.total]), [
-    ['labour', 40, 50, 400],
+    ['labour', 30, 37.5, 300],
     ['equipment', 12, 15, 120],
     ['material', 10, 12.5, 250],
     ['subcontractor', 100, 125, 125],
@@ -300,12 +325,12 @@ test('all Division categories use calculated pricing without saved approval reco
 
 test('Division catalog snapshots calculated labour components immutably', () => {
   const catalog = buildCalculated();
-  const ryan = catalog.labour.find((item) => item.sourceEntityId === 'ryan');
-  assert.equal(ryan.sourceRateId, undefined);
-  assert.equal(ryan.divisionId, 'hardscape');
-  assert.equal(ryan.sellRate, 25);
+  const labourer = catalog.labour.find((item) => item.labourClassId === 'class-labourer');
+  assert.equal(labourer.sourceRateId, undefined);
+  assert.equal(labourer.divisionId, 'hardscape');
+  assert.equal(labourer.sellRate, 37.5);
 
-  const requested = { id: 'line-v2', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', itemName: '', description: '', quantity: 2, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
+  const requested = { id: 'line-v2', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-class:class-labourer', sourceEntityId: 'class-labourer', itemName: '', description: '', quantity: 2, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
   const result = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-v2', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
   assert.equal(result.ok, true);
   assert.deepEqual({
@@ -317,12 +342,13 @@ test('Division catalog snapshots calculated labour components immutably', () => 
     margin: result.estimate.lineItems[0].targetMarginPct,
     recommended: result.estimate.lineItems[0].recommendedRateAtEstimate,
     approved: result.estimate.lineItems[0].sellPrice,
-  }, { pricingVersion: 2, direct: 20, division: 0, company: 0, recovered: 20, margin: 20, recommended: 25, approved: 25 });
+  }, { pricingVersion: 2, direct: 30, division: 0, company: 0, recovered: 30, margin: 20, recommended: 37.5, approved: 37.5 });
 
   const changedCatalog = structuredClone(catalog);
-  changedCatalog.labour.find((item) => item.sourceEntityId === 'ryan').sellRate = 100;
+  changedCatalog.labour.find((item) => item.labourClassId === 'class-labourer').sellRate = 100;
   const unchanged = applyAuthoritativeEstimatePricing({ existingEstimate: result.estimate, nextEstimate: structuredClone(result.estimate), catalog: changedCatalog });
-  assert.equal(unchanged.estimate.lineItems[0].sellPrice, 25);
+  assert.equal(unchanged.estimate.lineItems[0].sellPrice, 37.5);
+  assert.equal(unchanged.estimate.lineItems[0].labourClassName, 'Labourer');
 });
 
 test('adding legacy Labour, Equipment, Material, and Subcontractor pricing preserves Estimate totals', () => {
@@ -363,6 +389,7 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
     listBudgetRatesForBusiness: async (businessId) => businessId === 'biz-a' ? budgetRates : [],
     listEmployeesForBusiness: async () => calculatedEmployees,
     listEquipmentAssetsForBusiness: async () => [{ id: 'bobcat', name: 'Bobcat E50' }, { id: 'truck', name: 'Dump Truck' }],
+    listLabourClassesForBusiness: async () => calculatedLabourClasses,
     listMaterialCatalogItemsForBusiness: async () => [{ id: 'gravel', name: 'A Gravel' }],
   });
   const response = { statusCode: 200, body: null, headers: {}, status(code) { this.statusCode = code; return this; }, setHeader(name, value) { this.headers[name] = value; }, json(body) { this.body = body; return this; } };
@@ -370,10 +397,9 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.budget.id, budgetId);
-  assert.equal(response.body.catalog.labour.length, 2);
+  assert.equal(response.body.catalog.labour.length, 1);
   assert.deepEqual(response.body.catalog.labour.map((item) => [item.sourceEntityId, item.sellRate, item.pricingAvailable]), [
-    ['john', 50, true],
-    ['ryan', 25, true],
+    ['class-labourer', 37.5, true],
   ]);
 
   const divisionResponse = { ...response, statusCode: 200, body: null };

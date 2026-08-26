@@ -207,6 +207,18 @@ function seedEstimate(store, { businessId, estimateId, customerId }) {
             {
               id: 'li-1',
               category: 'labour',
+              labourClassId: 'class-labourer',
+              labourClassName: 'Labourer',
+              divisionId: 'landscaping',
+              divisionName: 'Landscaping',
+              averageLabourCost: 29.5,
+              overheadRecoveryPerHour: 31.7,
+              breakevenRate: 61.2,
+              targetMarginPct: 10,
+              calculatedRateAtEstimate: 68,
+              customRateAtEstimate: null,
+              estimateRateAtEstimate: 68,
+              itemName: 'Labourer',
               description: 'Crew labor',
               quantity: 16,
               unit: 'hr',
@@ -315,6 +327,22 @@ test('converted job is persisted in canonical job format and returned by the nor
   assert.equal(persistedJob.operationalWorkAreas[0].estimatedCost, 1780);
   assert.equal(persistedJob.operationalWorkAreas[0].estimatedRevenue, 2046);
   assert.equal(persistedJob.operationalWorkAreas[0].estimatedMargin, 266);
+  const plannedLabour = persistedJob.operationalWorkAreas[0].lineItems[0];
+  assert.deepEqual({
+    labourClassId: plannedLabour.labourClassId,
+    labourClassName: plannedLabour.labourClassName,
+    plannedHours: plannedLabour.quantity,
+    estimatedCost: plannedLabour.estimatedCost,
+    estimatedRate: plannedLabour.estimateRateAtEstimate,
+  }, {
+    labourClassId: 'class-labourer',
+    labourClassName: 'Labourer',
+    plannedHours: 16,
+    estimatedCost: 880,
+    estimatedRate: 68,
+  });
+  assert.equal(persistedJob.originalEstimateSnapshot.workAreas[0].lineItems[0].labourClassId, 'class-labourer');
+  assert.deepEqual(persistedJob.assignedEmployeeIds, []);
 
   const businessJobs = await listJobsForBusiness('biz-1');
   assert.equal(businessJobs.length, 1);

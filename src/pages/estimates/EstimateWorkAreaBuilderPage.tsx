@@ -235,7 +235,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           ? `${formatCurrency(item.sellRate)}/${item.unit}`
           : 'Unavailable',
         pricingItem: item,
-        disabledReason: item.pricingAvailable ? undefined : `${CATEGORY_LABEL[category]} pricing is unavailable for ${estimateDivision?.name ?? 'this Division'}.`,
+        disabledReason: item.pricingAvailable ? undefined : item.pricingReason ?? `${CATEGORY_LABEL[category]} pricing is unavailable for ${estimateDivision?.name ?? 'this Division'}.`,
         alreadyAdded: alreadyAddedBudgetItemIds.has(item.budgetItemId),
         source: 'budget' as const,
         searchText: `${item.name} ${item.description} ${item.costCode ?? ''} ${category} ${item.unit}`.toLowerCase(),
@@ -562,11 +562,17 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         <EmptyState
           title={catalogSearch.trim()
             ? `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} match your search`
+            : pricingBudget?.planningModel === 'divisions_v1' && catalogCategory === 'labour'
+              ? 'No Labour Classes configured'
             : `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} in this Budget`}
           description={catalogSearch.trim()
             ? 'Try a different search.'
+            : pricingBudget?.planningModel === 'divisions_v1' && catalogCategory === 'labour'
+              ? 'Set up reusable Labour Classes before adding estimated labour.'
             : `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} pricing has been added to the ${pricingBudget?.name ?? 'selected'} Budget and Division.`}
-          action={<Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>Custom {CATEGORY_ADD_LABEL[catalogCategory]}</Button>}
+          action={pricingBudget?.planningModel === 'divisions_v1' && catalogCategory === 'labour'
+            ? <Link to="/materials/catalog?catalog=labour"><Button variant="secondary">Set up Labour Classes in Catalog</Button></Link>
+            : <Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>Custom {CATEGORY_ADD_LABEL[catalogCategory]}</Button>}
         />
       ) : !catalogLoading && !catalogError ? (
         <div className="space-y-3">
@@ -581,6 +587,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     {candidate.alreadyAdded ? <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">Already added</span> : null}
                   </div>
                   <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">{candidate.description}</p>
+                  {candidate.category === 'labour' && candidate.pricingItem ? (
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-brand-300">
+                      {candidate.pricingItem.averageLabourCost != null ? <span>Average Labour Cost: {formatCurrency(candidate.pricingItem.averageLabourCost)}/hr</span> : null}
+                      {candidate.pricingItem.breakevenRate != null ? <span>Breakeven: {formatCurrency(candidate.pricingItem.breakevenRate)}/hr</span> : null}
+                      {candidate.pricingItem.divisionName ? <span>{candidate.pricingItem.divisionName}</span> : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">{candidate.priceText}</p>

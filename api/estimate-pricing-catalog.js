@@ -7,6 +7,7 @@ import {
   listBudgetRatesForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
+  listLabourClassesForBusiness,
   listMaterialCatalogItemsForBusiness,
 } from './_lib/authRepo.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
@@ -23,6 +24,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
     listBudgetRatesForBusiness,
     listEmployeesForBusiness,
     listEquipmentAssetsForBusiness,
+    listLabourClassesForBusiness,
     listMaterialCatalogItemsForBusiness,
     listDivisionPlanningItemsForBusiness,
     ...overrides,
@@ -55,12 +57,13 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Estimate Division is invalid.' });
       }
 
-      const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, materialCatalogItems] = await Promise.all([
+      const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems] = await Promise.all([
         deps.listDivisionPlanningItemsForBusiness(session.businessId),
         deps.listBudgetDivisionsForBusiness(session.businessId),
         deps.listBudgetRatesForBusiness(session.businessId),
         deps.listEmployeesForBusiness(session.businessId),
         deps.listEquipmentAssetsForBusiness(session.businessId),
+        deps.listLabourClassesForBusiness(session.businessId),
         deps.listMaterialCatalogItemsForBusiness(session.businessId),
       ]);
       const catalog = buildEstimatePricingCatalog({
@@ -72,6 +75,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         budgetRates,
         employees,
         equipmentAssets,
+        labourClasses,
         materialCatalogItems,
       });
       return res.status(200).json({ ok: true, budget: { id: budget.id, name: budget.name }, catalog });
