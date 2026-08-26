@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { isFormAssignedToEmployee } from './formsEngine.js';
+import { isFormAssignedToEmployee, isJobOperationallyActive } from './formsEngine.js';
 
 const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'approved']);
 
@@ -64,10 +64,11 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
 }
 
 export function resolveAfterClockOutForms({ forms = [], employee, crews = [], divisions = [], jobs = [], equipment = [] }) {
+  const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
     if (form.status !== 'active' || !form.trigger?.includes('after_clock_out')) continue;
-    const context = assignmentContext({ form, employee, crews, divisions, jobs, equipment });
+    const context = assignmentContext({ form, employee, crews, divisions, jobs: actionableJobs, equipment });
     if (!context || !isFormAssignedToEmployee({ form, employee, crews, divisions, ...context })) continue;
     const packagedContext = safeContext(context);
     applicable.push({

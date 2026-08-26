@@ -6,6 +6,7 @@ const DISPLAY_FIELD_TYPES = new Set(['section_header', 'paragraph_text']);
 const OPTION_FIELD_TYPES = new Set(['checkbox', 'multiple_choice', 'dropdown']);
 const SELECTOR_FIELD_TYPES = new Set(['employee_selector', 'job_selector', 'customer_selector']);
 const MEDIA_FIELD_TYPES = new Set(['photo_upload', 'file_upload']);
+const NON_OPERATIONAL_JOB_STATUSES = new Set(['completed', 'cancelled', 'on_hold']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const NUMBER_PATTERN = /^-?(?:\d+\.?\d*|\.\d+)$/;
@@ -199,4 +200,8 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
     }
   }
   return { ok: true, responses: normalizedResponses };
+}
+
+export function isJobOperationallyActive(job) {
+  return Boolean(job) && !NON_OPERATIONAL_JOB_STATUSES.has(normalized(job.status));
 }

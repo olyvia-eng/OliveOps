@@ -108,11 +108,11 @@ async function seedEmployee(store, { businessId, employeeId, userId, token }) {
   await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role: 'crew_member', employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
-function seedActiveShift(store, { businessId, employeeId, entryId }) {
+function seedActiveShift(store, { businessId, employeeId, entryId, jobIds = [] }) {
   const clockIn = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   store.set(key(`BUSINESS#${businessId}`, `TIME#${entryId}`), {
     PK: `BUSINESS#${businessId}`, SK: `TIME#${entryId}`, entityType: 'TIME_ENTRY', businessId,
-    entryId, employeeId, workType: 'non_billable', jobIds: [], clockIn, breakMinutes: 0, notes: '', status: 'clocked_in',
+    entryId, employeeId, workType: 'non_billable', jobIds, clockIn, breakMinutes: 0, notes: '', status: 'clocked_in',
   });
   store.set(key(`BUSINESS#${businessId}#EMPLOYEE#${employeeId}`, 'ACTIVE_SHIFT'), {
     PK: `BUSINESS#${businessId}#EMPLOYEE#${employeeId}`, SK: 'ACTIVE_SHIFT', entityType: 'ACTIVE_SHIFT',
@@ -120,11 +120,11 @@ function seedActiveShift(store, { businessId, employeeId, entryId }) {
   });
 }
 
-function seedForm(store, { businessId, id, completionRequirement = 'required' }) {
+function seedForm(store, { businessId, id, completionRequirement = 'required', assignedTo = 'everyone', assignmentValue }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), {
     PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: `Form ${id}`,
-    description: `${id} description`, category: 'operations', status: 'active', assignedTo: 'everyone',
+    description: `${id} description`, category: 'operations', status: 'active', assignedTo, assignmentValue,
     trigger: ['after_clock_out'], completionRequirement,
   });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), {
@@ -193,6 +193,19 @@ test('after-clock-out resolution separates requirements and preserves applicable
   assert.equal(result.requiredForms.find((item) => item.formId === 'job').context.jobId, 'job-a');
   assert.equal(result.requiredForms.find((item) => item.formId === 'equipment').context.equipmentId, 'truck-a');
   assert.deepEqual(result.reminderForms.map((item) => item.formId), ['reminder']);
+});
+
+test('after-clock-out discovery excludes non-operational job assignments', () => {
+  const employee = { id: 'employee-a', role: 'crew_member', active: true };
+  const jobs = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'].map((status) => ({
+    id: `job-${status}`, title: status, status, assignedEmployeeIds: [employee.id], assignedEquipmentIds: [],
+  }));
+  const forms = jobs.map((job) => ({
+    id: `form-${job.status}`, name: job.status, status: 'active', trigger: ['after_clock_out'], assignedTo: 'job', assignmentValue: job.id, completionRequirement: 'required',
+  }));
+
+  const result = resolveAfterClockOutForms({ employee, jobs, forms });
+  assert.deepEqual(result.requiredForms.map((item) => item.formId), ['form-scheduled', 'form-in_progress']);
 });
 
 test('clock-out with no applicable forms preserves the existing immediate response', async (t) => {
@@ -293,6 +306,27 @@ test('canonical submission completes one requirement and finalization preserves 
   const replayAfterFinalize = await formRequest(context.token, submissionBody);
   assert.equal(replayAfterFinalize.statusCode, 200);
   assert.equal(replayAfterFinalize.body.replayed, true);
+});
+
+test('persisted after-clock-out workflow remains completable after its job goes on hold', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'job-required', assignedTo: 'job', assignmentValue: 'job-a' }] });
+  const pk = `BUSINESS#${context.businessId}`;
+  context.store.get(key(pk, `TIME#${context.entryId}`)).jobIds = ['job-a'];
+  context.store.set(key(pk, 'JOB#job-a'), {
+    PK: pk, SK: 'JOB#job-a', entityType: 'JOB', businessId: context.businessId, jobId: 'job-a', title: 'Job A',
+    status: 'in_progress', assignedEmployeeIds: [context.employeeId], assignedEquipmentIds: [],
+  });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  assert.equal(initiated.statusCode, 202);
+  const requirement = initiated.body.requiredForms[0];
+  context.store.get(key(pk, 'JOB#job-a')).status = 'on_hold';
+
+  const submitted = await formRequest(context.token, {
+    formId: requirement.formId, trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId, clientSubmissionId: 'closed-job-submit', responses: [{ fieldId: 'job-required-notes', value: 'Done' }],
+  });
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.jobId, 'job-a');
 });
 
 test('multiple required forms are independent while reminder forms remain advisory', async (t) => {

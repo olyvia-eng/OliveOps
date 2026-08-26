@@ -119,6 +119,14 @@ function seedForm(store, { businessId, id, trigger = ['before_clock_in'], comple
   });
 }
 
+function seedJob(store, { businessId, id, status, employeeId }) {
+  const pk = `BUSINESS#${businessId}`;
+  store.set(key(pk, `JOB#${id}`), {
+    PK: pk, SK: `JOB#${id}`, entityType: 'JOB', businessId, jobId: id, title: id,
+    status, assignedEmployeeIds: [employeeId], assignedEquipmentIds: [],
+  });
+}
+
 async function clockingRequest(token, { method = 'POST', action, body = {}, query = {} }) {
   const res = response();
   await clockingHandler({ method, query: { action, ...query }, headers: { authorization: `Bearer ${token}` }, body }, res);
@@ -175,6 +183,19 @@ test('before-clock-in resolution separates Required and Reminder forms without e
   assert.deepEqual(result.requiredForms.map((item) => item.formId), ['required']);
   assert.deepEqual(result.reminderForms.map((item) => item.formId), ['reminder']);
   assert.match(result.requiredForms[0].requirementId, /^requirement-[a-f0-9]{24}$/);
+});
+
+test('before-clock-in discovery excludes non-operational job assignments', () => {
+  const employee = { id: 'employee-a', role: 'crew_member', active: true };
+  const jobs = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'].map((status) => ({
+    id: `job-${status}`, title: status, status, assignedEmployeeIds: [employee.id], assignedEquipmentIds: [],
+  }));
+  const forms = jobs.map((job) => ({
+    id: `form-${job.status}`, name: job.status, status: 'active', trigger: ['before_clock_in'], assignedTo: 'job', assignmentValue: job.id, completionRequirement: 'required',
+  }));
+
+  const result = resolveBeforeClockInForms({ employee, jobs, forms });
+  assert.deepEqual(result.requiredForms.map((item) => item.formId), ['form-scheduled', 'form-in_progress']);
 });
 
 test('no applicable forms preserves normal clock-in and no-pending recovery contract', async (t) => {
@@ -370,6 +391,20 @@ test('submission atomically completes requirement, replays idempotently, and fin
   assert.equal(duplicateFinalize.body.status, 'clock_in_already_finalized');
   assert.equal(duplicateFinalize.body.timeEntry.id, finalized.body.timeEntry.id);
   assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
+});
+
+test('persisted before-clock-in workflow remains completable after its job closes', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'job-required', assignedTo: 'job', assignmentValue: 'job-a' }] });
+  const pk = `BUSINESS#${context.businessId}`;
+  seedJob(context.store, { businessId: context.businessId, id: 'job-a', status: 'scheduled', employeeId: context.employeeId });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId, { jobIds: ['job-a'] }) });
+  assert.equal(initiated.statusCode, 202);
+  const requirement = initiated.body.requiredForms[0];
+  context.store.get(key(pk, 'JOB#job-a')).status = 'completed';
+
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, requirement));
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.jobId, 'job-a');
 });
 
 test('multiple Required forms are independent and old submissions satisfy no new occurrence', async (t) => {

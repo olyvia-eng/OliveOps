@@ -42,6 +42,8 @@ The optional context filters narrow the returned instances. They do not grant ac
 
 `toDo` contains incomplete required instances. `available` contains active on-demand instances. `completed` contains up to 50 of the employee's non-draft submissions, newest first.
 
+Current Form discovery and Job/Customer selector choices include only operational Jobs. Jobs with status `completed`, `cancelled`, or `on_hold` are non-actionable; all other and legacy missing statuses remain actionable. Changing a Job back to an actionable status makes its assigned Forms available on the next request.
+
 A renderable Form instance has this shape:
 
 ```json
@@ -237,6 +239,8 @@ The future flow should upload bytes directly to object storage using a short-liv
 - `equipment`: configured equipment is attached to an authorized job. Equipment assignment never grants job access by itself.
 
 All evaluation fails closed when the assignment or required context cannot be resolved.
+
+Job authorization and operational lifecycle are evaluated separately. Lifecycle filtering applies only to current discovery, new submissions, active-work selectors, and creation of new mandatory workflow occurrences. Historical submissions retain their saved Job context, and an already-persisted mandatory clock-in or clock-out occurrence remains completable if the Job later becomes completed, cancelled, or on hold.
 
 ## Recurring periods
 

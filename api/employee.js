@@ -22,6 +22,7 @@ import {
   getMissingRequiredFormsForTrigger,
   isEmployeeAuthorizedForJob,
   isFormAssignedToEmployee,
+  isJobOperationallyActive,
   isSubmissionSatisfiedForScope,
   validateEmployeeFormResponses,
 } from './_lib/formsEngine.js';
@@ -88,7 +89,8 @@ async function loadFormsContext(session) {
   ]);
   const employee = resolveSessionEmployee(session, employees);
   const authorizedJobs = employee ? jobs.filter((job) => isEmployeeAuthorizedForJob({ employee, job, crews })) : [];
-  return { profile, employee, forms, fields, submissions, responses, jobs, authorizedJobs, customers, equipment, crews, divisions, timeZone: normalizeBusinessTimeZone(profile?.timezone) };
+  const actionableJobs = authorizedJobs.filter(isJobOperationallyActive);
+  return { profile, employee, forms, fields, submissions, responses, jobs, authorizedJobs, actionableJobs, customers, equipment, crews, divisions, timeZone: normalizeBusinessTimeZone(profile?.timezone) };
 }
 
 function findAssignmentDivision(form, divisions) {
@@ -98,18 +100,18 @@ function findAssignmentDivision(form, divisions) {
 
 function contextsForForm(form, data) {
   if (form.assignedTo === 'job') {
-    const job = data.authorizedJobs.find((candidate) => candidate.id === form.assignmentValue);
+    const job = data.actionableJobs.find((candidate) => candidate.id === form.assignmentValue);
     return job ? [{ job, division: data.divisions.find((item) => item.id === job.divisionId) }] : [];
   }
   if (form.assignedTo === 'equipment') {
     const equipment = data.equipment.find((candidate) => candidate.id === form.assignmentValue);
     if (!equipment) return [];
-    return data.authorizedJobs.filter((job) => job.assignedEquipmentIds?.includes(equipment.id)).map((job) => ({ job, equipment, division: data.divisions.find((item) => item.id === job.divisionId) }));
+    return data.actionableJobs.filter((job) => job.assignedEquipmentIds?.includes(equipment.id)).map((job) => ({ job, equipment, division: data.divisions.find((item) => item.id === job.divisionId) }));
   }
   if (form.assignedTo === 'division') {
     const division = findAssignmentDivision(form, data.divisions);
     if (!division) return [];
-    const jobs = data.authorizedJobs.filter((job) => job.divisionId === division.id);
+    const jobs = data.actionableJobs.filter((job) => job.divisionId === division.id);
     return jobs.length ? jobs.map((job) => ({ job, division })) : [{ division }];
   }
   return [{}];
@@ -122,21 +124,21 @@ function contextMatchesQuery(context, query) {
   return true;
 }
 
-function choicesForField(field, data) {
+function choicesForField(field, data, jobs = data.actionableJobs) {
   if (field.type === 'employee_selector') return [{ value: data.employee.id, label: data.employee.name }];
-  if (field.type === 'job_selector') return data.authorizedJobs.map((job) => ({ value: job.id, label: job.title }));
+  if (field.type === 'job_selector') return jobs.map((job) => ({ value: job.id, label: job.title }));
   if (field.type === 'customer_selector') {
-    const customerIds = new Set(data.authorizedJobs.map((job) => job.customerId));
+    const customerIds = new Set(jobs.map((job) => job.customerId));
     return data.customers.filter((customer) => customerIds.has(customer.id)).map((customer) => ({ value: customer.id, label: customer.name }));
   }
   return undefined;
 }
 
-function safeFields(formId, data) {
+function safeFields(formId, data, jobs = data.actionableJobs) {
   return data.fields.filter((field) => field.formId === formId).sort((left, right) => left.order - right.order).map((field) => ({
     id: field.id, type: field.type, label: field.label, helpText: field.helpText ?? '', required: field.required,
     defaultValue: field.defaultValue ?? '', placeholder: field.placeholder ?? '', options: field.options ?? [], order: field.order,
-    choices: choicesForField(field, data),
+    choices: choicesForField(field, data, jobs),
   }));
 }
 
@@ -206,7 +208,7 @@ function requestedContext(req, data) {
   const jobId = text(payload.jobId ?? req.query?.jobId);
   const equipmentId = text(payload.equipmentId ?? req.query?.equipmentId);
   const divisionId = text(payload.divisionId ?? req.query?.divisionId);
-  const job = jobId ? data.authorizedJobs.find((candidate) => candidate.id === jobId) : undefined;
+  const job = jobId ? data.actionableJobs.find((candidate) => candidate.id === jobId) : undefined;
   if (jobId && !job) return { error: 'Job context is not available to this employee.' };
   const equipment = equipmentId ? data.equipment.find((candidate) => candidate.id === equipmentId) : undefined;
   if (equipmentId && (!equipment || !job?.assignedEquipmentIds?.includes(equipmentId))) return { error: 'Equipment context is not assigned through this job.' };
@@ -369,7 +371,7 @@ export default async function handler(req, res) {
       : data.fields.filter((field) => field.formId === form.id);
     const choicesByFieldId = requiresClockInWorkflow && workflowRequirement?.form?.fields
       ? Object.fromEntries(fields.filter((field) => field.choices).map((field) => [field.id, field.choices]))
-      : Object.fromEntries(safeFields(form.id, data).filter((field) => field.choices).map((field) => [field.id, field.choices]));
+      : Object.fromEntries(safeFields(form.id, data, workflowRequirement ? data.authorizedJobs : data.actionableJobs).filter((field) => field.choices).map((field) => [field.id, field.choices]));
     const validation = validateEmployeeFormResponses({ fields, responses: payload?.responses, choicesByFieldId });
     if (!validation.ok) return res.status(400).json({ ok: false, error: validation.error, fieldId: validation.fieldId });
     const submittedAt = new Date().toISOString();

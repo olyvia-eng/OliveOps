@@ -4,6 +4,7 @@ import {
   buildFormCompletionScope,
   getMissingRequiredFormsForTrigger,
   isFormAssignedToEmployee,
+  isJobOperationallyActive,
   isSubmissionSatisfiedForScope,
   validateEmployeeFormResponses,
 } from '../api/_lib/formsEngine.js';
@@ -32,6 +33,16 @@ test('assignment evaluator fails closed for unassigned and unauthorized contexts
   assert.equal(isFormAssignedToEmployee({ form: form('job', job.id), employee, crews: [], job }), false);
   assert.equal(isFormAssignedToEmployee({ form: form('equipment', equipment.id), employee, crews: [], job, equipment }), false);
   assert.equal(isFormAssignedToEmployee({ form: form('everyone'), employee: { ...employee, active: false } }), false);
+});
+
+test('job lifecycle actionability excludes only closed and on-hold statuses', () => {
+  for (const status of ['completed', 'cancelled', 'on_hold', ' Completed ', 'ON_HOLD']) {
+    assert.equal(isJobOperationallyActive({ status }), false, status);
+  }
+  for (const status of [undefined, '', 'scheduled', 'in_progress', 'quoted', 'future_status']) {
+    assert.equal(isJobOperationallyActive({ status }), true, status);
+  }
+  assert.equal(isJobOperationallyActive(null), false);
 });
 
 test('required trigger evaluation excludes unrelated and completed forms', () => {

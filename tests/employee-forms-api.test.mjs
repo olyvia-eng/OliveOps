@@ -100,6 +100,52 @@ test('employee Forms API scopes division and equipment assignments through an au
   assert.equal(forbidden.statusCode, 403);
 });
 
+test('employee Forms lifecycle discovery follows operational job status and preserves history', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  const pk = 'BUSINESS#biz-a';
+  store.set(key(pk, 'DIVISION#division-a'), { PK: pk, SK: 'DIVISION#division-a', entityType: 'DIVISION', businessId: 'biz-a', divisionId: 'division-a', name: 'Earthworks', active: true });
+  store.set(key(pk, 'EQUIPMENT#equipment-a'), { PK: pk, SK: 'EQUIPMENT#equipment-a', entityType: 'EQUIPMENT', businessId: 'biz-a', equipmentId: 'equipment-a', name: 'Excavator', status: 'active' });
+  const statuses = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
+  for (const status of statuses) {
+    const jobId = `job-${status}`;
+    store.set(key(pk, `JOB#${jobId}`), {
+      PK: pk, SK: `JOB#${jobId}`, entityType: 'JOB', businessId: 'biz-a', jobId,
+      title: `Job ${status}`, status, assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: status === 'scheduled' ? ['equipment-a'] : [], divisionId: 'division-a', customerId: `customer-${status}`,
+    });
+    store.set(key(pk, `CUSTOMER#customer-${status}`), { PK: pk, SK: `CUSTOMER#customer-${status}`, entityType: 'CUSTOMER', businessId: 'biz-a', customerId: `customer-${status}`, name: `Customer ${status}` });
+    seedForm(store, { id: `form-${status}`, assignedTo: 'job', assignmentValue: jobId });
+  }
+  seedForm(store, { id: 'equipment-form', assignedTo: 'equipment', assignmentValue: 'equipment-a' });
+  seedForm(store, { id: 'division-form', assignedTo: 'division', assignmentValue: 'division-a' });
+  seedForm(store, { id: 'selector-form' });
+  store.set(key(pk, 'FORM_FIELD#selector-job'), { PK: pk, SK: 'FORM_FIELD#selector-job', entityType: 'FORM_FIELD', businessId: 'biz-a', formFieldId: 'selector-job', formId: 'selector-form', type: 'job_selector', label: 'Job', required: true, options: [], order: 1 });
+  store.set(key(pk, 'FORM_FIELD#selector-customer'), { PK: pk, SK: 'FORM_FIELD#selector-customer', entityType: 'FORM_FIELD', businessId: 'biz-a', formFieldId: 'selector-customer', formId: 'selector-form', type: 'customer_selector', label: 'Customer', required: true, options: [], order: 2 });
+  store.set(key(pk, 'FORM_SUBMISSION#historical'), {
+    PK: pk, SK: 'FORM_SUBMISSION#historical', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'historical',
+    formId: 'form-completed', employeeId: 'employee-a', jobId: 'job-completed', trigger: 'on_demand', status: 'submitted', submittedAt: '2026-08-18T12:00:00.000Z',
+  });
+
+  const initial = await request('token-a', { action: 'forms' });
+  assert.equal(initial.statusCode, 200);
+  assert.deepEqual(initial.body.available.filter((item) => item.id.startsWith('form-')).map((item) => item.id).sort(), ['form-in_progress', 'form-scheduled']);
+  assert.equal(initial.body.available.find((item) => item.id === 'equipment-form').context.jobId, 'job-scheduled');
+  assert.deepEqual(initial.body.available.filter((item) => item.id === 'division-form').map((item) => item.context.jobId).sort(), ['job-in_progress', 'job-scheduled']);
+  const selector = initial.body.available.find((item) => item.id === 'selector-form');
+  assert.deepEqual(selector.fields.find((field) => field.id === 'selector-job').choices.map((choice) => choice.value).sort(), ['job-in_progress', 'job-scheduled']);
+  assert.deepEqual(selector.fields.find((field) => field.id === 'selector-customer').choices.map((choice) => choice.value).sort(), ['customer-in_progress', 'customer-scheduled']);
+  assert.equal(initial.body.completed[0].context.jobId, 'job-completed');
+  assert.equal(initial.body.completed[0].context.jobName, 'Job completed');
+
+  store.get(key(pk, 'JOB#job-completed')).status = 'in_progress';
+  store.get(key(pk, 'JOB#job-on_hold')).status = 'scheduled';
+  const reopened = await request('token-a', { action: 'forms' });
+  assert.deepEqual(reopened.body.available.filter((item) => item.id.startsWith('form-')).map((item) => item.id).sort(), ['form-completed', 'form-in_progress', 'form-on_hold', 'form-scheduled']);
+
+  const closedContext = await request('token-a', { action: 'required', query: { trigger: 'before_starting_job', jobId: 'job-cancelled' } });
+  assert.equal(closedContext.statusCode, 403);
+});
+
 test('employee submission ignores spoofed ownership and atomically persists header plus answers', async (t) => {
   const store = installDdb(t);
   await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { isFormAssignedToEmployee } from './formsEngine.js';
+import { isFormAssignedToEmployee, isJobOperationallyActive } from './formsEngine.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 export const clockInWorkflowSk = (occurrenceId) => `CLOCK_IN_WORKFLOW#${occurrenceId}`;
@@ -102,10 +102,11 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
 }
 
 export function resolveBeforeClockInForms({ forms = [], fields = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [] }) {
+  const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
     if (form.status !== 'active' || !form.trigger?.includes('before_clock_in')) continue;
-    const context = assignmentContext({ form, employee, crews, divisions, jobs, equipment });
+    const context = assignmentContext({ form, employee, crews, divisions, jobs: actionableJobs, equipment });
     if (!context || !isFormAssignedToEmployee({ form, employee, crews, divisions, ...context })) continue;
     const packagedContext = safeContext(context);
     const completionRequirement = form.completionRequirement === 'required' ? 'required' : 'reminder';
@@ -119,7 +120,7 @@ export function resolveBeforeClockInForms({ forms = [], fields = [], employee, c
       order: applicable.length,
       context: packagedContext,
       completionRequirement,
-      form: formSnapshot({ form, context: packagedContext, fields, employee, jobs, customers }),
+      form: formSnapshot({ form, context: packagedContext, fields, employee, jobs: actionableJobs, customers }),
     });
   }
   return {
