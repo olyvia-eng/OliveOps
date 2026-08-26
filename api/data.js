@@ -909,6 +909,29 @@ function uniqueStringList(value) {
   return [...new Set(value.filter((entry) => typeof entry === 'string' && entry.trim().length > 0))];
 }
 
+function validateJobScheduleOccurrence(occurrence) {
+  if (!occurrence || typeof occurrence !== 'object' || Array.isArray(occurrence) || !isNonEmptyString(occurrence.id)) {
+    return 'Job schedule occurrence id is required.';
+  }
+  if (typeof occurrence.scheduleAllDay !== 'boolean') return 'Job schedule occurrence all-day flag is invalid.';
+  if (!Array.isArray(occurrence.assignedEmployeeIds) || occurrence.assignedEmployeeIds.some((value) => !isNonEmptyString(value))) {
+    return 'Job schedule occurrence employees are invalid.';
+  }
+  if (occurrence.scheduledStartAt !== undefined && occurrence.scheduledStartAt !== null && occurrence.scheduledStartAt !== '' && !isValidIsoDateTime(occurrence.scheduledStartAt)) {
+    return 'Job schedule occurrence start must be a valid ISO datetime.';
+  }
+  if (occurrence.scheduledEndAt !== undefined && occurrence.scheduledEndAt !== null && occurrence.scheduledEndAt !== '' && !isValidIsoDateTime(occurrence.scheduledEndAt)) {
+    return 'Job schedule occurrence end must be a valid ISO datetime.';
+  }
+  if (!occurrence.scheduleAllDay && (!isNonEmptyString(occurrence.scheduledStartAt) || !isNonEmptyString(occurrence.scheduledEndAt))) {
+    return 'Timed Job schedule occurrences require a start and end.';
+  }
+  if (isNonEmptyString(occurrence.scheduledStartAt) && isNonEmptyString(occurrence.scheduledEndAt) && Date.parse(occurrence.scheduledEndAt) < Date.parse(occurrence.scheduledStartAt)) {
+    return 'Job schedule occurrence end must be on or after the start.';
+  }
+  return null;
+}
+
 function validateJobRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Job id is required.';
   if (!isNonEmptyString(record.customerId)) return 'Job customer is required.';
@@ -940,6 +963,15 @@ function validateJobRecord(record) {
   if (record.scheduleNotes !== undefined && record.scheduleNotes !== null && typeof record.scheduleNotes !== 'string') {
     return 'Job schedule notes must be a string.';
   }
+  if (record.scheduleOccurrences !== undefined) {
+    if (!Array.isArray(record.scheduleOccurrences)) return 'Job schedule occurrences are invalid.';
+    const ids = record.scheduleOccurrences.map((occurrence) => occurrence?.id);
+    if (new Set(ids).size !== ids.length) return 'Job schedule occurrence ids must be unique.';
+    for (const occurrence of record.scheduleOccurrences) {
+      const occurrenceError = validateJobScheduleOccurrence(occurrence);
+      if (occurrenceError) return occurrenceError;
+    }
+  }
   if (record.crewId !== undefined && record.crewId !== null && !isNonEmptyString(record.crewId)) {
     return 'Job crew is invalid.';
   }
@@ -964,7 +996,10 @@ function validateJobRecord(record) {
 }
 
 async function validateJobRelationships({ businessId, record }) {
-  const assignedEmployeeIds = uniqueStringList(record.assignedEmployeeIds);
+  const occurrenceEmployeeIds = Array.isArray(record.scheduleOccurrences)
+    ? record.scheduleOccurrences.flatMap((occurrence) => uniqueStringList(occurrence.assignedEmployeeIds))
+    : [];
+  const assignedEmployeeIds = uniqueStringList([...record.assignedEmployeeIds, ...occurrenceEmployeeIds]);
   const assignedEquipmentIds = uniqueStringList(record.assignedEquipmentIds);
 
   if (isNonEmptyString(record.crewId) && !await getCrewForBusiness(businessId, record.crewId)) {

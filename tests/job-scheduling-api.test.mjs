@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import dataHandler from '../api/data.js';
 import { ddb } from '../api/_lib/db.js';
-import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
+import { createMobileSessionForUser, getJobForBusiness } from '../api/_lib/authRepo.js';
 
 function createMockRes() {
   return {
@@ -178,6 +178,27 @@ test('foreman can create a scheduled job through the generic jobs API', async (t
   assert.equal(res.body.ok, true);
 });
 
+test('multiple schedule occurrences persist without replacing the legacy Job schedule', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-admin-occurrences', role: 'admin', email: 'occurrences@example.com' });
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Ryan Crew' });
+  await seedSession({ businessId: 'biz-a', userId: 'user-admin-occurrences', role: 'admin', email: 'occurrences@example.com', token: 'schedule-occurrences-token' });
+  const scheduleOccurrences = [
+    { id: 'day-one', scheduleAllDay: false, scheduledStartAt: '2026-08-10T07:00:00', scheduledEndAt: '2026-08-10T15:00:00', assignedEmployeeIds: ['emp-a'] },
+    { id: 'day-two', scheduleAllDay: false, scheduledStartAt: '2026-08-12T08:00:00', scheduledEndAt: '2026-08-12T12:00:00', assignedEmployeeIds: ['emp-a'] },
+  ];
+  const res = createMockRes();
+  await dataHandler({
+    method: 'POST', query: { entity: 'jobs' }, headers: { authorization: 'Bearer schedule-occurrences-token' },
+    body: { data: buildJobRecord({ id: 'job-occurrences', scheduleOccurrences }) },
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  const saved = await getJobForBusiness('biz-a', 'job-occurrences');
+  assert.deepEqual(saved.scheduleOccurrences, scheduleOccurrences);
+  assert.equal(saved.scheduledStartAt, '2026-08-10T07:00:00');
+});
+
 test('crew scheduling changes are rejected', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-crew', role: 'crew_member', email: 'crew@example.com' });
@@ -221,6 +242,25 @@ test('job scheduling rejects assigned employees from another tenant', async (t) 
 
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.ok, false);
+  assert.equal(res.body.error, 'Assigned employees must belong to this business.');
+});
+
+test('job scheduling rejects occurrence employees from another tenant', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-occurrence-admin', role: 'admin', email: 'occurrence-admin@example.com' });
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Local Crew' });
+  seedEmployee(store, { businessId: 'biz-b', employeeId: 'emp-foreign', name: 'Foreign Crew' });
+  await seedSession({ businessId: 'biz-a', userId: 'user-occurrence-admin', role: 'admin', email: 'occurrence-admin@example.com', token: 'occurrence-admin-token' });
+  const res = createMockRes();
+  await dataHandler({
+    method: 'POST', query: { entity: 'jobs' }, headers: { authorization: 'Bearer occurrence-admin-token' },
+    body: { data: buildJobRecord({
+      id: 'job-foreign-occurrence',
+      scheduleOccurrences: [{ id: 'foreign-day', scheduleAllDay: false, scheduledStartAt: '2026-08-10T07:00:00', scheduledEndAt: '2026-08-10T15:00:00', assignedEmployeeIds: ['emp-foreign'] }],
+    }) },
+  }, res);
+
+  assert.equal(res.statusCode, 400);
   assert.equal(res.body.error, 'Assigned employees must belong to this business.');
 });
 

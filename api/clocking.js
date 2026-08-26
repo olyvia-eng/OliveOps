@@ -50,11 +50,23 @@ import {
   getPendingClockInWorkflowForEmployee,
   resolveBeforeClockInForms,
 } from './_lib/mandatoryClockIn.js';
+import { calculateEmployeeLabourCost } from '../src/utils/employeeLabourCost.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function labourCostSnapshot(employee, clockIn, clockOut, breakMinutes = 0) {
+  if (!employee) return {};
+  const start = Date.parse(clockIn ?? '');
+  const end = Date.parse(clockOut ?? '');
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return {};
+  const hours = Math.max(0, (end - start) / 3600000 - Number(breakMinutes ?? 0) / 60);
+  const labourCostRateSnapshot = calculateEmployeeLabourCost(employee).labourCostPerPaidHour;
+  if (!Number.isFinite(labourCostRateSnapshot)) return {};
+  return { labourCostRateSnapshot, labourCostTotalSnapshot: hours * labourCostRateSnapshot };
 }
 
 function payloadHash(payload) {
@@ -383,6 +395,7 @@ export default async function handler(req, res) {
 
     const employee = await getEmployeeForBusiness(session.businessId, workflow.employeeId);
     const finalData = workflow.finalizationData;
+    const costSnapshot = labourCostSnapshot(employee, finalData.clockIn, workflow.intendedClockOutAt, finalData.breakMinutes);
     const timeEntry = {
       id: workflow.timeEntryId,
       employeeId: workflow.employeeId,
@@ -401,6 +414,7 @@ export default async function handler(req, res) {
       unbillableCategoryId: finalData.unbillableCategoryId,
       unbillableCategoryName: finalData.unbillableCategoryName,
       status: 'clocked_out',
+      ...costSnapshot,
     };
     const finalizedAt = nowIso();
     const workflowFinalizationItems = buildWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt, timeEntry });
@@ -418,6 +432,7 @@ export default async function handler(req, res) {
       source: workflow.source,
       auditEventId: `${session.id}:${workflow.requestId}:clock-out`,
       ...finalData,
+      ...costSnapshot,
       employeeName: employee?.name ?? '',
       workflowFinalizationItems,
     });
@@ -770,6 +785,7 @@ export default async function handler(req, res) {
 
     const employee = await getEmployeeForBusiness(session.businessId, activeEntry.employeeId);
     const clockOutAt = eventTime.eventOccurredAt;
+    const costSnapshot = labourCostSnapshot(employee, activeEntry.clockIn, clockOutAt, req.body?.breakMinutes ?? 0);
     const forms = await listFormsForBusiness(session.businessId);
     if (forms.some((form) => form.status === 'active' && form.completionRequirement === 'required' && form.trigger?.includes('after_clock_out'))) {
       if (!employee?.active) {
@@ -829,6 +845,7 @@ export default async function handler(req, res) {
             jobIds: activeEntry.jobIds,
             workType: activeEntry.workType,
             clockIn: activeEntry.clockIn,
+            ...costSnapshot,
           },
           createdAt: eventTime.serverReceivedAt,
         };
@@ -869,6 +886,7 @@ export default async function handler(req, res) {
       workType: activeEntry.workType,
       clockIn: activeEntry.clockIn,
       employeeName: employee?.name ?? '',
+      ...costSnapshot,
     });
 
     try {
@@ -891,6 +909,7 @@ export default async function handler(req, res) {
         unbillableCategoryId: activeEntry.unbillableCategoryId,
         unbillableCategoryName: activeEntry.unbillableCategoryName,
         status: 'clocked_out',
+        ...costSnapshot,
       };
       return res.status(200).json({ ok: true, timeEntry });
     } catch (error) {

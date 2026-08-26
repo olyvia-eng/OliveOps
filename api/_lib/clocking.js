@@ -326,6 +326,8 @@ export function buildClockOutTransaction({
   workType,
   clockIn,
   employeeName = '',
+  labourCostRateSnapshot,
+  labourCostTotalSnapshot,
   workflowFinalizationItems = [],
 }) {
   const eventOccurredAt = clockOutAt ?? nowIso();
@@ -372,6 +374,8 @@ export function buildClockOutTransaction({
       unbillableCategoryId,
       unbillableCategoryName,
       status: 'clocked_out',
+      labourCostRateSnapshot,
+      labourCostTotalSnapshot,
     },
     eventOccurredAt,
     serverReceivedAt: receivedAt,
@@ -436,6 +440,18 @@ export function buildClockOutTransaction({
     updateExpressionParts.push('#photoAttachmentUrl = :photoAttachmentUrl');
     expressionAttributeNames['#photoAttachmentUrl'] = 'photoAttachmentUrl';
     expressionAttributeValues[':photoAttachmentUrl'] = photoAttachmentUrl;
+  }
+
+  if (typeof labourCostRateSnapshot === 'number' && Number.isFinite(labourCostRateSnapshot)) {
+    updateExpressionParts.push('#labourCostRateSnapshot = :labourCostRateSnapshot');
+    expressionAttributeNames['#labourCostRateSnapshot'] = 'labourCostRateSnapshot';
+    expressionAttributeValues[':labourCostRateSnapshot'] = labourCostRateSnapshot;
+  }
+
+  if (typeof labourCostTotalSnapshot === 'number' && Number.isFinite(labourCostTotalSnapshot)) {
+    updateExpressionParts.push('#labourCostTotalSnapshot = :labourCostTotalSnapshot');
+    expressionAttributeNames['#labourCostTotalSnapshot'] = 'labourCostTotalSnapshot';
+    expressionAttributeValues[':labourCostTotalSnapshot'] = labourCostTotalSnapshot;
   }
 
   if (hasPhotoAttachmentFileId) {

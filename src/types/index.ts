@@ -495,6 +495,14 @@ export interface JobEstimateSnapshot {
   workAreas: JobWorkArea[];
 }
 
+export interface JobScheduleOccurrence {
+  id: ID;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  scheduleAllDay: boolean;
+  assignedEmployeeIds: ID[];
+}
+
 export interface Job {
   id: ID;
   jobNumber?: string;
@@ -522,6 +530,7 @@ export interface Job {
   scheduledEndAt?: string;
   scheduleAllDay?: boolean;
   scheduleNotes?: string;
+  scheduleOccurrences?: JobScheduleOccurrence[];
   estimatedHours: number;
   actualHours: number;
   estimatedCost: number;
@@ -792,6 +801,8 @@ export interface TimeEntry {
   clockOutPhotoFileIds?: ID[];
   clockOutPhotoFileId?: string;
   status: ClockStatus;
+  labourCostRateSnapshot?: number;
+  labourCostTotalSnapshot?: number;
 }
 
 export interface AuditEvent {

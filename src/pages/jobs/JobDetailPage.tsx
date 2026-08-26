@@ -12,6 +12,8 @@ import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 import OutstandingTasks from '../home/OutstandingTasks';
+import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
+import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -69,6 +71,9 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [submissionError, setSubmissionError] = useState('');
   const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
   const [jobTaskFilter, setJobTaskFilter] = useState<'all' | 'completed'>('all');
+  const [labourSummary, setLabourSummary] = useState<JobLabourSummary | null>(null);
+  const [labourSummaryLoading, setLabourSummaryLoading] = useState(false);
+  const [labourSummaryError, setLabourSummaryError] = useState('');
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -122,6 +127,26 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
 
     return effectiveTimeEntries.filter((entry) => normalizeEntryJobIds(entry).includes(id));
   }, [effectiveTimeEntries, job, id]);
+
+  useEffect(() => {
+    if (!id || !canViewAnalysis || activeTab !== 'analysis') return;
+    const controller = new AbortController();
+    setLabourSummaryLoading(true);
+    setLabourSummaryError('');
+    void fetch(`/api/job-labour-summary?jobId=${encodeURIComponent(id)}`, { credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { ok?: boolean; summary?: JobLabourSummary; error?: string };
+        if (!response.ok || !payload.ok || !payload.summary) throw new Error(payload.error || 'Could not load Job labour.');
+        setLabourSummary(payload.summary);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setLabourSummary(null);
+        setLabourSummaryError(error instanceof Error ? error.message : 'Could not load Job labour.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setLabourSummaryLoading(false); });
+    return () => controller.abort();
+  }, [activeTab, canViewAnalysis, effectiveTimeEntries, id, job]);
 
   useEffect(() => {
     let cancelled = false;
@@ -477,7 +502,12 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (
-        !hasMeaningfulAnalysisData ? (
+        !hasMeaningfulAnalysisData
+        && !labourSummaryLoading
+        && !labourSummaryError
+        && !labourSummary?.estimated.hasData
+        && !labourSummary?.scheduled.hasData
+        && !labourSummary?.actual.hasData ? (
           <Card className="p-4">
             <EmptyState
               title="Job analysis will appear as costs and progress are recorded"
@@ -486,6 +516,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
           </Card>
         ) : (
           <div className="space-y-6">
+            <JobLabourSummaryCard summary={labourSummary} loading={labourSummaryLoading} error={labourSummaryError} />
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Card className="p-4"><p className="text-xs text-gray-500">Contract Value</p><p className="text-xl font-bold text-gray-900">{formatCurrency(job.contractValue)}</p></Card>
               <Card className="p-4"><p className="text-xs text-gray-500">Actual Costs</p><p className="text-xl font-bold text-gray-900">{formatCurrency(actualCostTotal)}</p></Card>

@@ -3826,6 +3826,7 @@ function mapJobRecordFromItem(item) {
     scheduledEndAt: item.scheduledEndAt,
     scheduleAllDay: item.scheduleAllDay,
     scheduleNotes: item.scheduleNotes,
+    scheduleOccurrences: Array.isArray(item.scheduleOccurrences) ? item.scheduleOccurrences : undefined,
     estimatedHours: item.estimatedHours,
     actualHours: item.actualHours,
     estimatedCost: item.estimatedCost,
@@ -4668,6 +4669,8 @@ export async function listTimeEntriesForBusiness(businessId) {
     clockInPhotoFileId: item.clockInPhotoFileId ?? undefined,
     clockOutPhotoFileId: item.clockOutPhotoFileId ?? clockOutPhotoFileIds[0] ?? photoAttachmentFileIds[0] ?? undefined,
     status: item.status,
+    labourCostRateSnapshot: item.labourCostRateSnapshot,
+    labourCostTotalSnapshot: item.labourCostTotalSnapshot,
   };
   });
 }
@@ -4736,6 +4739,8 @@ export async function getTimeEntryForBusiness(businessId, entryId) {
         clockInPhotoFileId: result.Item.clockInPhotoFileId ?? undefined,
         clockOutPhotoFileId: result.Item.clockOutPhotoFileId ?? clockOutPhotoFileIds[0] ?? photoAttachmentFileIds[0] ?? undefined,
         status: result.Item.status,
+        labourCostRateSnapshot: result.Item.labourCostRateSnapshot,
+        labourCostTotalSnapshot: result.Item.labourCostTotalSnapshot,
       };
       })()
     : null;
