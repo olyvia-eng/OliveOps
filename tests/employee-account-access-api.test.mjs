@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import dataHandler from '../api/data.js';
+import labourClassSetupHandler from '../api/labour-class-setup.js';
 import { ddb } from '../api/_lib/db.js';
 import {
   authenticateUser,
@@ -10,6 +11,7 @@ import {
   createMobileSessionForUser,
   createUserEmployeePair,
   getEmployeeForBusiness,
+  listLabourClassesForBusiness,
   listEmployeesForBusiness,
   listUsersForBusiness,
 } from '../api/_lib/authRepo.js';
@@ -582,6 +584,11 @@ test('Labour Classes are tenant-scoped, soft archived, and assigned independentl
   assert.equal(createClass.statusCode, 200, JSON.stringify(createClass.body));
   assert.equal(createClass.body.labourClass.name, 'Foreman');
 
+  const duplicateClass = createMockRes();
+  await dataHandler({ method: 'POST', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { id: 'class-foreman-duplicate', name: '  FOREMAN ', description: '', active: true, customRates: {} } } }, duplicateClass);
+  assert.equal(duplicateClass.statusCode, 400);
+  assert.match(duplicateClass.body.error, /already exists/);
+
   const tenantAList = createMockRes();
   await dataHandler({ method: 'GET', query: { entity: 'labour-classes' }, headers: { authorization: 'Bearer token-labour-a' } }, tenantAList);
   assert.deepEqual(tenantAList.body.items.map((item) => item.id), ['class-foreman']);
@@ -613,6 +620,49 @@ test('Labour Classes are tenant-scoped, soft archived, and assigned independentl
   const foreignAssignment = createMockRes();
   await dataHandler({ method: 'PATCH', query: { entity: 'employees', id: 'employee-legacy' }, headers: { authorization: 'Bearer token-labour-a' }, body: { data: { labourClassId: 'class-from-another-business' } } }, foreignAssignment);
   assert.equal(foreignAssignment.statusCode, 400);
+});
+
+test('guided Labour Class setup is tenant-scoped, preserving, normalized, and idempotent', async (t) => {
+  const store = installDdbMock(t);
+  const ownerA = await createUserEmployeePair({ businessId: 'biz-setup-a', name: 'Owner A', email: 'owner-a@setup.test', password: 'password123', role: 'owner' });
+  const ownerB = await createUserEmployeePair({ businessId: 'biz-setup-b', name: 'Owner B', email: 'owner-b@setup.test', password: 'password123', role: 'owner' });
+  await createBearerTokenForUser({ businessId: 'biz-setup-a', userId: ownerA.user.id, role: 'owner', email: ownerA.user.email, token: 'token-setup-a' });
+  await createBearerTokenForUser({ businessId: 'biz-setup-b', userId: ownerB.user.id, role: 'owner', email: ownerB.user.email, token: 'token-setup-b' });
+  await createEmployeeForBusiness({ businessId: 'biz-setup-a', employee: { id: 'setup-crew', name: 'Crew Member', email: 'crew@setup.test', phone: '555-0100', role: 'crew_member', hourlyRate: 31, compensationType: 'hourly', labourType: 'field_producing', payrollBurdenPct: 19, benefitsExtraCost: 1200, bonus: 400, active: true } });
+  await createEmployeeForBusiness({ businessId: 'biz-setup-b', employee: { id: 'foreign-crew', name: 'Foreign Crew', email: '', phone: '', role: 'crew_member', hourlyRate: 99, compensationType: 'hourly', labourType: 'field_producing', active: true } });
+
+  store.set(mapKey('BUSINESS#biz-setup-a', 'BUDGET#preserved'), { PK: 'BUSINESS#biz-setup-a', SK: 'BUDGET#preserved', marker: 'budget-unchanged' });
+  store.set(mapKey('BUSINESS#biz-setup-a', 'ESTIMATE#preserved'), { PK: 'BUSINESS#biz-setup-a', SK: 'ESTIMATE#preserved', marker: 'estimate-unchanged' });
+
+  const submit = async (classes, assignments) => {
+    const response = createMockRes();
+    await labourClassSetupHandler({ method: 'POST', headers: { authorization: 'Bearer token-setup-a' }, body: { classes, assignments } }, response);
+    return response;
+  };
+  const first = await submit([{ key: 'labourer', name: 'Labourer' }], [{ employeeId: 'setup-crew', classKey: 'labourer' }]);
+  assert.equal(first.statusCode, 200, JSON.stringify(first.body));
+  const savedEmployee = await getEmployeeForBusiness('biz-setup-a', 'setup-crew');
+  assert.deepEqual({
+    role: savedEmployee.role,
+    hourlyRate: savedEmployee.hourlyRate,
+    compensationType: savedEmployee.compensationType,
+    payrollBurdenPct: savedEmployee.payrollBurdenPct,
+    benefitsExtraCost: savedEmployee.benefitsExtraCost,
+    bonus: savedEmployee.bonus,
+  }, { role: 'crew_member', hourlyRate: 31, compensationType: 'hourly', payrollBurdenPct: 19, benefitsExtraCost: 1200, bonus: 400 });
+  assert.ok(savedEmployee.labourClassId);
+
+  const second = await submit([{ key: 'labourer-retry', name: '  LABOURER  ' }], [{ employeeId: 'setup-crew', classKey: 'labourer-retry' }]);
+  assert.equal(second.statusCode, 200, JSON.stringify(second.body));
+  assert.equal((await listLabourClassesForBusiness('biz-setup-a')).length, 1);
+  assert.equal((await getEmployeeForBusiness('biz-setup-a', 'setup-crew')).labourClassId, savedEmployee.labourClassId);
+
+  const foreign = await submit([{ key: 'foreman', name: 'Foreman' }], [{ employeeId: 'foreign-crew', classKey: 'foreman' }]);
+  assert.equal(foreign.statusCode, 400);
+  assert.equal((await listLabourClassesForBusiness('biz-setup-a')).length, 1);
+  assert.equal((await getEmployeeForBusiness('biz-setup-b', 'foreign-crew')).labourClassId, null);
+  assert.equal(store.get(mapKey('BUSINESS#biz-setup-a', 'BUDGET#preserved')).marker, 'budget-unchanged');
+  assert.equal(store.get(mapKey('BUSINESS#biz-setup-a', 'ESTIMATE#preserved')).marker, 'estimate-unchanged');
 });
 
 test('authenticateUser resolves linked employee by explicit userId first', async (t) => {

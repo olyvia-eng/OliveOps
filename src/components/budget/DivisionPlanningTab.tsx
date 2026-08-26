@@ -62,7 +62,7 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
   const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
@@ -494,9 +494,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   .filter((item) => item.active)
                   .map((item) => {
                     const existing = budgetLabourItems.find((value) => value.employeeId === item.id);
+                    const labourClassName = labourClasses.find((labourClass) => labourClass.id === item.labourClassId && labourClass.active)?.name;
                     return (
                       <option key={item.id} value={item.id} disabled={Boolean(existing)}>
                         {item.name}
+                        {labourClassName ? ` · ${labourClassName}` : ' · Labour Class unassigned'}
                         {existing ? ` — Already in Budget (${labourAllocationForDivision(existing, division.id)} hours allocated to ${division.name})` : ''}
                       </option>
                     );

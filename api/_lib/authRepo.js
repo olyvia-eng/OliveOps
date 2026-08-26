@@ -2925,6 +2925,92 @@ export async function archiveLabourClassForBusiness(businessId, labourClassId) {
   return updateLabourClassForBusiness({ businessId, labourClass: { ...labourClass, active: false } });
 }
 
+function normalizedLabourClassName(value) {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+}
+
+function labourClassSetupId(businessId, normalizedName) {
+  return `class-${createHash('sha256').update(`${businessId}\0${normalizedName}`).digest('hex').slice(0, 24)}`;
+}
+
+export async function applyLabourClassSetupForBusiness({ businessId, classes, assignments }) {
+  const [existingClasses, employees] = await Promise.all([
+    listLabourClassesForBusiness(businessId),
+    listEmployeesForBusiness(businessId),
+  ]);
+  const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+  const existingByName = new Map(existingClasses.map((labourClass) => [normalizedLabourClassName(labourClass.name), labourClass]));
+  const requestedByKey = new Map();
+  const resultingByName = new Map(existingByName);
+  const classesToWrite = [];
+  const instant = nowIso();
+
+  for (const input of Array.isArray(classes) ? classes : []) {
+    const key = typeof input?.key === 'string' ? input.key.trim() : '';
+    const name = typeof input?.name === 'string' ? input.name.trim().replace(/\s+/g, ' ') : '';
+    const normalizedName = normalizedLabourClassName(name);
+    if (!key || !normalizedName) return { ok: false, error: 'Every Labour Class needs a name.' };
+    if (requestedByKey.has(key)) return { ok: false, error: 'Labour Class setup contains a duplicate class key.' };
+
+    const existing = resultingByName.get(normalizedName);
+    const labourClass = existing ?? {
+      id: labourClassSetupId(businessId, normalizedName),
+      businessId,
+      name,
+      description: '',
+      active: true,
+      customRates: {},
+      createdAt: instant,
+      updatedAt: instant,
+    };
+    const activated = labourClass.active === false ? { ...labourClass, active: true, updatedAt: instant } : labourClass;
+    requestedByKey.set(key, activated);
+    resultingByName.set(normalizedName, activated);
+    if (!existing || existing.active === false) classesToWrite.push(activated);
+  }
+
+  const employeeAssignments = [];
+  const assignedEmployeeIds = new Set();
+  for (const input of Array.isArray(assignments) ? assignments : []) {
+    const employeeId = typeof input?.employeeId === 'string' ? input.employeeId.trim() : '';
+    if (!employeeId || !employeeById.has(employeeId)) return { ok: false, error: 'Employee not found for this business.' };
+    if (assignedEmployeeIds.has(employeeId)) return { ok: false, error: 'Each Employee can only be assigned once.' };
+    assignedEmployeeIds.add(employeeId);
+    if (input.classKey === null || input.classKey === undefined || input.classKey === '') {
+      employeeAssignments.push({ employee: employeeById.get(employeeId), labourClassId: null });
+      continue;
+    }
+    const labourClass = requestedByKey.get(input.classKey);
+    if (!labourClass) return { ok: false, error: 'Employee assignment references an unknown Labour Class.' };
+    employeeAssignments.push({ employee: employeeById.get(employeeId), labourClassId: labourClass.id });
+  }
+
+  const transactItems = [
+    ...classesToWrite.map((labourClass) => ({ Put: {
+      TableName: tableName,
+      Item: { PK: businessPk(businessId), SK: labourClassSk(labourClass.id), entityType: 'LABOUR_CLASS', labourClassId: labourClass.id, ...labourClass },
+    } })),
+    ...employeeAssignments.map(({ employee, labourClassId }) => ({ Update: {
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: employeeSk(employee.id) },
+      UpdateExpression: 'SET labourClassId = :labourClassId',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+      ExpressionAttributeValues: { ':labourClassId': labourClassId },
+    } })),
+  ];
+  if (transactItems.length > 100) return { ok: false, error: 'Labour Class setup is limited to 100 changes at a time.' };
+  if (transactItems.length > 0) await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+
+  const assignmentByEmployeeId = new Map(employeeAssignments.map((item) => [item.employee.id, item.labourClassId]));
+  return {
+    ok: true,
+    labourClasses: [...resultingByName.values()],
+    employees: employees.map((employee) => assignmentByEmployeeId.has(employee.id)
+      ? { ...employee, labourClassId: assignmentByEmployeeId.get(employee.id) }
+      : employee),
+  };
+}
+
 export async function listUnbillableTimeCategoriesForBusiness(businessId) {
   const result = await ddb.send(
     new QueryCommand({

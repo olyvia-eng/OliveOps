@@ -176,6 +176,10 @@ interface AppState {
   addLabourClass: (data: Pick<LabourClass, 'name' | 'description'>) => Promise<LabourClass | null>;
   updateLabourClass: (id: ID, data: Partial<LabourClass>) => Promise<LabourClass | null>;
   archiveLabourClass: (id: ID) => Promise<boolean>;
+  applyLabourClassSetup: (input: {
+    classes: Array<{ key: string; name: string }>;
+    assignments: Array<{ employeeId: ID; classKey: string | null }>;
+  }) => Promise<{ ok: boolean; error?: string }>;
 
   // Scheduling setup
   saveCrew: (crew: Omit<Crew, 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; error?: string }>;
@@ -1026,6 +1030,24 @@ export const useStore = create<AppState>()((set, get) => ({
         } catch (error) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Labour Class could not be archived.') });
           return false;
+        }
+      },
+      applyLabourClassSetup: async (input) => {
+        try {
+          const response = await ensureOk(fetch('/api/labour-class-setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(input),
+          }));
+          const payload = await response.json() as { labourClasses?: LabourClass[]; employees?: Employee[] };
+          if (!payload.labourClasses || !payload.employees) return { ok: false, error: 'Labour Class setup returned an incomplete response.' };
+          set({ labourClasses: payload.labourClasses, employees: payload.employees });
+          return { ok: true };
+        } catch (error) {
+          const message = errorMessage(error, 'Labour Class setup could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
         }
       },
 

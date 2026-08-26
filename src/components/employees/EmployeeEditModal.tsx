@@ -260,7 +260,8 @@ export default function EmployeeEditModal({ open, employeeId, onClose }: Props) 
             <option value="">Unassigned</option>
             {labourClasses.filter((labourClass) => labourClass.active || labourClass.id === form.labourClassId).sort((left, right) => left.name.localeCompare(right.name)).map((labourClass) => <option key={labourClass.id} value={labourClass.id}>{labourClass.name}{labourClass.active ? '' : ' (Inactive)'}</option>)}
           </Select>
-          <p className="mt-1 text-xs text-gray-500">Used to group employees for Labour Class pricing and estimating.</p>
+          <p className="mt-1 text-xs text-gray-500">Used for estimating and Labour Class pricing. This does not affect the employee's OliveOps permissions.</p>
+          {form.labourType === 'field_producing' && !form.labourClassId ? <p className="mt-1 text-xs font-medium text-amber-700">Recommended for field Employees so their planned hours can contribute to estimating rates.</p> : null}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

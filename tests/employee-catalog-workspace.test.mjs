@@ -30,7 +30,29 @@ test('Labour Class role suggestions are display-only and never silently persiste
   assert.match(labourCatalogSource, /Role-based suggestions are never saved automatically/);
   assert.match(labourCatalogSource, /Suggested: \$\{suggestion\.name\}/);
   assert.doesNotMatch(labourCatalogSource, /updateEmployee\([^)]*suggestion\.id/);
-  assert.match(labourCatalogSource, /filter\(\(employee\) => employee\.active && !employee\.labourClassId\)/);
+  assert.match(labourCatalogSource, /!employee\.labourClassId \|\| !activeLabourClassIds\.has\(employee\.labourClassId\)/);
+});
+
+test('Labour Catalog offers a dismissible three-step setup with one final persistence boundary', () => {
+  assert.match(labourCatalogSource, /Set up Labour Classes for estimating/);
+  assert.match(labourCatalogSource, /Nothing changes until you confirm/);
+  assert.match(labourCatalogSource, /Not now/);
+  assert.match(labourCatalogSource, /Step \$\{setupStep\} of 3/);
+  assert.match(labourCatalogSource, /Review suggested classes/);
+  assert.match(labourCatalogSource, /Review and confirm/);
+  assert.match(labourCatalogSource, /Confirm Setup/);
+  assert.match(labourCatalogSource, /applyLabourClassSetup/);
+  assert.match(labourCatalogSource, /View Labour Catalog/);
+  assert.match(labourCatalogSource, /View Pricing/);
+});
+
+test('setup review supports class and Employee changes without changing permissions', () => {
+  assert.match(labourCatalogSource, /Add Class/);
+  assert.match(labourCatalogSource, /Remove \$\{group\.name\}/);
+  assert.match(labourCatalogSource, /Labour Class for \$\{employee\.name\}/);
+  assert.match(labourCatalogSource, /<option value="">Unassigned<\/option>/);
+  assert.match(labourCatalogSource, /does not change an Employee's OliveOps permissions/);
+  assert.match(labourCatalogSource, /Avg Labour Cost/);
 });
 
 test('Employee Catalog consumes canonical employees and supports decision-focused filters', () => {

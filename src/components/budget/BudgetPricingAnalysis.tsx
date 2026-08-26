@@ -152,6 +152,7 @@ export default function BudgetPricingAnalysis({
   );
   const [activePricingTab, setActivePricingTab] =
     useState<PricingTab>("labour");
+  const labourSetupUrl = `/materials/catalog?catalog=labour&setup=1&returnTo=${encodeURIComponent(`/budgets/${budget.id}?tab=analysis`)}`;
   const activeTab =
     pricingTabs.find((tab) => tab.key === activePricingTab) ?? pricingTabs[0];
   const activeRows = rows.filter((row) => row.type === activeTab.rowType);
@@ -339,11 +340,11 @@ export default function BudgetPricingAnalysis({
                 {activePricingTab === "labour" && labourDiagnostics.unassignedEmployees.length > 0 ? (
                   <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
                     <p className="font-semibold">
-                      {labourDiagnostics.unassignedEmployees.length} planned {labourDiagnostics.unassignedEmployees.length === 1 ? "employee is" : "employees are"} not assigned to an active Labour Class.
+                      {labourDiagnostics.unassignedEmployees.length} planned {labourDiagnostics.unassignedEmployees.length === 1 ? "employee isn't" : "employees aren't"} included in Labour Class pricing.
                     </p>
                     <p className="mt-1">
                       {labourDiagnostics.unassignedEmployees.map((item) => item.employeeName).join(", ")}. Assign a Labour Class to include {labourDiagnostics.unassignedEmployees.length === 1 ? "this employee" : "these employees"} in pricing. {" "}
-                      <Link className="font-semibold underline" to="/materials/catalog?catalog=labour">Manage Labour Classes</Link>
+                      <Link className="font-semibold underline" to={labourSetupUrl}>Review Employees</Link>
                     </p>
                   </div>
                 ) : null}
@@ -352,9 +353,9 @@ export default function BudgetPricingAnalysis({
             ) : (
               activePricingTab === "labour" && labourDiagnostics.hasPlannedLabour && labourDiagnostics.unassignedEmployees.length === labourDiagnostics.plannedEmployeeCount ? (
                 <EmptyState
-                  title="Labour is planned, but no planned employees are assigned to active Labour Classes"
-                  description={`${labourDiagnostics.unassignedEmployees.map((item) => item.employeeName).join(", ") || "Planned employees"}. Assign Labour Classes to include this labour in pricing.`}
-                  action={<Link className="font-semibold text-brand-700 underline" to="/materials/catalog?catalog=labour">Manage Labour Classes</Link>}
+                  title="Labour Classes need setup"
+                  description={`${labourDiagnostics.unassignedEmployees.map((item) => item.employeeName).join(", ") || "Planned employees"}. Set up Labour Classes to include this labour in pricing.`}
+                  action={<Link className="font-semibold text-brand-700 underline" to={labourSetupUrl}>Set Up Labour Classes</Link>}
                 />
               ) : activePricingTab === "labour" && labourDiagnostics.hasPlannedLabour && !labourDiagnostics.hasAssignedProductiveLabour ? (
                 <EmptyState

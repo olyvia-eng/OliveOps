@@ -599,6 +599,13 @@ function validateLabourClassRecord(record) {
   return null;
 }
 
+async function validateLabourClassNameUnique(businessId, record) {
+  const normalizedName = record.name.trim().replace(/\s+/g, ' ').toLowerCase();
+  const labourClasses = await listLabourClassesForBusiness(businessId);
+  const duplicate = labourClasses.find((labourClass) => labourClass.id !== record.id && labourClass.name.trim().replace(/\s+/g, ' ').toLowerCase() === normalizedName);
+  return duplicate ? 'A Labour Class with this name already exists.' : null;
+}
+
 async function validateEmployeeLabourClass(businessId, employee) {
   if (employee.labourClassId === undefined || employee.labourClassId === null || employee.labourClassId === '') return null;
   if (typeof employee.labourClassId !== 'string') return 'Employee Labour Class is invalid.';
@@ -1720,7 +1727,7 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'labour-classes') {
-      const validationError = validateLabourClassRecord(record);
+      const validationError = validateLabourClassRecord(record) ?? await validateLabourClassNameUnique(session.businessId, record);
       if (validationError) return res.status(400).json({ ok: false, error: validationError });
     }
 
@@ -1870,7 +1877,7 @@ export default async function handler(req, res) {
         if (validationError) return res.status(400).json({ ok: false, error: validationError });
       }
       if (entity === 'labour-classes') {
-        const validationError = validateLabourClassRecord(next);
+        const validationError = validateLabourClassRecord(next) ?? await validateLabourClassNameUnique(session.businessId, next);
         if (validationError) return res.status(400).json({ ok: false, error: validationError });
       }
       if (entity === 'budget') {

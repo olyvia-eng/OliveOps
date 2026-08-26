@@ -1,14 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowRight,
+  CheckCircle2,
   Maximize2,
   Minimize2,
   Pencil,
   Plus,
   Search,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import DetailWorkspace from "../../components/detail-workspace/DetailWorkspace";
 import DetailWorkspaceTabs from "../../components/detail-workspace/DetailWorkspaceTabs";
 import {
@@ -33,6 +36,11 @@ import {
   buildLabourClassCatalog,
   type LabourClassCatalogRow,
 } from "./labourClassPricingModel.js";
+import {
+  buildLabourClassSetupDraft,
+  shouldOfferLabourClassSetup,
+  type LabourClassSetupDraft,
+} from "./labourClassSetupModel.js";
 
 const WORKSPACE_QUERY = {
   recordParam: "labourClass",
@@ -345,6 +353,7 @@ function LabourClassDetail({
 }
 
 export default function LabourCatalogSection() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
     labourClasses,
@@ -357,6 +366,7 @@ export default function LabourCatalogSection() {
     updateLabourClass,
     archiveLabourClass,
     updateEmployee,
+    applyLabourClassSetup,
   } = useStore();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("active");
@@ -366,6 +376,13 @@ export default function LabourCatalogSection() {
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3 | 4>(1);
+  const [setupDraft, setSetupDraft] = useState<LabourClassSetupDraft>({ classes: [], assignments: {} });
+  const [setupError, setSetupError] = useState("");
+  const [setupSaving, setSetupSaving] = useState(false);
+  const [setupDismissed, setSetupDismissed] = useState(false);
+  const setupLaunchHandled = useRef(false);
   const workspace = readDetailWorkspaceQuery(searchParams, WORKSPACE_QUERY);
   const rows = useMemo(
     () =>
@@ -392,9 +409,15 @@ export default function LabourCatalogSection() {
         row.name.toLowerCase().includes(query.trim().toLowerCase())) &&
       (status === "all" || (status === "active" ? row.active : !row.active)),
   );
+  const activeLabourClassIds = new Set(labourClasses.filter((labourClass) => labourClass.active).map((labourClass) => labourClass.id));
   const unassignedEmployees = employees
-    .filter((employee) => employee.active && !employee.labourClassId)
+    .filter((employee) => employee.active && (!employee.labourClassId || !activeLabourClassIds.has(employee.labourClassId)))
     .sort((left, right) => left.name.localeCompare(right.name));
+  const setupNeeded = shouldOfferLabourClassSetup({
+    employees,
+    labourClasses,
+    planningItems: budgetDivisionPlanningItems,
+  });
   const suggestedClassFor = (role: string) => {
     const roleWords = role.replaceAll("_", " ").toLowerCase();
     return labourClasses.find((labourClass) => {
@@ -428,10 +451,67 @@ export default function LabourCatalogSection() {
     setSaving(false);
     if (result) setModalOpen(false);
   };
+  const openSetup = () => {
+    setSetupDraft(buildLabourClassSetupDraft({ employees, labourClasses }));
+    setSetupStep(1);
+    setSetupError("");
+    setSetupOpen(true);
+  };
+  useEffect(() => {
+    if (searchParams.get("setup") !== "1" || setupLaunchHandled.current) return;
+    setupLaunchHandled.current = true;
+    setSetupDraft(buildLabourClassSetupDraft({ employees, labourClasses }));
+    setSetupStep(1);
+    setSetupError("");
+    setSetupOpen(true);
+  }, [employees, labourClasses, searchParams]);
+  const setupEmployees = unassignedEmployees;
+  const setupGroups = [
+    ...setupDraft.classes.map((labourClass) => ({ key: labourClass.key, name: labourClass.name })),
+    { key: "", name: "Unassigned" },
+  ].map((group) => ({
+    ...group,
+    employees: setupEmployees.filter((employee) => (setupDraft.assignments[employee.id] ?? "") === group.key),
+  }));
+  const addSetupClass = () => {
+    const key = `new:${Date.now()}-${setupDraft.classes.length}`;
+    setSetupDraft((current) => ({ ...current, classes: [...current.classes, { key, id: null, name: "New Labour Class" }] }));
+  };
+  const removeSetupClass = (key: string) => setSetupDraft((current) => ({
+    classes: current.classes.filter((item) => item.key !== key),
+    assignments: Object.fromEntries(Object.entries(current.assignments).map(([employeeId, classKey]) => [employeeId, classKey === key ? null : classKey])),
+  }));
+  const confirmSetup = async () => {
+    const names = setupDraft.classes.map((item) => item.name.trim().replace(/\s+/g, " "));
+    if (names.some((name) => !name)) return setSetupError("Every Labour Class needs a name.");
+    if (new Set(names.map((name) => name.toLocaleLowerCase())).size !== names.length) return setSetupError("Labour Class names must be unique.");
+    setSetupSaving(true);
+    setSetupError("");
+    const result = await applyLabourClassSetup({
+      classes: setupDraft.classes.map((item, index) => ({ key: item.key, name: names[index] })),
+      assignments: setupEmployees.map((employee) => ({ employeeId: employee.id, classKey: setupDraft.assignments[employee.id] ?? null })),
+    });
+    setSetupSaving(false);
+    if (result.ok) setSetupStep(4);
+    else setSetupError(result.error ?? "Labour Class setup could not be saved.");
+  };
   const close = () =>
     setSearchParams(closeDetailWorkspace(searchParams, WORKSPACE_QUERY));
   const list = (
-    <Card className="overflow-hidden">
+    <div className="space-y-4">
+      {setupNeeded && !setupDismissed ? (
+        <div className="flex flex-col gap-3 border border-amber-200 bg-amber-50 p-4 text-amber-950 sm:flex-row sm:items-center sm:justify-between" role="status">
+          <div>
+            <p className="font-semibold">Set up Labour Classes for estimating</p>
+            <p className="mt-1 text-sm">Review suggested classes for your field Employees. Nothing changes until you confirm.</p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="secondary" onClick={() => setSetupDismissed(true)}>Not now</Button>
+            <Button onClick={openSetup}>Set Up Labour Classes</Button>
+          </div>
+        </div>
+      ) : null}
+      <Card className="overflow-hidden">
       <div className="border-b border-brand-100 p-4 dark:border-brand-600 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -478,8 +558,9 @@ export default function LabourCatalogSection() {
             title="No Labour Classes yet"
             description="Create Labour Classes such as Labourer, Foreman, or Operator, then assign employees to calculate estimating rates."
             action={
-              <Button onClick={() => openForm()}>Add Labour Class</Button>
+              setupNeeded ? <Button onClick={openSetup}>Set Up Labour Classes</Button> : <Button onClick={() => openForm()}>Add Labour Class</Button>
             }
+            secondaryAction={setupNeeded ? <Button variant="secondary" onClick={() => openForm()}>Add Manually</Button> : undefined}
           />
         </div>
       ) : visibleRows.length === 0 ? (
@@ -497,7 +578,7 @@ export default function LabourCatalogSection() {
                 <th className="px-4 py-3 font-medium">Labour Class</th>
                 <th className="px-4 py-3 text-right font-medium">Employees</th>
                 <th className="px-4 py-3 text-right font-medium">
-                  Weighted Labour Cost
+                  Avg Labour Cost
                 </th>
                 <th className="px-4 py-3 font-medium">Divisions</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -600,7 +681,8 @@ export default function LabourCatalogSection() {
           </div>
         </div>
       ) : null}
-    </Card>
+      </Card>
+    </div>
   );
   const detail = selected ? (
     <LabourClassDetail
@@ -680,6 +762,104 @@ export default function LabourCatalogSection() {
           </label>
           {error ? <p className="text-sm text-accent-700">{error}</p> : null}
         </div>
+      </Modal>
+      <Modal
+        open={setupOpen}
+        onClose={() => { if (!setupSaving) setSetupOpen(false); }}
+        title={setupStep === 4 ? "Labour Classes are ready" : `Set Up Labour Classes · Step ${setupStep} of 3`}
+        size="large"
+        footer={setupStep === 4 ? undefined : (
+          <>
+            <Button variant="secondary" onClick={() => setupStep === 1 ? setSetupOpen(false) : setSetupStep((setupStep - 1) as 1 | 2)} disabled={setupSaving}>
+              {setupStep === 1 ? "Not now" : "Back"}
+            </Button>
+            {setupStep < 3 ? (
+              <Button onClick={() => setSetupStep((setupStep + 1) as 2 | 3)}>Continue <ArrowRight size={15} /></Button>
+            ) : (
+              <Button onClick={() => void confirmSetup()} disabled={setupSaving}>{setupSaving ? "Saving..." : "Confirm Setup"}</Button>
+            )}
+          </>
+        )}
+      >
+        {setupStep === 1 ? (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-brand-50">Turn your team into reusable estimating rates</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600 dark:text-brand-200">Labour Classes group Employees who perform similar work. OliveOps uses their current costs and Budget hours to calculate rates for Estimates.</p>
+            </div>
+            <div className="grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr]">
+              {[
+                ["Employees", "Current compensation and planned hours"],
+                ["Labour Classes", "Reusable groups such as Labourer or Foreman"],
+                ["Estimates", "Calculated rates by Division"],
+              ].map(([title, description], index) => (
+                <div key={title} className="contents">
+                  <div className="border border-brand-100 bg-brand-50 p-4 dark:border-brand-600 dark:bg-brand-800">
+                    <p className="font-semibold">{title}</p><p className="mt-1 text-xs text-gray-500 dark:text-brand-200">{description}</p>
+                  </div>
+                  {index < 2 ? <ArrowRight className="mx-auto text-brand-500" size={20} /> : null}
+                </div>
+              ))}
+            </div>
+            <p className="text-sm font-medium text-gray-700 dark:text-brand-100">Employee roles, OliveOps permissions, compensation, Budget plans, and existing Estimates will not change.</p>
+          </div>
+        ) : null}
+        {setupStep === 2 ? (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><h3 className="font-semibold text-gray-900 dark:text-brand-50">Review suggested classes</h3><p className="mt-1 text-sm text-gray-500">Rename, add, remove, or leave any Employee unassigned. Suggestions have not been saved.</p></div>
+              <Button variant="secondary" onClick={addSetupClass}><Plus size={15} /> Add Class</Button>
+            </div>
+            {setupGroups.map((group) => (
+              <section key={group.key || "unassigned"} className="border-t border-brand-100 pt-4 dark:border-brand-600">
+                <div className="flex items-center gap-2">
+                  {group.key ? (
+                    <input
+                      aria-label="Labour Class name"
+                      value={group.name}
+                      onChange={(event) => setSetupDraft((current) => ({ ...current, classes: current.classes.map((item) => item.key === group.key ? { ...item, name: event.target.value } : item) }))}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 font-semibold dark:border-brand-500 dark:bg-brand-700"
+                    />
+                  ) : <h4 className="flex-1 font-semibold">Unassigned</h4>}
+                  {group.key ? <button type="button" title={`Remove ${group.name}`} onClick={() => removeSetupClass(group.key)} className="rounded p-2 text-gray-500 hover:bg-gray-100"><Trash2 size={16} /></button> : null}
+                </div>
+                {group.employees.length ? <div className="mt-2 divide-y divide-gray-100 dark:divide-brand-600">{group.employees.map((employee) => (
+                  <div key={employee.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div><p className="text-sm font-medium">{employee.name}</p><p className="text-xs capitalize text-gray-500">{employee.role.replaceAll("_", " ")}</p></div>
+                    <select aria-label={`Labour Class for ${employee.name}`} value={setupDraft.assignments[employee.id] ?? ""} onChange={(event) => setSetupDraft((current) => ({ ...current, assignments: { ...current.assignments, [employee.id]: event.target.value || null } }))} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-brand-500 dark:bg-brand-700">
+                      <option value="">Unassigned</option>
+                      {setupDraft.classes.map((item) => <option key={item.key} value={item.key}>{item.name || "Unnamed class"}</option>)}
+                    </select>
+                  </div>
+                ))}</div> : <p className="mt-2 text-sm text-gray-400">No Employees in this class.</p>}
+              </section>
+            ))}
+            <p className="border-t border-brand-100 pt-4 text-sm text-gray-600 dark:border-brand-600 dark:text-brand-200">Labour Class controls estimating and pricing only. It does not change an Employee's OliveOps permissions.</p>
+          </div>
+        ) : null}
+        {setupStep === 3 ? (
+          <div className="space-y-5">
+            <div><h3 className="font-semibold text-gray-900 dark:text-brand-50">Review and confirm</h3><p className="mt-1 text-sm text-gray-500">These changes are saved together when you confirm.</p></div>
+            {setupGroups.filter((group) => group.employees.length > 0).map((group) => (
+              <section key={group.key || "unassigned-summary"} className="border-t border-brand-100 pt-4 dark:border-brand-600">
+                <div className="flex items-center justify-between gap-3"><h4 className="font-semibold">{group.name}</h4><span className="text-sm text-gray-500">{group.employees.length} {group.employees.length === 1 ? "Employee" : "Employees"}</span></div>
+                <p className="mt-2 text-sm text-gray-600 dark:text-brand-200">{group.employees.map((employee) => employee.name).join(", ")}</p>
+              </section>
+            ))}
+            {setupError ? <p className="text-sm text-red-600">{setupError}</p> : null}
+          </div>
+        ) : null}
+        {setupStep === 4 ? (
+          <div className="py-6 text-center">
+            <CheckCircle2 className="mx-auto text-green-600" size={42} />
+            <h3 className="mt-4 text-xl font-semibold">Your Labour Catalog is ready</h3>
+            <p className="mx-auto mt-2 max-w-lg text-sm text-gray-500">Assigned Employees now contribute to Labour Class pricing. Existing Budget plans and Estimates were preserved.</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <Button variant="secondary" onClick={() => { setSetupOpen(false); setSetupDismissed(true); }}>View Labour Catalog</Button>
+              {searchParams.get("returnTo")?.startsWith("/") ? <Button onClick={() => navigate(searchParams.get("returnTo")!)}>View Pricing</Button> : null}
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </>
   );

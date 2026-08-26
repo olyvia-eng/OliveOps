@@ -86,9 +86,11 @@ test('planned Employees without active Labour Classes are reported instead of si
   assert.equal(diagnostics.plannedEmployeeCount, 2);
   assert.deepEqual(diagnostics.unassignedEmployees.map((item) => item.employeeName), ['John Smith', 'Mike White']);
   assert.equal(rows.filter((row) => row.type === 'labour').length, 0);
-  assert.match(pricingSource, /Labour is planned, but no planned employees are assigned to active Labour Classes/);
-  assert.match(pricingSource, /not assigned to an active Labour Class/);
-  assert.match(pricingSource, /Manage Labour Classes/);
+  assert.match(pricingSource, /Labour Classes need setup/);
+  assert.match(pricingSource, /aren't.*included in Labour Class pricing/);
+  assert.match(pricingSource, /Set Up Labour Classes/);
+  assert.match(pricingSource, /Review Employees/);
+  assert.match(pricingSource, /returnTo=.*budgets/);
 });
 
 test('no Budget labour rows remains distinct from unassigned planned labour', () => {
@@ -107,7 +109,8 @@ test('Labour pricing excludes plans from another Budget and leaves the Employee-
   assert.equal(diagnostics.hasPlannedLabour, false);
   assert.match(labourPlannerSource, /value=\{draft\.employeeId \?\? ''\}/);
   assert.match(labourPlannerSource, /employeeId: event\.target\.value \|\| undefined/);
-  assert.doesNotMatch(labourPlannerSource, /labourClassId/);
+  assert.match(labourPlannerSource, /Labour Class unassigned/);
+  assert.doesNotMatch(labourPlannerSource, /labourClassId:\s*(?:item|employee|draft)/);
 });
 
 test('Labour Class cost is weighted by allocated billable hours and excludes overhead employees', () => {
