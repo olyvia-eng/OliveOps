@@ -156,93 +156,21 @@ export default function BudgetPricingAnalysis({
     pricingTabs.find((tab) => tab.key === activePricingTab) ?? pricingTabs[0];
   const activeRows = rows.filter((row) => row.type === activeTab.rowType);
 
-  const overheadDisclosure = (row: (typeof rows)[number]) => {
-    const terms = categoryTerms(row.item.category);
-    const pool = row.overheadPool ?? 0;
-    const denominator = row.recoveryDenominator ?? 0;
-    const isCostRecovery = row.item.category !== "labour";
-    const recoveryPercent = ((row.recoveryRate ?? 0) * 100).toFixed(2);
-    const denominatorValue = isCostRecovery
-      ? formatCurrency(denominator)
-      : `${denominator.toLocaleString(undefined, { maximumFractionDigits: 2 })} hrs`;
-    const displayedValue = row.recoveryUnavailable
-      ? "Unavailable"
-      : isCostRecovery
-        ? `${recoveryPercent}%`
-        : `${formatCurrency(row.divisionOverheadPerUnit)}/${row.unit}`;
-
-    return (
-      <details>
-        <summary className="cursor-pointer font-medium">
-          {displayedValue}
-        </summary>
-        <div className="mt-2 space-y-1 text-left text-xs text-gray-500 dark:text-brand-300">
-          {isCostRecovery ? (
-            <>
-              <p>
-                Division Overhead: {formatCurrency(row.divisionOverhead ?? 0)}
-              </p>
-              <p>
-                {terms.label} Allocation:{" "}
-                {(row.recoveryAllocationPct ?? 0).toFixed(2)}%
-              </p>
-            </>
-          ) : null}
-          <p>
-            {terms.pool}: {formatCurrency(pool)}
-          </p>
-          <p>
-            {terms.denominator}: {denominatorValue}
-          </p>
-          {row.recoveryUnavailableReason === "configuration" ? (
-            <p>
-              Recovery percentages must total 100% before overhead and final
-              rates can be calculated.
-            </p>
-          ) : row.recoveryUnavailable ? (
-            <p>
-              No {terms.missing} is planned, so {formatCurrency(pool)} of{" "}
-              {terms.label.toLowerCase()} overhead cannot currently be
-              recovered.
-            </p>
-          ) : isCostRecovery ? (
-            pool > 0 ? (
-              <p>
-                {formatCurrency(pool)} ÷ {formatCurrency(denominator)} ={" "}
-                {recoveryPercent}% overhead recovery
-              </p>
-            ) : (
-              <p>Recovery Rate: 0.00%</p>
-            )
-          ) : (
-            <p>
-              {formatCurrency(pool)} ÷ {denominatorValue} ={" "}
-              {formatCurrency(row.divisionOverheadPerUnit)}/{row.unit}
-            </p>
-          )}
-        </div>
-      </details>
-    );
-  };
-
   const pricingTable = (
     tableRows: typeof rows,
+    itemLabel: string,
     costLabel: string,
     valueLabel: string,
   ) => (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1180px] text-sm">
+    <div>
+      <table className="w-full table-fixed text-sm">
         <thead className="bg-brand-50 text-left text-xs uppercase text-gray-500 dark:bg-brand-800">
           <tr>
-            <th className="px-4 py-3">Item</th>
+            <th className="w-[24%] px-4 py-3">{itemLabel}</th>
             <th className="px-4 py-3">Division</th>
             <th className="px-4 py-3 text-right">{costLabel}</th>
-            <th className="px-4 py-3 text-right">Overhead Recovery</th>
-            <th className="px-4 py-3 text-right">Breakeven</th>
-            <th className="px-4 py-3 text-right">Target Profit</th>
-            <th className="px-4 py-3 text-right">Profit</th>
-            <th className="px-4 py-3 text-right">Calculated {valueLabel}</th>
-            <th className="px-4 py-3 text-right">Custom {valueLabel}</th>
+            <th className="px-4 py-3 text-right">Overhead</th>
+            <th className="px-4 py-3 text-right">Net Profit</th>
             <th className="px-4 py-3 text-right">Estimate {valueLabel}</th>
           </tr>
         </thead>
@@ -261,22 +189,14 @@ export default function BudgetPricingAnalysis({
                     : "Unavailable"}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {overheadDisclosure(row)}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {row.recoveredCostPerUnit > 0
-                    ? `${formatCurrency(row.recoveredCostPerUnit)}/${row.unit}`
-                    : "Unavailable"}
+                  {row.recoveryUnavailable
+                    ? "Unavailable"
+                    : `${formatCurrency(row.overheadPerUnit)}/${row.unit}`}
                 </td>
                 <td className="px-4 py-3 text-right">
                   {formatTargetMarginPercent(row.targetMarginPct)}
                 </td>
-                <td className="px-4 py-3 text-right">
-                  {isUnavailable
-                    ? "Unavailable"
-                    : `${formatCurrency(row.profit)}/${row.unit}`}
-                </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right font-semibold">
                   {isUnavailable ? (
                     <>
                       <p className="font-medium text-gray-700 dark:text-brand-100">
@@ -293,42 +213,21 @@ export default function BudgetPricingAnalysis({
                   ) : (
                     <details>
                       <summary className="cursor-pointer font-semibold">
-                        {formatCurrency(row.calculatedRate)}/{row.unit}
+                        <span>{formatCurrency(row.estimateRate)}/{row.unit}</span>
+                        <span className="ml-2 text-xs font-medium text-brand-600 dark:text-brand-200">Calculation</span>
                       </summary>
-                      <div className="mt-1 space-y-1 text-left text-xs text-gray-500 dark:text-brand-300">
-                        <p>
-                          {costLabel}: {formatCurrency(row.costRate)}/{row.unit}
-                        </p>
-                        <p>
-                          Overhead Recovery:{" "}
-                          {formatCurrency(row.overheadPerUnit)}/{row.unit}
-                        </p>
-                        <p>
-                          Breakeven: {formatCurrency(row.recoveredCostPerUnit)}/
-                          {row.unit}
-                        </p>
-                        <p>
-                          Target Profit:{" "}
-                          {formatTargetMarginPercent(row.targetMarginPct)}
-                        </p>
-                        <p>
-                          {formatCurrency(row.recoveredCostPerUnit)} ÷ (1 -{" "}
-                          {formatTargetMarginPercent(row.targetMarginPct)}) ={" "}
-                          {formatCurrency(row.calculatedRate)}/{row.unit}
-                        </p>
-                      </div>
+                      <dl className="mt-2 min-w-64 space-y-1 text-left text-xs font-normal text-gray-500 dark:text-brand-300">
+                        <div className="flex justify-between gap-4"><dt>{row.type === "labour" ? "Average Labour Cost" : costLabel}</dt><dd>{formatCurrency(row.costRate)}/{row.unit}</dd></div>
+                        <div className="flex justify-between gap-4"><dt>Overhead Recovery</dt><dd>{formatCurrency(row.overheadPerUnit)}/{row.unit}</dd></div>
+                        <div className="flex justify-between gap-4 border-t border-brand-100 pt-1 dark:border-brand-600"><dt>Breakeven</dt><dd>{formatCurrency(row.recoveredCostPerUnit)}/{row.unit}</dd></div>
+                        <div className="flex justify-between gap-4 pt-1"><dt>Target Net Profit</dt><dd>{formatTargetMarginPercent(row.targetMarginPct)}</dd></div>
+                        <div className="flex justify-between gap-4"><dt>Profit</dt><dd>{formatCurrency(row.profit)}/{row.unit}</dd></div>
+                        <div className="flex justify-between gap-4 pt-1"><dt>Calculated {valueLabel}</dt><dd>{formatCurrency(row.calculatedRate)}/{row.unit}</dd></div>
+                        <div className="flex justify-between gap-4"><dt>Custom {valueLabel}</dt><dd>{row.customRate !== null ? `${formatCurrency(row.customRate)}/${row.unit}` : "—"}</dd></div>
+                        <div className="flex justify-between gap-4 border-t border-brand-100 pt-1 font-semibold text-gray-800 dark:border-brand-600 dark:text-brand-100"><dt>Estimate {valueLabel}</dt><dd>{formatCurrency(row.estimateRate)}/{row.unit}</dd></div>
+                      </dl>
                     </details>
                   )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {row.customRate !== null
-                    ? `${formatCurrency(row.customRate)}/${row.unit}`
-                    : "—"}
-                </td>
-                <td className="px-4 py-3 text-right font-semibold">
-                  {isUnavailable
-                    ? "Unavailable"
-                    : `${formatCurrency(row.estimateRate)}/${row.unit}`}
                 </td>
               </tr>
             );
@@ -448,7 +347,7 @@ export default function BudgetPricingAnalysis({
                     </p>
                   </div>
                 ) : null}
-                {pricingTable(activeRows, activeTab.costLabel, activeTab.rateLabel)}
+                {pricingTable(activeRows, activeTab.label === "Materials" ? "Material" : activeTab.label === "Subcontractors" ? "Subcontractor" : activeTab.label === "Labour" ? "Labour Class" : "Equipment", activeTab.costLabel, activeTab.rateLabel)}
               </>
             ) : (
               activePricingTab === "labour" && labourDiagnostics.hasPlannedLabour && labourDiagnostics.unassignedEmployees.length === labourDiagnostics.plannedEmployeeCount ? (

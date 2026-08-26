@@ -1140,6 +1140,7 @@ export interface BudgetRate {
   recoveredCostPerUnit?: number;
   targetMarginPercent?: number;
   recommendedSellPrice?: number;
+  customRate?: number | null;
   defaultMarkupPercent: number;
   defaultSellPrice: number;
   active: boolean;

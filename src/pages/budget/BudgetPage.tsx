@@ -1325,11 +1325,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
     const asset = item.equipmentId ? equipmentAssetsById[item.equipmentId] : undefined;
     const costRateHourly = (item.sellableHoursPerYear ?? 0) > 0 ? item.budgeted / (item.sellableHoursPerYear ?? 1) : 0;
     const rate = findEquipmentRate(item);
-    const savedChargeOutRate = rate?.defaultSellPrice && rate.defaultSellPrice > 0
-      ? rate.defaultSellPrice
-      : asset?.chargeOutRate && asset.chargeOutRate > 0
-        ? asset.chargeOutRate
-        : null;
+    const savedChargeOutRate = rate?.customRate ?? null;
     const pricing = calculateEquipmentRatePricing({
       costRateHourly,
       overheadRecoveryHourly: equipmentOverheadRecoveryPerHour,
@@ -1359,6 +1355,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       overheadRecoveryPerUnit: pricing.overheadRecoveryHourly,
       targetMarginPercent: pricing.targetMarginPercent,
       recommendedSellPrice: pricing.recommendedSellRate,
+      customRate: chargeOutRate,
       defaultMarkupPercent: pricing.costRateHourly > 0 ? Math.max(0, ((chargeOutRate / pricing.costRateHourly) - 1) * 100) : 0,
       defaultSellPrice: chargeOutRate,
       active: true,

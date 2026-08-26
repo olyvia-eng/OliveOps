@@ -163,26 +163,52 @@ test('Pricing uses four client-side tabs and defaults to Labour', () => {
 });
 
 test('Pricing uses contractor-facing labels and renders no approval workflow', () => {
-  for (const label of ['Labour Cost', 'Equipment Cost', 'Material Cost', 'Subcontractor Cost', 'Overhead Recovery', 'Breakeven', 'Target Profit', 'Profit', 'Calculated', 'Custom', 'Estimate']) assert.match(pricingSource, new RegExp(label));
-  assert.doesNotMatch(pricingSource, /Target Net Profit/);
+  for (const label of ['Labour Cost', 'Equipment Cost', 'Material Cost', 'Subcontractor Cost', 'Overhead', 'Net Profit', 'Overhead Recovery', 'Breakeven', 'Target Net Profit', 'Profit', 'Calculated', 'Custom', 'Estimate']) assert.match(pricingSource, new RegExp(label));
   assert.match(pricingSource, />\s*Pricing\s*<\/h2>/);
   assert.match(pricingSource, /Review Budget-calculated pricing by Division/);
   for (const removed of ['Approved Rate', 'Saved ✓', 'Custom rate', 'Not approved', 'Using recommended rate', 'addBudgetRate', 'updateBudgetRate']) assert.doesNotMatch(pricingSource, new RegExp(removed));
 });
 
-test('overhead and final rates disclose actual source values and margin formula', () => {
-  for (const label of ['Labour Overhead Pool', 'Billable Labour Hours', 'Equipment Recovery Pool', 'Annual Equipment Cost', 'Material Recovery Pool', 'Annual Material Cost', 'Subcontractor Recovery Pool', 'Annual Subcontractor Cost']) assert.match(pricingSource, new RegExp(label));
-  assert.match(pricingSource, /row\.overheadPool/);
-  assert.match(pricingSource, /row\.recoveryDenominator/);
-  assert.match(pricingSource, /row\.recoveryRate/);
-  assert.match(pricingSource, /Division Overhead:/);
-  assert.match(pricingSource, /Allocation:/);
-  assert.match(pricingSource, /Overhead Recovery:/);
-  assert.match(pricingSource, /Breakeven:/);
-  assert.match(pricingSource, /÷ \(1 -/);
+test('compact Pricing table has six columns and moves the full authoritative breakdown into Calculation', () => {
+  assert.equal((pricingSource.match(/<th\b/g) ?? []).length, 6);
+  assert.match(pricingSource, /<th[^>]*>\{itemLabel\}<\/th>[\s\S]*>Division<\/th>[\s\S]*>\{costLabel\}<\/th>[\s\S]*>Overhead<\/th>[\s\S]*>Net Profit<\/th>[\s\S]*>Estimate \{valueLabel\}<\/th>/);
+  for (const itemLabel of ['Labour Class', 'Equipment', 'Material', 'Subcontractor']) assert.match(pricingSource, new RegExp(`"${itemLabel}"`));
+  assert.match(pricingSource, /table-fixed/);
+  assert.doesNotMatch(pricingSource, /min-w-\[1180px\]/);
+  assert.match(pricingSource, />Calculation<\/span>/);
+  assert.match(pricingSource, /Average Labour Cost/);
+  assert.match(pricingSource, />Overhead Recovery<\/dt>/);
+  for (const field of ['row.costRate', 'row.overheadPerUnit', 'row.recoveredCostPerUnit', 'row.targetMarginPct', 'row.profit', 'row.calculatedRate', 'row.customRate', 'row.estimateRate']) assert.match(pricingSource, new RegExp(field.replace('.', '\\.')));
   assert.match(pricingSource, /formatTargetMarginPercent\(row\.targetMarginPct\)/);
+  assert.match(pricingSource, /\$\{formatCurrency\(row\.overheadPerUnit\)\}\/\$\{row\.unit\}/);
   assert.doesNotMatch(pricingSource, /targetMarginPct\.toFixed\(0\)/);
   assert.doesNotMatch(pricingSource, /\* 1\.2|× 1\.20/);
+});
+
+test('configured target margin is applied once with margin math and authoritative profit dollars', () => {
+  const marginBudget = { id: 'margin-budget', targetMarginPct: 10 };
+  const marginDivisions = [{ id: 'division', budgetId: marginBudget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 0, equipmentPercent: 0, materialsPercent: 100, subcontractorsPercent: 0 } } }];
+  const items = [
+    { id: 'material', budgetId: marginBudget.id, divisionId: 'division', category: 'materials', name: 'Material', unit: 'unit', unitCost: 25.94, plannedQuantity: 100 },
+    { id: 'overhead', budgetId: marginBudget.id, category: 'overhead', plannedAmount: 300, overheadDivisionAllocations: [{ divisionId: 'division', percentage: 100 }] },
+  ];
+  const row = buildBudgetPricingRows({ budget: marginBudget, divisions: marginDivisions, planningItems: items, budgetRates: [] })[0];
+  assert.equal(row.targetMarginPct, 10);
+  assert.ok(Math.abs(row.costRate - 25.94) < 0.000001);
+  assert.ok(Math.abs(row.overheadPerUnit - 3) < 0.000001);
+  assert.ok(Math.abs(row.recoveredCostPerUnit - 28.94) < 0.000001);
+  assert.ok(Math.abs(row.calculatedRate - (28.94 / (1 - 0.10))) < 0.000001);
+  assert.ok(Math.abs(row.profit - (row.calculatedRate - row.recoveredCostPerUnit)) < 0.000001);
+});
+
+test('legacy approved sell price is not an explicit custom rate', () => {
+  const legacyRate = { id: 'legacy-rate', budgetId: budget.id, budgetItemId: 'bobcat', equipmentId: 'equipment-bobcat', divisionId: 'hardscape', pricingVersion: 2, category: 'equipment', defaultSellPrice: 32.43 };
+  const withoutCustom = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: [legacyRate], employees, labourClasses }).find((row) => row.item.id === 'bobcat');
+  const withCustom = buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates: [{ ...legacyRate, customRate: 35 }], employees, labourClasses }).find((row) => row.item.id === 'bobcat');
+  assert.equal(withoutCustom.customRate, null);
+  assert.equal(withoutCustom.estimateRate, withoutCustom.calculatedRate);
+  assert.equal(withCustom.customRate, 35);
+  assert.equal(withCustom.estimateRate, 35);
 });
 
 test('materials and subcontractors use Division planned-cost recovery bases', () => {
@@ -236,8 +262,7 @@ test('positive recovery pools with missing denominators are unavailable, not zer
     assert.equal(Number.isFinite(row.recoveryRate), true, category);
     assert.equal(Number.isFinite(row.recommendedRate), true, category);
   }
-  assert.match(pricingSource, /No \{terms\.missing\} is planned/);
-  assert.match(pricingSource, /cannot currently be\s+recovered/);
+  assert.match(pricingSource, /Overhead cannot be recovered without planned/);
 });
 
 test('persisted Labour Class custom rates remain readable and are not changed by tabs', () => {

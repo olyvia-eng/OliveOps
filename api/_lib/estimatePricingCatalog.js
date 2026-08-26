@@ -152,7 +152,9 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
     const usesCalculatedPricing = Boolean(calculatedRow);
     const recommendedRate = usesCalculatedPricing ? positiveNumber(calculatedRow.calculatedRate) : matchingRate ? positiveNumber(matchingRate.recommendedSellPrice) : positiveNumber(item.recommendedRate);
     const approvedRate = usesCalculatedPricing ? null : matchingRate ? positiveNumber(matchingRate.defaultSellPrice) : positiveNumber(item.approvedRate);
-    const sellRate = usesCalculatedPricing ? recommendedRate : approvedRate;
+    const customRate = usesCalculatedPricing ? calculatedRow.customRate : null;
+    const estimateRate = usesCalculatedPricing ? calculatedRow.estimateRate : approvedRate;
+    const sellRate = usesCalculatedPricing ? estimateRate : approvedRate;
     const costRate = usesCalculatedPricing ? positiveNumber(calculatedRow.costRate) : matchingRate ? positiveNumber(matchingRate.unitCost) : positiveNumber(item.costRate);
     const pricingAvailable = usesCalculatedPricing ? calculatedRow.pricingAvailable : Boolean(sellRate);
     const pricingStatus = usesCalculatedPricing ? pricingAvailable ? 'calculated' : 'unavailable' : approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable';
@@ -179,6 +181,9 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       costRate,
       recommendedRate,
       approvedRate,
+      calculatedRate: usesCalculatedPricing ? calculatedRow.calculatedRate : recommendedRate,
+      customRate,
+      estimateRate,
       sellRate,
       pricingAvailable,
       pricingStatus,
@@ -288,9 +293,9 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       averageLabourCost: pricing.type === 'labour' ? pricing.averageLabourCost ?? unitCost : undefined,
       overheadRecoveryPerHour: pricing.type === 'labour' ? pricing.overheadRecoveryPerHour ?? undefined : undefined,
       breakevenRate: pricing.type === 'labour' ? pricing.breakevenRate ?? undefined : undefined,
-      calculatedRateAtEstimate: pricing.type === 'labour' ? pricing.calculatedRate ?? undefined : undefined,
-      customRateAtEstimate: pricing.type === 'labour' ? pricing.customRate ?? null : undefined,
-      estimateRateAtEstimate: pricing.type === 'labour' ? pricing.estimateRate ?? sellPrice : undefined,
+      calculatedRateAtEstimate: pricing.calculatedRate ?? undefined,
+      customRateAtEstimate: pricing.customRate ?? null,
+      estimateRateAtEstimate: pricing.estimateRate ?? sellPrice,
       equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,

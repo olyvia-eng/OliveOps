@@ -18,7 +18,7 @@ export function buildEquipmentCatalogPricingRows({ pricingRates, budgetDivisions
     const overheadRecovery = numberOrNull(rate.divisionOverheadRecoveryPerUnit) ?? numberOrNull(rate.overheadRecoveryPerUnit);
     const breakeven = numberOrNull(rate.recoveredCostPerUnit) ?? (cost !== null && overheadRecovery !== null ? cost + overheadRecovery : null);
     const calculatedRate = numberOrNull(rate.recommendedSellPrice);
-    const customRate = numberOrNull(rate.defaultSellPrice) && rate.defaultSellPrice > 0 ? rate.defaultSellPrice : null;
+    const customRate = numberOrNull(rate.customRate);
     return {
       rate,
       divisionName: division?.name ?? `${budget?.name ?? 'Legacy Budget'} · Legacy / Unassigned`,

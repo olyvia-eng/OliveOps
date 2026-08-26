@@ -14,7 +14,7 @@ test('equipment pricing deduplicates semantic Budget and Division rows', () => {
       { id: 'legacy-old', budgetId: 'budget-1', category: 'equipment', unitCost: 20, recommendedSellPrice: 40, updatedAt: '2027-01-01T00:00:00Z' },
       { id: 'legacy-new', budgetId: 'budget-1', category: 'equipment', unitCost: 25, recommendedSellPrice: 50, updatedAt: '2027-02-01T00:00:00Z' },
       { id: 'division-unlinked', budgetId: 'budget-1', divisionId: 'division-1', category: 'equipment', unitCost: 30, recommendedSellPrice: 60 },
-      { id: 'division-linked', budgetId: 'budget-1', divisionId: 'division-1', equipmentId: 'equipment-1', pricingVersion: 2, category: 'equipment', directCostPerUnit: 35, recommendedSellPrice: 70 },
+      { id: 'division-linked', budgetId: 'budget-1', divisionId: 'division-1', equipmentId: 'equipment-1', pricingVersion: 2, category: 'equipment', directCostPerUnit: 35, recommendedSellPrice: 70, customRate: 75 },
     ],
   });
 
@@ -22,6 +22,17 @@ test('equipment pricing deduplicates semantic Budget and Division rows', () => {
     ['legacy-new', '2027 Budget · Legacy / Unassigned', 25, 50],
     ['division-linked', 'Hardscaping', 35, 70],
   ]);
+  assert.equal(rows.find((row) => row.rate.id === 'division-linked').customRate, 75);
+});
+
+test('legacy equipment sell fields are not presented as explicit custom rates', () => {
+  const [row] = buildEquipmentCatalogPricingRows({
+    budgets: [{ id: 'budget-1', name: 'Budget' }],
+    budgetDivisions: [],
+    pricingRates: [{ id: 'legacy', budgetId: 'budget-1', category: 'equipment', recommendedSellPrice: 70, defaultSellPrice: 32.43 }],
+  });
+  assert.equal(row.customRate, null);
+  assert.equal(row.estimateRate, 70);
 });
 
 test('equipment catalog uses a compact table instead of large equipment cards', () => {

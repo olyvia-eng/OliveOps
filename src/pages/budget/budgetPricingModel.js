@@ -6,6 +6,12 @@ const number = (value) => {
   return Number.isFinite(result) && result > 0 ? result : 0;
 };
 
+const optionalNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const result = Number(value);
+  return Number.isFinite(result) && result >= 0 ? result : null;
+};
+
 const labourCost = (item) => {
   const calculated = calculateLabourCostFromInputs({
     compType: item.compType === 'salaried' ? 'salaried' : 'hourly',
@@ -180,7 +186,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
       const recoveryDenominatorUnavailable = Boolean(scope?.valid && (scope.pools.labour ?? 0) > 0 && (scope.denominators.labour ?? 0) <= 0);
       const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
       const calculatedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
-      const customRate = number(labourClass.customRates?.[division.id]) || null;
+      const customRate = optionalNumber(labourClass.customRates?.[division.id]);
       const item = { id: labourClassItemId(labourClass.id), labourClassId: labourClass.id, budgetId: budget.id, divisionId: division.id, category: 'labour', name: labourClass.name };
       return [{
         item,
@@ -231,6 +237,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
       const recoveryUnavailable = recoveryConfigurationUnavailable || recoveryDenominatorUnavailable;
       const recommendedRate = recoveryUnavailable ? 0 : grossMarginRate(recoveredCostPerUnit, margin);
       const rate = matchingRate(budgetRates, budget.id, item, type, divisionId);
+      const customRate = optionalNumber(rate?.customRate);
       const division = divisions.find((value) => value.id === divisionId);
       return {
         item,
@@ -249,8 +256,8 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         profit: recommendedRate - recoveredCostPerUnit,
         recommendedRate,
         calculatedRate: recommendedRate,
-        customRate: number(rate?.defaultSellPrice) || null,
-        estimateRate: number(rate?.defaultSellPrice) || recommendedRate,
+        customRate,
+        estimateRate: customRate ?? recommendedRate,
         pricingAvailable: recommendedRate > 0,
         divisionOverhead: scope?.totalOverhead ?? 0,
         recoveryAllocationPct: scope?.allocation[`${item.category}Percent`] ?? 0,

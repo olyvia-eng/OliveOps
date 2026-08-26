@@ -111,6 +111,7 @@ test('equipment cost entry contains no sell rate and pricing is owned by Analysi
 
 test('custom rate is saved to budget pricing and synchronized to the catalog', () => {
   assert.match(budgetSource, /recommendedSellPrice: pricing\.recommendedSellRate/);
+  assert.match(budgetSource, /customRate: chargeOutRate/);
   assert.match(budgetSource, /defaultSellPrice: chargeOutRate/);
   assert.match(budgetSource, /updateEquipmentAsset\(row\.asset\.id/);
   for (const label of ['Equipment Cost', 'Overhead Recovery', 'Breakeven', 'Target Profit', 'Profit', 'Calculated Rate', 'Custom Rate', 'Estimate Rate']) assert.match(catalogDetailSource, new RegExp(label));

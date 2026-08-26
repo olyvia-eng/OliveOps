@@ -324,6 +324,22 @@ test('all Division categories use calculated pricing without saved approval reco
   ]);
 });
 
+test('new Estimates use explicit custom equipment rates without reinterpreting legacy sell prices', () => {
+  const rate = { id: 'equipment-custom', budgetId, budgetItemId: 'equipment-bobcat', equipmentId: 'bobcat', category: 'equipment', pricingVersion: 2, divisionId: 'hardscape', defaultSellPrice: 32.43, customRate: 35, active: true };
+  const catalog = buildCalculated(calculatedPlanningItems, [rate]);
+  const equipment = catalog.equipment[0];
+  assert.deepEqual([equipment.calculatedRate, equipment.customRate, equipment.estimateRate, equipment.sellRate], [15, 35, 35, 35]);
+
+  const requested = { id: 'line-custom-equipment', sourceBudgetId: budgetId, sourceBudgetItemId: 'equipment-bobcat', sourceEntityId: 'bobcat', divisionId: 'hardscape', quantity: 2 };
+  const result = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { id: 'estimate-custom-equipment', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] },
+    catalog,
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual([result.estimate.lineItems[0].sellPrice, result.estimate.lineItems[0].calculatedRateAtEstimate, result.estimate.lineItems[0].customRateAtEstimate, result.estimate.lineItems[0].estimateRateAtEstimate], [35, 15, 35, 35]);
+});
+
 test('Division catalog snapshots calculated labour components immutably', () => {
   const catalog = buildCalculated();
   const labourer = catalog.labour.find((item) => item.labourClassId === 'class-labourer');

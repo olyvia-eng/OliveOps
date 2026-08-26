@@ -15,6 +15,10 @@ The server deduplicates shared items by canonical identity:
 
 The server calls the same `buildBudgetPricingRows` model used by Budget Pricing. A positive finite calculated rate is available for new Estimate pricing. Missing recovery configuration, missing recovery denominators, or another incomplete Budget input leaves the item unavailable according to that canonical model. Estimates do not implement a separate readiness rule or fallback rate.
 
+The Budget persists `targetMarginPct` as percentage points, so a configured value of `10` means 10%. The pricing model applies it once as a margin: `breakeven / (1 - targetMarginPct / 100)`. Profit per unit is the calculated rate minus breakeven.
+
+Current Division pricing treats only `customRate` as an explicit override. When it is `null` or absent, the Estimate rate is the calculated rate. Legacy `defaultSellPrice`, approved rates, equipment charge-out rates, and historical snapshot fields remain available to their compatibility paths but are not inferred to be a current custom override.
+
 Equipment, Materials, and Subcontractors use the calculated row for their planning item in the selected Division. Display names are not an identity boundary.
 
 Equipment eligibility is resolved before the Estimate catalog is returned. Equipment whose tenant-owned catalog record is classified as `overhead` is excluded rather than returned as unavailable; unlinked/manual planning items use their saved planning classification. Billable equipment continues through the existing Division pricing readiness rules. This selection rule does not remove or reprice equipment already snapshotted on an Estimate.

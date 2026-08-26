@@ -290,9 +290,9 @@ export default function EquipmentCatalogPage() {
                       const costRate = resolveEquipmentCostRate(asset);
                       const pricingRates = budgetRates.filter((rate) => rate.active && rate.category === 'equipment' && (rate.equipmentId ? rate.equipmentId === asset.id : rate.itemName.trim().toLowerCase() === asset.name.trim().toLowerCase()));
                       const recommendedRates = pricingRates.filter((rate) => (rate.recommendedSellPrice ?? 0) > 0);
-                      const approvedRates = pricingRates.filter((rate) => rate.defaultSellPrice > 0);
+                      const customRates = pricingRates.filter((rate) => rate.customRate != null);
                       const recommendedSummary = recommendedRates.length > 1 ? `${recommendedRates.length} division rates` : recommendedRates.length === 1 ? `${formatCurrency(recommendedRates[0].recommendedSellPrice ?? 0)}/hr` : 'Not calculated';
-                      const approvedSummary = approvedRates.length > 1 ? `${approvedRates.length} division rates` : approvedRates.length === 1 ? `${formatCurrency(approvedRates[0].defaultSellPrice)}/hr` : asset.chargeOutRate && asset.chargeOutRate > 0 ? `${formatCurrency(asset.chargeOutRate)}/hr` : 'No custom rate';
+                      const customSummary = customRates.length > 1 ? `${customRates.length} division rates` : customRates.length === 1 ? `${formatCurrency(customRates[0].customRate ?? 0)}/hr` : 'No custom rate';
                       const allocatedBudgetIds = Array.from(new Set(equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === asset.id).map((allocation) => allocation.budgetId)));
                       const allocatedNames = allocatedBudgetIds.map((budgetId) => budgets.find((budget) => budget.id === budgetId)?.name).filter((name): name is string => Boolean(name));
                       const allocationSummary = allocatedNames.length === 0
@@ -314,7 +314,7 @@ export default function EquipmentCatalogPage() {
                           <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.type || '—'}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{costRate !== null ? `${formatCurrency(costRate)}/hr` : 'Not calculated'}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{recommendedSummary}</td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{approvedSummary}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{customSummary}</td>
                           <td className="px-4 py-3"><Badge label={asset.costType.charAt(0).toUpperCase() + asset.costType.slice(1)} className="bg-accent-50 text-accent-700" /></td>
                           <td className="max-w-56 truncate px-4 py-3 text-gray-600 dark:text-brand-100" title={allocatedNames.join(', ')}>{allocationSummary}</td>
                         </tr>

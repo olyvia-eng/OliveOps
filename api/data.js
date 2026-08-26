@@ -1213,6 +1213,7 @@ function validateBudgetRateRecord(record) {
     ['overheadRecoveryPerUnit', 'Budget rate overhead recovery'],
     ['targetMarginPercent', 'Budget rate target margin'],
     ['recommendedSellPrice', 'Budget rate recommended sell price'],
+    ['customRate', 'Budget rate custom rate'],
     ['directCostPerUnit', 'Budget rate direct cost'],
     ['divisionOverheadRecoveryPerUnit', 'Budget rate Division overhead recovery'],
     ['companyOverheadRecoveryPerUnit', 'Budget rate Company overhead recovery'],
