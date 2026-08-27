@@ -155,9 +155,9 @@ export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budge
     averageLabourCost: pricing.type === 'labour' ? pricing.averageLabourCost ?? unitCost : undefined,
     overheadRecoveryPerHour: pricing.type === 'labour' ? pricing.overheadRecoveryPerHour ?? undefined : undefined,
     breakevenRate: pricing.type === 'labour' ? pricing.breakevenRate ?? undefined : undefined,
-    calculatedRateAtEstimate: pricing.type === 'labour' ? pricing.calculatedRate ?? undefined : undefined,
-    customRateAtEstimate: pricing.type === 'labour' ? pricing.customRate ?? null : undefined,
-    estimateRateAtEstimate: pricing.type === 'labour' ? pricing.estimateRate ?? sellPrice : undefined,
+    calculatedRateAtEstimate: pricing.calculatedRate ?? undefined,
+    customRateAtEstimate: pricing.customRate ?? null,
+    estimateRateAtEstimate: pricing.estimateRate ?? sellPrice,
     equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
     equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
     itemName: pricing.name,
@@ -310,14 +310,18 @@ export function getEstimateLinePricingEconomics(item: EstimateLineItem) {
   const snapshotBreakeven = item.recoveredCostPerUnit ?? item.breakevenRate;
   const breakeven = snapshotBreakeven == null ? null : Math.max(0, asNumber(snapshotBreakeven, 0));
   const profitPercent = item.targetMarginPct == null ? null : Math.max(0, asNumber(item.targetMarginPct, 0));
+  const snapshotCalculatedPrice = item.calculatedRateAtEstimate ?? item.recommendedRateAtEstimate;
+  const calculatedPrice = snapshotCalculatedPrice == null ? null : Math.max(0, asNumber(snapshotCalculatedPrice, 0));
 
   return {
     cost,
     breakeven,
     totalCost: quantity * cost,
     profitPercent,
+    calculatedPrice,
     price,
-    totalPrice: Math.max(0, asNumber(item.total, quantity * price)),
+    totalPrice: quantity * price,
+    isBelowBreakeven: breakeven !== null && price < breakeven,
   };
 }
 

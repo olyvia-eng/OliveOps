@@ -134,14 +134,12 @@ test('non-financial roles cannot receive internal pricing or modify protected ra
   assert.match(dataApiSource, /changesEquipmentPricing\(data\)/);
 });
 
-test('estimate equipment uses catalog charge-out and snapshots cost and sell values', () => {
-  assert.match(estimateBuilderSource, /approvedChargeOutRate/);
-  assert.match(estimateBuilderSource, /applyEquipmentAssetToEstimateLineItem/);
-  assert.match(estimateBuilderSource, /legacy budget rate/);
-  assert.match(estimateModelSource, /costRateAtEstimate: costRate/);
-  assert.match(estimateModelSource, /chargeOutRateAtEstimate: chargeOutRate/);
-  assert.match(estimateModelSource, /estimatedCost: quantity \* costRate/);
-  assert.match(estimateModelSource, /estimatedSell: quantity \* chargeOutRate/);
+test('new estimate equipment uses selected-Budget pricing and snapshots cost and sell values', () => {
+  assert.match(estimateBuilderSource, /fetch\(`\/api\/estimate-pricing-catalog\?estimateId=/);
+  assert.match(estimateBuilderSource, /applyEstimatePricingToLineItem/);
+  assert.doesNotMatch(estimateBuilderSource, /approvedChargeOutRate|applyEquipmentAssetToEstimateLineItem|legacy budget rate/);
+  assert.match(estimateModelSource, /costRateAtEstimate: pricing\.type === 'equipment' \? unitCost/);
+  assert.match(estimateModelSource, /chargeOutRateAtEstimate: pricing\.type === 'equipment' \? sellPrice/);
 });
 
 test('estimate-to-job conversion preserves accepted equipment financial snapshots', () => {

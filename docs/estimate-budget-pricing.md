@@ -6,9 +6,9 @@ Estimate Work Areas consume calculated pricing from the Estimate's selected over
 
 For `divisions_v1` Budgets, catalog discovery starts from tenant-owned `BUDGET_DIVISION_PLAN` records across the entire Budget. Each Estimate has one selected Division, and the Work Area catalog includes planning items allocated to that Division.
 
-The server deduplicates shared items by canonical identity:
+The server resolves reusable estimating resources by canonical identity:
 
-- Labour: `employeeId`
+- Labour: `labourClassId`
 - Equipment: `equipmentId`
 - Materials: `materialCatalogItemId`
 - Subcontractors: `vendorId` when available, otherwise the shared Budget planning item ID
@@ -23,7 +23,7 @@ Equipment, Materials, and Subcontractors use the calculated row for their planni
 
 Equipment eligibility is resolved before the Estimate catalog is returned. Equipment whose tenant-owned catalog record is classified as `overhead` is excluded rather than returned as unavailable; unlinked/manual planning items use their saved planning classification. Billable equipment continues through the existing Division pricing readiness rules. This selection rule does not remove or reprice equipment already snapshotted on an Estimate.
 
-Labour distinguishes named employees from generic resources. An employee's allocated planning item determines whether that employee is eligible for the selected Division and produces that employee's charge-out rate from their canonical compensation inputs, Budget planned and billable hours, the Division overhead recovery rate, and the Budget target margin. Employees with different costs can therefore have different calculated rates. Generic resources such as Hardscape Labor continue to use the Division's calculated `average-labour:<divisionId>` row. Neither path falls back to legacy approvals when the current Budget calculation is incomplete.
+Labour uses reusable Labour Classes for new Estimate selection. Employee compensation and Budget allocations contribute to each class's weighted direct cost, but employee identities are not returned as new estimating resources. The selected Division's Labour Class row supplies direct cost, overhead recovery, breakeven, target margin, and calculated price. Historical employee-backed Estimate snapshots remain readable and are not migrated or repriced.
 
 `GET /api/estimate-pricing-catalog?estimateId=<id>` derives the business and `pricingBudgetId` from the authenticated Estimate and returns one normalized catalog:
 
@@ -37,11 +37,11 @@ Labour distinguishes named employees from generic resources. An employee's alloc
 }
 ```
 
-Each current Division item includes `budgetItemId`, `sourceEntityId`, unit, cost rate, `sellRate`, `pricingAvailable`, and `pricingStatus: "calculated" | "unavailable"`. For Labour, `sourceEntityId` remains the selected employee while the cost and sell rates come from the aggregate Division Labour row. `sourceRateId` and approval-related fields may still appear for legacy catalog compatibility, but they do not control new `divisions_v1` pricing. The endpoint is for authorized Estimate workflows and may include internal cost information.
+Each current Division item includes `budgetItemId`, `sourceEntityId`, unit, cost rate, `sellRate`, `pricingAvailable`, and `pricingStatus: "calculated" | "unavailable"`. For Labour, `sourceEntityId` and `labourClassId` identify the selected Labour Class. `sourceRateId` and approval-related fields may still appear for legacy compatibility, but they do not control new `divisions_v1` pricing. The endpoint is for authorized Estimate workflows and may include internal cost information.
 
 ## Estimate snapshots
 
-Adding a calculated catalog item stores the selected Budget, shared Budget item, source entity, pricing version, internal cost, and calculated sell price on the Estimate line item. The Estimate API re-resolves newly added source items and replaces browser-provided financial values with current server-calculated values. Budget-priced lines store the calculated selling rate directly and do not apply a second Estimate-level markup.
+Adding a calculated catalog item stores the selected Budget, shared Budget item, source entity, pricing version, direct cost, recovered cost, target margin, calculated price, effective Budget price, and final sell price on the Estimate line item. The Estimate API re-resolves newly added source items and replaces browser-provided financial values with current server-calculated values. A Budget custom rate remains distinguishable from the underlying calculated price, and Budget-priced lines do not apply a second Estimate-level markup.
 
 Existing line-item snapshots are not re-resolved during later edits. Their source, cost, and sell-rate fields are preserved authoritatively while quantity and notes may change. Changing Budget inputs or recalculating rates therefore does not silently alter an existing draft, sent, accepted, declined, or converted Estimate. Historical Estimates that contain legacy approval-based snapshots remain unchanged. A future explicit "refresh pricing" workflow would need its own review and lifecycle rules.
 

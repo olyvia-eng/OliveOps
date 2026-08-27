@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { formatTargetMarginPercent } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
 
 const builderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
@@ -26,6 +27,9 @@ test('Labour drawer presents calculated Division pricing without approval langua
   assert.match(builderSource, /\/materials\/catalog\?catalog=labour/);
   assert.doesNotMatch(builderSource, /employees\.find/);
   assert.doesNotMatch(builderSource, /employeeName/);
+  assert.doesNotMatch(builderSource, /budgetRatesByCategory|applyBudgetRateToEstimateLineItem|applyEquipmentAssetToEstimateLineItem/);
+  assert.match(builderSource, /applyEstimatePricingToLineItem\(createEmptyEstimateLineItem\(candidate\.category\), estimate\.pricingBudgetId, pricingItem\)/);
+  assert.match(builderSource, /catalogCategory !== 'labour'/);
 });
 
 test('Work Area resources expose snapshot economics with editable quantity and actions', () => {
@@ -38,6 +42,10 @@ test('Work Area resources expose snapshot economics with editable quantity and a
   assert.match(builderSource, /usesHours \|\| isBudgetPriced \? <span>\{lineItem\.unit\}<\/span>/);
   assert.match(builderSource, /formatCurrency\(economics\.totalCost\)/);
   assert.match(builderSource, /formatCurrency\(economics\.totalPrice\)/);
+  assert.match(builderSource, /formatTargetMarginPercent\(economics\.profitPercent\)/);
+  assert.match(builderSource, /Calculated Price/);
+  assert.match(builderSource, /Final Price/);
+  assert.match(builderSource, /Price is below breakeven\./);
   assert.doesNotMatch(builderSource, /· \{estimateDivision\.name\}/);
   assert.match(builderSource, /title=\{isExpanded \? 'Collapse item details' : 'Edit description and notes'\}/);
   assert.match(builderSource, /isExpanded \? <div[^>]*>\s*<label[^>]*>Description \/ Notes/);
@@ -48,7 +56,16 @@ test('Work Area resources expose snapshot economics with editable quantity and a
 
 test('Work Area totals omit the line count and rebalance financial summaries', () => {
   assert.match(builderSource, /grid grid-cols-1 gap-3 sm:grid-cols-2/);
+  assert.match(builderSource, /Sell Price by Category/);
+  assert.match(workspaceSource, /Sell Price by Category/);
   assert.doesNotMatch(builderSource, />Line Items<|form\.lineItems\.length/);
+});
+
+test('Profit uses the selected Budget target and never exposes raw decimal text', () => {
+  assert.equal(formatTargetMarginPercent(15), '15%');
+  assert.equal(formatTargetMarginPercent(78.43137254901961), '78.43%');
+  assert.doesNotMatch(builderSource, /`\$\{economics\.profitPercent\}%`/);
+  assert.doesNotMatch(builderSource, /markupPercent.*Profit|Profit.*markupPercent/);
 });
 
 test('Custom items keep explicit rate and secondary costing without Estimate markup', () => {
@@ -78,7 +95,9 @@ test('worksheet economics read authoritative snapshot fields without applying sa
   assert.match(modelSource, /export function getEstimateLinePricingEconomics/);
   assert.match(modelSource, /item\.recoveredCostPerUnit \?\? item\.breakevenRate/);
   assert.match(modelSource, /item\.targetMarginPct == null/);
+  assert.match(modelSource, /item\.calculatedRateAtEstimate \?\? item\.recommendedRateAtEstimate/);
   assert.match(modelSource, /totalCost: quantity \* cost/);
-  assert.match(modelSource, /totalPrice: Math\.max\(0, asNumber\(item\.total, quantity \* price\)\)/);
+  assert.match(modelSource, /totalPrice: quantity \* price/);
+  assert.match(modelSource, /isBelowBreakeven: breakeven !== null && price < breakeven/);
   assert.doesNotMatch(builderSource, /Cost \+ Tax/);
 });

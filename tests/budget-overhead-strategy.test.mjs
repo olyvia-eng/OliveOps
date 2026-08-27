@@ -33,16 +33,13 @@ test('overhead tab includes labour overhead summary and overhead employee sectio
   assert.match(budgetPageSource, /\(row\.employee\.labourType \?\? 'field_producing'\) === 'overhead'/);
 });
 
-test('budget rates and estimate add-items use a single combined entry per catalog item', () => {
+test('budget rates remain canonical and Estimate add-items use selected-Budget results', () => {
   assert.match(budgetPageSource, /findEquipmentRate/);
   assert.match(budgetPageSource, /rate\.equipmentId === item\.equipmentId/);
   assert.match(budgetPageSource, /if \(row\.rate\) updateBudgetRate\(row\.rate\.id, payload\)/);
   assert.match(budgetPageSource, /else addBudgetRate\(payload\)/);
-  assert.match(estimateBuilderSource, /approvedChargeOutRate/);
-  assert.match(estimateBuilderSource, /legacy budget rate/);
-  assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.equipment\.filter\(\(value\) => !matchedEquipmentRateIds\.has\(value\.id\)\)/);
-  assert.doesNotMatch(estimateBuilderSource, /budgetRatesByCategory\.material\.filter\(\(value\) => !matchedMaterialRateIds\.has\(value\.id\)\)/);
-  assert.match(estimateBuilderSource, /No pricing rate in selected budget/);
+  assert.match(estimateBuilderSource, /applyEstimatePricingToLineItem/);
+  assert.doesNotMatch(estimateBuilderSource, /approvedChargeOutRate|legacy budget rate|budgetRatesByCategory/);
   assert.match(estimateBuilderSource, /item\.pricingAvailable && item\.sellRate/);
   assert.doesNotMatch(estimateBuilderSource, /Complete Pricing/);
 });

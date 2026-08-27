@@ -59,7 +59,7 @@ test('overhead equipment has no charge-out workflow or new Estimate candidate', 
   assert.match(budgetSource, /filter\(\(item\) => item\.equipmentClassification !== 'overhead'\)/);
   assert.match(detailSource, /Overhead Equipment/);
   assert.doesNotMatch(detailSource, /'pricing', label: 'Pricing'|Charge-out pricing/);
-  assert.match(estimateSource, /if \(asset\.equipmentClassification === 'overhead'\) continue/);
+  assert.doesNotMatch(estimateSource, /equipmentAssets|applyEquipmentAssetToEstimateLineItem/);
   assert.match(estimateCatalogSource, /isOverheadEquipment\(item, entities\.equipment\)/);
   assert.match(estimateSource, /visibleCatalogCandidates = useMemo/);
   assert.match(estimateSource, /Custom \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);

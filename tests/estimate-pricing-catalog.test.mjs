@@ -322,6 +322,15 @@ test('all Division categories use calculated pricing without saved approval reco
     ['material', 10, 12.5, 250],
     ['subcontractor', 100, 125, 125],
   ]);
+  assert.deepEqual(result.estimate.lineItems.map((item) => [item.recoveredCostPerUnit, item.targetMarginPct, item.calculatedRateAtEstimate, item.estimateRateAtEstimate]), [
+    [30, 20, 37.5, 37.5],
+    [12, 20, 15, 15],
+    [10, 20, 12.5, 12.5],
+    [100, 20, 125, 125],
+  ]);
+  assert.equal(result.estimate.lineItems.every((item) => item.total === item.quantity * item.sellPrice), true);
+  assert.equal(result.estimate.lineItems.reduce((sum, item) => sum + item.quantity * item.unitCost, 0), 636);
+  assert.equal(result.estimate.lineItems.reduce((sum, item) => sum + item.total, 0), 795);
 });
 
 test('new Estimates use explicit custom equipment rates without reinterpreting legacy sell prices', () => {
@@ -338,6 +347,8 @@ test('new Estimates use explicit custom equipment rates without reinterpreting l
   });
   assert.equal(result.ok, true);
   assert.deepEqual([result.estimate.lineItems[0].sellPrice, result.estimate.lineItems[0].calculatedRateAtEstimate, result.estimate.lineItems[0].customRateAtEstimate, result.estimate.lineItems[0].estimateRateAtEstimate], [35, 15, 35, 35]);
+  assert.deepEqual([result.estimate.lineItems[0].unitCost, result.estimate.lineItems[0].recoveredCostPerUnit, result.estimate.lineItems[0].targetMarginPct], [12, 12, 20]);
+  assert.equal(result.estimate.lineItems[0].total, 70);
 });
 
 test('Division catalog snapshots calculated labour components immutably', () => {
