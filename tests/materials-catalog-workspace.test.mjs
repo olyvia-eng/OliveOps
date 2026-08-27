@@ -8,7 +8,7 @@ const detailSource = readFileSync('src/pages/data-center/MaterialDetailPanel.tsx
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 test('materials route uses the dedicated catalog workspace and removes the legacy analytics UI', () => {
-  assert.match(routeSource, /<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(routeSource, /<MaterialsCatalogSection \/>/);
   for (const retiredText of ['Total Planned + Spent', 'Most Referenced', 'Active Material Rows', 'Highest Value']) {
     assert.doesNotMatch(routeSource, new RegExp(retiredText.replaceAll('+', '\\+')));
   }
@@ -18,31 +18,28 @@ test('materials route uses the dedicated catalog workspace and removes the legac
 test('catalog exposes URL-backed resource tabs instead of stacked sections', () => {
   assert.match(routeSource, /type CatalogTab = 'labour' \| 'equipment' \| 'materials' \| 'subcontractors'/);
   assert.match(routeSource, /\{ key: 'labour', label: 'Labour'/);
-  assert.match(routeSource, /activeCatalog === 'labour'[\s\S]*<LabourCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(routeSource, /activeCatalog === 'labour'[\s\S]*<LabourCatalogSection \/>/);
   assert.match(routeSource, /const requestedCatalog = searchParams\.get\('catalog'\)/);
   assert.match(routeSource, /role="tablist" aria-label="Catalog type"/);
   assert.match(routeSource, /role="tab" aria-selected=\{activeCatalog === tab\.key\}/);
-  assert.match(routeSource, /activeCatalog === 'materials'[\s\S]*<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(routeSource, /activeCatalog === 'materials'[\s\S]*<MaterialsCatalogSection \/>/);
   assert.match(routeSource, /activeCatalog === 'equipment'[\s\S]*<DetailWorkspace/);
 });
 
 test('materials catalog renders persisted records in a compact Equipment-style table', () => {
   assert.match(catalogSource, /state\.materialCatalogItems/);
-  assert.match(catalogSource, /<table className="w-full min-w-\[720px\] text-sm">/);
-  for (const heading of ['Material', 'Unit', 'Default Unit Cost', 'Allocated To']) {
+  assert.match(catalogSource, /<table className="w-full min-w-\[520px\] text-sm">/);
+  for (const heading of ['Material', 'Unit', 'Cost / Unit']) {
     assert.match(catalogSource, new RegExp(`>${heading}<`));
   }
   assert.match(catalogSource, /\{formatCurrency\(material\.defaultUnitCost\)\}\/\{material\.unit\}/);
   assert.doesNotMatch(catalogSource, /estimateMentions|jobCostMentions|expenseMentions|referencedJobs/);
 });
 
-test('materials toolbar supports search, unit, and real allocation filters without fabricated status', () => {
+test('materials toolbar supports resource search and units without Budget allocation filters', () => {
   assert.match(catalogSource, /placeholder="Search materials\.\.\."/);
   assert.match(catalogSource, /aria-label="Filter by material unit"/);
-  assert.match(catalogSource, /aria-label="Filter by material allocation"/);
-  assert.match(catalogSource, /item\.category !== 'materials' \|\| !item\.materialCatalogItemId/);
-  assert.match(catalogSource, /allocation\.budgetId === allocationFilter\.slice\(7\)/);
-  assert.match(catalogSource, /allocation\.divisionId === allocationFilter\.slice\(9\)/);
+  assert.doesNotMatch(catalogSource, /Filter by material allocation|allocationFilter/);
   assert.doesNotMatch(catalogSource, /Filter by material status|SKU|Supplier|Cost Code/);
 });
 
@@ -55,9 +52,8 @@ test('material rows open a URL-backed DetailWorkspace with selection state', () 
   assert.match(catalogSource, /setDetailWorkspaceTab/);
   assert.match(catalogSource, /aria-selected=\{workspace\.recordId === material\.id\}/);
   assert.match(detailSource, /'overview', label: 'Overview'/);
-  assert.match(detailSource, /'pricing', label: 'Pricing'/);
   assert.match(detailSource, /'budgets', label: 'Budgets'/);
-  assert.match(detailSource, /<CatalogPriceSheet/);
+  assert.doesNotMatch(detailSource, /CatalogPriceSheet|Estimate Price|Calculated Price/);
 });
 
 test('add and edit use a modal containing only supported material fields', () => {

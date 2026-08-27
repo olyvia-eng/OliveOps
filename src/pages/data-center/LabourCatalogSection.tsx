@@ -41,18 +41,15 @@ import {
   shouldOfferLabourClassSetup,
   type LabourClassSetupDraft,
 } from "./labourClassSetupModel.js";
-import CatalogPriceSheet from "./CatalogPriceSheet";
-import type { CatalogPricingItem, CatalogPricingPayload } from "./catalogPricing";
 
 const WORKSPACE_QUERY = {
   recordParam: "labourClass",
   tabParam: "labourClassTab",
   defaultTab: "overview",
 } as const;
-type LabourTab = "overview" | "pricing" | "employees";
+type LabourTab = "overview" | "employees";
 const DETAIL_TABS = [
   { key: "overview" as const, label: "Overview" },
-  { key: "pricing" as const, label: "Pricing" },
   { key: "employees" as const, label: "Employees" },
 ];
 
@@ -69,9 +66,6 @@ function LabourClassDetail({
   onArchive,
   onClose,
   onModeChange,
-  pricing,
-  pricingLoading,
-  onSaveCustomRate,
 }: {
   row: LabourClassCatalogRow;
   tab: LabourTab;
@@ -81,9 +75,6 @@ function LabourClassDetail({
   onArchive: () => void;
   onClose: () => void;
   onModeChange: () => void;
-  pricing: CatalogPricingPayload;
-  pricingLoading: boolean;
-  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
 }) {
   return (
     <div className="min-h-full bg-white dark:bg-brand-700">
@@ -221,34 +212,12 @@ function LabourClassDetail({
             )}
           </section>
         ) : null}
-        {tab === "pricing" ? (
-          <section className="space-y-5">
-            {pricing.labourDiagnostics?.unassignedEmployees.length ? (
-              <div className="border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">
-                Some active Employees do not have a Labour Class. Valid pricing below includes assigned Employees only.
-              </div>
-            ) : null}
-            <CatalogPriceSheet
-              pricing={pricing}
-              loading={pricingLoading}
-              items={(pricing.catalog?.labour ?? []).filter((item) => item.labourClassId === row.id || item.sourceEntityId === row.id)}
-              labels={{ cost: 'Weighted Labour Cost', calculated: 'Calculated Rate', custom: 'Custom Rate', estimate: 'Estimate Rate' }}
-              onSaveCustomRate={onSaveCustomRate}
-              emptyTitle={row.employeeCount === 0 ? 'No Employees assigned' : 'Labour pricing has not been calculated yet'}
-              emptyDescription={row.employeeCount === 0 ? 'Assign Employees to this Labour Class before using it for estimating.' : 'Plan this Labour Class in a Division of the selected Pricing Budget.'}
-            />
-          </section>
-        ) : null}
       </div>
     </div>
   );
 }
 
-export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCustomRate }: {
-  pricing: CatalogPricingPayload;
-  pricingLoading: boolean;
-  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
-}) {
+export default function LabourCatalogSection() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -468,7 +437,7 @@ export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCu
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[520px] text-sm">
             <thead>
               <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600">
                 <th className="px-4 py-3 font-medium">Labour Class</th>
@@ -476,8 +445,6 @@ export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCu
                 <th className="px-4 py-3 text-right font-medium">
                   Avg Labour Cost
                 </th>
-                <th className="px-4 py-3 font-medium">Divisions</th>
-                <th className="px-4 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-brand-600">
@@ -512,25 +479,6 @@ export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCu
                   <td className="px-4 py-3 text-right">{row.employeeCount}</td>
                   <td className="px-4 py-3 text-right font-medium">
                     {rate(row.averageLabourCost)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {row.divisionCount === 0
-                      ? "Not planned"
-                      : row.divisionCount === 1
-                        ? row.pricing.find(
-                            (item) => item.plannedBillableHours > 0,
-                          )?.divisionName
-                        : `${row.divisionCount} divisions`}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge
-                      label={row.active ? "Active" : "Inactive"}
-                      className={
-                        row.active
-                          ? "bg-green-50 text-green-700"
-                          : "bg-gray-100 text-gray-600"
-                      }
-                    />
                   </td>
                 </tr>
               ))}
@@ -602,9 +550,6 @@ export default function LabourCatalogSection({ pricing, pricingLoading, onSaveCu
           ),
         )
       }
-      pricing={pricing}
-      pricingLoading={pricingLoading}
-      onSaveCustomRate={onSaveCustomRate}
     />
   ) : (
     <div className="p-6">

@@ -10,11 +10,11 @@ const repositorySource = readFileSync('api/_lib/authRepo.js', 'utf8');
 
 test('Catalog presents Labour Classes as the primary labour resource alongside existing sections', () => {
   for (const tab of ["key: 'labour'", "key: 'equipment'", "key: 'materials'", "key: 'subcontractors'"]) assert.match(catalogSource, new RegExp(tab));
-  assert.match(catalogSource, /<LabourCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(catalogSource, /<LabourCatalogSection \/>/);
   assert.doesNotMatch(catalogSource, /<EmployeeCatalogSection \/>/);
-  assert.match(catalogSource, /<MaterialsCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(catalogSource, /<MaterialsCatalogSection \/>/);
   assert.match(catalogSource, /<EquipmentDetailPanel/);
-  assert.match(catalogSource, /<SubcontractorCatalogSection pricing=\{catalogPricing\.pricing\}/);
+  assert.match(catalogSource, /No Subcontractor resources yet/);
 });
 
 test('Labour Catalog empty setup is actionable and assignments remain explicit', () => {
@@ -53,6 +53,7 @@ test('setup review supports class and Employee changes without changing permissi
   assert.match(labourCatalogSource, /<option value="">Unassigned<\/option>/);
   assert.match(labourCatalogSource, /does not change an Employee's OliveOps permissions/);
   assert.match(labourCatalogSource, /Avg Labour Cost/);
+  assert.doesNotMatch(labourCatalogSource, /Estimate Rate|Calculated Rate|CatalogPriceSheet/);
 });
 
 test('Employee Catalog consumes canonical employees and supports decision-focused filters', () => {

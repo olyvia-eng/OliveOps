@@ -5,7 +5,6 @@ import { buildEquipmentCatalogPricingRows } from '../src/pages/data-center/equip
 
 const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
-const priceSheetSource = readFileSync('src/pages/data-center/CatalogPriceSheet.tsx', 'utf8');
 
 test('equipment pricing deduplicates semantic Budget and Division rows', () => {
   const rows = buildEquipmentCatalogPricingRows({
@@ -36,26 +35,20 @@ test('legacy equipment sell fields are not presented as explicit custom rates', 
   assert.equal(row.estimateRate, 70);
 });
 
-test('equipment catalog uses a compact table instead of large equipment cards', () => {
-  assert.match(catalogSource, /<table className="w-full min-w-\[940px\] text-sm">/);
-  for (const heading of ['Equipment', 'ID / SKU', 'Type', 'Cost / Hour', 'Calculated Rate', 'Custom Rate', 'Status', 'Allocated To']) {
+test('equipment catalog is a compact direct-cost resource list', () => {
+  assert.match(catalogSource, /<table className="w-full text-sm">/);
+  for (const heading of ['Equipment', 'ID / SKU', 'Cost / Hour']) {
     assert.match(catalogSource, new RegExp(`>${heading.replace('/', '\\/')}<`));
   }
-  assert.match(catalogSource, /division rates/);
-  assert.doesNotMatch(catalogSource, /const totalMonths|const totalCost|of 12 months/);
+  for (const removed of ['>Type<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed));
+  assert.doesNotMatch(catalogSource, /recommendedSellPrice|customRate|division rates/);
   assert.match(catalogSource, /Not calculated/);
-  assert.match(catalogSource, /No custom rate/);
 });
 
-test('equipment list has persistent search, type, ownership, and budget filters', () => {
+test('equipment list search does not require Budget, type, or ownership filters', () => {
   assert.match(catalogSource, /placeholder="Search equipment\.\.\."/);
-  assert.match(catalogSource, /aria-label="Filter by equipment type"/);
-  assert.match(catalogSource, /aria-label="Filter by ownership status"/);
-  assert.match(catalogSource, /aria-label="Filter by budget"/);
   assert.match(catalogSource, /setEquipmentQuery/);
-  assert.match(catalogSource, /setEquipmentTypeFilter/);
-  assert.match(catalogSource, /setEquipmentStatusFilter/);
-  assert.match(catalogSource, /setEquipmentBudgetFilter/);
+  assert.doesNotMatch(catalogSource, /setEquipmentTypeFilter|setEquipmentStatusFilter|setEquipmentBudgetFilter/);
 });
 
 test('equipment rows open the shared URL-backed DetailWorkspace and show selection state', () => {
@@ -69,10 +62,10 @@ test('equipment rows open the shared URL-backed DetailWorkspace and show selecti
   assert.match(catalogSource, /aria-selected=\{workspace\.recordId === asset\.id\}/);
 });
 
-test('equipment detail workspace provides overview, pricing, and budgets tabs', () => {
+test('equipment detail keeps operational overview and Budget participation', () => {
   assert.match(detailSource, /'overview', label: 'Overview'/);
-  assert.match(detailSource, /'pricing', label: 'Pricing'/);
   assert.match(detailSource, /'budgets', label: 'Budgets'/);
+  assert.doesNotMatch(detailSource, /'pricing', label: 'Pricing'/);
   assert.match(detailSource, /<DetailWorkspaceHeader/);
   assert.match(detailSource, /<DetailWorkspaceTabs/);
   assert.match(detailSource, /onExpand=\{onExpand\}/);
@@ -80,15 +73,9 @@ test('equipment detail workspace provides overview, pricing, and budgets tabs', 
   assert.match(detailSource, /onClose=\{onClose\}/);
 });
 
-test('allocation and pricing detail stays inside workspace tabs', () => {
-  assert.match(detailSource, /Equipment Cost/);
-  assert.match(priceSheetSource, /Overhead Recovery/);
-  assert.match(priceSheetSource, /Breakeven/);
-  assert.match(detailSource, /Calculated Rate/);
-  assert.match(detailSource, /Custom Rate/);
-  assert.match(priceSheetSource, /divisionName/);
-  assert.doesNotMatch(detailSource, /average|reduce\(.*recommended/i);
+test('operating cost and allocation detail stays inside operational tabs', () => {
+  assert.match(detailSource, /Operating Costs/);
   assert.match(detailSource, /Annual Cost Allocation/);
   assert.match(detailSource, /Annual Allocation/);
-  assert.match(detailSource, /Equipment pricing has not been calculated yet/);
+  assert.doesNotMatch(detailSource, /Overhead Recovery|Breakeven|Calculated Rate|Estimate Rate/);
 });

@@ -303,6 +303,24 @@ export function computeWorkAreaEstimatedCost(workArea: EstimateWorkArea): number
   }, 0);
 }
 
+export function getEstimateLinePricingEconomics(item: EstimateLineItem) {
+  const quantity = Math.max(0, asNumber(item.quantity, 0));
+  const cost = Math.max(0, asNumber(item.unitCost, 0));
+  const price = Math.max(0, asNumber(item.sellPrice, 0));
+  const snapshotBreakeven = item.recoveredCostPerUnit ?? item.breakevenRate;
+  const breakeven = snapshotBreakeven == null ? null : Math.max(0, asNumber(snapshotBreakeven, 0));
+  const profitPercent = item.targetMarginPct == null ? null : Math.max(0, asNumber(item.targetMarginPct, 0));
+
+  return {
+    cost,
+    breakeven,
+    totalCost: quantity * cost,
+    profitPercent,
+    price,
+    totalPrice: Math.max(0, asNumber(item.total, quantity * price)),
+  };
+}
+
 export function computeWorkAreaCategoryCostTotals(workArea: EstimateWorkArea): Record<LineItemCategory, number> {
   return workArea.lineItems.reduce<Record<LineItemCategory, number>>((accumulator, item) => {
     const quantity = asNumber(item.quantity, 0);

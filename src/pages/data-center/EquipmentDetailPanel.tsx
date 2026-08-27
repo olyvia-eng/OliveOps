@@ -4,10 +4,8 @@ import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspa
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
 import type { Budget, BudgetGroup, BudgetItem, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
 import { formatCurrency } from '../../utils';
-import CatalogPriceSheet from './CatalogPriceSheet';
-import type { CatalogPricingItem, CatalogPricingPayload } from './catalogPricing';
 
-export type EquipmentDetailTab = 'overview' | 'pricing' | 'budgets';
+export type EquipmentDetailTab = 'overview' | 'budgets';
 
 interface EquipmentDetailPanelProps {
   equipment: EquipmentAsset;
@@ -17,9 +15,6 @@ interface EquipmentDetailPanelProps {
   budgetGroups: BudgetGroup[];
   budgetItems: BudgetItem[];
   allocations: EquipmentBudgetAllocation[];
-  catalogPricing: CatalogPricingPayload;
-  catalogPricingLoading: boolean;
-  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
   onTabChange: (tab: EquipmentDetailTab) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -30,7 +25,6 @@ interface EquipmentDetailPanelProps {
 
 const tabs = [
   { key: 'overview', label: 'Overview' },
-  { key: 'pricing', label: 'Pricing' },
   { key: 'budgets', label: 'Budgets' },
 ] satisfies Array<{ key: EquipmentDetailTab; label: string }>;
 
@@ -45,9 +39,6 @@ export default function EquipmentDetailPanel({
   budgetGroups,
   budgetItems,
   allocations,
-  catalogPricing,
-  catalogPricingLoading,
-  onSaveCustomRate,
   onTabChange,
   onEdit,
   onDelete,
@@ -138,22 +129,6 @@ export default function EquipmentDetailPanel({
             {equipment.notes ? <Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Notes</h2><p className="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-brand-100">{equipment.notes}</p></Card> : null}
             <div className="flex justify-end"><Button type="button" variant="danger" size="sm" onClick={onDelete}><Trash2 size={14} />Delete Equipment</Button></div>
           </>
-        ) : null}
-
-        {activeTab === 'pricing' ? (
-          isOverheadEquipment ? (
-            <EmptyState title="Charge-out pricing is not available" description="Overhead equipment costs are recovered through overhead rather than estimate charge-out rates." />
-          ) : (
-            <CatalogPriceSheet
-              pricing={catalogPricing}
-              loading={catalogPricingLoading}
-              items={(catalogPricing.catalog?.equipment ?? []).filter((item) => item.sourceEntityId === equipment.id)}
-              labels={{ cost: 'Equipment Cost', calculated: 'Calculated Rate', custom: 'Custom Rate', estimate: 'Estimate Rate' }}
-              onSaveCustomRate={onSaveCustomRate}
-              emptyTitle="Equipment pricing has not been calculated yet"
-              emptyDescription="Add this equipment to the selected Pricing Budget and complete its Division planning inputs."
-            />
-          )
         ) : null}
 
         {activeTab === 'budgets' ? (

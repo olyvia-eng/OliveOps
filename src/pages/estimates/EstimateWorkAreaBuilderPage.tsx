@@ -15,6 +15,7 @@ import {
   computeWorkAreaSubtotal,
   createEmptyEstimateLineItem,
   flattenWorkAreaLineItems,
+  getEstimateLinePricingEconomics,
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
@@ -591,7 +592,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-brand-300">
                       {candidate.pricingItem.averageLabourCost != null ? <span>Weighted Labour Cost: {formatCurrency(candidate.pricingItem.averageLabourCost)}/hr</span> : null}
                       {candidate.pricingItem.breakevenRate != null ? <span>Breakeven: {formatCurrency(candidate.pricingItem.breakevenRate)}/hr</span> : null}
-                      {candidate.pricingItem.divisionName ? <span>{candidate.pricingItem.divisionName}</span> : null}
                     </div>
                   ) : null}
                 </div>
@@ -637,22 +637,25 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         {items.length === 0 ? (
           <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
         ) : (
-          <div className="mt-4 divide-y divide-brand-100 overflow-hidden rounded-lg border border-brand-100 dark:divide-brand-600 dark:border-brand-600">
+          <div className="mt-4 overflow-x-auto rounded-lg border border-brand-100 dark:border-brand-600">
+            <div className="hidden min-w-[1120px] grid-cols-[minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid">
+              <span>Item</span><span>Quantity</span><span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
+            </div>
             {items.map((lineItem) => {
               const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId);
               const usesHours = category === 'labour' || category === 'equipment';
               const quantityLabel = usesHours ? 'Hours' : 'Quantity';
               const isExpanded = expandedLineItemIds.has(lineItem.id);
+              const economics = getEstimateLinePricingEconomics(lineItem);
+              const unitPrice = (value: number | null) => value === null ? 'Not available' : `${formatCurrency(value)}/${lineItem.unit}`;
               return (
-              <div key={lineItem.id} className="bg-brand-50/40 dark:bg-brand-900/20">
-                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 sm:min-h-[60px] xl:flex-nowrap">
-                  <div className="min-w-[220px] flex-1 basis-full xl:basis-auto">
-                    <p className="truncate font-semibold text-gray-900 dark:text-brand-50">
-                      {lineItem.itemName || lineItem.description || 'Untitled Item'}
-                      {estimateDivision ? <span className="ml-2 text-xs font-normal text-gray-500 dark:text-brand-300">· {estimateDivision.name}</span> : null}
-                    </p>
+              <div key={lineItem.id} className="border-b border-brand-100 bg-brand-50/40 last:border-b-0 dark:border-brand-600 dark:bg-brand-900/20">
+                <div className="grid min-w-[1120px] grid-cols-[minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] items-center gap-3 px-3 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
+                    <p className="mt-0.5 truncate text-xs capitalize text-gray-500 dark:text-brand-300">{CATEGORY_LABEL[lineItem.category]}</p>
                   </div>
-                  <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-brand-300">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-brand-300">
                     <span className="sr-only">{quantityLabel}</span>
                     <input
                       aria-label={`${quantityLabel} for ${lineItem.itemName || lineItem.description || 'item'}`}
@@ -665,11 +668,15 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     />
                     {usesHours || isBudgetPriced ? <span>{lineItem.unit}</span> : <input aria-label={`Unit for ${lineItem.itemName || lineItem.description || 'item'}`} value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
                   </label>
-                  <div className="shrink-0 text-sm text-gray-600 dark:text-brand-200">
-                    {isBudgetPriced ? <span className="font-medium tabular-nums">{formatCurrency(lineItem.sellPrice)}/{lineItem.unit}</span> : <label className="flex items-center gap-1.5"><span className="sr-only">Rate</span><input aria-label={`Rate for ${lineItem.itemName || lineItem.description || 'item'}`} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="h-9 w-24 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /><span>/{lineItem.unit}</span></label>}
+                  <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.cost)}</p>
+                  <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.breakeven)}</p>
+                  <p className="text-right font-medium tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(economics.totalCost)}</p>
+                  <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{economics.profitPercent === null ? 'Not available' : `${economics.profitPercent}%`}</p>
+                  <div className="text-right text-gray-700 dark:text-brand-100">
+                    {isBudgetPriced ? <span className="font-medium tabular-nums">{unitPrice(economics.price)}</span> : <label className="flex items-center justify-end gap-1"><span className="sr-only">Price</span><input aria-label={`Price for ${lineItem.itemName || lineItem.description || 'item'}`} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="h-9 w-20 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /><span>/{lineItem.unit}</span></label>}
                   </div>
-                  <p className="min-w-24 shrink-0 text-right text-base font-semibold tabular-nums text-gray-900 dark:text-brand-50" aria-label="Total">{formatCurrency(lineItem.total)}</p>
-                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <p className="text-right text-base font-semibold tabular-nums text-gray-900 dark:text-brand-50" aria-label="Total Price">{formatCurrency(economics.totalPrice)}</p>
+                  <div className="flex items-center justify-end gap-1">
                     <button type="button" title={isExpanded ? 'Collapse item details' : 'Edit description and notes'} aria-expanded={isExpanded} onClick={() => setExpandedLineItemIds((current) => { const next = new Set(current); if (next.has(lineItem.id)) next.delete(lineItem.id); else next.add(lineItem.id); return next; })} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-brand-700 dark:hover:bg-brand-700 dark:hover:text-brand-100">
                       <Pencil size={14} />
                     </button>
@@ -737,7 +744,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">Estimate pricing remains tied to the selected budget. Added items are stored as snapshots.</p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/60 dark:bg-brand-900/20 p-3">
                 <p className="text-xs text-gray-500 dark:text-brand-300">Estimated Cost</p>
                 <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(workAreaSummary.estimatedCost)}</p>
@@ -745,10 +752,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/60 dark:bg-brand-900/20 p-3">
                 <p className="text-xs text-gray-500 dark:text-brand-300">Sell Price</p>
                 <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(workAreaSummary.sellPrice)}</p>
-              </div>
-              <div className="rounded-xl border border-brand-100 dark:border-brand-600 bg-brand-50/60 dark:bg-brand-900/20 p-3">
-                <p className="text-xs text-gray-500 dark:text-brand-300">Line Items</p>
-                <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{form.lineItems.length}</p>
               </div>
             </div>
 

@@ -57,7 +57,8 @@ test('overhead equipment has no charge-out workflow or new Estimate candidate', 
   const estimateCatalogSource = readFileSync('api/_lib/estimatePricingCatalog.js', 'utf8');
 
   assert.match(budgetSource, /filter\(\(item\) => item\.equipmentClassification !== 'overhead'\)/);
-  assert.match(detailSource, /Charge-out pricing is not available/);
+  assert.match(detailSource, /Overhead Equipment/);
+  assert.doesNotMatch(detailSource, /'pricing', label: 'Pricing'|Charge-out pricing/);
   assert.match(estimateSource, /if \(asset\.equipmentClassification === 'overhead'\) continue/);
   assert.match(estimateCatalogSource, /isOverheadEquipment\(item, entities\.equipment\)/);
   assert.match(estimateSource, /visibleCatalogCandidates = useMemo/);

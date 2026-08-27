@@ -4,10 +4,8 @@ import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspa
 import { Button, Card, EmptyState } from '../../components/ui';
 import type { MaterialCatalogItem } from '../../types';
 import { formatCurrency } from '../../utils';
-import CatalogPriceSheet from './CatalogPriceSheet';
-import type { CatalogPricingItem, CatalogPricingPayload } from './catalogPricing';
 
-export type MaterialDetailTab = 'overview' | 'pricing' | 'budgets';
+export type MaterialDetailTab = 'overview' | 'budgets';
 
 export interface MaterialAllocationView {
   id: string;
@@ -25,9 +23,6 @@ interface Props {
   allocations: MaterialAllocationView[];
   activeTab: MaterialDetailTab;
   expanded: boolean;
-  pricing: CatalogPricingPayload;
-  pricingLoading: boolean;
-  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
   onTabChange: (tab: MaterialDetailTab) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -38,11 +33,10 @@ interface Props {
 
 const tabs = [
   { key: 'overview', label: 'Overview' },
-  { key: 'pricing', label: 'Pricing' },
   { key: 'budgets', label: 'Budgets' },
 ] satisfies Array<{ key: MaterialDetailTab; label: string }>;
 
-export default function MaterialDetailPanel({ material, allocations, activeTab, expanded, pricing, pricingLoading, onSaveCustomRate, onTabChange, onEdit, onDelete, onExpand, onCollapse, onClose }: Props) {
+export default function MaterialDetailPanel({ material, allocations, activeTab, expanded, onTabChange, onEdit, onDelete, onExpand, onCollapse, onClose }: Props) {
   return <div className="min-w-0">
     <DetailWorkspaceHeader
       title={material.name}
@@ -68,18 +62,6 @@ export default function MaterialDetailPanel({ material, allocations, activeTab, 
         {material.notes ? <Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Notes</h2><p className="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-brand-100">{material.notes}</p></Card> : null}
         <div className="flex justify-end"><Button type="button" variant="danger" size="sm" onClick={onDelete}><Trash2 size={14} />Delete Material</Button></div>
       </> : null}
-
-      {activeTab === 'pricing' ? (
-        <CatalogPriceSheet
-          pricing={pricing}
-          loading={pricingLoading}
-          items={(pricing.catalog?.materials ?? []).filter((item) => item.sourceEntityId === material.id)}
-          labels={{ cost: 'Material Cost', calculated: 'Calculated Price', custom: 'Custom Price', estimate: 'Estimate Price' }}
-          onSaveCustomRate={onSaveCustomRate}
-          emptyTitle="Material pricing has not been calculated yet"
-          emptyDescription="Add this material to a Division in the selected Pricing Budget and complete its planning inputs."
-        />
-      ) : null}
 
       {activeTab === 'budgets' ? (
         allocations.length ? <Card className="overflow-hidden">

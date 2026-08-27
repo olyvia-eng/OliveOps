@@ -595,17 +595,13 @@ export async function getBusinessProfile(businessId) {
 
 export async function updateBusinessProfile({ businessId, profile }) {
   const updatedAt = nowIso();
-  const pricingBudgetId = typeof profile.pricingBudgetId === 'string' && profile.pricingBudgetId.trim()
-    ? profile.pricingBudgetId.trim()
-    : null;
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, pricingBudgetId = :pricingBudgetId, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
-      ':pricingBudgetId': pricingBudgetId,
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',

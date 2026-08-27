@@ -9,20 +9,15 @@ import type { MaterialCatalogItem } from '../../types';
 import { formatCurrency } from '../../utils';
 import { emitAppToast } from '../../toast';
 import MaterialDetailPanel, { type MaterialAllocationView, type MaterialDetailTab } from './MaterialDetailPanel';
-import type { CatalogPricingItem, CatalogPricingPayload } from './catalogPricing';
 
 const MATERIAL_WORKSPACE_QUERY = { recordParam: 'material', tabParam: 'materialTab', defaultTab: 'overview' } as const;
-const MATERIAL_DETAIL_TABS: MaterialDetailTab[] = ['overview', 'pricing', 'budgets'];
+const MATERIAL_DETAIL_TABS: MaterialDetailTab[] = ['overview', 'budgets'];
 
 type MaterialForm = Pick<MaterialCatalogItem, 'name' | 'unit' | 'defaultUnitCost' | 'notes'>;
 
 const emptyForm = (): MaterialForm => ({ name: '', unit: 'unit', defaultUnitCost: 0, notes: '' });
 
-export default function MaterialsCatalogSection({ pricing, pricingLoading, onSaveCustomRate }: {
-  pricing: CatalogPricingPayload;
-  pricingLoading: boolean;
-  onSaveCustomRate: (input: { category: CatalogPricingItem['type']; sourceEntityId: string; divisionId: string; customRate: number | null }) => Promise<void>;
-}) {
+export default function MaterialsCatalogSection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const materialCatalogItems = useStore((state) => state.materialCatalogItems);
   const budgetDivisionPlanningItems = useStore((state) => state.budgetDivisionPlanningItems);
@@ -34,7 +29,6 @@ export default function MaterialsCatalogSection({ pricing, pricingLoading, onSav
 
   const [query, setQuery] = useState('');
   const [unitFilter, setUnitFilter] = useState('all');
-  const [allocationFilter, setAllocationFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<MaterialForm>(emptyForm);
@@ -74,23 +68,11 @@ export default function MaterialsCatalogSection({ pricing, pricingLoading, onSav
     return [...materialCatalogItems]
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime() || left.name.localeCompare(right.name))
       .filter((material) => {
-        const allocations = allocationsByMaterial.get(material.id) ?? [];
         const matchesQuery = !normalizedQuery || [material.name, material.unit, material.notes].some((value) => value.toLowerCase().includes(normalizedQuery));
         const matchesUnit = unitFilter === 'all' || material.unit === unitFilter;
-        const matchesAllocation = allocationFilter === 'all'
-          || (allocationFilter === 'unallocated' && allocations.length === 0)
-          || (allocationFilter.startsWith('budget:') && allocations.some((allocation) => allocation.budgetId === allocationFilter.slice(7)))
-          || (allocationFilter.startsWith('division:') && allocations.some((allocation) => allocation.divisionId === allocationFilter.slice(9)));
-        return matchesQuery && matchesUnit && matchesAllocation;
+        return matchesQuery && matchesUnit;
       });
-  }, [allocationFilter, allocationsByMaterial, materialCatalogItems, query, unitFilter]);
-
-  const allocationSummary = (materialId: string) => {
-    const names = Array.from(new Set((allocationsByMaterial.get(materialId) ?? []).map((allocation) => `${allocation.budgetName} / ${allocation.divisionName}`)));
-    if (names.length === 0) return 'Not allocated';
-    if (names.length <= 2) return names.join(' + ');
-    return `${names.length} Budget Divisions`;
-  };
+  }, [materialCatalogItems, query, unitFilter]);
 
   const openAdd = () => {
     setEditingId(null);
@@ -159,7 +141,7 @@ export default function MaterialsCatalogSection({ pricing, pricingLoading, onSav
     closeMaterial();
   };
 
-  const clearFilters = () => { setQuery(''); setUnitFilter('all'); setAllocationFilter('all'); };
+  const clearFilters = () => { setQuery(''); setUnitFilter('all'); };
   const selectedAllocations = selectedMaterial ? allocationsByMaterial.get(selectedMaterial.id) ?? [] : [];
 
   return <div className="order-3">
@@ -173,21 +155,20 @@ export default function MaterialsCatalogSection({ pricing, pricingLoading, onSav
             <div><h2 className="text-lg font-semibold text-gray-900 dark:text-brand-50">Materials Catalog</h2><p className="text-sm text-gray-500 dark:text-brand-200">{materialCatalogItems.length} material item{materialCatalogItems.length === 1 ? '' : 's'}</p></div>
             <Button onClick={openAdd}><PlusCircle size={16} />Add Material</Button>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(14rem,1fr)_minmax(9rem,0.45fr)_minmax(12rem,0.65fr)]">
+          <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_minmax(9rem,0.45fr)]">
             <div className="relative"><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search materials..." aria-label="Search materials" className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-brand-500 dark:bg-brand-700 dark:text-brand-50" /></div>
             <select value={unitFilter} onChange={(event) => setUnitFilter(event.target.value)} aria-label="Filter by material unit" className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-brand-500 dark:bg-brand-700 dark:text-brand-50"><option value="all">All Units</option>{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select>
-            <select value={allocationFilter} onChange={(event) => setAllocationFilter(event.target.value)} aria-label="Filter by material allocation" className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-brand-500 dark:bg-brand-700 dark:text-brand-50"><option value="all">All Allocations</option><option value="unallocated">Not Allocated</option><optgroup label="Budgets">{budgets.map((budget) => <option key={budget.id} value={`budget:${budget.id}`}>{budget.name}</option>)}</optgroup><optgroup label="Divisions">{budgetDivisions.map((division) => <option key={division.id} value={`division:${division.id}`}>{division.name}</option>)}</optgroup></select>
           </div>
         </div>
 
         {materialCatalogItems.length === 0 ? <div className="p-5"><EmptyState title="No materials yet" description="Add commonly used materials so budgeting and estimating stay consistent." action={<Button type="button" onClick={openAdd}><PlusCircle size={16} />Add Material</Button>} /></div> : visibleMaterials.length === 0 ? <div className="p-5"><EmptyState title="No materials match these filters" description="Try a different search, unit, or allocation." action={<Button type="button" variant="secondary" onClick={clearFilters}>Clear Filters</Button>} /></div> : <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600 dark:text-brand-200"><th className="px-4 py-3 font-medium">Material</th><th className="px-4 py-3 font-medium">Unit</th><th className="px-4 py-3 text-right font-medium">Default Unit Cost</th><th className="px-4 py-3 font-medium">Allocated To</th></tr></thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-brand-600">{visibleMaterials.map((material) => <tr key={material.id} className={`cursor-pointer transition-colors ${workspace.recordId === material.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`} onClick={() => selectMaterial(material.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectMaterial(material.id); }} tabIndex={0} aria-selected={workspace.recordId === material.id}><td className="px-4 py-3 font-semibold text-gray-900 dark:text-brand-50">{material.name}</td><td className="px-4 py-3 text-gray-600 dark:text-brand-100">{material.unit}</td><td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{formatCurrency(material.defaultUnitCost)}/{material.unit}</td><td className="max-w-64 truncate px-4 py-3 text-gray-600 dark:text-brand-100" title={allocationSummary(material.id)}>{allocationSummary(material.id)}</td></tr>)}</tbody>
+          <table className="w-full min-w-[520px] text-sm">
+            <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600 dark:text-brand-200"><th className="px-4 py-3 font-medium">Material</th><th className="px-4 py-3 font-medium">Unit</th><th className="px-4 py-3 text-right font-medium">Cost / Unit</th></tr></thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-brand-600">{visibleMaterials.map((material) => <tr key={material.id} className={`cursor-pointer transition-colors ${workspace.recordId === material.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`} onClick={() => selectMaterial(material.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectMaterial(material.id); }} tabIndex={0} aria-selected={workspace.recordId === material.id}><td className="px-4 py-3 font-semibold text-gray-900 dark:text-brand-50">{material.name}</td><td className="px-4 py-3 text-gray-600 dark:text-brand-100">{material.unit}</td><td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{formatCurrency(material.defaultUnitCost)}/{material.unit}</td></tr>)}</tbody>
           </table>
         </div>}
       </Card>}
-      detail={selectedMaterial ? <MaterialDetailPanel material={selectedMaterial} allocations={selectedAllocations} activeTab={activeTab} expanded={workspace.mode === 'expanded'} pricing={pricing} pricingLoading={pricingLoading} onSaveCustomRate={onSaveCustomRate} onTabChange={setMaterialTab} onEdit={() => openEdit(selectedMaterial)} onDelete={() => deleteMaterial(selectedMaterial)} onExpand={() => setWorkspaceMode('expanded')} onCollapse={() => setWorkspaceMode('panel')} onClose={closeMaterial} /> : <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Material not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeMaterial}>Close</Button></div>}
+      detail={selectedMaterial ? <MaterialDetailPanel material={selectedMaterial} allocations={selectedAllocations} activeTab={activeTab} expanded={workspace.mode === 'expanded'} onTabChange={setMaterialTab} onEdit={() => openEdit(selectedMaterial)} onDelete={() => deleteMaterial(selectedMaterial)} onExpand={() => setWorkspaceMode('expanded')} onCollapse={() => setWorkspaceMode('panel')} onClose={closeMaterial} /> : <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Material not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeMaterial}>Close</Button></div>}
     />
 
     <Modal open={modalOpen} onClose={closeModal} title={editingId ? `Edit Material - ${form.name || 'Material'}` : 'Add Material'} footer={<><Button variant="secondary" onClick={closeModal} disabled={saveStatus === 'saving'}>Cancel</Button><Button type="submit" form="material-modal-form" disabled={saveStatus === 'saving'}>{saveStatus === 'saving' ? 'Saving...' : editingId ? 'Save Changes' : 'Add to Catalog'}</Button></>}>

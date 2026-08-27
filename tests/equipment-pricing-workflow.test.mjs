@@ -10,7 +10,6 @@ import { redactEquipmentPricingForSession } from '../api/_lib/authorization.js';
 const budgetSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const formSource = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
 const catalogDetailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
-const catalogPriceSheetSource = readFileSync('src/pages/data-center/CatalogPriceSheet.tsx', 'utf8');
 const estimateBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const estimateModelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
 const conversionSource = readFileSync('api/estimates.js', 'utf8');
@@ -110,17 +109,12 @@ test('equipment cost entry contains no sell rate and pricing is owned by Analysi
   assert.match(budgetSource, /Below recommended rate/);
 });
 
-test('custom rate is saved to budget pricing and synchronized to the catalog', () => {
+test('custom rate remains owned by Budget pricing and Catalog stays cost-only', () => {
   assert.match(budgetSource, /recommendedSellPrice: pricing\.recommendedSellRate/);
   assert.match(budgetSource, /customRate: chargeOutRate/);
   assert.match(budgetSource, /defaultSellPrice: chargeOutRate/);
   assert.match(budgetSource, /updateEquipmentAsset\(row\.asset\.id/);
-  for (const label of ['Equipment Cost', 'Calculated Rate', 'Custom Rate', 'Estimate Rate']) assert.match(catalogDetailSource, new RegExp(label));
-  for (const label of ['Overhead Recovery', 'Breakeven', 'Target Net Profit', 'Profit']) assert.match(catalogPriceSheetSource, new RegExp(label));
-  for (const removed of ['Direct Cost / Hour', 'Recovered Cost', 'Recommended Rate', 'Approved Rate']) assert.doesNotMatch(`${catalogDetailSource}\n${catalogPriceSheetSource}`, new RegExp(removed));
-  assert.match(catalogDetailSource, /<CatalogPriceSheet/);
-  assert.match(catalogDetailSource, /catalogPricing\.catalog\?\.equipment/);
-  assert.doesNotMatch(catalogDetailSource, /buildEquipmentCatalogPricingRows/);
+  assert.doesNotMatch(catalogDetailSource, /CatalogPriceSheet|Calculated Rate|Custom Rate|Estimate Rate|Overhead Recovery|Breakeven/);
   assert.match(repoSource, /costRateHourly: Number\(item\.costRateHourly \?\? item\.hourlyCost \?\? 0\)/);
   assert.match(repoSource, /chargeOutRate: Number\(item\.chargeOutRate \?\? item\.recommendedSellRate \?\? 0\)/);
 });
