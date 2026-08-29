@@ -224,6 +224,39 @@ test('Estimate equipment eligibility excludes overhead assets without altering h
   assert.deepEqual([preserved.estimate.lineItems[0].itemName, preserved.estimate.lineItems[0].sellPrice, preserved.estimate.lineItems[0].quantity, preserved.estimate.lineItems[0].total], ['Crew Truck', 40, 4, 160]);
 });
 
+test('existing Estimate lines accept Estimate-owned pricing without changing Budget snapshots', () => {
+  const catalog = buildCalculated(calculatedPlanningItems, []);
+  const requested = { id: 'line-priced', category: 'equipment', sourceBudgetId: budgetId, sourceBudgetItemId: 'equipment-bobcat', sourceEntityId: 'bobcat', divisionId: 'hardscape', quantity: 2 };
+  const added = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] },
+    catalog,
+  });
+  const snapshot = added.estimate.lineItems[0];
+  const repriced = applyAuthoritativeEstimatePricing({
+    existingEstimate: added.estimate,
+    nextEstimate: { ...added.estimate, lineItems: [{ ...snapshot, estimateTargetMarginPct: 25, estimateCustomSellPrice: 30 }] },
+    catalog,
+  });
+
+  assert.equal(repriced.ok, true);
+  assert.equal(repriced.estimate.lineItems[0].targetMarginPct, snapshot.targetMarginPct);
+  assert.equal(repriced.estimate.lineItems[0].recoveredCostPerUnit, snapshot.recoveredCostPerUnit);
+  assert.deepEqual([
+    repriced.estimate.lineItems[0].estimateTargetMarginPct,
+    repriced.estimate.lineItems[0].estimateCustomSellPrice,
+    repriced.estimate.lineItems[0].sellPrice,
+    repriced.estimate.lineItems[0].total,
+  ], [25, 30, 30, 60]);
+
+  const reset = applyAuthoritativeEstimatePricing({
+    existingEstimate: repriced.estimate,
+    nextEstimate: { ...repriced.estimate, lineItems: [{ ...repriced.estimate.lineItems[0], estimateCustomSellPrice: null }] },
+    catalog,
+  });
+  assert.ok(Math.abs(reset.estimate.lineItems[0].sellPrice - (snapshot.recoveredCostPerUnit / 0.75)) < 0.000001);
+});
+
 test('Budget Analysis and Estimate authorization use current Employee compensation over stale Labour plans', () => {
   const employees = calculatedEmployees.map((employee) => employee.id === 'ryan'
     ? { ...employee, hourlyRate: 60 }

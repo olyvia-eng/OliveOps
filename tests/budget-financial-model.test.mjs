@@ -51,6 +51,17 @@ test('Division overhead detail exposes each allocated source and reconciles to T
   assert.equal(hardscape.overheadItems.reduce((sum, item) => sum + item.amount, 0), hardscape.totalOverhead);
 });
 
+test('Division direct-cost detail exposes allocated sources and reconciles by category', () => {
+  const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
+  assert.deepEqual(hardscape.directCostItems.map((item) => [item.itemId, item.category, item.amount]), [
+    ['ryan', 'labour', 60000],
+    ['excavator', 'equipment', 70000],
+    ['stone', 'materials', 100000],
+    ['concrete', 'subcontractors', 45000],
+  ]);
+  assert.equal(hardscape.directCostItems.reduce((sum, item) => sum + item.amount, 0), hardscape.totalDirectCosts);
+});
+
 test('shared overhead detail shows only each Division allocated share', () => {
   const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
   const snow = model.calculateDivisionFinancials({ divisions, planningItems }, 'snow');
@@ -77,6 +88,8 @@ test('Budget financials roll up allocated Division overhead and count shared cos
   assert.equal(result.operatingMargin, 926000 / 1550000 * 100);
   assert.equal(result.divisions.reduce((sum, division) => sum + division.allocatedOverhead, 0), 80000);
   assert.equal(result.overheadItems.reduce((sum, item) => sum + item.amount, 0), result.totalOverhead);
+  assert.equal(result.directCostItems.reduce((sum, item) => sum + item.amount, 0), result.totalDirectCosts);
+  assert.equal(result.directCostItems.find((item) => item.itemId === 'ryan')?.amount, 100000);
   assert.deepEqual(result.overheadItems.find((item) => item.itemId === 'secretary'), {
     itemId: 'secretary', name: 'Insurance', category: 'other', amount: 60000,
   });

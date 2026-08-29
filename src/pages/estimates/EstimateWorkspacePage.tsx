@@ -711,10 +711,10 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
                         <p className="mt-4 text-xs font-medium text-gray-500 dark:text-brand-300">Sell Price by Category</p>
                         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                          {categoryTotals.labour > 0 ? <p className="text-gray-700 dark:text-brand-100">Labour <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.labour)}</span></p> : null}
-                          {categoryTotals.equipment > 0 ? <p className="text-gray-700 dark:text-brand-100">Equipment <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.equipment)}</span></p> : null}
-                          {categoryTotals.material > 0 ? <p className="text-gray-700 dark:text-brand-100">Materials <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.material)}</span></p> : null}
-                          {categoryTotals.subcontractor > 0 ? <p className="text-gray-700 dark:text-brand-100">Subcontractors <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.subcontractor)}</span></p> : null}
+                          <p className="text-gray-700 dark:text-brand-100">Labour <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.labour)}</span></p>
+                          <p className="text-gray-700 dark:text-brand-100">Equipment <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.equipment)}</span></p>
+                          <p className="text-gray-700 dark:text-brand-100">Materials <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.material)}</span></p>
+                          <p className="text-gray-700 dark:text-brand-100">Subcontractors <span className="ml-2 font-semibold">{formatCurrency(categoryTotals.subcontractor)}</span></p>
                         </div>
 
                         <div className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 dark:text-brand-300">

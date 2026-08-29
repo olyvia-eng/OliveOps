@@ -1,6 +1,8 @@
 import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimatePricingCatalogItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
 import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } from './estimateWorkAreaIdentity.js';
+import { calculateEstimateSnapshotPricing } from './estimatePricingModel.js';
+export { calculateEstimateSnapshotPricing };
 
 const DEFAULT_AREA_NAME = 'General';
 
@@ -42,6 +44,7 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     companyOverheadRecoveryPerUnit: item.companyOverheadRecoveryPerUnit,
     recoveredCostPerUnit: item.recoveredCostPerUnit,
     targetMarginPct: item.targetMarginPct,
+    estimateTargetMarginPct: item.estimateTargetMarginPct,
     recommendedRateAtEstimate: item.recommendedRateAtEstimate,
     divisionName: item.divisionName,
     averageLabourCost: item.averageLabourCost,
@@ -50,6 +53,7 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     calculatedRateAtEstimate: item.calculatedRateAtEstimate,
     customRateAtEstimate: item.customRateAtEstimate,
     estimateRateAtEstimate: item.estimateRateAtEstimate,
+    estimateCustomSellPrice: item.estimateCustomSellPrice == null ? item.estimateCustomSellPrice : Math.max(0, asNumber(item.estimateCustomSellPrice, 0)),
     sourceCategory: normalizeCategory(item.sourceCategory ?? item.category),
     equipmentId: item.equipmentId,
     equipmentName: item.equipmentName,
@@ -309,15 +313,21 @@ export function getEstimateLinePricingEconomics(item: EstimateLineItem) {
   const price = Math.max(0, asNumber(item.sellPrice, 0));
   const snapshotBreakeven = item.recoveredCostPerUnit ?? item.breakevenRate;
   const breakeven = snapshotBreakeven == null ? null : Math.max(0, asNumber(snapshotBreakeven, 0));
-  const profitPercent = item.targetMarginPct == null ? null : Math.max(0, asNumber(item.targetMarginPct, 0));
+  const snapshotMargin = item.estimateTargetMarginPct ?? item.targetMarginPct;
+  const profitPercent = snapshotMargin == null ? null : Math.max(0, asNumber(snapshotMargin, 0));
   const snapshotCalculatedPrice = item.calculatedRateAtEstimate ?? item.recommendedRateAtEstimate;
-  const calculatedPrice = snapshotCalculatedPrice == null ? null : Math.max(0, asNumber(snapshotCalculatedPrice, 0));
+  const calculatedPrice = breakeven !== null && profitPercent !== null
+    ? calculateEstimateSnapshotPricing({ breakeven, targetMarginPct: profitPercent }).calculatedSellPrice
+    : snapshotCalculatedPrice == null ? null : Math.max(0, asNumber(snapshotCalculatedPrice, 0));
+  const effectiveProfitPercent = item.estimateCustomSellPrice != null && breakeven !== null
+    ? calculateEstimateSnapshotPricing({ breakeven, targetMarginPct: profitPercent ?? 0, customSellPrice: price }).effectiveMarginPct
+    : profitPercent;
 
   return {
     cost,
     breakeven,
     totalCost: quantity * cost,
-    profitPercent,
+    profitPercent: effectiveProfitPercent,
     calculatedPrice,
     price,
     totalPrice: quantity * price,

@@ -68,6 +68,7 @@ export interface EstimateLineItem {
   companyOverheadRecoveryPerUnit?: number;
   recoveredCostPerUnit?: number;
   targetMarginPct?: number;
+  estimateTargetMarginPct?: number | null;
   recommendedRateAtEstimate?: number;
   divisionName?: string;
   averageLabourCost?: number;
@@ -76,6 +77,7 @@ export interface EstimateLineItem {
   calculatedRateAtEstimate?: number;
   customRateAtEstimate?: number | null;
   estimateRateAtEstimate?: number;
+  estimateCustomSellPrice?: number | null;
   sourceCategory?: LineItemCategory;
   equipmentId?: ID;
   equipmentName?: string;

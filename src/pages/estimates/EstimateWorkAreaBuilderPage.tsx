@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
+import EstimateLinePricingEditor from '../../components/estimates/EstimateLinePricingEditor';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
@@ -117,6 +118,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [expandedLineItemIds, setExpandedLineItemIds] = useState<Set<string>>(() => new Set());
   const [customItemOpen, setCustomItemOpen] = useState(false);
+  const [pricingLineItemId, setPricingLineItemId] = useState<string | null>(null);
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
   const [customItem, setCustomItem] = useState({
     category: 'labour' as LineItemCategory,
@@ -277,6 +279,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         }),
       };
     });
+  };
+
+  const replaceLineItem = (nextLineItem: EstimateLineItem) => {
+    setForm((current) => current ? {
+      ...current,
+      lineItems: current.lineItems.map((item) => item.id === nextLineItem.id ? calculateEstimateLineItem(nextLineItem) : item),
+    } : current);
   };
 
   const deleteLineItem = (lineItemId: string) => {
@@ -545,9 +554,9 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.cost)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.breakeven)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(economics.totalCost)}</p>
-                  <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{economics.profitPercent === null ? 'Not available' : formatTargetMarginPercent(economics.profitPercent)}</p>
+                  <button type="button" onClick={() => setPricingLineItemId(lineItem.id)} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
                   <div className="text-right text-gray-700 dark:text-brand-100">
-                    {isBudgetPriced ? <span className="font-medium tabular-nums">{unitPrice(economics.price)}</span> : <label className="flex items-center justify-end gap-1"><span className="sr-only">Price</span><input aria-label={`Price for ${lineItem.itemName || lineItem.description || 'item'}`} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.sellPrice)} onChange={(event) => setLineItem(lineItem.id, 'sellPrice', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="h-9 w-20 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /><span>/{lineItem.unit}</span></label>}
+                    <span className="font-medium tabular-nums">{unitPrice(economics.price)}</span>
                   </div>
                   <p className="text-right text-base font-semibold tabular-nums text-gray-900 dark:text-brand-50" aria-label="Total Price">{formatCurrency(economics.totalPrice)}</p>
                   <div className="flex items-center justify-end gap-1">
@@ -687,6 +696,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           </div>
         </div>
       ) : null}
+
+      {pricingLineItemId ? (() => {
+        const pricingLineItem = form.lineItems.find((item) => item.id === pricingLineItemId);
+        return pricingLineItem ? <EstimateLinePricingEditor lineItem={pricingLineItem} onChange={replaceLineItem} onClose={() => setPricingLineItemId(null)} /> : null;
+      })() : null}
 
       <Modal
         open={customItemOpen}

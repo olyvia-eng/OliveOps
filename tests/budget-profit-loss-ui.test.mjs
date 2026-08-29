@@ -59,3 +59,9 @@ test('legacy overhead is normalized without an active company-level calculation 
   assert.doesNotMatch(model, /companyOverheadItems|companyOverheadAllocated/);
   assert.doesNotMatch(statement, /Company Overhead/);
 });
+
+test('financial statements render authoritative direct-cost child detail', () => {
+  assert.match(statement, /function DirectCostRows/);
+  assert.match(statement, /financials\.directCostItems/);
+  assert.match(model, /directCostItems/);
+});

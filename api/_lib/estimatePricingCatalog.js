@@ -1,5 +1,6 @@
 import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
 import { buildLabourClassCatalog } from '../../src/pages/data-center/labourClassPricingModel.js';
+import { calculateEstimateSnapshotPricing } from '../../src/utils/estimatePricingModel.js';
 
 const CATEGORY_MAP = {
   labour: 'labour',
@@ -207,7 +208,22 @@ const estimateLineItems = (estimate) => [
 const preservePricingSnapshot = (existing, next) => {
   const quantity = Math.max(0, Number(next.quantity ?? 0));
   const unitCost = Math.max(0, Number(existing.unitCost ?? 0));
-  const sellPrice = Math.max(0, Number(existing.sellPrice ?? 0));
+  const estimateTargetMarginPct = next.estimateTargetMarginPct == null
+    ? null
+    : Math.min(99, Math.max(0, Number(next.estimateTargetMarginPct ?? 0)));
+  const estimateCustomSellPrice = next.estimateCustomSellPrice == null
+    ? null
+    : Math.max(0, Number(next.estimateCustomSellPrice ?? 0));
+  const hasEstimatePricing = existing.estimateTargetMarginPct != null
+    || existing.estimateCustomSellPrice != null
+    || estimateTargetMarginPct != null
+    || estimateCustomSellPrice != null;
+  const pricing = hasEstimatePricing ? calculateEstimateSnapshotPricing({
+    breakeven: existing.recoveredCostPerUnit ?? existing.breakevenRate ?? 0,
+    targetMarginPct: estimateTargetMarginPct ?? existing.targetMarginPct ?? 0,
+    customSellPrice: estimateCustomSellPrice,
+  }) : null;
+  const sellPrice = pricing?.sellPrice ?? Math.max(0, Number(existing.sellPrice ?? 0));
   return {
     ...next,
     category: existing.category,
@@ -223,6 +239,7 @@ const preservePricingSnapshot = (existing, next) => {
     companyOverheadRecoveryPerUnit: existing.companyOverheadRecoveryPerUnit,
     recoveredCostPerUnit: existing.recoveredCostPerUnit,
     targetMarginPct: existing.targetMarginPct,
+    estimateTargetMarginPct,
     recommendedRateAtEstimate: existing.recommendedRateAtEstimate,
     labourClassId: existing.labourClassId,
     labourClassName: existing.labourClassName,
@@ -233,6 +250,7 @@ const preservePricingSnapshot = (existing, next) => {
     calculatedRateAtEstimate: existing.calculatedRateAtEstimate,
     customRateAtEstimate: existing.customRateAtEstimate,
     estimateRateAtEstimate: existing.estimateRateAtEstimate,
+    estimateCustomSellPrice,
     equipmentId: existing.equipmentId,
     equipmentName: existing.equipmentName,
     itemName: existing.itemName,
@@ -288,6 +306,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       companyOverheadRecoveryPerUnit: pricing.companyOverheadRecoveryPerUnit ?? undefined,
       recoveredCostPerUnit: pricing.recoveredCostPerUnit ?? undefined,
       targetMarginPct: pricing.targetMarginPct ?? undefined,
+      estimateTargetMarginPct: null,
       recommendedRateAtEstimate: pricing.recommendedRate ?? undefined,
       labourClassId: pricing.type === 'labour' ? pricing.labourClassId : undefined,
       labourClassName: pricing.type === 'labour' ? pricing.name : undefined,
@@ -300,6 +319,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       calculatedRateAtEstimate: pricing.calculatedRate ?? undefined,
       customRateAtEstimate: pricing.customRate ?? null,
       estimateRateAtEstimate: pricing.estimateRate ?? sellPrice,
+      estimateCustomSellPrice: null,
       equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,

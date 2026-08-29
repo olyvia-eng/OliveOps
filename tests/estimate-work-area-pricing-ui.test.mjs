@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { formatTargetMarginPercent } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
 
 const builderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
+const pricingEditorSource = readFileSync('src/components/estimates/EstimateLinePricingEditor.tsx', 'utf8');
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const modelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
@@ -94,10 +95,28 @@ test('Estimate Analysis consumes internal cost snapshots while proposals expose 
 test('worksheet economics read authoritative snapshot fields without applying sales tax to resource cost', () => {
   assert.match(modelSource, /export function getEstimateLinePricingEconomics/);
   assert.match(modelSource, /item\.recoveredCostPerUnit \?\? item\.breakevenRate/);
-  assert.match(modelSource, /item\.targetMarginPct == null/);
+  assert.match(modelSource, /item\.estimateTargetMarginPct \?\? item\.targetMarginPct/);
   assert.match(modelSource, /item\.calculatedRateAtEstimate \?\? item\.recommendedRateAtEstimate/);
   assert.match(modelSource, /totalCost: quantity \* cost/);
   assert.match(modelSource, /totalPrice: quantity \* price/);
   assert.match(modelSource, /isBelowBreakeven: breakeven !== null && price < breakeven/);
   assert.doesNotMatch(builderSource, /Cost \+ Tax/);
+});
+
+test('all resource categories use one Estimate-only margin and custom-price editor', () => {
+  assert.match(builderSource, /<EstimateLinePricingEditor lineItem=\{pricingLineItem\}/);
+  assert.match(builderSource, /setPricingLineItemId\(lineItem\.id\)/);
+  assert.match(pricingEditorSource, /estimateTargetMarginPct/);
+  assert.match(pricingEditorSource, /estimateCustomSellPrice/);
+  assert.match(pricingEditorSource, /calculateEstimateSnapshotPricing/);
+  assert.match(pricingEditorSource, />Margin</);
+  assert.match(pricingEditorSource, />Custom price</);
+  assert.match(pricingEditorSource, /Estimate only/);
+});
+
+test('Work Area summaries keep all categories visible at zero', () => {
+  for (const category of ['labour', 'equipment', 'material', 'subcontractor']) {
+    assert.match(workspaceSource, new RegExp(`categoryTotals\\.${category}\\)`));
+    assert.doesNotMatch(workspaceSource, new RegExp(`categoryTotals\\.${category} > 0`));
+  }
 });
