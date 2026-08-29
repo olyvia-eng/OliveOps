@@ -17,7 +17,7 @@ const sourceEntityId = (item) => {
   if (item.category === 'labour') return item.employeeId;
   if (item.category === 'equipment') return item.equipmentId;
   if (item.category === 'materials') return item.materialCatalogItemId;
-  if (item.category === 'subcontractors') return item.vendorId;
+  if (item.category === 'subcontractors') return item.subcontractorCatalogItemId ?? item.vendorId;
   return undefined;
 };
 
@@ -26,7 +26,7 @@ const sourceRateMatches = (item, rate) => {
   if (item.category === 'labour') return Boolean(item.employeeId && rate.employeeId === item.employeeId);
   if (item.category === 'equipment') return Boolean(item.equipmentId && rate.equipmentId === item.equipmentId);
   if (item.category === 'materials') return Boolean(item.materialCatalogItemId && rate.materialCatalogItemId === item.materialCatalogItemId);
-  if (item.category === 'subcontractors') return Boolean(item.vendorId && rate.vendorId === item.vendorId);
+  if (item.category === 'subcontractors') return Boolean((item.subcontractorCatalogItemId ?? item.vendorId) && (rate.subcontractorCatalogItemId ?? rate.vendorId) === (item.subcontractorCatalogItemId ?? item.vendorId));
   return false;
 };
 
@@ -34,6 +34,7 @@ const displayName = (item, entities) => {
   if (item.category === 'labour' && item.employeeId) return entities.employees.get(item.employeeId)?.name ?? item.name ?? item.description;
   if (item.category === 'equipment' && item.equipmentId) return entities.equipment.get(item.equipmentId)?.name ?? item.name ?? item.description;
   if (item.category === 'materials' && item.materialCatalogItemId) return entities.materials.get(item.materialCatalogItemId)?.name ?? item.name ?? item.description;
+  if (item.category === 'subcontractors' && (item.subcontractorCatalogItemId ?? item.vendorId)) return entities.subcontractors.get(item.subcontractorCatalogItemId ?? item.vendorId)?.name ?? item.name ?? item.description;
   return item.name ?? item.description;
 };
 
@@ -51,11 +52,12 @@ const itemDivisionIds = (item) => {
 const isOverheadEquipment = (item, equipment) => item.category === 'equipment'
   && (equipment.get(item.equipmentId)?.equipmentClassification ?? item.classification) === 'overhead';
 
-export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], labourClasses = [], materialCatalogItems = [] }) {
+export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], labourClasses = [], materialCatalogItems = [], subcontractorCatalogItems = [] }) {
   const entities = {
     employees: new Map(employees.map((item) => [item.id, item])),
     equipment: new Map(equipmentAssets.map((item) => [item.id, item])),
     materials: new Map(materialCatalogItems.map((item) => [item.id, item])),
+    subcontractors: new Map(subcontractorCatalogItems.map((item) => [item.id, item])),
   };
   const rates = budgetRates.filter((rate) => rate.budgetId === budgetId && rate.active !== false);
   const calculatedRows = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
@@ -178,7 +180,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       name: displayName(item, entities) || 'Unnamed item',
       description: item.description ?? '',
       costCode: item.costCode,
-      unit: matchingRate?.unit || item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
+      unit: calculatedRow?.unit || matchingRate?.unit || item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
       classification: item.labourClassification ?? item.classification,
       costRate,
       recommendedRate,

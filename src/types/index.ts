@@ -327,6 +327,8 @@ export interface EquipmentAsset {
   yearlyFuelCost?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
+  rentalCost?: number;
+  rentalUnit?: EquipmentRentalUnit;
   currentJobId?: ID;
   notes: string;
   createdAt: string;
@@ -336,6 +338,20 @@ export interface EquipmentAsset {
 export interface MaterialCatalogItem {
   id: ID;
   name: string;
+  unit: string;
+  defaultUnitCost: number;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubcontractorCatalogItem {
+  id: ID;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  trade?: string;
   unit: string;
   defaultUnitCost: number;
   notes: string;
@@ -1046,6 +1062,8 @@ export interface BudgetDivisionPlanningItem {
   yearlyFuelCost?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
+  rentalCost?: number;
+  rentalUnit?: EquipmentRentalUnit;
   sellableHoursPerYear?: number;
   equipmentHoursPerDay?: number;
   utilizationHours?: number;
@@ -1061,6 +1079,7 @@ export interface BudgetDivisionPlanningItem {
   overheadDivisionAllocations?: OverheadDivisionAllocation[];
   legacyBudgetItemId?: ID;
   vendorId?: ID;
+  subcontractorCatalogItemId?: ID;
   createdAt: string;
   updatedAt: string;
 }
@@ -1085,7 +1104,8 @@ export interface EquipmentBudgetAllocation {
   updatedAt: string;
 }
 
-export type EquipmentCostType = 'financed' | 'leased' | 'owned';
+export type EquipmentCostType = 'financed' | 'leased' | 'owned' | 'rental';
+export type EquipmentRentalUnit = 'hr' | 'day' | 'week' | 'month';
 
 export interface BudgetItem {
   id: ID;
@@ -1131,6 +1151,7 @@ export interface BudgetRate {
   equipmentId?: ID;
   materialCatalogItemId?: ID;
   vendorId?: ID;
+  subcontractorCatalogItemId?: ID;
   overheadRecoveryPerUnit?: number;
   pricingVersion?: number;
   divisionId?: ID;

@@ -9,6 +9,7 @@ import {
   listEquipmentAssetsForBusiness,
   listLabourClassesForBusiness,
   listMaterialCatalogItemsForBusiness,
+  listSubcontractorCatalogItemsForBusiness,
 } from './_lib/authRepo.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { buildEstimatePricingCatalog } from './_lib/estimatePricingCatalog.js';
@@ -26,6 +27,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
     listEquipmentAssetsForBusiness,
     listLabourClassesForBusiness,
     listMaterialCatalogItemsForBusiness,
+    listSubcontractorCatalogItemsForBusiness,
     listDivisionPlanningItemsForBusiness,
     ...overrides,
   };
@@ -57,7 +59,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Estimate Division is invalid.' });
       }
 
-      const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems] = await Promise.all([
+      const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems, subcontractorCatalogItems] = await Promise.all([
         deps.listDivisionPlanningItemsForBusiness(session.businessId),
         deps.listBudgetDivisionsForBusiness(session.businessId),
         deps.listBudgetRatesForBusiness(session.businessId),
@@ -65,6 +67,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         deps.listEquipmentAssetsForBusiness(session.businessId),
         deps.listLabourClassesForBusiness(session.businessId),
         deps.listMaterialCatalogItemsForBusiness(session.businessId),
+        deps.listSubcontractorCatalogItemsForBusiness(session.businessId),
       ]);
       const catalog = buildEstimatePricingCatalog({
         budget,
@@ -77,6 +80,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         equipmentAssets,
         labourClasses,
         materialCatalogItems,
+        subcontractorCatalogItems,
       });
       return res.status(200).json({ ok: true, budget: { id: budget.id, name: budget.name }, catalog });
     } catch {

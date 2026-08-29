@@ -517,7 +517,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             </div>
             {items.map((lineItem) => {
               const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId);
-              const usesHours = category === 'labour' || category === 'equipment';
+              const usesHours = category === 'labour' || (category === 'equipment' && lineItem.unit === 'hr');
               const quantityLabel = usesHours ? 'Hours' : 'Quantity';
               const isExpanded = expandedLineItemIds.has(lineItem.id);
               const economics = getEstimateLinePricingEconomics(lineItem);

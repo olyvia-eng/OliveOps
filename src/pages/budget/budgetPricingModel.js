@@ -34,7 +34,7 @@ const identity = (item) => {
   if (item.category === 'labour') return item.employeeId ? `labour:${item.employeeId}` : `labour:${item.id}`;
   if (item.category === 'equipment') return item.equipmentId ? `equipment:${item.equipmentId}` : `equipment:${item.id}`;
   if (item.category === 'materials') return item.materialCatalogItemId ? `materials:${item.materialCatalogItemId}` : `materials:${item.id}`;
-  if (item.category === 'subcontractors') return item.vendorId ? `subcontractors:${item.vendorId}` : `subcontractors:${item.id}`;
+  if (item.category === 'subcontractors') return item.subcontractorCatalogItemId || item.vendorId ? `subcontractors:${item.subcontractorCatalogItemId ?? item.vendorId}` : `subcontractors:${item.id}`;
   return `${item.category}:${item.id}`;
 };
 
@@ -90,7 +90,7 @@ const matchingRate = (budgetRates, budgetId, item, type, divisionId) => {
     || (item.employeeId && candidate.employeeId === item.employeeId)
     || (item.equipmentId && candidate.equipmentId === item.equipmentId)
     || (item.materialCatalogItemId && candidate.materialCatalogItemId === item.materialCatalogItemId)
-    || (item.vendorId && candidate.vendorId === item.vendorId);
+    || ((item.subcontractorCatalogItemId ?? item.vendorId) && (candidate.subcontractorCatalogItemId ?? candidate.vendorId) === (item.subcontractorCatalogItemId ?? item.vendorId));
   const candidates = budgetRates.filter((candidate) => candidate.budgetId === budgetId && candidate.category === type && matchesIdentity(candidate));
   return candidates.find((candidate) => candidate.pricingVersion === 2 && candidate.divisionId === divisionId)
     ?? candidates.find((candidate) => candidate.pricingVersion !== 2 && !candidate.divisionId);
@@ -154,8 +154,11 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
   for (const item of uniqueItems) {
     if (item.category === 'labour') costs.set(item.id, labourCost(item).perUnit);
     else if (item.category === 'equipment') {
-      const hours = number(item.sellableHoursPerYear ?? item.utilizationHours);
-      costs.set(item.id, hours > 0 ? number(item.plannedAmount) / hours : 0);
+      if (item.costType === 'rental') costs.set(item.id, number(item.rentalCost));
+      else {
+        const hours = number(item.sellableHoursPerYear ?? item.utilizationHours);
+        costs.set(item.id, hours > 0 ? number(item.plannedAmount) / hours : 0);
+      }
     } else if (item.category === 'materials') costs.set(item.id, number(item.unitCost));
     else costs.set(item.id, number(item.rate));
   }
@@ -246,7 +249,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         divisionName: division?.name ?? 'Division',
         type,
         rate,
-        unit: item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
+        unit: item.costType === 'rental' ? item.rentalUnit || item.unit || 'hr' : item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
         costRate,
         overheadPerUnit: divisionOverheadPerUnit,
         divisionOverheadPerUnit,

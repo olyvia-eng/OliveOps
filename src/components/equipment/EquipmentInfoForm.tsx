@@ -38,25 +38,33 @@ export function EquipmentFormFields({ value, onChange, context = 'catalog', iden
           <option value="billable">Billable Equipment</option>
           <option value="overhead">Overhead Equipment</option>
         </Select>
-        <Select label="Ownership" value={value.equipmentCostType} disabled={identityReadOnly} onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}>
+        <Select label="Ownership / Source" value={value.equipmentCostType} disabled={identityReadOnly} onChange={(event) => set('equipmentCostType', event.target.value as EquipmentCostType)}>
           <option value="financed">Financed</option>
           <option value="leased">Leased</option>
           <option value="owned">Owned</option>
+          <option value="rental">Rental</option>
         </Select>
       </div>
     </section>
 
     <section>
-      <h3 className="text-sm font-semibold text-gray-900">Annual Costs</h3>
+      <h3 className="text-sm font-semibold text-gray-900">{value.equipmentCostType === 'rental' ? 'Rental Cost' : 'Annual Costs'}</h3>
       {context === 'budget' && identityReadOnly ? <p className="mt-1 text-xs text-gray-500">These annual costs and utilization assumptions apply to this Budget year only.</p> : null}
       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {value.equipmentCostType !== 'owned' && <>
+        {value.equipmentCostType === 'rental' ? <>
+          <Input label="Rental Cost" type="number" min={0} step={0.01} value={value.rentalCost} onChange={(event) => set('rentalCost', Number(event.target.value || 0))} />
+          <Select label="Rental Unit" value={value.rentalUnit} onChange={(event) => set('rentalUnit', event.target.value as EquipmentInfoFormValue['rentalUnit'])}>
+            <option value="hr">Hour</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option>
+          </Select>
+        </> : value.equipmentCostType !== 'owned' ? <>
           <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Payment</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.equipmentPayment} className="pl-7" onChange={(event) => set('equipmentPayment', Number(event.target.value || 0))} /></div></div>
           <Input label="Payment Frequency (# per year)" type="number" min={0} step={1} value={value.equipmentPaymentFrequencyPerYear} onChange={(event) => set('equipmentPaymentFrequencyPerYear', Number(event.target.value || 0))} />
-        </>}
+        </> : null}
+        {value.equipmentCostType !== 'rental' ? <>
         <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Fuel Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyFuelCost} className="pl-7" onChange={(event) => set('yearlyFuelCost', Number(event.target.value || 0))} /></div><p className="text-xs text-gray-500">Estimated total fuel cost for this equipment for the year.</p></div>
         <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Insurance Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyInsuranceCost} className="pl-7" onChange={(event) => set('yearlyInsuranceCost', Number(event.target.value || 0))} /></div></div>
         <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Maintenance Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyMaintenanceCost} className="pl-7" onChange={(event) => set('yearlyMaintenanceCost', Number(event.target.value || 0))} /></div></div>
+        </> : null}
       </div>
     </section>
   </>;
@@ -81,7 +89,7 @@ export default function EquipmentInfoForm({
     <div className="space-y-6">
       <EquipmentFormFields value={value} onChange={onChange} context={context} identityReadOnly={identityReadOnly} />
 
-      {context === 'budget' ? <>
+      {context === 'budget' && value.equipmentCostType !== 'rental' ? <>
 
       <div className="border-t border-gray-200 pt-5">
         <h3 className="text-sm font-semibold text-gray-900">Budget Planning</h3>

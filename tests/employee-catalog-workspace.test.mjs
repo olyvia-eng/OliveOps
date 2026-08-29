@@ -14,7 +14,7 @@ test('Catalog presents Labour Classes as the primary labour resource alongside e
   assert.doesNotMatch(catalogSource, /<EmployeeCatalogSection \/>/);
   assert.match(catalogSource, /<MaterialsCatalogSection \/>/);
   assert.match(catalogSource, /<EquipmentDetailPanel/);
-  assert.match(catalogSource, /No Subcontractor resources yet/);
+  assert.match(catalogSource, /<SubcontractorsCatalogSection/);
 });
 
 test('Labour Catalog empty setup is actionable and assignments remain explicit', () => {

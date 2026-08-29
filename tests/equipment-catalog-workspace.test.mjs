@@ -37,9 +37,10 @@ test('legacy equipment sell fields are not presented as explicit custom rates', 
 
 test('equipment catalog is a compact direct-cost resource list', () => {
   assert.match(catalogSource, /<table className="w-full text-sm">/);
-  for (const heading of ['Equipment', 'ID / SKU', 'Cost / Hour']) {
+  for (const heading of ['Equipment', 'ID / SKU', 'Direct Cost']) {
     assert.match(catalogSource, new RegExp(`>${heading.replace('/', '\\/')}<`));
   }
+  assert.match(catalogSource, /costUnit/);
   for (const removed of ['>Type<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed));
   assert.doesNotMatch(catalogSource, /recommendedSellPrice|customRate|division rates/);
   assert.match(catalogSource, /Not calculated/);

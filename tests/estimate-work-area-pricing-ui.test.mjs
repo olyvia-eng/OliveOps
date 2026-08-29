@@ -36,7 +36,7 @@ test('Work Area resources expose snapshot economics with editable quantity and a
   assert.match(builderSource, /const isBudgetPriced = Boolean\(lineItem\.sourceBudgetItemId \|\| lineItem\.sourceRateId \|\| lineItem\.equipmentId\)/);
   for (const heading of ['Item', 'Quantity', 'Cost', 'Breakeven', 'Total Cost', 'Profit', 'Price', 'Total Price', 'Actions']) assert.match(builderSource, new RegExp(`>${heading}<`));
   assert.match(builderSource, /getEstimateLinePricingEconomics\(lineItem\)/);
-  assert.match(builderSource, /const usesHours = category === 'labour' \|\| category === 'equipment'/);
+  assert.match(builderSource, /const usesHours = category === 'labour' \|\| \(category === 'equipment' && lineItem\.unit === 'hr'\)/);
   assert.match(builderSource, /const quantityLabel = usesHours \? 'Hours' : 'Quantity'/);
   assert.match(builderSource, /setLineItem\(lineItem\.id, 'quantity', parseNumericInputValue\(event\.target\.value\)\)/);
   assert.match(builderSource, /usesHours \|\| isBudgetPriced \? <span>\{lineItem\.unit\}<\/span>/);

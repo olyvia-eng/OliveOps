@@ -13,7 +13,7 @@ test('Catalog is a Budget-independent resource and direct-cost library', () => {
   assert.doesNotMatch(catalogPageSource, /useCatalogPricing|catalog-pricing|pricingBudgetId/);
   assert.match(catalogPageSource, /<LabourCatalogSection \/>/);
   assert.match(catalogPageSource, /<MaterialsCatalogSection \/>/);
-  assert.match(catalogPageSource, /Cost \/ Hour/);
+  assert.match(catalogPageSource, /Direct Cost/);
   assert.doesNotMatch(catalogPageSource, /Calculated Rate|Custom Rate|Estimate Rate|Allocated To/);
 });
 

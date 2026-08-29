@@ -82,6 +82,10 @@ function materialCatalogSk(materialId) {
   return `MATERIAL#${materialId}`;
 }
 
+function subcontractorCatalogSk(subcontractorId) {
+  return `SUBCONTRACTOR#${subcontractorId}`;
+}
+
 function labourClassSk(labourClassId) {
   return `LABOUR_CLASS#${labourClassId}`;
 }
@@ -2669,6 +2673,8 @@ export async function listEquipmentAssetsForBusiness(businessId) {
     yearlyFuelCost: item.yearlyFuelCost,
     yearlyInsuranceCost: item.yearlyInsuranceCost,
     yearlyMaintenanceCost: item.yearlyMaintenanceCost,
+    rentalCost: item.rentalCost,
+    rentalUnit: item.rentalUnit,
     currentJobId: item.currentJobId,
     notes: item.notes,
     createdAt: item.createdAt,
@@ -2729,6 +2735,8 @@ export async function getEquipmentAssetForBusiness(businessId, equipmentId) {
         yearlyFuelCost: result.Item.yearlyFuelCost,
         yearlyInsuranceCost: result.Item.yearlyInsuranceCost,
         yearlyMaintenanceCost: result.Item.yearlyMaintenanceCost,
+        rentalCost: result.Item.rentalCost,
+        rentalUnit: result.Item.rentalUnit,
         currentJobId: result.Item.currentJobId,
         notes: result.Item.notes,
         createdAt: result.Item.createdAt,
@@ -2866,6 +2874,64 @@ export async function deleteMaterialCatalogItemForBusiness(businessId, materialI
     })
   );
 
+  return { ok: true };
+}
+
+const normalizeSubcontractorCatalogItem = (item) => ({
+  id: item.subcontractorId ?? item.id,
+  name: item.name,
+  contactName: item.contactName,
+  email: item.email,
+  phone: item.phone,
+  trade: item.trade,
+  unit: item.unit,
+  defaultUnitCost: Number(item.defaultUnitCost ?? 0),
+  notes: item.notes ?? '',
+  createdAt: item.createdAt,
+  updatedAt: item.updatedAt,
+});
+
+export async function listSubcontractorCatalogItemsForBusiness(businessId) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': 'SUBCONTRACTOR#' },
+  }));
+  return (result.Items ?? []).map(normalizeSubcontractorCatalogItem);
+}
+
+export async function getSubcontractorCatalogItemForBusiness(businessId, subcontractorId) {
+  const result = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: subcontractorCatalogSk(subcontractorId) },
+  }));
+  return result.Item ? normalizeSubcontractorCatalogItem(result.Item) : null;
+}
+
+const putSubcontractorCatalogItem = async ({ businessId, subcontractorCatalogItem, exists }) => {
+  await ddb.send(new PutCommand({
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId),
+      SK: subcontractorCatalogSk(subcontractorCatalogItem.id),
+      entityType: 'SUBCONTRACTOR_CATALOG_ITEM',
+      businessId,
+      subcontractorId: subcontractorCatalogItem.id,
+      ...subcontractorCatalogItem,
+    },
+    ConditionExpression: exists ? 'attribute_exists(PK) AND attribute_exists(SK)' : 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+  }));
+  return { ok: true };
+};
+
+export const createSubcontractorCatalogItemForBusiness = (input) => putSubcontractorCatalogItem({ ...input, exists: false });
+export const updateSubcontractorCatalogItemForBusiness = (input) => putSubcontractorCatalogItem({ ...input, exists: true });
+
+export async function deleteSubcontractorCatalogItemForBusiness(businessId, subcontractorId) {
+  await ddb.send(new DeleteCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: subcontractorCatalogSk(subcontractorId) },
+  }));
   return { ok: true };
 }
 

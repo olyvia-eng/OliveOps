@@ -92,8 +92,9 @@ export default function EquipmentDetailPanel({
                   <dt className="text-gray-500 dark:text-brand-200">Name</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.name}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">ID / SKU</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.serialNumber)}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Type / Class</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Ownership</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
+                  <dt className="text-gray-500 dark:text-brand-200">Ownership / Source</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
                   <dt className="text-gray-500 dark:text-brand-200">Classification</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{isOverheadEquipment ? 'Overhead Equipment' : 'Billable Equipment'}</dd>
+                  {equipment.costType === 'rental' ? <><dt className="text-gray-500 dark:text-brand-200">Rental Cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{formatCurrency(equipment.rentalCost ?? 0)} / {equipment.rentalUnit ?? 'hr'}</dd></> : null}
                 </dl>
               </Card>
 

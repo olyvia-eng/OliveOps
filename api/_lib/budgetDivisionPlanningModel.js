@@ -6,7 +6,7 @@ export function divisionPlanIdentity(item) {
   if (item.category === 'labour') return item.employeeId ? `employee:${item.employeeId}` : `custom:${normalizeText(item.name || item.description)}`;
   if (item.category === 'equipment') return item.equipmentId ? `equipment:${item.equipmentId}` : `custom:${normalizeText(item.description)}`;
   if (item.category === 'materials') return item.materialCatalogItemId ? `material:${item.materialCatalogItemId}` : `custom:${normalizeText(item.description)}:${normalizeText(item.unit)}`;
-  if (item.category === 'subcontractors') return item.vendorId ? `vendor:${item.vendorId}` : `custom:${normalizeText(item.name || item.description)}`;
+  if (item.category === 'subcontractors') return item.subcontractorCatalogItemId || item.vendorId ? `subcontractor:${item.subcontractorCatalogItemId ?? item.vendorId}` : `custom:${normalizeText(item.name || item.description)}`;
   if (item.category === 'overhead') return item.legacyBudgetItemId ? `legacy:${item.legacyBudgetItemId}` : `custom:${normalizeText(item.name || item.description)}`;
   return '';
 }
@@ -14,9 +14,9 @@ export function divisionPlanIdentity(item) {
 const SHARED_FIELDS = ['name', 'description', 'sortOrder'];
 const CATEGORY_FIELDS = {
   labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'labourClassification', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'divisionAllocations'],
-  equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount'],
+  equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'rentalCost', 'rentalUnit', 'unit'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
-  subcontractors: ['vendorId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
+  subcontractors: ['vendorId', 'subcontractorCatalogItemId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
   overhead: ['costCode', 'plannedAmount', 'overheadDivisionAllocations', 'legacyBudgetItemId'],
 };
 

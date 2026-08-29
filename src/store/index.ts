@@ -23,6 +23,7 @@ import type {
   TimeEntry,
   TimeEntryWorkType,
   MaterialCatalogItem,
+  SubcontractorCatalogItem,
   BudgetItem,
   LabourBudgetPlan,
   LabourHoursSalesGoal,
@@ -105,6 +106,7 @@ interface AppState {
   equipmentAssets: EquipmentAsset[];
   unbillableTimeCategories: UnbillableTimeCategory[];
   materialCatalogItems: MaterialCatalogItem[];
+  subcontractorCatalogItems: SubcontractorCatalogItem[];
   invoices: Invoice[];
   jobs: Job[];
   employees: Employee[];
@@ -162,6 +164,9 @@ interface AppState {
   addMaterialCatalogItem: (item: Omit<MaterialCatalogItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<MaterialCatalogItem>;
   updateMaterialCatalogItem: (id: ID, data: Partial<MaterialCatalogItem>) => Promise<MaterialCatalogItem>;
   deleteMaterialCatalogItem: (id: ID) => void;
+  addSubcontractorCatalogItem: (item: Omit<SubcontractorCatalogItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<SubcontractorCatalogItem>;
+  updateSubcontractorCatalogItem: (id: ID, data: Partial<SubcontractorCatalogItem>) => Promise<SubcontractorCatalogItem>;
+  deleteSubcontractorCatalogItem: (id: ID) => void;
 
   // Jobs
   addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -280,6 +285,7 @@ export const useStore = create<AppState>()((set, get) => ({
       equipmentAssets: [],
       unbillableTimeCategories: [],
       materialCatalogItems: [],
+      subcontractorCatalogItems: [],
       invoices: [],
       jobs: [],
       employees: [],
@@ -849,6 +855,43 @@ export const useStore = create<AppState>()((set, get) => ({
         })).catch((error: unknown) => {
           set({ materialCatalogItems: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Material catalog item could not be deleted.') });
+        });
+      },
+
+      addSubcontractorCatalogItem: async (item) => {
+        const previous = get().subcontractorCatalogItems;
+        const created = { ...item, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
+        set((state) => ({ subcontractorCatalogItems: [created, ...state.subcontractorCatalogItems] }));
+        try {
+          await ensureOk(fetch(dataUrl('subcontractor-catalog-items'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: created }) }));
+          return created;
+        } catch (error) {
+          set({ subcontractorCatalogItems: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Subcontractor could not be saved.') });
+          throw error;
+        }
+      },
+      updateSubcontractorCatalogItem: async (id, data) => {
+        const previous = get().subcontractorCatalogItems;
+        const current = previous.find((item) => item.id === id);
+        if (!current) throw new Error('Subcontractor not found.');
+        const updated = { ...current, ...data, updatedAt: nowISO() };
+        set((state) => ({ subcontractorCatalogItems: state.subcontractorCatalogItems.map((item) => item.id === id ? updated : item) }));
+        try {
+          await ensureOk(fetch(dataUrl('subcontractor-catalog-items', id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ data: { ...data, updatedAt: updated.updatedAt } }) }));
+          return updated;
+        } catch (error) {
+          set({ subcontractorCatalogItems: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Subcontractor changes could not be saved.') });
+          throw error;
+        }
+      },
+      deleteSubcontractorCatalogItem: (id) => {
+        const previous = get().subcontractorCatalogItems;
+        set((state) => ({ subcontractorCatalogItems: state.subcontractorCatalogItems.filter((item) => item.id !== id) }));
+        void ensureOk(fetch(dataUrl('subcontractor-catalog-items', id), { method: 'DELETE', credentials: 'include' })).catch((error) => {
+          set({ subcontractorCatalogItems: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Subcontractor could not be deleted.') });
         });
       },
 

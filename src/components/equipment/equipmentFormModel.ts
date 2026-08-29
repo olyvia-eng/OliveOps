@@ -1,4 +1,4 @@
-import type { EquipmentClassification, EquipmentCostType } from '../../types';
+import type { EquipmentClassification, EquipmentCostType, EquipmentRentalUnit } from '../../types';
 
 export interface EquipmentInfoFormValue {
   description: string;
@@ -12,6 +12,8 @@ export interface EquipmentInfoFormValue {
   yearlyMaintenanceCost: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
+  rentalCost: number;
+  rentalUnit: EquipmentRentalUnit;
 }
 
 export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
@@ -26,12 +28,15 @@ export const emptyEquipmentInfoFormValue = (): EquipmentInfoFormValue => ({
   yearlyMaintenanceCost: 0,
   sellableHoursPerYear: 0,
   equipmentHoursPerDay: 8,
+  rentalCost: 0,
+  rentalUnit: 'day',
 });
 
 export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => {
   if (!value.description.trim()) return 'Equipment name is required.';
   if (!['billable', 'overhead'].includes(value.equipmentClassification)) return 'Select a valid equipment classification.';
-  if (!['owned', 'financed', 'leased'].includes(value.equipmentCostType)) return 'Select a valid ownership type.';
+  if (!['owned', 'financed', 'leased', 'rental'].includes(value.equipmentCostType)) return 'Select a valid ownership / source.';
+  if (value.equipmentCostType === 'rental' && !['hr', 'day', 'week', 'month'].includes(value.rentalUnit)) return 'Select a valid rental unit.';
 
   const numericFields = [
     ['Payment', value.equipmentPayment],
@@ -39,6 +44,7 @@ export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => {
     ['Yearly fuel cost', value.yearlyFuelCost],
     ['Yearly insurance cost', value.yearlyInsuranceCost],
     ['Yearly maintenance cost', value.yearlyMaintenanceCost],
+    ['Rental cost', value.rentalCost],
   ] as const;
   const invalidField = numericFields.find(([, fieldValue]) => !Number.isFinite(fieldValue) || fieldValue < 0);
   return invalidField ? `${invalidField[0]} must be zero or greater.` : null;
@@ -55,4 +61,5 @@ export const normalizeEquipmentInfoForm = (value: EquipmentInfoFormValue): Equip
   yearlyMaintenanceCost: Math.max(0, Number(value.yearlyMaintenanceCost || 0)),
   sellableHoursPerYear: Math.max(0, Number(value.sellableHoursPerYear || 0)),
   equipmentHoursPerDay: Math.max(0, Number(value.equipmentHoursPerDay || 0)),
+  rentalCost: Math.max(0, Number(value.rentalCost || 0)),
 });

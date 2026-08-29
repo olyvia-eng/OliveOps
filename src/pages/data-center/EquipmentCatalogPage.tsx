@@ -24,6 +24,7 @@ import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../..
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
 import LabourCatalogSection from './LabourCatalogSection';
+import SubcontractorsCatalogSection from './SubcontractorsCatalogSection';
 
 const EQUIPMENT_WORKSPACE_QUERY = { recordParam: 'equipment', tabParam: 'equipmentTab', defaultTab: 'overview' } as const;
 const EQUIPMENT_DETAIL_TABS: EquipmentDetailTab[] = ['overview', 'budgets'];
@@ -63,11 +64,11 @@ export default function EquipmentCatalogPage() {
   };
 
   const sortedEquipment = useMemo(() => {
-    return [...equipmentAssets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return equipmentAssets.filter((asset) => asset.equipmentClassification !== 'overhead').sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }, [equipmentAssets]);
 
   const workspace = readDetailWorkspaceQuery(searchParams, EQUIPMENT_WORKSPACE_QUERY);
-  const selectedEquipment = equipmentAssets.find((asset) => asset.id === workspace.recordId) ?? null;
+  const selectedEquipment = sortedEquipment.find((asset) => asset.id === workspace.recordId) ?? null;
   const equipmentDetailTab = EQUIPMENT_DETAIL_TABS.includes(workspace.tab as EquipmentDetailTab)
     ? workspace.tab as EquipmentDetailTab
     : 'overview';
@@ -136,6 +137,8 @@ export default function EquipmentCatalogPage() {
       ...(normalizedForm.equipmentClassification === 'overhead' ? { recommendedSellRate: 0, chargeOutRate: 0 } : {}),
       yearlyInsuranceCost: normalizedForm.yearlyInsuranceCost,
       yearlyMaintenanceCost: normalizedForm.yearlyMaintenanceCost,
+      rentalCost: normalizedForm.equipmentCostType === 'rental' ? normalizedForm.rentalCost : undefined,
+      rentalUnit: normalizedForm.equipmentCostType === 'rental' ? normalizedForm.rentalUnit : undefined,
       notes: existingAsset?.notes ?? '',
     };
 
@@ -163,6 +166,8 @@ export default function EquipmentCatalogPage() {
       yearlyMaintenanceCost: asset.yearlyMaintenanceCost ?? 0,
       sellableHoursPerYear: 0,
       equipmentHoursPerDay: 8,
+      rentalCost: asset.rentalCost ?? 0,
+      rentalUnit: asset.rentalUnit ?? 'day',
     });
     setShowEquipmentCalcDetails(false);
     setEquipmentModalOpen(true);
@@ -198,7 +203,7 @@ export default function EquipmentCatalogPage() {
 
       {activeCatalog === 'labour' ? <div id="labour-catalog-panel" role="tabpanel"><LabourCatalogSection /></div> : null}
 
-      {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><Card className="p-5"><EmptyState title="No Subcontractor resources yet" description="A reusable Subcontractor cost library is not available yet. Subcontractor planning and pricing remain in each Budget." /></Card></div> : null}
+      {activeCatalog === 'subcontractors' ? <div id="subcontractors-catalog-panel" role="tabpanel"><SubcontractorsCatalogSection /></div> : null}
 
       {activeCatalog === 'equipment' ? <div id="equipment-catalog-panel" role="tabpanel">
       <DetailWorkspace
@@ -241,12 +246,13 @@ export default function EquipmentCatalogPage() {
                     <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600 dark:text-brand-200">
                       <th className="px-4 py-3 font-medium">Equipment</th>
                       <th className="px-4 py-3 font-medium">ID / SKU</th>
-                      <th className="px-4 py-3 text-right font-medium">Cost / Hour</th>
+                      <th className="px-4 py-3 text-right font-medium">Direct Cost</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-brand-600">
                     {visibleEquipment.map((asset) => {
-                      const costRate = resolveEquipmentCostRate(asset);
+                      const costRate = asset.costType === 'rental' ? asset.rentalCost ?? 0 : resolveEquipmentCostRate(asset);
+                      const costUnit = asset.costType === 'rental' ? asset.rentalUnit ?? 'hr' : 'hr';
                       return (
                         <tr
                           key={asset.id}
@@ -258,7 +264,7 @@ export default function EquipmentCatalogPage() {
                         >
                           <td className="px-4 py-3 font-semibold text-gray-900 dark:text-brand-50">{asset.name}</td>
                           <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.serialNumber || '—'}</td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{costRate !== null ? `${formatCurrency(costRate)}/hr` : 'Not calculated'}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{costRate !== null ? `${formatCurrency(costRate)}/${costUnit}` : 'Not calculated'}</td>
                         </tr>
                       );
                     })}

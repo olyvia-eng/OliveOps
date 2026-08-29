@@ -9,6 +9,7 @@ import {
   createEquipmentAssetForBusiness,
   createUnbillableTimeCategoryForBusiness,
   createMaterialCatalogItemForBusiness,
+  createSubcontractorCatalogItemForBusiness,
   createEstimateForBusiness,
   createExpenseForBusiness,
   createFormFieldForBusiness,
@@ -33,6 +34,7 @@ import {
   deleteEquipmentAssetForBusiness,
   deleteUnbillableTimeCategoryForBusiness,
   deleteMaterialCatalogItemForBusiness,
+  deleteSubcontractorCatalogItemForBusiness,
   deleteEstimateForBusiness,
   deleteExpenseForBusiness,
   deleteFormFieldForBusiness,
@@ -58,6 +60,7 @@ import {
   getEquipmentAssetForBusiness,
   getUnbillableTimeCategoryForBusiness,
   getMaterialCatalogItemForBusiness,
+  getSubcontractorCatalogItemForBusiness,
   getEstimateForBusiness,
   getExpenseForBusiness,
   getFormFieldForBusiness,
@@ -85,6 +88,7 @@ import {
   listEquipmentAssetsForBusiness,
   listUnbillableTimeCategoriesForBusiness,
   listMaterialCatalogItemsForBusiness,
+  listSubcontractorCatalogItemsForBusiness,
   listEstimatesForBusiness,
   listExpensesForBusiness,
   listFormFieldsForBusiness,
@@ -110,6 +114,7 @@ import {
   updateEquipmentAssetForBusiness,
   updateUnbillableTimeCategoryForBusiness,
   updateMaterialCatalogItemForBusiness,
+  updateSubcontractorCatalogItemForBusiness,
   updateEstimateForBusiness,
   updateExpenseForBusiness,
   updateFormFieldForBusiness,
@@ -415,6 +420,19 @@ const ENTITY_CONFIG = {
     createArgKey: 'materialCatalogItem',
     updateArgKey: 'materialCatalogItem',
   },
+  'subcontractor-catalog-items': {
+    readRoles: null,
+    writeRoles: ['owner', 'admin'],
+    list: listSubcontractorCatalogItemsForBusiness,
+    get: getSubcontractorCatalogItemForBusiness,
+    create: createSubcontractorCatalogItemForBusiness,
+    update: updateSubcontractorCatalogItemForBusiness,
+    remove: deleteSubcontractorCatalogItemForBusiness,
+    payloadKey: 'subcontractorCatalogItem',
+    idParam: 'subcontractorId',
+    createArgKey: 'subcontractorCatalogItem',
+    updateArgKey: 'subcontractorCatalogItem',
+  },
   'unbillable-time-categories': {
     readRoles: null,
     writeRoles: ['owner', 'admin'],
@@ -510,7 +528,7 @@ const EXPENSE_STATUSES = new Set(['pending', 'approved', 'paid']);
 const EXPENSE_CATEGORIES = new Set(['materials', 'equipment', 'subcontractor', 'travel', 'permits', 'overhead', 'other']);
 const JOB_STATUSES = new Set(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled']);
 const EQUIPMENT_STATUSES = new Set(['available', 'in_use', 'maintenance', 'inactive']);
-const EQUIPMENT_COST_TYPES = new Set(['financed', 'leased', 'owned']);
+const EQUIPMENT_COST_TYPES = new Set(['financed', 'leased', 'owned', 'rental']);
 const BUDGET_TYPES = new Set(['operating', 'capital', 'project', 'forecast', 'custom']);
 const BUDGET_STATUSES = new Set(['draft', 'active', 'archived']);
 const BUDGET_ITEM_CATEGORIES = new Set(['revenue', 'labour', 'materials', 'equipment', 'subcontractors', 'overhead', 'marketing', 'insurance', 'other']);
@@ -715,6 +733,15 @@ function validateEquipmentAssetRecord(record) {
   if (record.yearlyFuelCost !== undefined && record.yearlyFuelCost !== null && (!isFiniteNumber(record.yearlyFuelCost) || record.yearlyFuelCost < 0)) {
     return 'Yearly fuel cost must be zero or greater.';
   }
+  if (record.rentalCost !== undefined && record.rentalCost !== null && (!isFiniteNumber(record.rentalCost) || record.rentalCost < 0)) {
+    return 'Rental cost must be zero or greater.';
+  }
+  if (record.rentalUnit !== undefined && record.rentalUnit !== null && !['hr', 'day', 'week', 'month'].includes(record.rentalUnit)) {
+    return 'Rental unit is invalid.';
+  }
+  if (record.costType === 'rental' && (!isFiniteNumber(record.rentalCost) || !['hr', 'day', 'week', 'month'].includes(record.rentalUnit))) {
+    return 'Rental equipment requires a rental cost and unit.';
+  }
   if (
     record.averageFuelBurnPerHour !== undefined
     && record.averageFuelBurnPerHour !== null
@@ -743,6 +770,17 @@ function validateMaterialCatalogItemRecord(record) {
     return 'Material default unit cost must be zero or greater.';
   }
   if (typeof record.notes !== 'string') return 'Material notes must be a string.';
+  return null;
+}
+
+function validateSubcontractorCatalogItemRecord(record) {
+  if (!isNonEmptyString(record.id)) return 'Subcontractor id is required.';
+  if (!isNonEmptyString(record.name)) return 'Subcontractor company name is required.';
+  if (!isNonEmptyString(record.unit)) return 'Subcontractor unit is required.';
+  if (!isFiniteNumber(record.defaultUnitCost) || record.defaultUnitCost < 0) return 'Subcontractor default cost must be zero or greater.';
+  for (const field of ['contactName', 'email', 'phone', 'trade', 'notes']) {
+    if (record[field] !== undefined && record[field] !== null && typeof record[field] !== 'string') return `Subcontractor ${field} is invalid.`;
+  }
   return null;
 }
 
@@ -1683,6 +1721,11 @@ export default async function handler(req, res) {
       }
     }
 
+    if (entity === 'subcontractor-catalog-items') {
+      const validationError = validateSubcontractorCatalogItemRecord(record);
+      if (validationError) return res.status(400).json({ ok: false, error: validationError });
+    }
+
     if (entity === 'unbillable-time-categories') {
       const validationError = validateUnbillableTimeCategoryRecord(record);
       if (validationError) {
@@ -1969,6 +2012,11 @@ export default async function handler(req, res) {
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
+      }
+
+      if (entity === 'subcontractor-catalog-items') {
+        const validationError = validateSubcontractorCatalogItemRecord(next);
+        if (validationError) return res.status(400).json({ ok: false, error: validationError });
       }
 
       if (entity === 'unbillable-time-categories') {

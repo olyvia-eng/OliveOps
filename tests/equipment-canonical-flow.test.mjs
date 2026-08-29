@@ -22,7 +22,7 @@ test('catalog and budget both use shared equipment fields with context-specific 
 
   assert.match(equipmentFormSource, /Equipment Details/);
   assert.match(equipmentFormSource, /export function EquipmentFormFields/);
-  assert.match(equipmentFormSource, />Annual Costs</);
+  assert.match(equipmentFormSource, /equipmentCostType === 'rental' \? 'Rental Cost' : 'Annual Costs'/);
   assert.match(equipmentFormSource, /Budget Planning/);
   assert.match(equipmentFormSource, /Catalog identity is read-only here/);
   assert.match(equipmentFormSource, /Payment Frequency \(# per year\)/);
@@ -67,7 +67,7 @@ test('shared equipment validation and normalization are used by both save paths'
   assert.match(equipmentFormSource, /validateEquipmentInfoForm/);
   assert.match(equipmentFormSource, /normalizeEquipmentInfoForm/);
   assert.match(equipmentFormSource, /Select a valid equipment classification/);
-  assert.match(equipmentFormSource, /Select a valid ownership type/);
+  assert.match(equipmentFormSource, /Select a valid ownership \/ source/);
   assert.match(equipmentFormSource, /must be zero or greater/);
   assert.match(catalogSource, /validateEquipmentInfoForm\(form\)/);
   assert.match(catalogSource, /normalizeEquipmentInfoForm\(form\)/);
@@ -96,6 +96,8 @@ test('one active shared component owns equipment core and annual cost inputs', (
   assert.match(formSource, /Owned/);
   assert.match(formSource, /Financed/);
   assert.match(formSource, /Leased/);
+  assert.match(formSource, /Rental/);
+  assert.match(formSource, /Rental Unit/);
   assert.match(formSource, />Payment</);
   assert.match(formSource, /Payment Frequency \(# per year\)/);
   assert.match(formSource, /Yearly Fuel Cost/);

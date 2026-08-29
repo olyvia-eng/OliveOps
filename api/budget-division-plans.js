@@ -1,5 +1,5 @@
 import { requireSession } from './_lib/session.js';
-import { generateId, getBudgetDivisionForBusiness, getBudgetForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getMaterialCatalogItemForBusiness } from './_lib/authRepo.js';
+import { generateId, getBudgetDivisionForBusiness, getBudgetForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getMaterialCatalogItemForBusiness, getSubcontractorCatalogItemForBusiness } from './_lib/authRepo.js';
 import {
   createDivisionPlanningItem,
   deleteDivisionPlanningItem,
@@ -17,10 +17,11 @@ function validate(item) {
   if (!DIVISION_PLAN_CATEGORIES.includes(item.category)) return 'Planning category is invalid.';
   if (!isText(item.name) && !isText(item.description)) return 'A planning item name or description is required.';
   if (!divisionPlanIdentity(item)) return 'A planning item identity is required.';
-  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate']) {
+  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate', 'rentalCost']) {
     if (!isNonNegative(item[field])) return `${field} must be zero or greater.`;
   }
   if (item.category === 'equipment' && !isText(item.equipmentId)) return 'Equipment must reference a catalog asset.';
+  if (item.category === 'equipment' && item.costType === 'rental' && (!isNonNegative(item.rentalCost) || !['hr', 'day', 'week', 'month'].includes(item.rentalUnit))) return 'Rental equipment requires a rental cost and unit.';
   if (item.allocationMonths !== undefined && item.allocationMonths > 12) return 'Equipment allocation months cannot exceed 12.';
   if (item.allocationPercent !== undefined && item.allocationPercent > 100) return 'Equipment allocation percent cannot exceed 100.';
   if (item.category === 'labour') {
@@ -56,6 +57,8 @@ async function validateReferences(businessId, item) {
   if (item.employeeId && !await getEmployeeForBusiness(businessId, item.employeeId)) return 'Employee must belong to this business.';
   if (item.equipmentId && !await getEquipmentAssetForBusiness(businessId, item.equipmentId)) return 'Equipment must belong to this business.';
   if (item.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, item.materialCatalogItemId)) return 'Material must belong to this business.';
+  const subcontractorId = item.subcontractorCatalogItemId ?? item.vendorId;
+  if (item.category === 'subcontractors' && subcontractorId && !await getSubcontractorCatalogItemForBusiness(businessId, subcontractorId)) return 'Subcontractor must belong to this business.';
   if (item.category === 'labour') {
     const divisions = await Promise.all(item.divisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
     if (divisions.some((division) => !division)) return 'Every Labour allocation Division must belong to this Budget.';

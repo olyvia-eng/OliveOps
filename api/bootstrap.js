@@ -15,6 +15,7 @@ import {
   listEquipmentAssetsForBusiness,
   listUnbillableTimeCategoriesForBusiness,
   listMaterialCatalogItemsForBusiness,
+  listSubcontractorCatalogItemsForBusiness,
   listLabourClassesForBusiness,
   listEstimatesForBusiness,
   listExpensesForBusiness,
@@ -77,7 +78,7 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -97,6 +98,7 @@ export default async function handler(req, res) {
       listEquipmentAssetsForBusiness(session.businessId),
       listUnbillableTimeCategoriesForBusiness(session.businessId),
       listMaterialCatalogItemsForBusiness(session.businessId),
+      listSubcontractorCatalogItemsForBusiness(session.businessId),
       listLabourClassesForBusiness(session.businessId),
       listTemplatesForBusiness(session.businessId),
       listBudgetItemsForBusiness(session.businessId),
@@ -141,6 +143,7 @@ export default async function handler(req, res) {
       equipmentAssets: redactEquipmentPricingForSession(session, filterRecordsForSession(session, 'equipment-assets', equipmentAssets)),
       unbillableTimeCategories: filterRecordsForSession(session, 'unbillable-time-categories', unbillableTimeCategories),
       materialCatalogItems: filterRecordsForSession(session, 'material-catalog-items', materialCatalogItems),
+      subcontractorCatalogItems: filterRecordsForSession(session, 'material-catalog-items', subcontractorCatalogItems),
       labourClasses,
       templates: filterRecordsForSession(session, 'templates', templates),
       budgetItems: filterRecordsForSession(session, 'budget', budgetItems),

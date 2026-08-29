@@ -109,7 +109,7 @@ test('active Division equipment editor uses the shared wide equipment form and B
 test('active equipment planning uses payment times frequency once with legacy fallbacks', () => {
   assert.match(planner, /item\.equipmentPaymentFrequencyPerYear \?\? item\.paymentFrequencyPerYear \?\? 1/);
   assert.match(planner, /draft\.sellableHoursPerYear \?\? draft\.utilizationHours \?\? 0/);
-  assert.match(planner, /plannedAmount: equipmentCostBreakdown\.totalEquipmentCostPerYear/);
+  assert.match(planner, /plannedAmount: normalized\.equipmentCostType === 'rental' \? normalized\.rentalCost : equipmentCostBreakdown\.totalEquipmentCostPerYear/);
   assert.match(planner, /paymentFrequencyPerYear: undefined/);
   assert.match(planner, /utilizationHours: undefined/);
 });

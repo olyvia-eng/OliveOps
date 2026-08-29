@@ -419,6 +419,7 @@ test('pricing endpoint derives the selected Budget from the tenant-owned Estimat
     listEquipmentAssetsForBusiness: async () => [{ id: 'bobcat', name: 'Bobcat E50' }, { id: 'truck', name: 'Dump Truck' }],
     listLabourClassesForBusiness: async () => calculatedLabourClasses,
     listMaterialCatalogItemsForBusiness: async () => [{ id: 'gravel', name: 'A Gravel' }],
+    listSubcontractorCatalogItemsForBusiness: async () => [],
   });
   const response = { statusCode: 200, body: null, headers: {}, status(code) { this.statusCode = code; return this; }, setHeader(name, value) { this.headers[name] = value; }, json(body) { this.body = body; return this; } };
   await handler({ method: 'GET', query: { estimateId: 'estimate-a', budgetId: 'foreign-budget' } }, response);

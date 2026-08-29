@@ -62,7 +62,7 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
   const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
@@ -177,6 +177,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     yearlyMaintenanceCost: draft.yearlyMaintenanceCost ?? linkedEquipment?.yearlyMaintenanceCost ?? 0,
     sellableHoursPerYear: draft.sellableHoursPerYear ?? draft.utilizationHours ?? 0,
     equipmentHoursPerDay: draft.equipmentHoursPerDay ?? 8,
+    rentalCost: draft.rentalCost ?? linkedEquipment?.rentalCost ?? 0,
+    rentalUnit: draft.rentalUnit ?? linkedEquipment?.rentalUnit ?? 'day',
   };
   const equipmentCostBreakdown = calculateEquipmentCostBreakdown(equipmentFormValue);
   const equipmentAllocationTotal = (draft.equipmentDivisionAllocations ?? []).reduce((sum, allocation) => sum + Number(allocation.months || 0), 0);
@@ -207,7 +209,10 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       sellableHoursPerYear: value.sellableHoursPerYear,
       utilizationHours: undefined,
       equipmentHoursPerDay: value.equipmentHoursPerDay,
-      plannedAmount: calculateEquipmentCostBreakdown(value).totalEquipmentCostPerYear,
+      rentalCost: value.rentalCost,
+      rentalUnit: value.rentalUnit,
+      unit: value.equipmentCostType === 'rental' ? value.rentalUnit : 'hr',
+      plannedAmount: value.equipmentCostType === 'rental' ? value.rentalCost : calculateEquipmentCostBreakdown(value).totalEquipmentCostPerYear,
     }));
   const setEquipmentDivisionAllocation = (divisionId: string, field: 'months' | 'sellableHours', value: number) =>
     setDraft((current) => ({
@@ -253,6 +258,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
           yearlyFuelCost: normalized.yearlyFuelCost,
           yearlyInsuranceCost: normalized.yearlyInsuranceCost,
           yearlyMaintenanceCost: normalized.yearlyMaintenanceCost,
+          rentalCost: normalized.equipmentCostType === 'rental' ? normalized.rentalCost : undefined,
+          rentalUnit: normalized.equipmentCostType === 'rental' ? normalized.rentalUnit : undefined,
           notes: '',
         });
         if (!created.ok || !created.id) {
@@ -280,8 +287,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
         sellableHoursPerYear: normalized.sellableHoursPerYear,
         utilizationHours: undefined,
         equipmentHoursPerDay: normalized.equipmentHoursPerDay,
+        rentalCost: normalized.equipmentCostType === 'rental' ? normalized.rentalCost : undefined,
+        rentalUnit: normalized.equipmentCostType === 'rental' ? normalized.rentalUnit : undefined,
+        unit: normalized.equipmentCostType === 'rental' ? normalized.rentalUnit : 'hr',
         allocationMonths: undefined,
-        plannedAmount: equipmentCostBreakdown.totalEquipmentCostPerYear,
+        plannedAmount: normalized.equipmentCostType === 'rental' ? normalized.rentalCost : equipmentCostBreakdown.totalEquipmentCostPerYear,
       };
     }
     const result =
@@ -819,6 +829,25 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
           ) : null}
           {category === 'subcontractors' ? (
             <>
+              <Select
+                label="Subcontractor Catalog"
+                value={draft.subcontractorCatalogItemId ?? draft.vendorId ?? ''}
+                onChange={(event) => {
+                  const subcontractor = subcontractorCatalogItems.find((item) => item.id === event.target.value);
+                  setDraft((current) => ({
+                    ...current,
+                    subcontractorCatalogItemId: subcontractor?.id,
+                    vendorId: subcontractor?.id,
+                    name: subcontractor?.name ?? current.name,
+                    description: subcontractor?.trade ?? current.description,
+                    unit: subcontractor?.unit ?? current.unit,
+                    rate: subcontractor?.defaultUnitCost ?? current.rate,
+                  }));
+                }}
+              >
+                <option value="">Manual subcontractor</option>
+                {subcontractorCatalogItems.map((item) => <option key={item.id} value={item.id}>{item.name}{item.trade ? ` - ${item.trade}` : ''}</option>)}
+              </Select>
               <Input
                 label="Subcontractor name"
                 value={draft.name ?? ''}

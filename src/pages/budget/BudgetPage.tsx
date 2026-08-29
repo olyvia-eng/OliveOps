@@ -51,7 +51,7 @@ const CATEGORY_BY_TAB: Record<Exclude<BudgetTab, 'analysis'>, BudgetCategory> = 
 };
 
 const normalizeEquipmentCostType = (value: EquipmentCostType | undefined): EquipmentCostType => {
-  if (value === 'financed' || value === 'leased' || value === 'owned') return value;
+  if (value === 'financed' || value === 'leased' || value === 'owned' || value === 'rental') return value;
   return 'owned';
 };
 
@@ -539,6 +539,8 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       yearlyMaintenanceCost: b.yearlyMaintenanceCost ?? linkedAsset?.yearlyMaintenanceCost ?? ((b.monthlyMaintenanceCost ?? 0) * 12),
       sellableHoursPerYear: b.sellableHoursPerYear ?? 0,
       equipmentHoursPerDay: b.equipmentHoursPerDay ?? 8,
+      rentalCost: linkedAsset?.rentalCost ?? 0,
+      rentalUnit: linkedAsset?.rentalUnit ?? 'day',
     });
     const allocation = equipmentBudgetAllocations.find((value) => value.budgetItemId === b.id);
     setMonthsAllocated(allocation?.monthsAllocated ?? 12);
@@ -732,6 +734,8 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
       yearlyMaintenanceCost: selected.yearlyMaintenanceCost ?? 0,
       sellableHoursPerYear: 0,
       equipmentHoursPerDay: 8,
+      rentalCost: selected.rentalCost ?? 0,
+      rentalUnit: selected.rentalUnit ?? 'day',
     });
     setShowEquipmentCalcDetails(false);
     if (activeBudgetGroup) {
