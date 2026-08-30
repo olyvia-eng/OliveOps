@@ -87,7 +87,8 @@ test('calendar events are built from canonical job scheduling fields and open de
 
 test('job detail page exposes the same schedule workflow and equipment context', () => {
   assert.match(jobDetailSource, /Schedule Job|Edit Schedule/);
-  assert.match(jobDetailSource, /Schedule Status:/);
+  assert.match(jobDetailSource, /Operational Job Information/);
+  assert.match(jobDetailSource, /Save Changes/);
   assert.match(jobDetailSource, /Schedule Notes/);
   assert.match(jobDetailSource, /Assigned Equipment/);
   assert.match(jobDetailSource, /formatScheduleTimeLabel/);

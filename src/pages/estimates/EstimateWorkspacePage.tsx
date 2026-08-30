@@ -527,6 +527,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     );
   }
 
+  const isConverted = form.status === 'converted';
+
   const hasWorkAreas = form.workAreas.length > 0;
   const hasPricedWorkAreas = analysis.itemCount > 0 && analysis.subtotal > 0;
 
@@ -547,12 +549,12 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
             <Button variant="secondary" onClick={() => navigate('/estimates')}>
               <ArrowLeft size={15} /> Back
             </Button>
-            <Button variant="secondary" onClick={() => setConfirmDelete(true)}>
+            {!isConverted ? <Button variant="secondary" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={14} /> Delete
-            </Button>
-            <Button onClick={() => void save()} disabled={savingEstimate}>
+            </Button> : null}
+            {!isConverted ? <Button onClick={() => void save()} disabled={savingEstimate}>
               {savingEstimate ? 'Saving...' : 'Save Changes'}
-            </Button>
+            </Button> : null}
           </div>
         )}
       />
@@ -567,6 +569,8 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         ) : null}
         {form.sentAt ? <span className="text-gray-500">Sent {formatDateTime(form.sentAt)}</span> : null}
       </div>
+
+      {isConverted ? <div className="mb-4 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800"><strong>Converted Estimate</strong><span className="ml-2">This sold commercial record is read-only. Operational changes belong on the linked Job.</span></div> : null}
 
       <div className="mb-6 overflow-x-auto">
         <div className="inline-flex border border-gray-200 rounded-xl p-1 bg-white min-w-max" role="tablist" aria-label="Estimate workspace sections">
@@ -591,7 +595,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       </div>
 
       {activeTab === 'info' && (
-        <div className="space-y-4">
+        <fieldset disabled={isConverted} className="space-y-4">
           <Card className="p-4 space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Select
@@ -650,7 +654,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
             </div>
             <TextArea label="Notes" value={form.notes} onChange={(event) => setField('notes', event.target.value)} />
           </Card>
-        </div>
+        </fieldset>
       )}
 
       {activeTab === 'work-areas' && (
@@ -658,9 +662,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
           <Card className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-900">Work Areas</h2>
-              <Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}>
+              {!isConverted ? <Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}>
                 <Plus size={14} /> {savingEstimate ? 'Saving...' : 'Add Work Area'}
-              </Button>
+              </Button> : null}
             </div>
             <p className="text-xs text-gray-500">Use Work Areas to break an estimate into sections of the project.</p>
 
@@ -668,7 +672,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <EmptyState
                 title="No work areas yet"
                 description="Break the project into sections of work such as Excavation, Backfilling, or Interlock Patio."
-                action={<Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}><Plus size={14} /> Add Work Area</Button>}
+                action={!isConverted ? <Button variant="secondary" size="sm" onClick={() => void addWorkArea()} disabled={savingEstimate}><Plus size={14} /> Add Work Area</Button> : undefined}
               />
             ) : (
               <div className="space-y-3">

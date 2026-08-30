@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Card, Button, Badge, EmptyState, Modal, Select } from '../../components/ui';
+import { emitAppToast } from '../../toast';
+import { Card, Button, Badge, EmptyState, Input, Modal, Select, TextArea } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
-import { ArrowLeft, ChevronRight, Trash2 } from 'lucide-react';
-import type { FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } from '../../types';
+import { ArrowLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } from '../../types';
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
@@ -37,6 +38,11 @@ const formatFormLabel = (value: string) => value
   .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
   .join(' ');
 
+const formatPropertyAddress = (property: Address) => [property.street, property.city, property.province, property.postalCode, property.country]
+  .map((value) => typeof value === 'string' ? value.trim() : '')
+  .filter(Boolean)
+  .join(', ');
+
 const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
   const fileIds = [...new Set([
     entry.clockInPhotoFileId,
@@ -58,7 +64,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -95,6 +101,29 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId && (jobTaskFilter === 'completed' ? task.status === 'completed' : task.status === 'open')), [jobTaskFilter, jobTasks]);
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
+  const canEditFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const [jobInfoSaving, setJobInfoSaving] = useState(false);
+  const [planInitializing, setPlanInitializing] = useState(false);
+  const [jobInfo, setJobInfo] = useState(() => ({
+    title: job?.title ?? '', description: job?.description ?? '', customerId: job?.customerId ?? '',
+    propertyLabel: job?.propertyLabel ?? '', propertyAddressSnapshot: job?.propertyAddressSnapshot ?? '',
+    startDate: job?.startDate ?? '', endDate: job?.endDate ?? '', scheduleNotes: job?.scheduleNotes ?? '', notes: job?.notes ?? '',
+  }));
+
+  useEffect(() => {
+    if (!job) return;
+    setJobInfo({
+      title: job.title, description: job.description, customerId: job.customerId,
+      propertyLabel: job.propertyLabel ?? '', propertyAddressSnapshot: job.propertyAddressSnapshot ?? '',
+      startDate: job.startDate, endDate: job.endDate ?? '', scheduleNotes: job.scheduleNotes ?? '', notes: job.notes,
+    });
+  }, [job]);
+
+  useEffect(() => {
+    if (!job || activeTab !== 'work-areas' || job.planningSnapshotVersion || planInitializing) return;
+    setPlanInitializing(true);
+    void initializeJobPlan(job.id).finally(() => setPlanInitializing(false));
+  }, [activeTab, initializeJobPlan, job, planInitializing]);
 
   useEffect(() => {
     const validTabs: JobTab[] = ['info', 'work-areas', 'proposal', 'project-management', 'analysis', 'invoices'];
@@ -239,7 +268,19 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       laborVariancePct,
     };
   }, [employees, job, jobTimeEntries]);
-  const hasMeaningfulAnalysisData = Boolean(job && (actualCostTotal > 0 || job.actualHours > 0 || profitability.trackedHours > 0));
+  const hasMeaningfulAnalysisData = Boolean(job && (actualCostTotal > 0 || job.actualHours > 0 || profitability.trackedHours > 0 || (job.currentPlannedCost ?? job.estimatedCost) > 0 || job.originalEstimateSnapshot));
+
+  const originalContractRevenue = job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? job?.contractValue ?? 0;
+  const originalEstimatedCost = job?.originalEstimateSnapshot?.estimatedCost
+    ?? job?.originalEstimateSnapshot?.workAreas.reduce((sum, area) => sum + area.estimatedCost, 0)
+    ?? job?.estimatedCost
+    ?? 0;
+  const originalEstimatedProfit = originalContractRevenue - originalEstimatedCost;
+  const originalEstimatedMargin = originalContractRevenue > 0 ? (originalEstimatedProfit / originalContractRevenue) * 100 : 0;
+  const currentContractRevenue = job?.currentContractRevenue ?? originalContractRevenue;
+  const currentPlannedCost = job?.currentPlannedCost ?? job?.estimatedCost ?? 0;
+  const currentExpectedProfit = currentContractRevenue - currentPlannedCost;
+  const currentExpectedMargin = currentContractRevenue > 0 ? (currentExpectedProfit / currentContractRevenue) * 100 : 0;
 
   const profitabilityWarnings = useMemo(() => {
     const warnings: Array<{ label: string; className: string }> = [];
@@ -388,40 +429,24 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         </div>
       </div>
 
-      {activeTab === 'info' && (
-        <Card className="p-4 mb-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-semibold text-gray-900">Job Information</h2>
-              <p className="text-sm text-gray-500">The current operational record for this project.</p>
-            </div>
-            {job.jobNumber ? <Badge label={`Job ${job.jobNumber}`} className="bg-brand-100 text-brand-700" /> : null}
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3">
-            <p className="text-gray-600">Customer: <span className="font-medium text-gray-900">{customer?.name ?? 'N/A'}</span></p>
-            <p className="text-gray-600">Start Date: <span className="font-medium text-gray-900">{formatDate(job.startDate)}</span></p>
-            <p className="text-gray-600">End Date: <span className="font-medium text-gray-900">{job.endDate ? formatDate(job.endDate) : 'Not set'}</span></p>
-            <p className="text-gray-600">Time: <span className="font-medium text-gray-900">{formatScheduleTimeLabel(job)}</span></p>
-            <p className="text-gray-600">Contract Value: <span className="font-medium text-gray-900">{formatCurrency(job.contractValue)}</span></p>
-            <p className="text-gray-600">Source Estimate: <span className="font-medium text-gray-900">{job.sourceEstimateId ?? 'Manual Job'}</span></p>
-            <p className="text-gray-600">Converted At: <span className="font-medium text-gray-900">{job.convertedFromEstimateAt ? formatDateTime(job.convertedFromEstimateAt) : 'N/A'}</span></p>
-            <p className="text-gray-600">Property: <span className="font-medium text-gray-900">{job.propertyLabel ?? 'N/A'}</span></p>
-            <p className="text-gray-600">Address Snapshot: <span className="font-medium text-gray-900">{job.propertyAddressSnapshot ?? 'N/A'}</span></p>
-            <p className="text-gray-600">Schedule Status: <span className="font-medium text-gray-900">{job.scheduleConfirmed ? 'Scheduled' : 'Needs scheduling'}</span></p>
-          </div>
-          <div className="mt-4 border-t border-gray-100 pt-4">
-            <h3 className="text-sm font-semibold text-gray-900">Description</h3>
-            <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{job.description || 'No description.'}</p>
-            <div className="mt-4">
-              <h3 className="text-sm font-semibold text-gray-900">Schedule Notes</h3>
-              <p className="mt-1 whitespace-pre-line text-sm text-gray-600">{job.scheduleNotes?.trim() || 'No schedule notes.'}</p>
-            </div>
-          </div>
+      {activeTab === 'info' && <div className="space-y-4">
+        <Card className="space-y-4 p-4">
+          <div><h2 className="font-semibold text-gray-900">Operational Job Information</h2><p className="text-sm text-gray-500">Changes here update the Job only. The sold Estimate remains unchanged.</p></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Input label="Job Title" required value={jobInfo.title} onChange={(event) => setJobInfo((current) => ({ ...current, title: event.target.value }))} /><Select label="Customer" value={jobInfo.customerId} onChange={(event) => { const nextCustomer = customers.find((item) => item.id === event.target.value); const property = nextCustomer?.properties?.[0] ?? nextCustomer?.address; setJobInfo((current) => ({ ...current, customerId: event.target.value, propertyLabel: property?.nickname ?? '', propertyAddressSnapshot: property ? formatPropertyAddress(property) : '' })); }}><option value="">Select customer</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></div>
+          <TextArea label="Description" value={jobInfo.description} onChange={(event) => setJobInfo((current) => ({ ...current, description: event.target.value }))} />
+          <div className="grid gap-3 sm:grid-cols-2"><Input label="Property" value={jobInfo.propertyLabel} onChange={(event) => setJobInfo((current) => ({ ...current, propertyLabel: event.target.value }))} /><Input label="Property Address" value={jobInfo.propertyAddressSnapshot} onChange={(event) => setJobInfo((current) => ({ ...current, propertyAddressSnapshot: event.target.value }))} /></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Input label="Start Date" type="date" value={jobInfo.startDate} onChange={(event) => setJobInfo((current) => ({ ...current, startDate: event.target.value }))} /><Input label="End Date" type="date" value={jobInfo.endDate} onChange={(event) => setJobInfo((current) => ({ ...current, endDate: event.target.value }))} /></div>
+          <TextArea label="Schedule Notes" value={jobInfo.scheduleNotes} onChange={(event) => setJobInfo((current) => ({ ...current, scheduleNotes: event.target.value }))} />
+          <TextArea label="Job Notes" value={jobInfo.notes} onChange={(event) => setJobInfo((current) => ({ ...current, notes: event.target.value }))} />
+          <div className="flex justify-end"><Button disabled={jobInfoSaving || !jobInfo.title.trim() || !jobInfo.customerId || !jobInfo.startDate} onClick={async () => { setJobInfoSaving(true); const saved = await updateJob(job.id, { ...jobInfo, title: jobInfo.title.trim(), endDate: jobInfo.endDate || undefined }); setJobInfoSaving(false); if (saved) emitAppToast({ tone: 'success', message: 'Job information saved.' }); }}>{jobInfoSaving ? 'Saving...' : 'Save Changes'}</Button></div>
         </Card>
-      )}
+        <Card className="p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold">Conversion History</h2><p className="text-sm text-gray-500">Read-only commercial context from the sold Estimate.</p></div>{job.jobNumber ? <Badge label={`Job ${job.jobNumber}`} className="bg-brand-100 text-brand-700" /> : null}</div><div className="mt-4 grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3"><p className="text-gray-500">Source Estimate<br />{job.sourceEstimateId ? <Link className="font-medium text-brand-700" to={`/estimates/${job.sourceEstimateId}`}>Open Estimate</Link> : <span className="font-medium text-gray-900">Manual Job</span>}</p><p className="text-gray-500">Proposal Number<br /><span className="font-medium text-gray-900">{job.originalEstimateSnapshot?.proposalNumber ?? 'N/A'}</span></p><p className="text-gray-500">Converted At<br /><span className="font-medium text-gray-900">{job.convertedFromEstimateAt ? formatDateTime(job.convertedFromEstimateAt) : 'N/A'}</span></p>{canEditFinancials ? <><p className="text-gray-500">Original Contract Revenue<br /><span className="font-medium text-gray-900">{formatCurrency(originalContractRevenue)}</span></p><p className="text-gray-500">Contract Total<br /><span className="font-medium text-gray-900">{formatCurrency(job.contractValue)}</span></p></> : null}<p className="text-gray-500">Original Property<br /><span className="font-medium text-gray-900">{job.originalEstimateSnapshot?.propertyLabel || job.originalEstimateSnapshot?.propertyAddressSnapshot || 'N/A'}</span></p></div></Card>
+      </div>}
 
       {activeTab === 'work-areas' && (
         <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Current Job Plan</h2><p className="text-sm text-gray-500">Operational changes do not modify the sold Estimate.</p></div>{canEditFinancials ? <Button size="sm" onClick={() => void mutateJobPlan(job.id, { action: 'add-work-area' })} disabled={planInitializing}><Plus size={14} /> Add Work Area</Button> : null}</div>
+          {planInitializing ? <Card className="p-4"><p className="text-sm text-gray-500">Preparing the current Job plan...</p></Card> : null}
           {job.operationalWorkAreas?.length ? job.operationalWorkAreas
             .slice()
             .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -435,11 +460,10 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                   <Badge label={workArea.status.replace(/_/g, ' ')} className="bg-gray-100 text-gray-700" />
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                  <p className="text-gray-500">Estimated Cost<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.estimatedCost)}</span></p>
-                  <p className="text-gray-500">Estimated Revenue<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.estimatedRevenue)}</span></p>
-                  <p className="text-gray-500">Estimated Margin<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.estimatedMargin)}</span></p>
+                  {canEditFinancials ? <><p className="text-gray-500">Planned Cost<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.plannedCost ?? workArea.estimatedCost)}</span></p><p className="text-gray-500">Sold Revenue<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.contractRevenue ?? workArea.estimatedRevenue)}</span></p><p className="text-gray-500">Expected Margin<br /><span className="font-semibold text-gray-900">{formatCurrency(workArea.expectedMargin ?? workArea.estimatedMargin)}</span></p></> : null}
                   <p className="text-gray-500">Line Items<br /><span className="font-semibold text-gray-900">{workArea.lineItems.length}</span></p>
                 </div>
+                <Link to={`/jobs/${job.id}/work-areas/${workArea.id}`} className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand-700">Edit Current Plan <ChevronRight size={14} /></Link>
               </Card>
             )) : (
             job.workAreas?.length ? (
@@ -516,6 +540,11 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
           </Card>
         ) : (
           <div className="space-y-6">
+            <div className="grid gap-4 xl:grid-cols-3">
+              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Original Estimate</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Contract Revenue</span><strong>{formatCurrency(originalContractRevenue)}</strong></p><p className="flex justify-between"><span>Estimated Cost</span><strong>{formatCurrency(originalEstimatedCost)}</strong></p><p className="flex justify-between"><span>Estimated Profit</span><strong>{formatCurrency(originalEstimatedProfit)}</strong></p><p className="text-right text-xs text-gray-500">{originalEstimatedMargin.toFixed(1)}% margin</p></div></Card>
+              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Current Job Plan</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Contract Revenue</span><strong>{formatCurrency(currentContractRevenue)}</strong></p><p className="flex justify-between"><span>Planned Cost</span><strong>{formatCurrency(currentPlannedCost)}</strong></p><p className="flex justify-between"><span>Expected Profit</span><strong className={currentExpectedProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}>{formatCurrency(currentExpectedProfit)}</strong></p><p className="text-right text-xs text-gray-500">{currentExpectedMargin.toFixed(1)}% margin</p></div></Card>
+              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Actual To Date</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Recorded Costs</span><strong>{formatCurrency(actualCostTotal)}</strong></p><p className="flex justify-between"><span>Tracked Labour</span><strong>{formatCurrency(profitability.trackedLaborCost)}</strong></p><p className="text-xs text-gray-500">Actual revenue is not recognized here.</p></div></Card>
+            </div>
             <JobLabourSummaryCard summary={labourSummary} loading={labourSummaryLoading} error={labourSummaryError} />
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <Card className="p-4"><p className="text-xs text-gray-500">Contract Value</p><p className="text-xl font-bold text-gray-900">{formatCurrency(job.contractValue)}</p></Card>

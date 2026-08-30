@@ -473,21 +473,41 @@ export interface JobWorkAreaLineItem {
   labourClassName?: string;
   employeeId?: ID;
   employeeName?: string;
+  sourceBudgetId?: ID;
+  sourceBudgetItemId?: ID;
+  sourceEntityId?: ID;
+  materialCatalogItemId?: ID;
+  sourceOrigin?: EstimateResourceOrigin;
+  pricingReadiness?: EstimatePricingReadiness;
+  sourceRateId?: ID;
+  pricingRateUpdatedAt?: string;
+  pricingVersion?: number;
   divisionId?: ID;
   divisionName?: string;
+  directCostPerUnit?: number;
+  divisionOverheadRecoveryPerUnit?: number;
+  companyOverheadRecoveryPerUnit?: number;
+  recoveredCostPerUnit?: number;
   averageLabourCost?: number;
   overheadRecoveryPerHour?: number;
   breakevenRate?: number;
   targetMarginPct?: number;
+  estimateTargetMarginPct?: number | null;
+  recommendedRateAtEstimate?: number;
   calculatedRateAtEstimate?: number;
   customRateAtEstimate?: number | null;
   estimateRateAtEstimate?: number;
+  estimateCustomSellPrice?: number | null;
+  sourceCategory?: LineItemCategory;
   equipmentId?: ID;
   equipmentName?: string;
   costRateAtEstimate?: number;
   chargeOutRateAtEstimate?: number;
   estimatedCost?: number;
   estimatedSell?: number;
+  plannedCost?: number;
+  contractRevenue?: number;
+  recommendedSellPriceAtAddition?: number;
   category: LineItemCategory;
   itemName: string;
   description: string;
@@ -509,11 +529,16 @@ export interface JobWorkArea {
   estimatedRevenue: number;
   estimatedMargin: number;
   estimatedByCategory: JobWorkAreaCategoryTotals;
+  plannedCost?: number;
+  contractRevenue?: number;
+  expectedMargin?: number;
+  plannedByCategory?: JobWorkAreaCategoryTotals;
   lineItems: JobWorkAreaLineItem[];
 }
 
 export interface JobEstimateSnapshot {
   estimateId: ID;
+  customerId?: ID;
   proposalNumber?: string;
   pricingBudgetId?: ID;
   propertyLabel?: string;
@@ -522,6 +547,9 @@ export interface JobEstimateSnapshot {
   taxRate: number;
   taxAmount: number;
   total: number;
+  estimatedCost?: number;
+  estimatedProfit?: number;
+  estimatedMarginPct?: number;
   notes: string;
   workAreas: JobWorkArea[];
 }
@@ -553,6 +581,8 @@ export interface Job {
   workAreas?: string[];
   operationalWorkAreas?: JobWorkArea[];
   originalEstimateSnapshot?: JobEstimateSnapshot;
+  planningSnapshotVersion?: number;
+  planningRevision?: number;
   status: JobStatus;
   startDate: string;
   endDate?: string;
@@ -565,6 +595,9 @@ export interface Job {
   estimatedHours: number;
   actualHours: number;
   estimatedCost: number;
+  currentPlannedCost?: number;
+  originalContractRevenue?: number;
+  currentContractRevenue?: number;
   actualCosts: CostEntry[];
   contractValue: number;
   assignedEmployeeIds: ID[];
@@ -574,6 +607,14 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
 }
+
+export type JobPlanMutation =
+  | { action: 'add-work-area'; name?: string }
+  | { action: 'update-work-area'; workAreaId: ID; name?: string; description?: string; status?: JobWorkAreaStatus }
+  | { action: 'delete-work-area'; workAreaId: ID }
+  | { action: 'update-line'; workAreaId: ID; lineItemId: ID; quantity?: number; unitCost?: number; description?: string }
+  | { action: 'remove-line'; workAreaId: ID; lineItemId: ID }
+  | { action: 'add-resource'; workAreaId: ID; sourceBudgetItemId?: ID; materialCatalogItemId?: ID; quantity?: number };
 
 export interface Crew {
   id: ID;

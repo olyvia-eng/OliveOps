@@ -177,9 +177,8 @@ test('new estimate equipment uses selected-Budget pricing and snapshots cost and
 });
 
 test('estimate-to-job conversion preserves accepted equipment financial snapshots', () => {
-  assert.match(conversionSource, /equipmentId: rawLineItem\.equipmentId/);
-  assert.match(conversionSource, /costRateAtEstimate: rawLineItem\.costRateAtEstimate/);
-  assert.match(conversionSource, /chargeOutRateAtEstimate: rawLineItem\.chargeOutRateAtEstimate/);
+  assert.match(conversionSource, /\.\.\.rawLineItem/);
+  assert.match(conversionSource, /sourceEstimateLineItemId: rawLineItem\.id/);
   assert.match(conversionSource, /estimatedCost: toNumber\(rawLineItem\.estimatedCost, quantity \* unitCost\)/);
   assert.match(conversionSource, /estimatedSell: toNumber\(rawLineItem\.estimatedSell, total\)/);
   assert.match(conversionSource, /originalEstimateSnapshot: snapshot/);

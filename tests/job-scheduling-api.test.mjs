@@ -114,6 +114,18 @@ function seedEmployee(store, { businessId, employeeId, name }) {
   );
 }
 
+function seedDefaultCustomer(store, businessId = 'biz-a') {
+  store.set(mapKey(`BUSINESS#${businessId}`, 'CUSTOMER#customer-1'), {
+    PK: `BUSINESS#${businessId}`,
+    SK: 'CUSTOMER#customer-1',
+    entityType: 'CUSTOMER',
+    businessId,
+    customerId: 'customer-1',
+    id: 'customer-1',
+    name: 'Test Customer',
+  });
+}
+
 async function seedSession(user) {
   await createMobileSessionForUser({
     user: {
@@ -160,6 +172,7 @@ function buildJobRecord(overrides = {}) {
 
 test('foreman can create a scheduled job through the generic jobs API', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-foreman', role: 'foreman', email: 'foreman@example.com' });
   seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Ryan Crew' });
   await seedSession({ businessId: 'biz-a', userId: 'user-foreman', role: 'foreman', email: 'foreman@example.com', employeeId: 'emp-a', token: 'schedule-foreman-token' });
@@ -180,6 +193,7 @@ test('foreman can create a scheduled job through the generic jobs API', async (t
 
 test('multiple schedule occurrences persist without replacing the legacy Job schedule', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-admin-occurrences', role: 'admin', email: 'occurrences@example.com' });
   seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Ryan Crew' });
   await seedSession({ businessId: 'biz-a', userId: 'user-admin-occurrences', role: 'admin', email: 'occurrences@example.com', token: 'schedule-occurrences-token' });
@@ -201,6 +215,7 @@ test('multiple schedule occurrences persist without replacing the legacy Job sch
 
 test('crew scheduling changes are rejected', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-crew', role: 'crew_member', email: 'crew@example.com' });
   seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Ryan Crew' });
   await seedSession({ businessId: 'biz-a', userId: 'user-crew', role: 'crew_member', email: 'crew@example.com', employeeId: 'emp-a', token: 'schedule-crew-token' });
@@ -221,6 +236,7 @@ test('crew scheduling changes are rejected', async (t) => {
 
 test('job scheduling rejects assigned employees from another tenant', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-admin', role: 'admin', email: 'admin@example.com' });
   seedEmployee(store, { businessId: 'biz-b', employeeId: 'emp-foreign', name: 'Foreign Crew' });
   await seedSession({ businessId: 'biz-a', userId: 'user-admin', role: 'admin', email: 'admin@example.com', employeeId: 'emp-a', token: 'schedule-admin-token' });
@@ -247,6 +263,7 @@ test('job scheduling rejects assigned employees from another tenant', async (t) 
 
 test('job scheduling rejects occurrence employees from another tenant', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-occurrence-admin', role: 'admin', email: 'occurrence-admin@example.com' });
   seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Local Crew' });
   seedEmployee(store, { businessId: 'biz-b', employeeId: 'emp-foreign', name: 'Foreign Crew' });
@@ -266,6 +283,7 @@ test('job scheduling rejects occurrence employees from another tenant', async (t
 
 test('job scheduling rejects crew and division references from another tenant', async (t) => {
   const store = installDdbMock(t);
+  seedDefaultCustomer(store);
   seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-admin-config', role: 'admin', email: 'admin-config@example.com' });
   seedEmployee(store, { businessId: 'biz-a', employeeId: 'emp-a', name: 'Local Employee' });
   store.set(mapKey('BUSINESS#biz-b', 'CREW#crew-foreign'), {

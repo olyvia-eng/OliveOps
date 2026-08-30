@@ -20,6 +20,11 @@ import {
 import { formatTargetMarginPercent } from '../budget/budgetAnalysisSummaryModel.js';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import type { Estimate, EstimateLineItem, EstimatePricingCatalog, EstimatePricingCatalogItem, LineItemCategory } from '../../types';
+import {
+  WORK_AREA_CATEGORY_ADD_LABEL as CATEGORY_ADD_LABEL,
+  WORK_AREA_CATEGORY_LABEL as CATEGORY_LABEL,
+  WORK_AREA_CATEGORY_ORDER as CATEGORY_ORDER,
+} from '../../components/work-areas/workAreaCategories';
 
 interface Props {
   currentUserRole: string;
@@ -42,22 +47,6 @@ type CatalogCandidate = {
   disabledReason?: string;
   alreadyAdded: boolean;
   searchText: string;
-};
-
-const CATEGORY_ORDER: LineItemCategory[] = ['labour', 'equipment', 'material', 'subcontractor'];
-
-const CATEGORY_LABEL: Record<LineItemCategory, string> = {
-  labour: 'Labour',
-  equipment: 'Equipment',
-  material: 'Materials',
-  subcontractor: 'Subcontractors',
-};
-
-const CATEGORY_ADD_LABEL: Record<LineItemCategory, string> = {
-  labour: 'Labour',
-  equipment: 'Equipment',
-  material: 'Material',
-  subcontractor: 'Subcontractor',
 };
 
 const createWorkAreaPayload = (estimate: Estimate, workAreas: ReturnType<typeof normalizeEstimateWorkAreas>) => {
@@ -272,6 +261,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       </div>
     );
   }
+
+  const isReadOnly = estimate.status === 'converted';
 
   const setLineItem = (lineItemId: string, key: keyof EstimateLineItem, value: unknown) => {
     setForm((current) => {
@@ -549,9 +540,9 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">{CATEGORY_LABEL[category]}</h2>
             <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">{items.length} item{items.length === 1 ? '' : 's'}</p>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => openCatalog(category)}>
+          {!isReadOnly ? <Button variant="secondary" size="sm" onClick={() => openCatalog(category)}>
             <Plus size={14} /> Add {CATEGORY_ADD_LABEL[category]}
-          </Button>
+          </Button> : null}
         </div>
 
         {items.length === 0 ? (
@@ -582,16 +573,17 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                       type="text"
                       inputMode="decimal"
                       value={formatNumericDisplayValue(lineItem.quantity)}
+                      disabled={isReadOnly}
                       onChange={(event) => setLineItem(lineItem.id, 'quantity', parseNumericInputValue(event.target.value))}
                       onFocus={(event) => event.currentTarget.select()}
                       className="h-9 w-20 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"
                     />
-                    {usesHours || isBudgetPriced ? <span>{lineItem.unit}</span> : <input aria-label={`Unit for ${lineItem.itemName || lineItem.description || 'item'}`} value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
+                    {usesHours || isBudgetPriced ? <span>{lineItem.unit}</span> : <input disabled={isReadOnly} aria-label={`Unit for ${lineItem.itemName || lineItem.description || 'item'}`} value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
                   </label>
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.cost)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.breakeven)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(economics.totalCost)}</p>
-                  <button type="button" onClick={() => setPricingLineItemId(lineItem.id)} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
+                  <button type="button" disabled={isReadOnly} onClick={() => setPricingLineItemId(lineItem.id)} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 disabled:cursor-default dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
                   <div className="text-right text-gray-700 dark:text-brand-100">
                     <span className="font-medium tabular-nums">{unitPrice(economics.price)}</span>
                   </div>
@@ -600,14 +592,14 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     <button type="button" title={isExpanded ? 'Collapse item details' : 'Edit description and notes'} aria-expanded={isExpanded} onClick={() => setExpandedLineItemIds((current) => { const next = new Set(current); if (next.has(lineItem.id)) next.delete(lineItem.id); else next.add(lineItem.id); return next; })} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-brand-700 dark:hover:bg-brand-700 dark:hover:text-brand-100">
                       <Pencil size={14} />
                     </button>
-                    <button type="button" title="Delete item" onClick={() => deleteLineItem(lineItem.id)} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
+                    {!isReadOnly ? <button type="button" title="Delete item" onClick={() => deleteLineItem(lineItem.id)} className="rounded-md p-2 text-gray-400 hover:bg-white hover:text-accent-700 dark:hover:bg-brand-700">
                       <Trash2 size={14} />
-                    </button>
+                    </button> : null}
                   </div>
                 </div>
                 {isExpanded ? <div className="grid gap-3 border-t border-brand-100 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_12rem] dark:border-brand-600">
-                  <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes<textarea rows={2} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>
-                  {!isBudgetPriced ? <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}<input type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label> : <div className="space-y-1 text-xs text-gray-600 dark:text-brand-200">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes<textarea disabled={isReadOnly} rows={2} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>
+                  {!isBudgetPriced ? <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}<input disabled={isReadOnly} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label> : <div className="space-y-1 text-xs text-gray-600 dark:text-brand-200">
                     {economics.calculatedPrice !== null ? <p>Calculated Price <span className="float-right font-semibold tabular-nums">{unitPrice(economics.calculatedPrice)}</span></p> : null}
                     {economics.calculatedPrice !== null && economics.price !== economics.calculatedPrice ? <p>Final Price <span className="float-right font-semibold tabular-nums">{unitPrice(economics.price)}</span></p> : null}
                     {economics.isBelowBreakeven ? <p className="font-medium text-amber-700 dark:text-amber-300">Price is below breakeven.</p> : null}
@@ -652,6 +644,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             <Input
               label="Work Area Name"
               required
+              disabled={isReadOnly}
               value={form.name}
               onChange={(event) => setForm((current) => current ? { ...current, name: event.target.value } : current)}
             />
@@ -694,10 +687,11 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           <Card className="p-4 space-y-4">
             <TextArea
               label="Description / Scope"
+              disabled={isReadOnly}
               value={form.description}
               onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            {!isReadOnly ? <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="secondary" onClick={() => setConfirmDeleteOpen(true)}>
                 <Trash2 size={14} /> Delete Work Area
               </Button>
@@ -705,7 +699,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                 <Button variant="secondary" onClick={() => void persistWorkArea(false)} disabled={!isDirty || savingWorkArea}>Save</Button>
                 <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
               </div>
-            </div>
+            </div> : <p className="text-sm text-gray-500">This Work Area is part of the converted Estimate and is read-only.</p>}
           </Card>
       </div>
 

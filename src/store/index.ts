@@ -17,6 +17,7 @@ import type {
   Expense,
   Invoice,
   Job,
+  JobPlanMutation,
   JobTaskHeading,
   Employee,
   UnbillableTimeCategory,
@@ -171,6 +172,8 @@ interface AppState {
   // Jobs
   addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateJob: (id: ID, data: Partial<Job>) => Promise<boolean>;
+  initializeJobPlan: (id: ID) => Promise<{ ok: boolean; error?: string }>;
+  mutateJobPlan: (id: ID, mutation: JobPlanMutation) => Promise<{ ok: boolean; error?: string }>;
   deleteJob: (id: ID) => void;
   addCostEntry: (jobId: ID, entry: Omit<CostEntry, 'id'>) => void;
 
@@ -946,6 +949,44 @@ export const useStore = create<AppState>()((set, get) => ({
           set({ jobs: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Job changes could not be saved.') });
           return false;
+        }
+      },
+      initializeJobPlan: async (id) => {
+        try {
+          const response = await fetch(`/api/job-plans?jobId=${encodeURIComponent(id)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ action: 'initialize' }),
+          });
+          const payload = await response.json() as { ok?: boolean; job?: Job; error?: string };
+          if (!response.ok || !payload.ok || !payload.job) throw new Error(payload.error || 'Job planning could not be initialized.');
+          set((state) => ({ jobs: state.jobs.map((job) => job.id === id ? payload.job as Job : job) }));
+          return { ok: true };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Job planning could not be initialized.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
+      },
+      mutateJobPlan: async (id, mutation) => {
+        const current = get().jobs.find((job) => job.id === id);
+        if (!current?.planningRevision) return { ok: false, error: 'Initialize Job planning before editing.' };
+        try {
+          const response = await fetch(`/api/job-plans?jobId=${encodeURIComponent(id)}`, {
+            method: mutation.action === 'add-resource' ? 'POST' : 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ...mutation, expectedRevision: current.planningRevision }),
+          });
+          const payload = await response.json() as { ok?: boolean; plan?: Partial<Job>; error?: string };
+          if (!response.ok || !payload.ok || !payload.plan) throw new Error(payload.error || 'Job planning could not be saved.');
+          set((state) => ({ jobs: state.jobs.map((job) => job.id === id ? { ...job, ...payload.plan } : job) }));
+          return { ok: true };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Job planning could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
         }
       },
       deleteJob: (id) => {

@@ -146,6 +146,7 @@ import {
 } from './_lib/budgetGroups.js';
 import { getHomeDashboardPreferencesForUser } from './_lib/homeDashboardPreferences.js';
 import { deleteBudgetCascadeForBusiness } from './_lib/budgetDeletion.js';
+import { validateGenericJobPatch } from './_lib/jobPlanSecurity.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -998,6 +999,10 @@ function validateJobRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Job id is required.';
   if (!isNonEmptyString(record.customerId)) return 'Job customer is required.';
   if (!isNonEmptyString(record.title)) return 'Job title is required.';
+  if (typeof record.description !== 'string') return 'Job description must be a string.';
+  if (record.propertyLabel !== undefined && record.propertyLabel !== null && typeof record.propertyLabel !== 'string') return 'Job property is invalid.';
+  if (record.propertyAddressSnapshot !== undefined && record.propertyAddressSnapshot !== null && typeof record.propertyAddressSnapshot !== 'string') return 'Job property address is invalid.';
+  if (record.notes !== undefined && record.notes !== null && typeof record.notes !== 'string') return 'Job notes must be a string.';
   if (!JOB_STATUSES.has(record.status)) return 'Job status is invalid.';
   if (!isValidDateOnly(record.startDate)) return 'Job start date must use YYYY-MM-DD format.';
   if (record.endDate !== undefined && record.endDate !== null && record.endDate !== '' && !isValidDateOnly(record.endDate)) {
@@ -1063,6 +1068,10 @@ async function validateJobRelationships({ businessId, record }) {
     : [];
   const assignedEmployeeIds = uniqueStringList([...record.assignedEmployeeIds, ...occurrenceEmployeeIds]);
   const assignedEquipmentIds = uniqueStringList(record.assignedEquipmentIds);
+
+  if (!await getCustomerForBusiness(businessId, record.customerId)) {
+    return 'Job customer must belong to this business.';
+  }
 
   if (isNonEmptyString(record.crewId) && !await getCrewForBusiness(businessId, record.crewId)) {
     return 'Assigned crew must belong to this business.';
@@ -1928,6 +1937,15 @@ export default async function handler(req, res) {
         return res.status(403).json({ ok: false, error: 'Forbidden' });
       }
 
+      if (entity === 'estimates' && existing.status === 'converted') {
+        return res.status(409).json({ ok: false, error: 'Converted estimates are read-only.' });
+      }
+
+      if (entity === 'jobs') {
+        const protectedPatchError = validateGenericJobPatch(existing, data);
+        if (protectedPatchError) return res.status(409).json({ ok: false, error: protectedPatchError });
+      }
+
       const sanitizedDataResult = sanitizePatchData(entity, id, data);
       if (!sanitizedDataResult.ok) {
         return res.status(400).json({ ok: false, error: sanitizedDataResult.error });
@@ -2217,6 +2235,14 @@ export default async function handler(req, res) {
 
       if (!authorizeRecordAccess(session, entity, existing)) {
         return res.status(403).json({ ok: false, error: 'Forbidden' });
+      }
+
+      if (entity === 'estimates' && existing.status === 'converted') {
+        return res.status(409).json({ ok: false, error: 'Converted estimates cannot be deleted.' });
+      }
+
+      if (entity === 'jobs' && existing.sourceEstimateId) {
+        return res.status(409).json({ ok: false, error: 'Jobs created from sold estimates cannot be deleted.' });
       }
 
       if (entity === 'budgets') {

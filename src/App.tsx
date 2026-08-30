@@ -18,6 +18,7 @@ const EstimateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/Estimat
 const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
+const JobWorkAreaBuilderPage = lazy(() => import('./pages/jobs/JobWorkAreaBuilderPage'));
 const BudgetsOverviewPage = lazy(() => import('./pages/budget/BudgetsOverviewPage'));
 const BudgetWorkspacePage = lazy(() => import('./pages/budget/BudgetWorkspacePage'));
 const DivisionWorkspacePage = lazy(() => import('./pages/budget/DivisionWorkspacePage'));
@@ -642,6 +643,7 @@ export default function App() {
               <Route path="estimates/templates" element={<TemplatesPage />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
+              <Route path="jobs/:id/work-areas/:workAreaId" element={<JobWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />

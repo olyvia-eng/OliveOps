@@ -5,6 +5,11 @@ import {
   getEstimateForBusiness,
   reserveNextJobNumberForBusiness,
 } from './_lib/authRepo.js';
+import {
+  JOB_PLANNING_SNAPSHOT_VERSION,
+  calculateJobPlan,
+  cloneJobPlan,
+} from '../src/utils/jobPlanModel.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -79,26 +84,13 @@ function normalizeJobLineItem(rawLineItem, sourceEstimateWorkAreaId) {
   const total = toNumber(rawLineItem.total, quantity * sellPrice);
 
   return {
+    ...rawLineItem,
     id: generateId(),
     sourceEstimateLineItemId: rawLineItem.id,
     sourceEstimateWorkAreaId,
-    labourClassId: rawLineItem.labourClassId,
-    labourClassName: rawLineItem.labourClassName,
-    employeeId: rawLineItem.employeeId,
-    employeeName: rawLineItem.employeeName,
-    divisionId: rawLineItem.divisionId,
-    divisionName: rawLineItem.divisionName,
-    averageLabourCost: rawLineItem.averageLabourCost,
-    overheadRecoveryPerHour: rawLineItem.overheadRecoveryPerHour,
-    breakevenRate: rawLineItem.breakevenRate,
-    targetMarginPct: rawLineItem.targetMarginPct,
-    calculatedRateAtEstimate: rawLineItem.calculatedRateAtEstimate,
-    customRateAtEstimate: rawLineItem.customRateAtEstimate,
-    estimateRateAtEstimate: rawLineItem.estimateRateAtEstimate,
-    equipmentId: rawLineItem.equipmentId,
-    equipmentName: rawLineItem.equipmentName,
-    costRateAtEstimate: rawLineItem.costRateAtEstimate,
-    chargeOutRateAtEstimate: rawLineItem.chargeOutRateAtEstimate,
+    contractRevenue: total,
+    plannedCost: quantity * unitCost,
+    recommendedSellPriceAtAddition: rawLineItem.recommendedRateAtEstimate ?? rawLineItem.calculatedRateAtEstimate ?? sellPrice,
     estimatedCost: toNumber(rawLineItem.estimatedCost, quantity * unitCost),
     estimatedSell: toNumber(rawLineItem.estimatedSell, total),
     category: rawLineItem.category,
@@ -112,8 +104,8 @@ function normalizeJobLineItem(rawLineItem, sourceEstimateWorkAreaId) {
   };
 }
 
-function buildJobWorkAreasFromEstimate(estimate) {
-  return normalizeEstimateWorkAreas(estimate)
+export function buildJobWorkAreasFromEstimate(estimate) {
+  const workAreas = normalizeEstimateWorkAreas(estimate)
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((workArea, index) => {
@@ -151,16 +143,20 @@ function buildJobWorkAreasFromEstimate(estimate) {
         lineItems,
       };
     });
+  return calculateJobPlan(workAreas).operationalWorkAreas;
 }
 
-function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
+export function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
   const subtotal = operationalWorkAreas.reduce((sum, workArea) => sum + workArea.estimatedRevenue, 0);
   const taxRate = toNumber(estimate.taxRate);
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
+  const estimatedCost = operationalWorkAreas.reduce((sum, workArea) => sum + workArea.plannedCost, 0);
+  const estimatedProfit = subtotal - estimatedCost;
 
   return {
     estimateId: estimate.id,
+    customerId: estimate.customerId,
     proposalNumber: estimate.proposalNumber,
     pricingBudgetId: estimate.pricingBudgetId,
     propertyLabel: estimate.propertyLabel,
@@ -169,15 +165,18 @@ function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
     taxRate,
     taxAmount,
     total,
+    estimatedCost,
+    estimatedProfit,
+    estimatedMarginPct: subtotal > 0 ? (estimatedProfit / subtotal) * 100 : 0,
     notes: typeof estimate.notes === 'string' ? estimate.notes : '',
-    workAreas: operationalWorkAreas,
+    workAreas: cloneJobPlan(operationalWorkAreas),
   };
 }
 
 function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   const operationalWorkAreas = buildJobWorkAreasFromEstimate(estimate);
   const snapshot = buildOriginalEstimateSnapshot(estimate, operationalWorkAreas);
-  const estimatedCost = operationalWorkAreas.reduce((sum, workArea) => sum + workArea.estimatedCost, 0);
+  const plan = calculateJobPlan(operationalWorkAreas);
   const hasExplicitSchedule = isNonEmptyString(startDate) || isNonEmptyString(endDate);
   const estimatedHours = operationalWorkAreas
     .flatMap((workArea) => workArea.lineItems)
@@ -194,13 +193,16 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     convertedByUserName: actorName,
     customerId: estimate.customerId,
     pricingBudgetId: estimate.pricingBudgetId,
+    divisionId: estimate.divisionId,
     propertyLabel: estimate.propertyLabel,
     propertyAddressSnapshot: estimate.propertyAddressSnapshot,
     title: convertedJobTitle(estimate, title, jobNumber),
     description: typeof estimate.description === 'string' ? estimate.description : '',
     workAreas: operationalWorkAreas.map((workArea) => workArea.name),
-    operationalWorkAreas,
+    operationalWorkAreas: cloneJobPlan(plan.operationalWorkAreas),
     originalEstimateSnapshot: snapshot,
+    planningSnapshotVersion: JOB_PLANNING_SNAPSHOT_VERSION,
+    planningRevision: 1,
     status: 'scheduled',
     startDate: isNonEmptyString(startDate) ? startDate : convertedAt.slice(0, 10),
     endDate: isNonEmptyString(endDate) ? endDate : undefined,
@@ -208,7 +210,10 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     scheduleAllDay: true,
     estimatedHours,
     actualHours: 0,
-    estimatedCost,
+    estimatedCost: plan.currentPlannedCost,
+    currentPlannedCost: plan.currentPlannedCost,
+    originalContractRevenue: snapshot.subtotal,
+    currentContractRevenue: snapshot.subtotal,
     actualCosts: [],
     contractValue: snapshot.total,
     assignedEmployeeIds: [],

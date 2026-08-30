@@ -195,7 +195,27 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
 
   const handleSave = () => {
     if (!form.title.trim() || !form.customerId) return;
-    if (editing) updateJob(editing.id, form);
+    if (editing?.sourceEstimateId) {
+      const operationalPatch = {
+        customerId: form.customerId,
+        title: form.title,
+        description: form.description,
+        status: form.status,
+        startDate: form.startDate,
+        endDate: form.endDate,
+        scheduleConfirmed: form.scheduleConfirmed,
+        scheduledStartAt: form.scheduledStartAt,
+        scheduledEndAt: form.scheduledEndAt,
+        scheduleAllDay: form.scheduleAllDay,
+        scheduleNotes: form.scheduleNotes,
+        assignedEmployeeIds: form.assignedEmployeeIds,
+        assignedEquipmentIds: form.assignedEquipmentIds,
+        actualHours: form.actualHours,
+        actualCosts: form.actualCosts,
+        notes: form.notes,
+      };
+      void updateJob(editing.id, operationalPatch);
+    } else if (editing) updateJob(editing.id, form);
     else addJob(form);
     setModalOpen(false);
   };
@@ -352,7 +372,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                 <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                   <Button variant="secondary" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }}><ChevronRight size={13} /> Details</Button>
                   <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }}><Pencil size={13} /></Button>
-                  <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }}><Trash2 size={13} className="text-accent-600" /></Button>
+                  {!job.sourceEstimateId ? <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }}><Trash2 size={13} className="text-accent-600" /></Button> : null}
                 </div>
               </Card>
             );
@@ -402,20 +422,20 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
           </div>
           <Input label="Title *" required value={form.title} onChange={(e) => set('title', e.target.value)} />
           <TextArea label="Description" value={form.description} onChange={(e) => set('description', e.target.value)} />
-          <TextArea
+          {!editing?.sourceEstimateId ? <TextArea
             label="Work Areas"
             value={(form.workAreas ?? []).join('\n')}
             onChange={(e) => set('workAreas', e.target.value.split('\n').map((line) => line.trim()).filter(Boolean))}
             placeholder="Main floor\nGarage\nBackyard"
-          />
+          /> : <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700">Edit converted Job scope from the Work Areas tab. Sold contract values remain read-only.</p>}
           <div className="grid grid-cols-2 gap-3">
             <Input label="Start Date" type="date" value={form.startDate?.slice(0, 10) ?? ''} onChange={(e) => set('startDate', e.target.value)} />
             <Input label="End Date" type="date" value={form.endDate?.slice(0, 10) ?? ''} onChange={(e) => set('endDate', e.target.value || undefined)} />
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <Input label="Estimated Hours" type="number" min={0} value={form.estimatedHours} onChange={(e) => set('estimatedHours', Number(e.target.value))} />
+            {!editing?.sourceEstimateId ? <Input label="Estimated Hours" type="number" min={0} value={form.estimatedHours} onChange={(e) => set('estimatedHours', Number(e.target.value))} /> : <div />}
             <Input label="Actual Hours" type="number" min={0} step={0.25} value={form.actualHours} onChange={(e) => set('actualHours', Number(e.target.value))} />
-            <Input label="Contract Value ($)" type="number" min={0} value={form.contractValue} onChange={(e) => set('contractValue', Number(e.target.value))} />
+            {!editing?.sourceEstimateId ? <Input label="Contract Value ($)" type="number" min={0} value={form.contractValue} onChange={(e) => set('contractValue', Number(e.target.value))} /> : <div><p className="text-sm font-medium text-gray-700">Contract Total</p><p className="mt-2 font-semibold">{formatCurrency(editing.contractValue)}</p><p className="text-xs text-gray-500">From sold Estimate</p></div>}
           </div>
 
           {/* Assign employees */}

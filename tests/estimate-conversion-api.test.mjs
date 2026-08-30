@@ -187,6 +187,47 @@ test('convert-to-job preserves accepted equipment cost and charge-out snapshots'
   assert.equal(res.body.job.contractValue, 616);
 });
 
+test('convert-to-job preserves complete pricing provenance in independent original and operational snapshots', async () => {
+  const estimate = baseEstimate();
+  estimate.divisionId = 'division-1';
+  estimate.workAreas[0].lineItems = [{
+    id: 'material-line-1', category: 'material', itemName: 'Gravel', description: 'Base material', quantity: 20, unit: 'tonne',
+    unitCost: 40, sellPrice: 55, total: 1100, sourceBudgetId: 'budget-1', sourceBudgetItemId: 'budget-gravel',
+    sourceEntityId: 'gravel', materialCatalogItemId: 'gravel', sourceOrigin: 'budget_backed', pricingReadiness: 'priced',
+    sourceRateId: 'rate-gravel', pricingRateUpdatedAt: '2026-01-02T00:00:00.000Z', pricingVersion: 2, divisionId: 'division-1',
+    directCostPerUnit: 40, divisionOverheadRecoveryPerUnit: 4, companyOverheadRecoveryPerUnit: 1, recoveredCostPerUnit: 45,
+    targetMarginPct: 20, estimateTargetMarginPct: 18, recommendedRateAtEstimate: 56.25, calculatedRateAtEstimate: 56.25,
+    estimateCustomSellPrice: 55, estimatedCost: 800, estimatedSell: 1100,
+  }];
+  const handler = createEstimatesHandler({
+    requireSession: async () => baseSession(),
+    getEstimateForBusiness: async () => estimate,
+    reserveNextJobNumberForBusiness: async () => 'JOB-2026-0014',
+    convertEstimateToJobForBusiness: async () => ({ ok: true }),
+  });
+  const res = createMockRes();
+
+  await handler({ method: 'POST', query: { action: 'convert-to-job' }, body: { estimateId: estimate.id } }, res);
+
+  const job = res.body.job;
+  const current = job.operationalWorkAreas[0].lineItems[0];
+  const original = job.originalEstimateSnapshot.workAreas[0].lineItems[0];
+  for (const field of ['sourceBudgetId', 'sourceBudgetItemId', 'sourceEntityId', 'materialCatalogItemId', 'sourceOrigin', 'pricingReadiness', 'sourceRateId', 'pricingVersion', 'directCostPerUnit', 'divisionOverheadRecoveryPerUnit', 'companyOverheadRecoveryPerUnit', 'recoveredCostPerUnit', 'targetMarginPct', 'estimateTargetMarginPct', 'recommendedRateAtEstimate', 'calculatedRateAtEstimate', 'estimateCustomSellPrice']) {
+    assert.equal(current[field], estimate.workAreas[0].lineItems[0][field], field);
+    assert.equal(original[field], estimate.workAreas[0].lineItems[0][field], `original ${field}`);
+  }
+  assert.notEqual(job.operationalWorkAreas, job.originalEstimateSnapshot.workAreas);
+  assert.notEqual(current, original);
+  current.unitCost = 48;
+  assert.equal(original.unitCost, 40);
+  assert.equal(job.originalContractRevenue, 1100);
+  assert.equal(job.currentContractRevenue, 1100);
+  assert.equal(job.contractValue, 1210);
+  assert.equal(job.currentPlannedCost, 800);
+  assert.equal(job.planningRevision, 1);
+  assert.equal(job.divisionId, 'division-1');
+});
+
 test('convert-to-job replaces generic draft estimate labels with an operational job name', async () => {
   const handler = createEstimatesHandler({
     requireSession: async () => baseSession(),

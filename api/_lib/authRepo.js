@@ -1448,6 +1448,81 @@ export async function updateJobForBusiness({ businessId, job }) {
   return { ok: true };
 }
 
+export async function initializeJobPlanForBusiness({ businessId, jobId, plan }) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: jobSk(jobId) },
+      UpdateExpression: 'SET #operationalWorkAreas = :operationalWorkAreas, #originalEstimateSnapshot = :originalEstimateSnapshot, #planningSnapshotVersion = :planningSnapshotVersion, #planningRevision = :planningRevision, #estimatedCost = :estimatedCost, #currentPlannedCost = :currentPlannedCost, #originalContractRevenue = :originalContractRevenue, #currentContractRevenue = :currentContractRevenue, #workAreas = :workAreas, #updatedAt = :updatedAt',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND attribute_not_exists(#planningSnapshotVersion)',
+      ExpressionAttributeNames: {
+        '#operationalWorkAreas': 'operationalWorkAreas',
+        '#originalEstimateSnapshot': 'originalEstimateSnapshot',
+        '#planningSnapshotVersion': 'planningSnapshotVersion',
+        '#planningRevision': 'planningRevision',
+        '#estimatedCost': 'estimatedCost',
+        '#currentPlannedCost': 'currentPlannedCost',
+        '#originalContractRevenue': 'originalContractRevenue',
+        '#currentContractRevenue': 'currentContractRevenue',
+        '#workAreas': 'workAreas',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':operationalWorkAreas': plan.operationalWorkAreas,
+        ':originalEstimateSnapshot': plan.originalEstimateSnapshot,
+        ':planningSnapshotVersion': plan.planningSnapshotVersion,
+        ':planningRevision': plan.planningRevision,
+        ':estimatedCost': plan.currentPlannedCost,
+        ':currentPlannedCost': plan.currentPlannedCost,
+        ':originalContractRevenue': plan.originalContractRevenue,
+        ':currentContractRevenue': plan.currentContractRevenue,
+        ':workAreas': plan.operationalWorkAreas.map((area) => area.name),
+        ':updatedAt': plan.updatedAt,
+      },
+    }));
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'ConditionalCheckFailedException') return { ok: false, code: 'ALREADY_INITIALIZED' };
+    throw error;
+  }
+}
+
+export async function updateJobPlanForBusiness({ businessId, jobId, expectedRevision, plan }) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: jobSk(jobId) },
+      UpdateExpression: 'SET #operationalWorkAreas = :operationalWorkAreas, #planningRevision = :nextRevision, #estimatedCost = :estimatedCost, #currentPlannedCost = :currentPlannedCost, #currentContractRevenue = :currentContractRevenue, #workAreas = :workAreas, #estimatedHours = :estimatedHours, #updatedAt = :updatedAt',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #planningRevision = :expectedRevision',
+      ExpressionAttributeNames: {
+        '#operationalWorkAreas': 'operationalWorkAreas',
+        '#planningRevision': 'planningRevision',
+        '#estimatedCost': 'estimatedCost',
+        '#currentPlannedCost': 'currentPlannedCost',
+        '#currentContractRevenue': 'currentContractRevenue',
+        '#workAreas': 'workAreas',
+        '#estimatedHours': 'estimatedHours',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':operationalWorkAreas': plan.operationalWorkAreas,
+        ':expectedRevision': expectedRevision,
+        ':nextRevision': plan.planningRevision,
+        ':estimatedCost': plan.currentPlannedCost,
+        ':currentPlannedCost': plan.currentPlannedCost,
+        ':currentContractRevenue': plan.currentContractRevenue,
+        ':workAreas': plan.operationalWorkAreas.map((area) => area.name),
+        ':estimatedHours': plan.estimatedHours,
+        ':updatedAt': plan.updatedAt,
+      },
+    }));
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'ConditionalCheckFailedException') return { ok: false, code: 'STALE_REVISION' };
+    throw error;
+  }
+}
+
 export async function deleteJobForBusiness(businessId, jobId) {
   const headings = await listJobTaskHeadingsForBusiness(businessId);
   await Promise.all(headings
@@ -3984,6 +4059,8 @@ function mapJobRecordFromItem(item) {
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : [],
     operationalWorkAreas: Array.isArray(item.operationalWorkAreas) ? item.operationalWorkAreas : undefined,
     originalEstimateSnapshot: item.originalEstimateSnapshot,
+    planningSnapshotVersion: item.planningSnapshotVersion,
+    planningRevision: item.planningRevision,
     status: item.status,
     startDate: item.startDate,
     endDate: item.endDate,
@@ -3996,6 +4073,9 @@ function mapJobRecordFromItem(item) {
     estimatedHours: item.estimatedHours,
     actualHours: item.actualHours,
     estimatedCost: item.estimatedCost,
+    currentPlannedCost: item.currentPlannedCost,
+    originalContractRevenue: item.originalContractRevenue,
+    currentContractRevenue: item.currentContractRevenue,
     actualCosts: item.actualCosts ?? [],
     contractValue: item.contractValue,
     assignedEmployeeIds: item.assignedEmployeeIds ?? [],
