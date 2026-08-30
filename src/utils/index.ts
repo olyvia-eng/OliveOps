@@ -66,6 +66,7 @@ export const statusColor: Record<string, string> = {
   cancelled: 'bg-accent-100 text-accent-700',
   // Customer
   lead: 'bg-brand-100 text-brand-700',
+  client: 'bg-brand-200 text-brand-800',
   prospect: 'bg-accent-50 text-accent-600',
   active: 'bg-brand-200 text-brand-800',
   inactive: 'bg-accent-100 text-accent-700',

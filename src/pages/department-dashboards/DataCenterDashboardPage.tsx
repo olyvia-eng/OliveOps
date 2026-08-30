@@ -17,6 +17,7 @@ import {
 import { Card, Input, PageHeader, Select, StatCard } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
+import { customerStatusLabel } from '../../config/customer.js';
 import {
   filterDataCenterRecords,
   getDataCenterDateRange,
@@ -225,7 +226,7 @@ function DashboardContent({ activeTab, records, range }: { activeTab: DashboardT
       ]} />
       <div className="grid gap-4 xl:grid-cols-2">
         <Breakdown title="Revenue by customer" subtitle="Invoiced value in the selected period" items={customerRevenue.slice(0, 7).map((item) => ({ ...item, display: formatCurrency(item.value) }))} emptyText="No customer revenue in this period." />
-        <RecordList title="Customers in view" subtitle="Customers with sales or job activity" emptyText="No customer activity in this period." rows={records.customers.map((customer) => ({ id: customer.id, title: customer.name || customer.company || 'Unnamed customer', meta: `${titleCase(customer.status)} · ${customer.email || 'No email'}`, value: `${records.jobs.filter((job) => job.customerId === customer.id).length} jobs` }))} />
+        <RecordList title="Customers in view" subtitle="Customers with sales or job activity" emptyText="No customer activity in this period." rows={records.customers.map((customer) => ({ id: customer.id, title: customer.name || customer.company || 'Unnamed customer', meta: `${customerStatusLabel(customer.status)} · ${customer.email || 'No email'}`, value: `${records.jobs.filter((job) => job.customerId === customer.id).length} jobs` }))} />
       </div>
     </>;
   }

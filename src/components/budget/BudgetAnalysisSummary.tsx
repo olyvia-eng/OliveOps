@@ -19,8 +19,7 @@ const segmentColors = {
   materials: '#d97706',
   subcontractors: '#e11d48',
   overhead: '#6b7280',
-  targetProfit: '#536246',
-  surplus: '#d1d5db',
+  netProfit: '#536246',
 } as const;
 
 const formatPercent = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
@@ -31,9 +30,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const summary = useMemo(() => buildBudgetAnalysisSummary(financials, canonicalMargin), [canonicalMargin, financials]);
-  const pieData = summary.surplusAfterTarget > 0
-    ? [...summary.chartSegments, { key: 'surplus' as const, label: 'Above target', amount: summary.surplusAfterTarget, widthPct: summary.surplusAfterTarget / summary.chartTotal * 100 }]
-    : summary.chartSegments;
+  const pieData = summary.chartSegments;
   const displayTarget = (nextMode: AnalysisValueMode, margin = canonicalMargin) => {
     const target = buildBudgetAnalysisSummary(financials, margin);
     return nextMode === 'percent'
@@ -74,7 +71,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
     }
   };
 
-  const statementLines = summary.lines.filter((line) => line.key !== 'targetProfit');
+  const statementLines = summary.lines.filter((line) => line.key !== 'netProfit');
   const valueFor = (amount: number, percent: number | null) => mode === 'dollars' ? formatCurrency(amount) : formatPercent(percent);
 
   return <Card className="overflow-hidden">
@@ -106,7 +103,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
             <h3 id="current-budget-economics-heading" className="font-semibold uppercase text-gray-500 dark:text-brand-300">Current Budget</h3>
             <dl className="mt-2 space-y-1.5 text-gray-600 dark:text-brand-200">
               <div className="flex justify-between gap-4"><dt>Revenue</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.revenue)}</dd></div>
-              <div className="flex justify-between gap-4"><dt>Profit</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.currentProfit)}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Profit</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{summary.currentProfit === null ? '—' : formatCurrency(summary.currentProfit)}</dd></div>
               <div className="flex justify-between gap-4"><dt>Margin</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatPercent(summary.currentProfitMarginPct)}</dd></div>
             </dl>
           </section>
@@ -132,6 +129,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
         <div className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
           {pieData.map((segment) => <div key={segment.key} className="flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 text-gray-600 dark:text-brand-200"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: segmentColors[segment.key] }} />{segment.label}</span><span className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(segment.amount)}</span></div>)}
         </div>
+        {summary.currentProfit !== null && summary.currentProfit < 0 ? <div className="mt-4 border-t border-red-200 pt-3 text-sm text-red-700 dark:border-red-900 dark:text-red-300"><span className="font-semibold">Current loss: {formatCurrency(Math.abs(summary.currentProfit))}</span>. Cost slices are shown at their full positive values; no negative pie slice is drawn.</div> : null}
         {summary.additionalRevenueNeeded > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.additionalRevenueNeeded)} additional revenue is needed</span> to reach the {summary.targetNetProfitPct.toFixed(1)}% target margin based on current planned costs.</p></div> : null}
       </section>
     </div>

@@ -687,3 +687,67 @@ test('Form configuration persists supported assignments and rejects foreign targ
     assert.match(res.body.error, /belong to this business/);
   }
 });
+
+test('customer API validates canonical status and preserves structured acquisition through conversion', async (t) => {
+  const store = installDdbMock(t);
+  for (const businessId of ['biz-a', 'biz-b']) {
+    const user = { businessId, userId: `owner-${businessId}`, role: 'owner', email: `${businessId}@example.com`, token: `token-${businessId}` };
+    seedBusinessUser(store, user);
+    await createBearerSession(user);
+  }
+
+  const baseCustomer = {
+    id: 'customer-a', firstName: 'Jamie', lastName: 'Taylor', name: 'Jamie Taylor', company: '', email: '', phone: '', properties: [], status: 'lead', leadSource: 'other', leadSourceOther: '  Home Show  ', notes: '', tags: [], createdAt: '2026-08-30T00:00:00.000Z', updatedAt: '2026-08-30T00:00:00.000Z',
+  };
+  const createRes = createMockRes();
+  await dataHandler(requestWithToken('token-biz-a', 'POST', 'customers', { data: baseCustomer }), createRes);
+  assert.equal(createRes.statusCode, 200);
+
+  const created = store.get(mapKey('BUSINESS#biz-a', 'CUSTOMER#customer-a'));
+  assert.equal(created.leadSource, 'other');
+  assert.equal(created.leadSourceOther, 'Home Show');
+
+  const convertRes = createMockRes();
+  await dataHandler(requestWithToken('token-biz-a', 'PATCH', 'customers', { data: { status: 'client' } }, 'customer-a'), convertRes);
+  assert.equal(convertRes.statusCode, 200);
+  const converted = store.get(mapKey('BUSINESS#biz-a', 'CUSTOMER#customer-a'));
+  assert.equal(converted.status, 'client');
+  assert.equal(converted.leadSource, 'other');
+  assert.equal(converted.leadSourceOther, 'Home Show');
+
+  const sourceChangeRes = createMockRes();
+  await dataHandler(requestWithToken('token-biz-a', 'PATCH', 'customers', { data: { leadSource: 'referral' } }, 'customer-a'), sourceChangeRes);
+  assert.equal(sourceChangeRes.statusCode, 200);
+  assert.equal(store.get(mapKey('BUSINESS#biz-a', 'CUSTOMER#customer-a')).leadSourceOther, undefined);
+
+  for (const status of ['prospect', 'active', 'inactive', 'invalid']) {
+    const invalidRes = createMockRes();
+    await dataHandler(requestWithToken('token-biz-a', 'POST', 'customers', { data: { ...baseCustomer, id: `invalid-${status}`, status } }), invalidRes);
+    assert.equal(invalidRes.statusCode, 400, status);
+  }
+
+  const foreignListRes = createMockRes();
+  await dataHandler(requestWithToken('token-biz-b', 'GET', 'customers'), foreignListRes);
+  assert.equal(foreignListRes.statusCode, 200);
+  assert.equal(foreignListRes.body.items.length, 0);
+});
+
+test('customer reads normalize safe legacy statuses and preserve inactive for explicit review', async (t) => {
+  const store = installDdbMock(t);
+  const user = { businessId: 'biz-legacy', userId: 'owner-legacy', role: 'owner', email: 'legacy@example.com', token: 'token-legacy' };
+  seedBusinessUser(store, user);
+  await createBearerSession(user);
+  for (const status of ['prospect', 'active', 'inactive']) {
+    store.set(mapKey('BUSINESS#biz-legacy', `CUSTOMER#${status}`), { PK: 'BUSINESS#biz-legacy', SK: `CUSTOMER#${status}`, entityType: 'CUSTOMER', businessId: 'biz-legacy', customerId: status, name: status, company: '', email: '', phone: '', properties: [], status, notes: '', tags: [] });
+  }
+
+  const res = createMockRes();
+  await dataHandler(requestWithToken('token-legacy', 'GET', 'customers'), res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(Object.fromEntries(res.body.items.map((customer) => [customer.id, customer.status])), { prospect: 'lead', active: 'client', inactive: 'inactive' });
+
+  const rejectedEdit = createMockRes();
+  await dataHandler(requestWithToken('token-legacy', 'PATCH', 'customers', { data: { notes: 'reviewed but not classified' } }, 'inactive'), rejectedEdit);
+  assert.equal(rejectedEdit.statusCode, 400);
+  assert.match(rejectedEdit.body.error, /Lead or Client/);
+});

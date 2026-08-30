@@ -11,6 +11,7 @@ import {
 import { ddb, tableName } from './db.js';
 import { DEFAULT_BUSINESS_TIME_ZONE, normalizeBusinessTimeZone } from './businessTime.js';
 import { approvedTimeOffOverlapping } from './timeOff.js';
+import { normalizePersistedCustomerStatus } from '../../src/config/customer.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -1283,7 +1284,9 @@ export async function listCustomersForBusiness(businessId) {
       ? item.properties
       : (item.address ? [item.address] : []),
     address: item.address,
-    status: item.status,
+    status: normalizePersistedCustomerStatus(item.status),
+    leadSource: item.leadSource,
+    leadSourceOther: item.leadSourceOther,
     notes: item.notes,
     tags: item.tags ?? [],
     createdAt: item.createdAt,
@@ -1334,7 +1337,9 @@ export async function getCustomerForBusiness(businessId, customerId) {
           ? result.Item.properties
           : (result.Item.address ? [result.Item.address] : []),
         address: result.Item.address,
-        status: result.Item.status,
+        status: normalizePersistedCustomerStatus(result.Item.status),
+        leadSource: result.Item.leadSource,
+        leadSourceOther: result.Item.leadSourceOther,
         notes: result.Item.notes,
         tags: result.Item.tags ?? [],
         createdAt: result.Item.createdAt,

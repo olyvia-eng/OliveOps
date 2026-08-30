@@ -2,7 +2,7 @@ import type { BudgetFinancials } from './budgetFinancialModel';
 
 export type AnalysisValueMode = 'dollars' | 'percent';
 export interface AnalysisSummaryLine {
-  key: 'revenue' | 'labour' | 'equipment' | 'materials' | 'subcontractors' | 'overhead' | 'targetProfit';
+  key: 'revenue' | 'labour' | 'equipment' | 'materials' | 'subcontractors' | 'overhead' | 'netProfit';
   label: string;
   amount: number;
   percentOfRevenue: number | null;
@@ -18,14 +18,13 @@ export interface BudgetAnalysisSummary {
   chartTotal: number;
   revenueMarkerPct: number;
   totalPlannedCosts: number;
-  currentProfit: number;
+  currentProfit: number | null;
   currentProfitMarginPct: number | null;
   targetNetProfit: number;
   targetNetProfitPct: number;
   requiredRevenue: number;
   additionalRevenueNeeded: number;
   shortfall: number;
-  surplusAfterTarget: number;
   feasible: boolean;
 }
 export const MAX_TARGET_MARGIN_PCT: number;

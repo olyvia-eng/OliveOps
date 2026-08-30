@@ -133,6 +133,7 @@ import {
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
+import { isCanonicalCustomerStatus, isCustomerLeadSource, normalizeCustomerAcquisition } from '../src/config/customer.js';
 import { enforceEstimateWorkAreaDivisionModel, ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
@@ -487,9 +488,24 @@ const PATCH_BLOCKED_FIELDS = new Set([
   'passwordHash',
 ]);
 const EQUIPMENT_PRICING_FIELDS = ['costRateHourly', 'recommendedSellRate', 'chargeOutRate'];
+const MAX_LEAD_SOURCE_OTHER_LENGTH = 120;
 
 function changesEquipmentPricing(data) {
   return EQUIPMENT_PRICING_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(data ?? {}, field));
+}
+
+function validateCustomerRecord(record) {
+  if (!isCanonicalCustomerStatus(record.status)) return 'Customer status must be Lead or Client.';
+  if (record.leadSource !== undefined && record.leadSource !== null && record.leadSource !== '' && !isCustomerLeadSource(record.leadSource)) {
+    return 'Customer Lead Source is invalid.';
+  }
+  if (record.leadSourceOther !== undefined && record.leadSourceOther !== null && typeof record.leadSourceOther !== 'string') {
+    return 'Customer custom Lead Source is invalid.';
+  }
+  if (record.leadSource === 'other' && typeof record.leadSourceOther === 'string' && record.leadSourceOther.trim().length > MAX_LEAD_SOURCE_OTHER_LENGTH) {
+    return `Customer custom Lead Source must be ${MAX_LEAD_SOURCE_OTHER_LENGTH} characters or fewer.`;
+  }
+  return null;
 }
 
 function sanitizePatchData(entity, id, rawData) {
@@ -1654,6 +1670,12 @@ export default async function handler(req, res) {
       record = allocated.record;
     }
 
+    if (entity === 'customers') {
+      const validationError = validateCustomerRecord(record);
+      if (validationError) return res.status(400).json({ ok: false, error: validationError });
+      record = normalizeCustomerAcquisition(record);
+    }
+
     if (entity === 'invoices') {
       if (record.lineItems !== undefined) record = normalizeInvoiceFinancials(record);
       const validationError = validateInvoiceRecord(record);
@@ -1932,6 +1954,11 @@ export default async function handler(req, res) {
       }
 
       let next = { ...baseRecord, ...sanitizedData };
+      if (entity === 'customers') {
+        const validationError = validateCustomerRecord(next);
+        if (validationError) return res.status(400).json({ ok: false, error: validationError });
+        next = normalizeCustomerAcquisition(next);
+      }
       if (entity === 'employees') {
         const validationError = validateEmployeeCostInputs(next) ?? await validateEmployeeLabourClass(session.businessId, next);
         if (validationError) return res.status(400).json({ ok: false, error: validationError });

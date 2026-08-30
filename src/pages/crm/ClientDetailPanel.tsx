@@ -5,6 +5,7 @@ import DetailWorkspaceHeader from '../../components/detail-workspace/DetailWorks
 import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspaceTabs';
 import { formatCurrency, formatDate, statusColor } from '../../utils';
 import { computeClientEstimateValue, type ClientDetailSummary } from './clientDetailSelectors';
+import { customerLeadSourceLabel, customerStatusLabel } from '../../config/customer.js';
 
 export type ClientDetailTab = 'overview' | 'estimates' | 'jobs' | 'notes';
 
@@ -57,7 +58,7 @@ export default function ClientDetailPanel({
       <DetailWorkspaceHeader
         title={customer.name}
         subtitle={customer.company || 'Client account'}
-        status={<Badge label={customer.status} className={statusColor[customer.status]} />}
+        status={<Badge label={customerStatusLabel(customer.status)} className={statusColor[customer.status]} />}
         actions={<Button type="button" variant="secondary" size="sm" onClick={onEdit}><Pencil size={14} /><span className="hidden sm:inline">Edit Client</span></Button>}
         expanded={expanded}
         onExpand={onExpand}
@@ -83,6 +84,7 @@ export default function ClientDetailPanel({
                   {customer.email ? <a href={`mailto:${customer.email}`} className="flex items-center gap-2 hover:text-brand-600"><Mail size={15} />{customer.email}</a> : null}
                   {customer.phone ? <a href={`tel:${customer.phone}`} className="flex items-center gap-2 hover:text-brand-600"><Phone size={15} />{customer.phone}</a> : null}
                   {customer.company ? <p className="flex items-center gap-2"><BriefcaseBusiness size={15} />{customer.company}</p> : null}
+                  {customer.leadSource ? <p><span className="text-gray-500 dark:text-brand-200">Original Lead Source:</span> {customerLeadSourceLabel(customer.leadSource, customer.leadSourceOther)}</p> : null}
                   {!customer.email && !customer.phone && !customer.company ? <p className="text-gray-400 dark:text-brand-300">No contact details recorded.</p> : null}
                 </div>
               </Card>

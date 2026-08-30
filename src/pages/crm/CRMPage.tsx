@@ -16,12 +16,14 @@ import {
 import ClientDetailPanel, { type ClientDetailTab } from './ClientDetailPanel';
 import { selectClientDetailSummary } from './clientDetailSelectors';
 import AddressAutocomplete from '../../components/address/AddressAutocomplete';
+import { CUSTOMER_LEAD_SOURCES, CUSTOMER_STATUSES, customerStatusLabel } from '../../config/customer.js';
+import type { CustomerLeadSource } from '../../config/customer.js';
 
-const STATUSES: CustomerStatus[] = ['lead', 'prospect', 'active', 'inactive'];
 const CRM_VIEW_MODE_STORAGE_KEY = 'oliveops.crm.viewMode';
 type CRMViewMode = 'card' | 'list';
 const CLIENT_WORKSPACE_QUERY = { recordParam: 'client', tabParam: 'clientTab', defaultTab: 'overview' } as const;
 const CLIENT_DETAIL_TABS: ClientDetailTab[] = ['overview', 'estimates', 'jobs', 'notes'];
+type CustomerForm = Omit<Customer, 'id' | 'createdAt' | 'updatedAt' | 'status'> & { status: CustomerStatus | '' };
 
 const emptyProperty = (): Address => ({
   nickname: '',
@@ -61,7 +63,7 @@ const deriveNameParts = (customer: Customer): { firstName: string; lastName: str
   };
 };
 
-const emptyCustomer = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt'> => ({
+const emptyCustomer = (): CustomerForm => ({
   firstName: '',
   lastName: '',
   name: '',
@@ -70,6 +72,8 @@ const emptyCustomer = (): Omit<Customer, 'id' | 'createdAt' | 'updatedAt'> => ({
   phone: '',
   properties: [emptyProperty()],
   status: 'lead',
+  leadSource: undefined,
+  leadSourceOther: undefined,
   notes: '',
   tags: [],
 });
@@ -92,6 +96,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyCustomer());
+  const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const workspace = readDetailWorkspaceQuery(searchParams, CLIENT_WORKSPACE_QUERY);
   const selectedCustomer = customers.find((customer) => customer.id === workspace.recordId) ?? null;
@@ -130,6 +135,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
   const openNew = () => {
     setEditing(null);
     setForm(emptyCustomer());
+    setFormError('');
     setModalOpen(true);
   };
 
@@ -155,21 +161,27 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
       company: c.company,
       email: c.email,
       phone: c.phone,
-      properties: normalizeProperties(c.properties, c.address), status: c.status, notes: c.notes, tags: c.tags,
+      properties: normalizeProperties(c.properties, c.address), status: c.status === 'inactive' ? '' : c.status, leadSource: c.leadSource, leadSourceOther: c.leadSourceOther, notes: c.notes, tags: c.tags,
     });
+    setFormError('');
     setModalOpen(true);
   };
 
   const handleSave = () => {
     const firstName = form.firstName?.trim() ?? '';
     const lastName = form.lastName?.trim() ?? '';
-    if (!firstName || !lastName) return;
+    if (!firstName || !lastName) return setFormError('First and last name are required.');
+    const status = form.status;
+    if (!status) return setFormError('Choose Lead or Client before saving.');
 
     const payload = {
       ...form,
+      status,
       firstName,
       lastName,
       name: `${firstName} ${lastName}`.trim(),
+      leadSource: form.leadSource || undefined,
+      leadSourceOther: form.leadSource === 'other' ? form.leadSourceOther?.trim() || undefined : undefined,
     };
 
     if (editing) {
@@ -271,7 +283,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
           <option value="all">All Statuses</option>
-          {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          {CUSTOMER_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
         </select>
       </div>
 
@@ -313,7 +325,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
                   <p className="font-semibold text-gray-900 truncate">{c.name}</p>
                   {c.company && <p className="text-sm text-gray-500 truncate">{c.company}</p>}
                 </div>
-                <Badge label={c.status} className={statusColor[c.status]} />
+                <Badge label={customerStatusLabel(c.status)} className={statusColor[c.status]} />
               </div>
               <div className="space-y-1 text-sm text-gray-600">
                 {c.email && (
@@ -392,7 +404,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
                         {customer.company && <p className="text-sm text-gray-500">{customer.company}</p>}
                       </td>
                       <td className="px-4 py-3">
-                        <Badge label={customer.status} className={statusColor[customer.status]} />
+                        <Badge label={customerStatusLabel(customer.status)} className={statusColor[customer.status]} />
                       </td>
                       <td className="px-4 py-3 text-gray-600">
                         {customer.email && <p className="truncate">{customer.email}</p>}
@@ -473,8 +485,14 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
           </div>
           <Input label="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
           <Select label="Status" value={form.status} onChange={(e) => set('status', e.target.value as CustomerStatus)}>
-            {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+            {!form.status ? <option value="" disabled>Choose Lead or Client</option> : null}
+            {CUSTOMER_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
           </Select>
+          <Select label="Lead Source (optional)" value={form.leadSource ?? ''} onChange={(event) => setForm((current) => ({ ...current, leadSource: event.target.value ? event.target.value as CustomerLeadSource : undefined, leadSourceOther: event.target.value === 'other' ? current.leadSourceOther : undefined }))}>
+            <option value="">Not specified</option>
+            {CUSTOMER_LEAD_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
+          </Select>
+          {form.leadSource === 'other' ? <Input label="Specify Lead Source (optional)" maxLength={120} value={form.leadSourceOther ?? ''} onChange={(event) => set('leadSourceOther', event.target.value)} placeholder="Home Show" /> : null}
           <fieldset className="border border-gray-200 rounded-lg p-3">
             <div className="flex items-center justify-between px-1">
               <legend className="text-sm font-medium text-gray-700">Properties</legend>
@@ -528,6 +546,7 @@ export default function CRMPage({ currentUserRole }: CRMPageProps) {
             onChange={(e) => set('tags', e.target.value.split(',').map((t) => t.trim()).filter(Boolean))}
           />
           <TextArea label="Notes" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+          {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
         </div>
       </Modal>
 

@@ -45,7 +45,10 @@ test('financial statements show hierarchy and reusable item-level overhead detai
   assert.match(statement, /Budget incomplete/);
   assert.match(statement, /function OverheadRows/);
   assert.match(statement, /financials\.overheadItems/);
-  assert.match(statement, /Labour[\s\S]*Equipment[\s\S]*Other Overhead/);
+  assert.doesNotMatch(statement, /Other Overhead/);
+  assert.match(statement, /<span>Overhead<\/span>/);
+  assert.doesNotMatch(statement, /<SectionHeading>Overhead<\/SectionHeading>/);
+  assert.match(statement, /aria-expanded=\{expanded\}/);
   assert.match(statement, /Legacy \/ unitemized overhead/);
   assert.doesNotMatch(statement, /label="Overhead Labour"|label="Overhead Equipment"|label="Allocated Overhead"/);
   assert.doesNotMatch(statement, /before Company Overhead|Company Overhead is not allocated/);
@@ -65,9 +68,18 @@ test('financial statements render authoritative direct-cost child detail', () =>
   assert.match(statement, /financials\.directCostItems/);
   assert.match(model, /directCostItems/);
   assert.match(statement, /aria-expanded=\{isExpanded\}/);
-  assert.match(statement, /Maintenance/);
-  assert.match(statement, /Fuel/);
-  assert.match(statement, /Insurance/);
-  assert.match(statement, /Math\.abs\(equipmentComposition\.paymentsOther\) > 0\.005/);
+  assert.match(statement, /labour: true, equipment: true, materials: true, subcontractors: true/);
+  assert.match(statement, /Payments \/ Other[\s\S]*Replacement Reserve[\s\S]*Insurance[\s\S]*Fuel[\s\S]*Maintenance/);
+  assert.match(statement, /Math\.abs\(value\) > 0\.005/);
   assert.match(statement, /Equipment Items/);
+});
+
+test('all direct-cost categories and Overhead share collapsible category rows without hiding zero totals', () => {
+  for (const category of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) {
+    assert.match(statement, new RegExp(`category: '${category.toLowerCase()}'`));
+  }
+  assert.match(statement, /amount\(totals\[group\.category\]\)/);
+  assert.doesNotMatch(statement, /if \(totals\[group\.category\]\)|totals\[group\.category\] > 0/);
+  assert.match(statement, /onClick=\{\(\) => setExpanded/);
+  assert.match(statement, /onClick=\{\(\) => setExpanded\(\(current\) => !current\)\}/);
 });

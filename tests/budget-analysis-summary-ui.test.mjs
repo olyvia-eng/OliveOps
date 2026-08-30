@@ -33,19 +33,20 @@ test('dollar and percent modes derive from one canonical target margin', () => {
   assert.match(summaryModelSource, /profit \/ \(profit \+ costs\) \* 100/);
 });
 
-test('chart consumes summary segments and exposes rather than normalizes additional revenue needed', () => {
+test('chart consumes current summary segments and exposes rather than normalizes additional revenue needed', () => {
   assert.match(summarySource, /PieChart/);
   assert.match(summarySource, /data=\{pieData\}/);
   assert.match(summarySource, /summary\.chartSegments/);
   assert.doesNotMatch(summarySource, /Revenue distribution chart view|Stacked|Separate revenue distribution bars/);
   assert.match(summarySource, /pieData\.map/);
   assert.match(summarySource, /summary\.additionalRevenueNeeded/);
-  assert.match(summaryModelSource, /chartTotal = Math\.max\(revenue, requiredRevenue, 1\)/);
-  assert.match(summaryModelSource, /chartSegments = lines\.slice\(1\)/);
+  assert.match(summaryModelSource, /financials\.operatingProfit/);
+  assert.doesNotMatch(summarySource, /Above target|surplus/i);
+  assert.match(summarySource, /Current loss/);
 });
 
 test('current profit stays distinct from target profit and Pricing reads the same margin', () => {
-  assert.match(summaryModelSource, /currentProfit = revenue - totalPlannedCosts/);
+  assert.match(summaryModelSource, /currentProfit = Number\.isFinite\(financials\.operatingProfit\)/);
   assert.match(summaryModelSource, /requiredRevenue = totalPlannedCosts \/ \(1 - targetNetProfitPct \/ 100\)/);
   assert.match(summaryModelSource, /targetNetProfit = requiredRevenue - totalPlannedCosts/);
   assert.match(summarySource, /Current Budget/);

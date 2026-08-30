@@ -1,4 +1,5 @@
 import { BUDGET_CATEGORIES } from '../config/budgetCategories.js';
+import type { CanonicalCustomerStatus, CustomerLeadSource } from '../config/customer.js';
 
 // ─── Shared ──────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,8 @@ export interface Address {
 
 // ─── CRM ─────────────────────────────────────────────────────────────────────
 
-export type CustomerStatus = 'lead' | 'prospect' | 'active' | 'inactive';
+export type CustomerStatus = CanonicalCustomerStatus;
+export type CustomerRecordStatus = CustomerStatus | 'inactive';
 
 export interface Customer {
   id: ID;
@@ -27,7 +29,9 @@ export interface Customer {
   phone: string;
   properties: Address[];
   address?: Address;
-  status: CustomerStatus;
+  status: CustomerRecordStatus;
+  leadSource?: CustomerLeadSource;
+  leadSourceOther?: string;
   notes: string;
   tags: string[];
   createdAt: string;

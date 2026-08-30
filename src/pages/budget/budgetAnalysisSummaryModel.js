@@ -28,14 +28,13 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
   const subcontractorCost = nonNegative(financials.subcontractors);
   const overheadCost = nonNegative(financials.totalOverhead);
   const totalPlannedCosts = labourCost + equipmentCost + materialCost + subcontractorCost + overheadCost;
-  const currentProfit = revenue - totalPlannedCosts;
-  const currentProfitMarginPct = revenue > 0 ? currentProfit / revenue * 100 : null;
+  const currentProfit = Number.isFinite(financials.operatingProfit) ? financials.operatingProfit : null;
+  const currentProfitMarginPct = currentProfit !== null && revenue > 0 ? currentProfit / revenue * 100 : null;
   const targetNetProfitPct = normalizeTargetMargin(targetMarginPct);
   const requiredRevenue = totalPlannedCosts / (1 - targetNetProfitPct / 100);
   const targetNetProfit = requiredRevenue - totalPlannedCosts;
   const additionalRevenueNeeded = Math.max(0, requiredRevenue - revenue);
-  const surplusAfterTarget = Math.max(0, revenue - requiredRevenue);
-  const chartTotal = Math.max(revenue, requiredRevenue, 1);
+  const chartTotal = Math.max(currentProfit !== null && currentProfit >= 0 ? revenue : totalPlannedCosts, 1);
   const percentOfRevenue = (amount) => revenue > 0 ? amount / revenue * 100 : null;
   const lines = [
     { key: 'revenue', label: 'Revenue', amount: revenue, percentOfRevenue: revenue > 0 ? 100 : null },
@@ -44,9 +43,11 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
     { key: 'materials', label: 'Material Cost', amount: materialCost, percentOfRevenue: percentOfRevenue(materialCost) },
     { key: 'subcontractors', label: 'Subcontractor Cost', amount: subcontractorCost, percentOfRevenue: percentOfRevenue(subcontractorCost) },
     { key: 'overhead', label: 'Overhead Cost', amount: overheadCost, percentOfRevenue: percentOfRevenue(overheadCost) },
-    { key: 'targetProfit', label: 'Net Profit', amount: targetNetProfit, percentOfRevenue: targetNetProfitPct },
+    { key: 'netProfit', label: 'Net Profit', amount: currentProfit ?? 0, percentOfRevenue: currentProfitMarginPct },
   ];
-  const chartSegments = lines.slice(1).map((line) => ({ ...line, widthPct: line.amount / chartTotal * 100 }));
+  const chartSegments = lines.slice(1)
+    .filter((line) => line.key !== 'netProfit' || (currentProfit !== null && line.amount >= 0))
+    .map((line) => ({ ...line, widthPct: line.amount / chartTotal * 100 }));
 
   return {
     revenue,
@@ -62,7 +63,6 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
     requiredRevenue,
     additionalRevenueNeeded,
     shortfall: additionalRevenueNeeded,
-    surplusAfterTarget,
     feasible: additionalRevenueNeeded <= 0,
   };
 }

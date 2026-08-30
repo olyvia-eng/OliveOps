@@ -9,6 +9,7 @@ const financials = {
   materials: 75000,
   subcontractors: 50000,
   totalOverhead: 100000,
+  operatingProfit: 25000,
 };
 
 test('Analysis summary uses authoritative financial totals and keeps target profit distinct', () => {
@@ -20,7 +21,7 @@ test('Analysis summary uses authoritative financial totals and keeps target prof
     ['Material Cost', 75000],
     ['Subcontractor Cost', 50000],
     ['Overhead Cost', 100000],
-    ['Net Profit', 52777.77777777775],
+    ['Net Profit', 25000],
   ]);
   assert.equal(summary.totalPlannedCosts, 475000);
   assert.equal(summary.currentProfit, 25000);
@@ -39,17 +40,33 @@ test('percentage mode values use Revenue and dollar entry derives the one margin
   assert.equal(targetMarginFromDollars(0, 0), 0);
 });
 
-test('chart uses summary values and preserves an over-target shortfall without normalization', () => {
+test('chart uses current economics and target margin never changes its segmentation', () => {
   const summary = buildBudgetAnalysisSummary(financials, 10);
   assert.deepEqual(summary.chartSegments.map((segment) => segment.amount), summary.lines.slice(1).map((line) => line.amount));
-  assert.ok(Math.abs(summary.chartTotal - 527777.7777777778) < 0.000001);
-  assert.equal(summary.revenueMarkerPct, 500000 / summary.chartTotal * 100);
+  assert.equal(summary.chartTotal, 500000);
+  assert.equal(summary.revenueMarkerPct, 100);
   assert.equal(summary.chartSegments.reduce((sum, segment) => sum + segment.widthPct, 0), 100);
 
-  const feasible = buildBudgetAnalysisSummary({ ...financials, totalOverhead: 50000 }, 10);
-  assert.equal(feasible.shortfall, 0);
-  assert.ok(Math.abs(feasible.surplusAfterTarget - 27777.77777777781) < 0.000001);
-  assert.equal(feasible.chartTotal, feasible.revenue);
+  for (const targetMargin of [0, 5, 10, 50]) {
+    assert.deepEqual(buildBudgetAnalysisSummary(financials, targetMargin).chartSegments, summary.chartSegments);
+  }
+});
+
+test('chart shows actual profit above target and never creates a surplus segment', () => {
+  const result = buildBudgetAnalysisSummary({ revenue: 1000000, directLabour: 300000, directEquipment: 100000, materials: 50000, subcontractors: 0, totalOverhead: 50000, operatingProfit: 500000 }, 10);
+  assert.deepEqual(result.chartSegments.map(({ key, amount }) => [key, amount]), [
+    ['labour', 300000], ['equipment', 100000], ['materials', 50000], ['subcontractors', 0], ['overhead', 50000], ['netProfit', 500000],
+  ]);
+  assert.equal(result.chartSegments.reduce((sum, segment) => sum + segment.amount, 0), result.revenue);
+  assert.equal(result.chartSegments.some((segment) => /surplus|above target/i.test(segment.label)), false);
+});
+
+test('loss chart keeps positive costs and omits the negative profit slice', () => {
+  const result = buildBudgetAnalysisSummary({ ...financials, revenue: 400000, operatingProfit: -75000 }, 10);
+  assert.equal(result.currentProfit, -75000);
+  assert.equal(result.chartSegments.some((segment) => segment.key === 'netProfit'), false);
+  assert.equal(result.chartSegments.reduce((sum, segment) => sum + segment.amount, 0), 475000);
+  assert.equal(result.chartTotal, 475000);
 });
 
 test('Target Profit Margin display preserves meaningful precision without trailing zeroes', () => {
@@ -65,6 +82,7 @@ test('target-margin economics distinguish current results from the revenue requi
     materials: 80000,
     subcontractors: 40000,
     totalOverhead: 34420,
+    operatingProfit: 55580,
   }, 50);
 
   assert.equal(summary.totalPlannedCosts, 454420);
@@ -97,16 +115,16 @@ test('target-margin boundaries remain finite and reject invalid user input', () 
 });
 
 test('target summary safely handles over-target, zero-cost, and zero-revenue Budgets', () => {
-  const overTarget = buildBudgetAnalysisSummary({ ...financials, revenue: 1000000 }, 10);
+  const overTarget = buildBudgetAnalysisSummary({ ...financials, revenue: 1000000, operatingProfit: 525000 }, 10);
   assert.equal(overTarget.additionalRevenueNeeded, 0);
   assert.equal(overTarget.feasible, true);
 
-  const zeroCosts = buildBudgetAnalysisSummary({ revenue: 100, directLabour: 0, directEquipment: 0, materials: 0, subcontractors: 0, totalOverhead: 0 }, 50);
+  const zeroCosts = buildBudgetAnalysisSummary({ revenue: 100, directLabour: 0, directEquipment: 0, materials: 0, subcontractors: 0, totalOverhead: 0, operatingProfit: 100 }, 50);
   assert.equal(zeroCosts.requiredRevenue, 0);
   assert.equal(zeroCosts.targetNetProfit, 0);
   assert.equal(zeroCosts.additionalRevenueNeeded, 0);
 
-  const zeroRevenue = buildBudgetAnalysisSummary({ ...financials, revenue: 0 }, 50);
+  const zeroRevenue = buildBudgetAnalysisSummary({ ...financials, revenue: 0, operatingProfit: -475000 }, 50);
   assert.equal(zeroRevenue.currentProfit, -475000);
   assert.equal(zeroRevenue.currentProfitMarginPct, null);
   assert.equal(zeroRevenue.additionalRevenueNeeded, 950000);
