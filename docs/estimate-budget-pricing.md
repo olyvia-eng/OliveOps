@@ -4,7 +4,9 @@ Estimate Work Areas consume calculated pricing from the Estimate's selected over
 
 ## Canonical path
 
-For `divisions_v1` Budgets, catalog discovery starts from tenant-owned `BUDGET_DIVISION_PLAN` records across the entire Budget. Each Estimate has one selected Division, and the Work Area catalog includes planning items allocated to that Division.
+For `divisions_v1` Budgets, Labour, Equipment, and Subcontractor discovery starts from tenant-owned `BUDGET_DIVISION_PLAN` records across the entire Budget. Material discovery starts from the full tenant-owned Material Catalog, then merges optional Budget planning and pricing by `materialCatalogItemId`. Each Estimate has one selected Division.
+
+Selectable materials have one explicit origin: `budget_backed`, `catalog_only`, or `legacy_budget_only`. Catalog-only resources use their real `materialCatalogItemId` and never receive a synthetic `sourceBudgetItemId`. Unlinked legacy Budget materials remain selectable by their real Budget planning item ID.
 
 The server resolves reusable estimating resources by canonical identity:
 
@@ -20,6 +22,16 @@ The Budget persists `targetMarginPct` as percentage points, so a configured valu
 Current Division pricing treats only `customRate` as an explicit override. When it is `null` or absent, the Estimate rate is the calculated rate. Legacy `defaultSellPrice`, approved rates, equipment charge-out rates, and historical snapshot fields remain available to their compatibility paths but are not inferred to be a current custom override.
 
 Equipment, Materials, and Subcontractors use the calculated row for their planning item in the selected Division. Display names are not an identity boundary.
+
+Budget-backed materials retain the existing calculated pricing path. A Catalog-only material with a positive finite direct cost can reuse the selected Division's existing material recovery rate and Budget target margin when recovery configuration is valid. Its direct cost is not added to Budget planning totals or the annual recovery denominator:
+
+```text
+Catalog-only overhead = Catalog direct cost * existing Division material recovery rate
+Catalog-only breakeven = Catalog direct cost + Catalog-only overhead
+Catalog-only calculated price = breakeven / (1 - Budget target margin %)
+```
+
+Otherwise the material remains selectable with `pricingReadiness: needs_review`, its Catalog direct cost snapshot, and no fabricated recommended sell price. The existing Estimate-only margin/custom-price editor completes its pricing. A persisted missing Catalog cost already normalizes to zero in the current Catalog repository; both normalized zero and an unparseable cost at the pure model boundary are safe and require pricing review. Explicitly inactive Catalog materials are excluded, while legacy records with no `active` field remain active.
 
 Equipment eligibility is resolved before the Estimate catalog is returned. Equipment whose tenant-owned catalog record is classified as `overhead` is excluded rather than returned as unavailable; unlinked/manual planning items use their saved planning classification. Billable equipment continues through the existing Division pricing readiness rules. This selection rule does not remove or reprice equipment already snapshotted on an Estimate.
 
@@ -41,7 +53,7 @@ Each current Division item includes `budgetItemId`, `sourceEntityId`, unit, cost
 
 ## Estimate snapshots
 
-Adding a calculated catalog item stores the selected Budget, shared Budget item, source entity, pricing version, direct cost, recovered cost, target margin, calculated price, effective Budget price, and final sell price on the Estimate line item. The Estimate API re-resolves newly added source items and replaces browser-provided financial values with current server-calculated values. A Budget custom rate remains distinguishable from the underlying calculated price, and Budget-priced lines do not apply a second Estimate-level markup.
+Adding a calculated catalog item stores the selected Budget, optional shared Budget item, canonical source entity, material Catalog ID when applicable, source origin, pricing readiness, pricing version, direct cost, recovered cost, target margin, calculated price, effective Budget price, and final sell price on the Estimate line item. The Estimate API re-resolves newly added source items and replaces browser-provided identity and financial values with current server-calculated values. A Budget custom rate remains distinguishable from the underlying calculated price, and Budget-priced lines do not apply a second Estimate-level markup.
 
 Existing line-item snapshots are not re-resolved during later edits. Their source, cost, and sell-rate fields are preserved authoritatively while quantity and notes may change. Changing Budget inputs or recalculating rates therefore does not silently alter an existing draft, sent, accepted, declined, or converted Estimate. Historical Estimates that contain legacy approval-based snapshots remain unchanged. A future explicit "refresh pricing" workflow would need its own review and lifecycle rules.
 

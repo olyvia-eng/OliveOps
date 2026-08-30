@@ -59,6 +59,9 @@ export interface EstimateLineItem {
   sourceBudgetId?: ID;
   sourceBudgetItemId?: ID;
   sourceEntityId?: ID;
+  materialCatalogItemId?: ID;
+  sourceOrigin?: EstimateResourceOrigin;
+  pricingReadiness?: EstimatePricingReadiness;
   sourceRateId?: ID;
   pricingRateUpdatedAt?: string;
   pricingVersion?: number;
@@ -97,13 +100,18 @@ export interface EstimateLineItem {
   markup?: number;
 }
 
+export type EstimateResourceOrigin = 'budget_backed' | 'catalog_only' | 'legacy_budget_only';
+export type EstimatePricingReadiness = 'priced' | 'needs_review';
 export type EstimatePricingStatus = 'calculated' | 'approved' | 'recommended_not_approved' | 'unavailable';
 
 export interface EstimatePricingCatalogItem {
   type: LineItemCategory;
   sourceEntityId?: ID;
+  materialCatalogItemId?: ID;
+  sourceOrigin?: EstimateResourceOrigin;
+  pricingReadiness?: EstimatePricingReadiness;
   labourClassId?: ID;
-  budgetItemId: ID;
+  budgetItemId?: ID;
   sourceRateId?: ID;
   name: string;
   description: string;
@@ -342,6 +350,7 @@ export interface MaterialCatalogItem {
   name: string;
   unit: string;
   defaultUnitCost: number;
+  active?: boolean;
   notes: string;
   createdAt: string;
   updatedAt: string;

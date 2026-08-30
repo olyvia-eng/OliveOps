@@ -34,7 +34,7 @@ test('Labour drawer presents calculated Division pricing without approval langua
 });
 
 test('Work Area resources expose snapshot economics with editable quantity and actions', () => {
-  assert.match(builderSource, /const isBudgetPriced = Boolean\(lineItem\.sourceBudgetItemId \|\| lineItem\.sourceRateId \|\| lineItem\.equipmentId\)/);
+  assert.match(builderSource, /const isBudgetPriced = Boolean\(lineItem\.sourceBudgetItemId \|\| lineItem\.sourceRateId \|\| lineItem\.equipmentId \|\| lineItem\.materialCatalogItemId\)/);
   for (const heading of ['Item', 'Quantity', 'Cost', 'Breakeven', 'Total Cost', 'Profit', 'Price', 'Total Price', 'Actions']) assert.match(builderSource, new RegExp(`>${heading}<`));
   assert.match(builderSource, /getEstimateLinePricingEconomics\(lineItem\)/);
   assert.match(builderSource, /const usesHours = category === 'labour' \|\| \(category === 'equipment' && lineItem\.unit === 'hr'\)/);
@@ -119,4 +119,14 @@ test('Work Area summaries keep all categories visible at zero', () => {
     assert.match(workspaceSource, new RegExp(`categoryTotals\\.${category}\\)`));
     assert.doesNotMatch(workspaceSource, new RegExp(`categoryTotals\\.${category} > 0`));
   }
+});
+
+test('Material drawer searches the merged catalog and uses stable source identity', () => {
+  assert.match(builderSource, /\['material', estimatePricingCatalog\.materials\]/);
+  assert.match(builderSource, /item\.materialCatalogItemId \? `material:\$\{item\.materialCatalogItemId\}`/);
+  assert.match(builderSource, /alreadyAddedMaterialIds\.has\(item\.materialCatalogItemId\)/);
+  assert.match(builderSource, /candidate\.searchText\.includes\(query\)/);
+  assert.match(builderSource, /Not in selected Budget/);
+  assert.match(builderSource, /pricingReadiness === 'needs_review'/);
+  assert.match(builderSource, /setPricingLineItemId\(nextItem\.id\)/);
 });

@@ -194,6 +194,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     const lineItems = form?.lineItems ?? [];
     if (!estimatePricingCatalog) return [];
     const alreadyAddedBudgetItemIds = new Set(lineItems.map((item) => item.sourceBudgetItemId).filter((value): value is string => Boolean(value)));
+    const alreadyAddedMaterialIds = new Set(lineItems.map((item) => item.materialCatalogItemId).filter((value): value is string => Boolean(value)));
     const categoryItems: Array<[LineItemCategory, EstimatePricingCatalogItem[]]> = [
       ['labour', estimatePricingCatalog.labour],
       ['equipment', estimatePricingCatalog.equipment],
@@ -201,17 +202,21 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       ['subcontractor', estimatePricingCatalog.subcontractors],
     ];
     return categoryItems.flatMap(([category, items]) => items.map((item) => ({
-      key: `budget:${item.budgetItemId}`,
+      key: item.materialCatalogItemId ? `material:${item.materialCatalogItemId}` : `budget:${item.budgetItemId}`,
       category,
       displayName: item.name,
       description: item.description || item.costCode || CATEGORY_LABEL[category],
       unit: item.unit,
-      priceText: item.pricingAvailable && item.sellRate
+      priceText: item.pricingReadiness === 'needs_review'
+        ? 'Needs review'
+        : item.pricingAvailable && item.sellRate
         ? `${formatCurrency(item.sellRate)}/${item.unit}`
         : 'Unavailable',
       pricingItem: item,
-      disabledReason: item.pricingAvailable ? undefined : item.pricingReason ?? `${CATEGORY_LABEL[category]} pricing is unavailable for ${estimateDivision?.name ?? 'this Division'}.`,
-      alreadyAdded: alreadyAddedBudgetItemIds.has(item.budgetItemId),
+      disabledReason: item.pricingAvailable || item.pricingReadiness === 'needs_review' ? undefined : item.pricingReason ?? `${CATEGORY_LABEL[category]} pricing is unavailable for ${estimateDivision?.name ?? 'this Division'}.`,
+      alreadyAdded: item.materialCatalogItemId
+        ? alreadyAddedMaterialIds.has(item.materialCatalogItemId) || Boolean(item.budgetItemId && alreadyAddedBudgetItemIds.has(item.budgetItemId))
+        : Boolean(item.budgetItemId && alreadyAddedBudgetItemIds.has(item.budgetItemId)),
       searchText: `${item.name} ${item.description} ${item.costCode ?? ''} ${category} ${item.unit}`.toLowerCase(),
     })));
   }, [estimateDivision?.name, estimatePricingCatalog, form?.lineItems]);
@@ -299,25 +304,19 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   };
 
   const handleAddFromCandidate = (candidate: CatalogCandidate) => {
-    if (candidate.alreadyAdded || !candidate.pricingItem?.pricingAvailable || addingCandidateKey === candidate.key) return;
+    const canAdd = candidate.pricingItem?.pricingAvailable || candidate.pricingItem?.pricingReadiness === 'needs_review';
+    if (candidate.alreadyAdded || !candidate.pricingItem || !canAdd || addingCandidateKey === candidate.key) return;
     const pricingItem = candidate.pricingItem;
+    const applied = applyEstimatePricingToLineItem(createEmptyEstimateLineItem(candidate.category), estimate.pricingBudgetId, pricingItem);
+    const nextItem = calculateEstimateLineItem({
+      ...applied,
+      itemName: candidate.displayName,
+      description: candidate.description || applied.description,
+    });
 
     setAddingCandidateKey(candidate.key);
-    setForm((current) => {
-      if (!current) return current;
-
-      const applied = applyEstimatePricingToLineItem(createEmptyEstimateLineItem(candidate.category), estimate.pricingBudgetId, pricingItem);
-      const nextItem = calculateEstimateLineItem({
-        ...applied,
-        itemName: candidate.displayName,
-        description: candidate.description || applied.description,
-      });
-
-      return {
-        ...current,
-        lineItems: [...current.lineItems, nextItem],
-      };
-    });
+    setForm((current) => current ? { ...current, lineItems: [...current.lineItems, nextItem] } : current);
+    if (pricingItem.pricingReadiness === 'needs_review') setPricingLineItemId(nextItem.id);
 
     window.setTimeout(() => setAddingCandidateKey(null), 250);
   };
@@ -434,7 +433,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         <p className="py-6 text-center text-sm text-gray-500 dark:text-brand-300">Loading pricing from {pricingBudget?.name ?? 'the selected Budget'}...</p>
       ) : catalogError ? (
         <EmptyState title="Pricing catalog unavailable" description={catalogError} />
-      ) : pricingBudget?.planningModel === 'divisions_v1' && visibleCatalogCandidates.length > 0 && visibleCatalogCandidates.every((candidate) => !candidate.pricingItem?.pricingAvailable) ? (
+      ) : pricingBudget?.planningModel === 'divisions_v1' && visibleCatalogCandidates.length > 0 && visibleCatalogCandidates.every((candidate) => !candidate.pricingItem?.pricingAvailable && candidate.pricingItem?.pricingReadiness !== 'needs_review') ? (
         <div className="rounded-lg border border-accent-200 bg-accent-50 px-3 py-2 text-sm text-accent-800">
           {catalogCategory === 'labour'
             ? `Labour pricing is incomplete for ${estimateDivision?.name ?? 'this Division'}.`
@@ -461,13 +460,15 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       ) : !catalogLoading && !catalogError ? (
         <div className="space-y-3">
           {visibleCatalogCandidates.map((candidate) => {
-            const canAdd = Boolean(candidate.pricingItem?.pricingAvailable);
+            const canAdd = Boolean(candidate.pricingItem?.pricingAvailable || candidate.pricingItem?.pricingReadiness === 'needs_review');
             return (
             <div key={candidate.key} className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-gray-900 dark:text-brand-50">{candidate.displayName}</p>
+                    {candidate.pricingItem?.sourceOrigin === 'catalog_only' ? <span className="text-[11px] font-semibold uppercase text-gray-500 dark:text-brand-300">Not in selected Budget</span> : null}
+                    {candidate.pricingItem?.sourceOrigin === 'legacy_budget_only' ? <span className="text-[11px] font-semibold uppercase text-gray-500 dark:text-brand-300">Legacy Budget item</span> : null}
                     {candidate.alreadyAdded ? <span className="text-[11px] font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">Already added</span> : null}
                   </div>
                   <p className="mt-1 text-sm text-gray-600 dark:text-brand-200">{candidate.description}</p>
@@ -480,6 +481,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-semibold text-gray-900 dark:text-brand-50">{candidate.priceText}</p>
+                  {candidate.pricingItem?.sourceOrigin === 'catalog_only' && candidate.pricingItem.costRate != null ? <p className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">{formatCurrency(candidate.pricingItem.costRate)}/{candidate.unit} cost</p> : null}
                   <Button
                     size="sm"
                     variant={canAdd ? 'secondary' : 'ghost'}
@@ -494,7 +496,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   </Button>
                 </div>
               </div>
-              {!canAdd && candidate.disabledReason ? <p className="mt-2 text-xs text-accent-700">{candidate.disabledReason}</p> : null}
+              {candidate.pricingItem?.pricingReadiness === 'needs_review' && candidate.pricingItem.pricingReason ? <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{candidate.pricingItem.pricingReason}</p> : !canAdd && candidate.disabledReason ? <p className="mt-2 text-xs text-accent-700">{candidate.disabledReason}</p> : null}
             </div>
           );})}
         </div>
@@ -525,7 +527,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               <span>Item</span><span>Quantity</span><span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
             </div>
             {items.map((lineItem) => {
-              const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId);
+              const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId || lineItem.materialCatalogItemId);
               const usesHours = category === 'labour' || (category === 'equipment' && lineItem.unit === 'hr');
               const quantityLabel = usesHours ? 'Hours' : 'Quantity';
               const isExpanded = expandedLineItemIds.has(lineItem.id);

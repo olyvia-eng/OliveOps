@@ -50,6 +50,9 @@ test('Estimate pricing endpoint returns calculated Division rates without requir
   for (const employee of [{ id: 'ryan', name: 'Ryan Field', labourClassId: 'class-labourer', compensationType: 'hourly', hourlyRate: 20, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 }, { id: 'john', name: 'John Field', labourClassId: 'class-labourer', compensationType: 'hourly', hourlyRate: 40, payrollBurdenPct: 0, benefitsExtraCost: 0, bonus: 0 }]) put(store, 'biz-a', `EMPLOYEE#${employee.id}`, { entityType: 'EMPLOYEE', employeeId: employee.id, active: true, ...employee });
   for (const equipment of [{ id: 'bobcat', name: 'Bobcat E50', equipmentClassification: 'billable' }, { id: 'truck', name: 'Dump Truck', equipmentClassification: 'billable' }, { id: 'crew-truck', name: 'Crew Truck', equipmentClassification: 'overhead' }]) put(store, 'biz-a', `EQUIPMENT#${equipment.id}`, { entityType: 'EQUIPMENT', equipmentId: equipment.id, status: 'available', type: 'Equipment', ...equipment });
   put(store, 'biz-a', 'MATERIAL#gravel', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'gravel', id: 'gravel', name: 'A Gravel', unit: 'tonne', active: true });
+  put(store, 'biz-a', 'MATERIAL#mulch', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'mulch', id: 'mulch', name: 'Mulch', unit: 'yard', defaultUnitCost: 20, active: true });
+  put(store, 'biz-a', 'MATERIAL#inactive', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'inactive', id: 'inactive', name: 'Inactive Material', unit: 'unit', defaultUnitCost: 5, active: false });
+  put(store, 'biz-b', 'MATERIAL#foreign', { entityType: 'MATERIAL_CATALOG_ITEM', materialId: 'foreign', id: 'foreign', name: 'Foreign Material', unit: 'unit', defaultUnitCost: 1, active: true });
 
   const items = [
     { id: 'labour-ryan', budgetId: 'budget-2027', divisionId: 'hardscape', category: 'labour', employeeId: 'ryan', name: 'Ryan Field', compType: 'hourly', hourlyRate: 20, plannedHours: 500, expectedBillablePct: 100, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', hours: 500 }] },
@@ -79,6 +82,9 @@ test('Estimate pricing endpoint returns calculated Division rates without requir
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Crew Truck'), false);
   assert.equal(res.body.catalog.equipment.some((item) => item.name === 'Dump Truck'), false);
   assert.equal(res.body.catalog.materials[0].sellRate, 12.5);
+  assert.deepEqual(res.body.catalog.materials.map((item) => item.name), ['A Gravel', 'Mulch']);
+  assert.equal(res.body.catalog.materials.find((item) => item.name === 'Mulch').sourceOrigin, 'catalog_only');
+  assert.equal(res.body.catalog.materials.some((item) => item.name === 'Inactive Material' || item.name === 'Foreign Material'), false);
   assert.equal(res.body.catalog.subcontractors[0].sellRate, 125);
   assert.equal(res.body.catalog.labour[0].labourClassId, 'class-labourer');
   assert.equal(JSON.stringify(res.body.catalog.labour).includes('Ryan Field'), false);

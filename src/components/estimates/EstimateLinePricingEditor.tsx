@@ -20,6 +20,7 @@ export default function EstimateLinePricingEditor({ lineItem, onChange, onClose 
     const next = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct: nextMargin, customSellPrice: nextCustomPrice });
     onChange({
       ...lineItem,
+      pricingReadiness: 'priced',
       estimateTargetMarginPct: next.targetMarginPct,
       estimateCustomSellPrice: next.customSellPrice,
       sellPrice: next.sellPrice,

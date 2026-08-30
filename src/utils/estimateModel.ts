@@ -35,6 +35,9 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     sourceBudgetId: item.sourceBudgetId,
     sourceBudgetItemId: item.sourceBudgetItemId,
     sourceEntityId: item.sourceEntityId,
+    materialCatalogItemId: item.materialCatalogItemId,
+    sourceOrigin: item.sourceOrigin,
+    pricingReadiness: item.pricingReadiness,
     sourceRateId: item.sourceRateId,
     pricingRateUpdatedAt: item.pricingRateUpdatedAt,
     pricingVersion: item.pricingVersion,
@@ -131,9 +134,10 @@ export function applyBudgetRateToEstimateLineItem(lineItem: EstimateLineItem, ra
 }
 
 export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budgetId: string, pricing: EstimatePricingCatalogItem): EstimateLineItem {
-  if (!pricing.pricingAvailable || !(pricing.sellRate && pricing.sellRate > 0)) return lineItem;
+  const canAddForReview = pricing.sourceOrigin === 'catalog_only' && pricing.pricingReadiness === 'needs_review';
+  if ((!pricing.pricingAvailable || !(pricing.sellRate && pricing.sellRate > 0)) && !canAddForReview) return lineItem;
   const unitCost = Math.max(0, pricing.costRate ?? 0);
-  const sellPrice = pricing.sellRate;
+  const sellPrice = pricing.sellRate ?? 0;
 
   return calculateEstimateLineItem({
     ...lineItem,
@@ -141,6 +145,9 @@ export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budge
     sourceBudgetId: budgetId,
     sourceBudgetItemId: pricing.budgetItemId,
     sourceEntityId: pricing.sourceEntityId,
+    materialCatalogItemId: pricing.materialCatalogItemId,
+    sourceOrigin: pricing.sourceOrigin,
+    pricingReadiness: pricing.pricingReadiness,
     sourceRateId: pricing.sourceRateId,
     pricingRateUpdatedAt: pricing.pricingRateUpdatedAt,
     pricingVersion: pricing.pricingVersion,

@@ -1,4 +1,5 @@
 import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
+import { buildOverheadRecoveryModel, grossMarginRate, recoveryPerUnit } from '../../src/pages/budget/overheadRecoveryModel.js';
 import { buildLabourClassCatalog } from '../../src/pages/data-center/labourClassPricingModel.js';
 import { calculateEstimateSnapshotPricing } from '../../src/utils/estimatePricingModel.js';
 import { resolveEquipmentClassificationModel } from '../../src/utils/equipmentPricingModel.js';
@@ -13,6 +14,17 @@ const CATEGORY_MAP = {
 const positiveNumber = (value) => {
   const number = Number(value ?? 0);
   return Number.isFinite(number) && number > 0 ? number : null;
+};
+
+const catalogCost = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+};
+
+const validTargetMargin = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number < 100 ? number : null;
 };
 
 const sourceEntityId = (item) => {
@@ -65,6 +77,9 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
   const calculatedRows = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
     ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees, equipmentAssets, labourClasses })
     : [];
+  const recovery = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
+    ? buildOverheadRecoveryModel({ budget, divisions, planningItems, equipmentAssets })
+    : { divisions: {} };
   const uniqueItems = new Map();
 
   for (const item of planningItems) {
@@ -147,6 +162,10 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
   }
   for (const { item, divisionId: itemDivisionId } of uniqueItems.values()) {
     const type = CATEGORY_MAP[item.category];
+    const linkedMaterial = item.category === 'materials' && item.materialCatalogItemId
+      ? entities.materials.get(item.materialCatalogItemId)
+      : undefined;
+    if (linkedMaterial?.active === false) continue;
     const calculatedRow = itemDivisionId ? calculatedRows.find((row) => row.divisionId === itemDivisionId
       && row.type === type
       && (item.category === 'labour'
@@ -166,9 +185,15 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
     const pricingStatus = usesCalculatedPricing ? pricingAvailable ? 'calculated' : 'unavailable' : approvedRate ? 'approved' : recommendedRate ? 'recommended_not_approved' : 'unavailable';
     const sourceId = sourceEntityId(item);
 
+    const sourceOrigin = item.category === 'materials'
+      ? linkedMaterial ? 'budget_backed' : 'legacy_budget_only'
+      : sourceId ? 'budget_backed' : 'legacy_budget_only';
     catalog[item.category].push({
       type,
+      sourceOrigin,
+      pricingReadiness: pricingAvailable ? 'priced' : 'needs_review',
       sourceEntityId: sourceId,
+      materialCatalogItemId: item.category === 'materials' && linkedMaterial ? sourceId : undefined,
       budgetItemId: item.id,
       sourceRateId: usesCalculatedPricing ? calculatedRow?.rate?.id : matchingRate?.id,
       pricingRateUpdatedAt: usesCalculatedPricing ? budget.updatedAt : matchingRate?.updatedAt,
@@ -197,6 +222,61 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
     });
   }
 
+  const budgetMaterialIds = new Set(catalog.materials
+    .filter((item) => item.materialCatalogItemId)
+    .map((item) => `${item.divisionId ?? ''}:${item.materialCatalogItemId}`));
+  for (const material of materialCatalogItems.filter((item) => item.active !== false)) {
+    const materialDivisionIds = divisionId
+      ? [divisionId]
+      : includeAllDivisions
+        ? (divisions ?? []).filter((division) => division.status === 'active').map((division) => division.id)
+        : [undefined];
+    for (const materialDivisionId of materialDivisionIds) {
+      if (budgetMaterialIds.has(`${materialDivisionId ?? ''}:${material.id}`)) continue;
+      const directCost = catalogCost(material.defaultUnitCost);
+      const scope = materialDivisionId ? recovery.divisions[materialDivisionId] : undefined;
+      const targetMarginPct = validTargetMargin(budget?.targetMarginPct ?? 20);
+      const canDerivePricing = directCost !== null && directCost > 0 && Boolean(scope?.valid) && targetMarginPct !== null;
+      const divisionOverheadRecoveryPerUnit = canDerivePricing ? recoveryPerUnit(scope, 'materials', directCost) : null;
+      const recoveredCostPerUnit = canDerivePricing ? directCost + divisionOverheadRecoveryPerUnit : directCost;
+      const calculatedRate = canDerivePricing ? grossMarginRate(recoveredCostPerUnit, targetMarginPct) : null;
+      const pricingAvailable = calculatedRate !== null && Number.isFinite(calculatedRate) && calculatedRate > 0;
+      catalog.materials.push({
+        type: 'material',
+        sourceOrigin: 'catalog_only',
+        pricingReadiness: pricingAvailable ? 'priced' : 'needs_review',
+        sourceEntityId: material.id,
+        materialCatalogItemId: material.id,
+        pricingRateUpdatedAt: material.updatedAt,
+        pricingVersion: 2,
+        divisionId: materialDivisionId,
+        divisionName: divisions?.find((division) => division.id === materialDivisionId)?.name,
+        directCostPerUnit: directCost,
+        divisionOverheadRecoveryPerUnit,
+        companyOverheadRecoveryPerUnit: 0,
+        recoveredCostPerUnit,
+        targetMarginPct: canDerivePricing ? targetMarginPct : null,
+        name: material.name || 'Unnamed material',
+        description: material.notes ?? '',
+        unit: material.unit || 'unit',
+        costRate: directCost,
+        recommendedRate: calculatedRate,
+        approvedRate: null,
+        calculatedRate,
+        customRate: null,
+        estimateRate: calculatedRate,
+        sellRate: calculatedRate,
+        pricingAvailable,
+        pricingStatus: pricingAvailable ? 'calculated' : 'unavailable',
+        pricingReason: pricingAvailable ? undefined : directCost === null
+          ? 'Catalog direct cost is missing or invalid. Review Estimate pricing before saving.'
+          : directCost === 0
+            ? 'Catalog direct cost is $0. Review Estimate pricing before saving.'
+            : 'Budget material recovery or target margin is unavailable. Review Estimate pricing before saving.',
+      });
+    }
+  }
+
   for (const values of Object.values(catalog)) values.sort((left, right) => left.name.localeCompare(right.name));
   return { budgetId, ...catalog };
 }
@@ -220,6 +300,9 @@ const preservePricingSnapshot = (existing, next) => {
     || existing.estimateCustomSellPrice != null
     || estimateTargetMarginPct != null
     || estimateCustomSellPrice != null;
+  const pricingReadiness = existing.pricingReadiness === 'needs_review' && hasEstimatePricing
+    ? 'priced'
+    : existing.pricingReadiness;
   const pricing = hasEstimatePricing ? calculateEstimateSnapshotPricing({
     breakeven: existing.recoveredCostPerUnit ?? existing.breakevenRate ?? 0,
     targetMarginPct: estimateTargetMarginPct ?? existing.targetMarginPct ?? 0,
@@ -232,6 +315,9 @@ const preservePricingSnapshot = (existing, next) => {
     sourceBudgetId: existing.sourceBudgetId,
     sourceBudgetItemId: existing.sourceBudgetItemId,
     sourceEntityId: existing.sourceEntityId,
+    materialCatalogItemId: existing.materialCatalogItemId,
+    sourceOrigin: existing.sourceOrigin,
+    pricingReadiness,
     sourceRateId: existing.sourceRateId,
     pricingRateUpdatedAt: existing.pricingRateUpdatedAt,
     pricingVersion: existing.pricingVersion,
@@ -273,25 +359,40 @@ const preservePricingSnapshot = (existing, next) => {
 
 export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstimate, catalog }) {
   const existingById = new Map(estimateLineItems(existingEstimate).map((item) => [item.id, item]));
-  const pricingByBudgetItemId = new Map(catalogItems(catalog).map((item) => [`${item.divisionId ?? ''}:${item.budgetItemId}`, item]));
+  const pricingByBudgetItemId = new Map(catalogItems(catalog).filter((item) => item.budgetItemId).map((item) => [`${item.divisionId ?? ''}:${item.budgetItemId}`, item]));
+  const materialPricingByCatalogId = new Map(catalog.materials.filter((item) => item.materialCatalogItemId).map((item) => [`${item.divisionId ?? ''}:${item.materialCatalogItemId}`, item]));
 
   const apply = (item) => {
-    if (!item?.sourceBudgetItemId) return { ok: true, item };
     const existing = existingById.get(item.id);
-    if (existing?.sourceBudgetItemId === item.sourceBudgetItemId) return { ok: true, item: preservePricingSnapshot(existing, item) };
+    const preservesBudgetSnapshot = item?.sourceBudgetItemId && existing?.sourceBudgetItemId === item.sourceBudgetItemId;
+    const preservesCatalogSnapshot = item?.materialCatalogItemId && existing?.materialCatalogItemId === item.materialCatalogItemId;
+    if (preservesBudgetSnapshot || preservesCatalogSnapshot) return { ok: true, item: preservePricingSnapshot(existing, item) };
+    if (!item?.sourceBudgetItemId && !item?.materialCatalogItemId) return { ok: true, item };
     if (item.sourceBudgetId !== catalog.budgetId || nextEstimate.pricingBudgetId !== catalog.budgetId) {
       return { ok: false, error: 'Estimate pricing must come from its selected Pricing Budget.' };
     }
-    const pricing = pricingByBudgetItemId.get(`${item.divisionId ?? ''}:${item.sourceBudgetItemId}`)
-      ?? pricingByBudgetItemId.get(`:${item.sourceBudgetItemId}`);
-    if (!pricing?.pricingAvailable || !(pricing.sellRate > 0)) {
+    const pricing = item.sourceBudgetItemId
+      ? pricingByBudgetItemId.get(`${item.divisionId ?? ''}:${item.sourceBudgetItemId}`) ?? pricingByBudgetItemId.get(`:${item.sourceBudgetItemId}`)
+      : materialPricingByCatalogId.get(`${item.divisionId ?? ''}:${item.materialCatalogItemId}`);
+    if (!pricing || (item.sourceBudgetItemId && (!pricing.pricingAvailable || !(pricing.sellRate > 0)))) {
       return { ok: false, error: 'The selected Budget item does not have calculated pricing.' };
+    }
+    if (!item.sourceBudgetItemId && pricing.sourceOrigin !== 'catalog_only') {
+      return { ok: false, error: 'The selected Catalog material identity is invalid.' };
     }
     if (item.sourceEntityId && item.sourceEntityId !== pricing.sourceEntityId) {
       return { ok: false, error: 'Estimate pricing source identity is invalid.' };
     }
     const unitCost = Math.max(0, pricing.costRate ?? 0);
-    const sellPrice = pricing.sellRate;
+    const hasEstimateOverride = item.estimateTargetMarginPct != null || item.estimateCustomSellPrice != null;
+    const estimatePricing = hasEstimateOverride ? calculateEstimateSnapshotPricing({
+      breakeven: pricing.recoveredCostPerUnit ?? unitCost,
+      targetMarginPct: item.estimateTargetMarginPct ?? 0,
+      customSellPrice: item.estimateCustomSellPrice ?? null,
+    }) : null;
+    const sellPrice = item.sourceBudgetItemId || pricing.pricingReadiness === 'priced'
+      ? pricing.sellRate
+      : estimatePricing?.sellPrice ?? 0;
     const quantity = Math.max(0, Number(item.quantity ?? 0));
     return { ok: true, item: {
       ...item,
@@ -299,6 +400,9 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       sourceBudgetId: catalog.budgetId,
       sourceBudgetItemId: pricing.budgetItemId,
       sourceEntityId: pricing.sourceEntityId,
+      materialCatalogItemId: pricing.materialCatalogItemId,
+      sourceOrigin: pricing.sourceOrigin,
+      pricingReadiness: pricing.pricingReadiness === 'needs_review' && hasEstimateOverride ? 'priced' : pricing.pricingReadiness,
       sourceRateId: pricing.sourceRateId,
       pricingRateUpdatedAt: pricing.pricingRateUpdatedAt,
       pricingVersion: pricing.pricingVersion,
@@ -308,7 +412,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       companyOverheadRecoveryPerUnit: pricing.companyOverheadRecoveryPerUnit ?? undefined,
       recoveredCostPerUnit: pricing.recoveredCostPerUnit ?? undefined,
       targetMarginPct: pricing.targetMarginPct ?? undefined,
-      estimateTargetMarginPct: null,
+      estimateTargetMarginPct: estimatePricing?.targetMarginPct ?? null,
       recommendedRateAtEstimate: pricing.recommendedRate ?? undefined,
       labourClassId: pricing.type === 'labour' ? pricing.labourClassId : undefined,
       labourClassName: pricing.type === 'labour' ? pricing.name : undefined,
@@ -321,7 +425,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       calculatedRateAtEstimate: pricing.calculatedRate ?? undefined,
       customRateAtEstimate: pricing.customRate ?? null,
       estimateRateAtEstimate: pricing.estimateRate ?? sellPrice,
-      estimateCustomSellPrice: null,
+      estimateCustomSellPrice: estimatePricing?.customSellPrice ?? null,
       equipmentId: pricing.type === 'equipment' ? pricing.sourceEntityId : undefined,
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,

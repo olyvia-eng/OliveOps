@@ -439,6 +439,141 @@ test('adding legacy Labour, Equipment, Material, and Subcontractor pricing prese
   assert.deepEqual(result.estimate.lineItems.map((item) => item.markupPercent), [0, 0, 0, 0]);
 });
 
+const buildMergedMaterialCatalog = ({ materialCatalogItems, extraPlanningItems = [] } = {}) => {
+  const budget = { id: 'material-budget', planningModel: 'divisions_v1', targetMarginPct: 20, updatedAt: '2026-08-30T00:00:00.000Z' };
+  const divisions = [{
+    id: 'landscape', budgetId: budget.id, name: 'Landscaping', status: 'active',
+    overheadRecoveryPolicy: { version: 2, allocation: { labourPercent: 0, equipmentPercent: 0, materialsPercent: 100, subcontractorsPercent: 0 } },
+  }];
+  const planningItems = [
+    { id: 'budget-salt', budgetId: budget.id, divisionId: 'landscape', category: 'materials', materialCatalogItemId: 'salt', name: 'Old Salt Name', unit: 'tonne', unitCost: 10, plannedQuantity: 100 },
+    { id: 'legacy-sand', budgetId: budget.id, divisionId: 'landscape', category: 'materials', name: 'Legacy Sand', unit: 'yard', unitCost: 7, plannedQuantity: 0 },
+    { id: 'shop-overhead', budgetId: budget.id, divisionId: 'landscape', category: 'overhead', plannedAmount: 200, overheadDivisionAllocations: [{ divisionId: 'landscape', percentage: 100 }] },
+    ...extraPlanningItems,
+  ];
+  return buildEstimatePricingCatalog({
+    budget,
+    budgetId: budget.id,
+    divisions,
+    divisionId: 'landscape',
+    planningItems,
+    budgetRates: [],
+    materialCatalogItems: materialCatalogItems ?? [
+      { id: 'salt', name: 'Salt', unit: 'tonne', defaultUnitCost: 12, notes: '', active: true },
+      { id: 'mulch', name: 'Mulch', unit: 'yard', defaultUnitCost: 20, notes: 'Natural cedar', active: true },
+      { id: 'gravel', name: 'Gravel', unit: 'tonne', defaultUnitCost: 0, notes: '', active: true },
+      { id: 'missing-cost', name: 'Unknown Cost', unit: 'bag', notes: '', active: true },
+      { id: 'inactive', name: 'Inactive Material', unit: 'unit', defaultUnitCost: 5, notes: '', active: false },
+    ],
+  });
+};
+
+test('Estimate material catalog merges Budget-backed, Catalog-only, and legacy resources by stable identity', () => {
+  const catalog = buildMergedMaterialCatalog();
+  assert.deepEqual(catalog.materials.map((item) => item.name), ['Gravel', 'Legacy Sand', 'Mulch', 'Salt', 'Unknown Cost']);
+  assert.equal(catalog.materials.filter((item) => item.materialCatalogItemId === 'salt').length, 1);
+  assert.deepEqual(catalog.materials.find((item) => item.name === 'Salt'), {
+    ...catalog.materials.find((item) => item.name === 'Salt'),
+    sourceOrigin: 'budget_backed',
+    pricingReadiness: 'priced',
+    materialCatalogItemId: 'salt',
+    budgetItemId: 'budget-salt',
+    costRate: 10,
+    sellRate: 15,
+  });
+
+  const mulch = catalog.materials.find((item) => item.name === 'Mulch');
+  assert.equal(mulch.sourceOrigin, 'catalog_only');
+  assert.equal(mulch.pricingReadiness, 'priced');
+  assert.equal(mulch.budgetItemId, undefined);
+  assert.equal(mulch.costRate, 20);
+  assert.equal(mulch.divisionOverheadRecoveryPerUnit, 4);
+  assert.equal(mulch.recoveredCostPerUnit, 24);
+  assert.equal(mulch.sellRate, 30);
+
+  assert.deepEqual(catalog.materials.filter((item) => ['Gravel', 'Unknown Cost'].includes(item.name)).map((item) => [item.name, item.costRate, item.pricingReadiness, item.sellRate]), [
+    ['Gravel', 0, 'needs_review', null],
+    ['Unknown Cost', null, 'needs_review', null],
+  ]);
+  assert.equal(catalog.materials.some((item) => item.name === 'Inactive Material'), false);
+  assert.equal(catalog.materials.find((item) => item.name === 'Legacy Sand').sourceOrigin, 'legacy_budget_only');
+  assert.equal(catalog.materials.every((item) => [item.costRate, item.sellRate, item.recoveredCostPerUnit].filter((value) => value != null).every(Number.isFinite)), true);
+});
+
+test('Catalog-only material additions are canonically authorized and snapshot priced or review-only economics', () => {
+  const catalog = buildMergedMaterialCatalog();
+  const request = (materialCatalogItemId, sourceEntityId = materialCatalogItemId) => ({
+    id: `line-${materialCatalogItemId}`, category: 'material', sourceBudgetId: 'material-budget', materialCatalogItemId,
+    sourceEntityId, sourceOrigin: 'catalog_only', divisionId: 'landscape', quantity: 2,
+    itemName: 'Forged Name', unit: 'forged', unitCost: 999, sellPrice: 999,
+  });
+  const priced = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [request('mulch')], workAreas: [] }, catalog });
+  assert.equal(priced.ok, true);
+  assert.deepEqual({
+    name: priced.estimate.lineItems[0].itemName,
+    materialCatalogItemId: priced.estimate.lineItems[0].materialCatalogItemId,
+    sourceBudgetItemId: priced.estimate.lineItems[0].sourceBudgetItemId,
+    origin: priced.estimate.lineItems[0].sourceOrigin,
+    readiness: priced.estimate.lineItems[0].pricingReadiness,
+    unit: priced.estimate.lineItems[0].unit,
+    cost: priced.estimate.lineItems[0].unitCost,
+    recovered: priced.estimate.lineItems[0].recoveredCostPerUnit,
+    margin: priced.estimate.lineItems[0].targetMarginPct,
+    calculated: priced.estimate.lineItems[0].calculatedRateAtEstimate,
+    sell: priced.estimate.lineItems[0].sellPrice,
+    total: priced.estimate.lineItems[0].total,
+  }, { name: 'Mulch', materialCatalogItemId: 'mulch', sourceBudgetItemId: undefined, origin: 'catalog_only', readiness: 'priced', unit: 'yard', cost: 20, recovered: 24, margin: 20, calculated: 30, sell: 30, total: 60 });
+
+  const review = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [request('gravel')], workAreas: [] }, catalog });
+  assert.equal(review.ok, true);
+  assert.deepEqual([review.estimate.lineItems[0].unitCost, review.estimate.lineItems[0].sellPrice, review.estimate.lineItems[0].pricingReadiness], [0, 0, 'needs_review']);
+
+  const manuallyPriced = applyAuthoritativeEstimatePricing({
+    existingEstimate: { lineItems: [], workAreas: [] },
+    nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [{ ...request('gravel'), estimateCustomSellPrice: 18 }], workAreas: [] },
+    catalog,
+  });
+  assert.equal(manuallyPriced.ok, true);
+  assert.deepEqual([manuallyPriced.estimate.lineItems[0].sellPrice, manuallyPriced.estimate.lineItems[0].estimateCustomSellPrice, manuallyPriced.estimate.lineItems[0].pricingReadiness], [18, 18, 'priced']);
+
+  const forged = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [request('mulch', 'salt')], workAreas: [] }, catalog });
+  assert.equal(forged.ok, false);
+  const inactive = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [request('inactive')], workAreas: [] }, catalog });
+  assert.equal(inactive.ok, false);
+});
+
+test('positive Catalog cost remains selectable but needs review when recovery is unavailable', () => {
+  const budget = { id: 'unconfigured-budget', planningModel: 'divisions_v1', targetMarginPct: 20 };
+  const divisions = [{ id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active' }];
+  const catalog = buildEstimatePricingCatalog({
+    budget,
+    divisions,
+    divisionId: 'snow',
+    planningItems: [],
+    budgetRates: [],
+    materialCatalogItems: [{ id: 'salt', name: 'Salt', unit: 'bag', defaultUnitCost: 25, active: true }],
+  });
+  assert.deepEqual([catalog.materials[0].costRate, catalog.materials[0].pricingReadiness, catalog.materials[0].sellRate], [25, 'needs_review', null]);
+  assert.match(catalog.materials[0].pricingReason, /recovery or target margin is unavailable/);
+});
+
+test('Catalog-only Estimate snapshots remain immutable after Catalog or Budget changes', () => {
+  const initialCatalog = buildMergedMaterialCatalog();
+  const request = { id: 'line-mulch', category: 'material', sourceBudgetId: 'material-budget', materialCatalogItemId: 'mulch', sourceEntityId: 'mulch', sourceOrigin: 'catalog_only', divisionId: 'landscape', quantity: 2 };
+  const added = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [request], workAreas: [] }, catalog: initialCatalog }).estimate.lineItems[0];
+  const changedCatalog = buildMergedMaterialCatalog({
+    materialCatalogItems: [{ id: 'salt', name: 'Salt', unit: 'tonne', defaultUnitCost: 12 }, { id: 'mulch', name: 'Renamed Mulch', unit: 'yard', defaultUnitCost: 80 }],
+    extraPlanningItems: [{ id: 'budget-mulch', budgetId: 'material-budget', divisionId: 'landscape', category: 'materials', materialCatalogItemId: 'mulch', unit: 'yard', unitCost: 60, plannedQuantity: 10 }],
+  });
+  const saved = applyAuthoritativeEstimatePricing({
+    existingEstimate: { pricingBudgetId: 'material-budget', lineItems: [added], workAreas: [] },
+    nextEstimate: { pricingBudgetId: 'material-budget', lineItems: [{ ...added, quantity: 3, itemName: 'Forged Again', unitCost: 500, sellPrice: 500 }], workAreas: [] },
+    catalog: changedCatalog,
+  });
+  assert.equal(saved.ok, true);
+  assert.deepEqual([saved.estimate.lineItems[0].itemName, saved.estimate.lineItems[0].unitCost, saved.estimate.lineItems[0].sellPrice, saved.estimate.lineItems[0].total, saved.estimate.lineItems[0].sourceBudgetItemId], ['Mulch', 20, 30, 90, undefined]);
+});
+
 test('pricing endpoint derives the selected Budget from the tenant-owned Estimate', async () => {
   const handler = createEstimatePricingCatalogHandler({
     requireSession: async () => ({ businessId: 'biz-a', role: 'admin' }),
