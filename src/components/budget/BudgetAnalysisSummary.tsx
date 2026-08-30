@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { BudgetFinancials } from '../../pages/budget/budgetFinancialModel';
-import { buildBudgetAnalysisSummary, normalizeTargetMargin, targetMarginFromDollars, type AnalysisValueMode } from '../../pages/budget/budgetAnalysisSummaryModel.js';
+import { buildBudgetAnalysisSummary, isValidTargetMarginInput, MAX_TARGET_MARGIN_PCT, normalizeTargetMargin, targetMarginFromDollars, type AnalysisValueMode } from '../../pages/budget/budgetAnalysisSummaryModel.js';
 import { formatCurrency } from '../../utils';
 import { Card, Input } from '../ui';
 
@@ -34,9 +34,12 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
   const pieData = summary.surplusAfterTarget > 0
     ? [...summary.chartSegments, { key: 'surplus' as const, label: 'Above target', amount: summary.surplusAfterTarget, widthPct: summary.surplusAfterTarget / summary.chartTotal * 100 }]
     : summary.chartSegments;
-  const displayTarget = (nextMode: AnalysisValueMode, margin = canonicalMargin) => nextMode === 'percent'
-    ? String(Number(margin.toFixed(2)))
-    : String(Number((summary.totalPlannedCosts / (1 - margin / 100) - summary.totalPlannedCosts).toFixed(2)));
+  const displayTarget = (nextMode: AnalysisValueMode, margin = canonicalMargin) => {
+    const target = buildBudgetAnalysisSummary(financials, margin);
+    return nextMode === 'percent'
+      ? String(Number(margin.toFixed(2)))
+      : String(Number(target.targetNetProfit.toFixed(2)));
+  };
 
   useEffect(() => {
     const next = normalizeTargetMargin(targetMarginPct);
@@ -53,7 +56,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
 
   const commitTarget = async () => {
     const parsed = Number(draft);
-    if (!canEdit || !Number.isFinite(parsed) || parsed < 0) {
+    if (!canEdit || !Number.isFinite(parsed) || parsed < 0 || (mode === 'percent' && !isValidTargetMarginInput(parsed))) {
       setDraft(displayTarget(mode));
       return;
     }
@@ -61,7 +64,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
       ? normalizeTargetMargin(parsed)
       : targetMarginFromDollars(parsed, summary.totalPlannedCosts);
     setCanonicalMargin(nextMargin);
-    setDraft(mode === 'percent' ? String(Number(nextMargin.toFixed(2))) : String(Number((summary.revenue * nextMargin / 100).toFixed(2))));
+    setDraft(displayTarget(mode, nextMargin));
     if (Math.abs(nextMargin - normalizeTargetMargin(targetMarginPct)) < 0.0001) return;
     setSaving(true);
     try {
@@ -71,7 +74,6 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
     }
   };
 
-  const targetLine = summary.lines.find((line) => line.key === 'targetProfit');
   const statementLines = summary.lines.filter((line) => line.key !== 'targetProfit');
   const valueFor = (amount: number, percent: number | null) => mode === 'dollars' ? formatCurrency(amount) : formatPercent(percent);
 
@@ -93,15 +95,29 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
           <div className="flex items-center justify-between gap-4 border-t-2 border-gray-300 py-3 dark:border-brand-500">
             <div><dt className="font-semibold text-brand-800 dark:text-brand-100">Target Profit Margin</dt><dd className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Configured margin used by Pricing</dd></div>
             <div className="w-36">
-              <Input aria-label={`Target Profit Margin in ${mode}`} type="number" min={0} max={mode === 'percent' ? 95 : undefined} step={mode === 'percent' ? 0.1 : 1} value={draft} disabled={!canEdit || saving || (mode === 'dollars' && summary.totalPlannedCosts <= 0)} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commitTarget()} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-              <p className="mt-1 text-right text-xs font-medium text-brand-700 dark:text-brand-200">{mode === 'dollars' ? formatPercent(targetLine?.percentOfRevenue ?? null) : formatCurrency(targetLine?.amount ?? 0)}</p>
+              <Input aria-label={`Target Profit Margin in ${mode}`} type="number" min={0} max={mode === 'percent' ? MAX_TARGET_MARGIN_PCT : undefined} step={mode === 'percent' ? 0.1 : 1} value={draft} disabled={!canEdit || saving || (mode === 'dollars' && summary.totalPlannedCosts <= 0)} onChange={(event) => setDraft(event.target.value)} onBlur={() => void commitTarget()} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+              <p className="mt-1 text-right text-xs font-medium text-brand-700 dark:text-brand-200">{mode === 'dollars' ? formatPercent(summary.targetNetProfitPct) : formatCurrency(summary.targetNetProfit)}</p>
             </div>
           </div>
         </dl>
 
-        <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500 dark:border-brand-600 dark:text-brand-300">
-          <div className="flex justify-between gap-4"><span>Current Budget Profit</span><span className="font-medium tabular-nums text-gray-700 dark:text-brand-100">{formatCurrency(summary.currentProfit)} · {formatPercent(summary.currentProfitMarginPct)}</span></div>
-          {summary.shortfall > 0 ? <p className="mt-2 text-amber-700 dark:text-amber-300">Current Budget is {(summary.targetNetProfitPct - (summary.currentProfitMarginPct ?? 0)).toFixed(1)} percentage points below the {summary.targetNetProfitPct.toFixed(1)}% target.</p> : <p className="mt-2">Current revenue supports the selected Net Profit target.</p>}
+        <div className="mt-3 grid gap-4 border-t border-gray-200 pt-3 text-xs dark:border-brand-600 sm:grid-cols-2">
+          <section aria-labelledby="current-budget-economics-heading">
+            <h3 id="current-budget-economics-heading" className="font-semibold uppercase text-gray-500 dark:text-brand-300">Current Budget</h3>
+            <dl className="mt-2 space-y-1.5 text-gray-600 dark:text-brand-200">
+              <div className="flex justify-between gap-4"><dt>Revenue</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.revenue)}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Profit</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.currentProfit)}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Margin</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatPercent(summary.currentProfitMarginPct)}</dd></div>
+            </dl>
+          </section>
+          <section aria-labelledby="target-budget-economics-heading">
+            <h3 id="target-budget-economics-heading" className="font-semibold uppercase text-gray-500 dark:text-brand-300">To Reach Target</h3>
+            <dl className="mt-2 space-y-1.5 text-gray-600 dark:text-brand-200">
+              <div className="flex justify-between gap-4"><dt>Required Revenue</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.requiredRevenue)}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Target Profit</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.targetNetProfit)}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Additional Revenue Needed</dt><dd className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.additionalRevenueNeeded)}</dd></div>
+            </dl>
+          </section>
         </div>
       </section>
 
@@ -116,7 +132,7 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
         <div className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
           {pieData.map((segment) => <div key={segment.key} className="flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 text-gray-600 dark:text-brand-200"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: segmentColors[segment.key] }} />{segment.label}</span><span className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(segment.amount)}</span></div>)}
         </div>
-        {summary.shortfall > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.shortfall)} revenue gap.</span> Planned costs at the configured Target Profit Margin require {formatCurrency(summary.requiredRevenue)}.</p></div> : null}
+        {summary.additionalRevenueNeeded > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.additionalRevenueNeeded)} additional revenue is needed</span> to reach the {summary.targetNetProfitPct.toFixed(1)}% target margin based on current planned costs.</p></div> : null}
       </section>
     </div>
   </Card>;

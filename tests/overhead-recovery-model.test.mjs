@@ -110,6 +110,20 @@ test('recovery uses Labour hours and annual class costs without counting overhea
   assert.equal(rows.some((row) => row.item.id === 'manager' || row.item.id === 'shop-truck'), false);
 });
 
+test('Snow Removal Revenue per Hour and labour recovery use the same 3,376-hour denominator', () => {
+  const budget = { id: 'snow-budget' };
+  const divisions = [{ id: 'snow', budgetId: budget.id, name: 'Snow Removal', status: 'active', overheadRecoveryPolicy: policy(allocation(100, 0, 0, 0)) }];
+  const planningItems = [
+    { id: 'matt', budgetId: budget.id, category: 'labour', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 950 }, { divisionId: 'landscape', hours: 950 }] },
+    { id: 'jane', budgetId: budget.id, category: 'labour', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 950 }, { divisionId: 'landscape', hours: 950 }] },
+    { id: 'john', budgetId: budget.id, category: 'labour', plannedHours: 1600, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 800 }, { divisionId: 'landscape', hours: 800 }] },
+    { id: 'mike', budgetId: budget.id, category: 'labour', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 1520 }, { divisionId: 'landscape', hours: 380 }] },
+  ];
+
+  const scope = buildOverheadRecoveryModel({ budget, divisions, planningItems: [...planningItems, structuredClone(planningItems[0])] }).divisions.snow;
+  assert.equal(scope.denominators.labour, 3376);
+});
+
 test('zero denominators produce warnings and unrecoverable amounts without invalid numbers', () => {
   const budget = { id: 'budget' };
   const divisions = [{ id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) }];

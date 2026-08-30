@@ -3,7 +3,14 @@ const nonNegative = (value) => {
   return Number.isFinite(number) ? Math.max(0, number) : 0;
 };
 
-export const normalizeTargetMargin = (value) => Math.min(95, nonNegative(value ?? 20));
+export const MAX_TARGET_MARGIN_PCT = 95;
+
+export const normalizeTargetMargin = (value) => Math.min(MAX_TARGET_MARGIN_PCT, nonNegative(value ?? 20));
+
+export const isValidTargetMarginInput = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && number <= MAX_TARGET_MARGIN_PCT;
+};
 
 export const formatTargetMarginPercent = (value) => `${Number(nonNegative(value).toFixed(2))}%`;
 
@@ -26,7 +33,7 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
   const targetNetProfitPct = normalizeTargetMargin(targetMarginPct);
   const requiredRevenue = totalPlannedCosts / (1 - targetNetProfitPct / 100);
   const targetNetProfit = requiredRevenue - totalPlannedCosts;
-  const shortfall = Math.max(0, requiredRevenue - revenue);
+  const additionalRevenueNeeded = Math.max(0, requiredRevenue - revenue);
   const surplusAfterTarget = Math.max(0, revenue - requiredRevenue);
   const chartTotal = Math.max(revenue, requiredRevenue, 1);
   const percentOfRevenue = (amount) => revenue > 0 ? amount / revenue * 100 : null;
@@ -53,8 +60,9 @@ export function buildBudgetAnalysisSummary(financials, targetMarginPct) {
     targetNetProfit,
     targetNetProfitPct,
     requiredRevenue,
-    shortfall,
+    additionalRevenueNeeded,
+    shortfall: additionalRevenueNeeded,
     surplusAfterTarget,
-    feasible: shortfall <= 0,
+    feasible: additionalRevenueNeeded <= 0,
   };
 }

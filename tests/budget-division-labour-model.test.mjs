@@ -61,6 +61,20 @@ test('division allocation distributes cost and billable hours without changing t
   assert.equal(model.calculateBudgetLabourTotals([item, item]).itemCount, 1);
 });
 
+test('explicit Division hours take precedence over legacy percentages without double counting', () => {
+  const item = { plannedHours: 2000, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', hours: 500, percentage: 90 }] };
+  const share = model.calculateDivisionLabourShare(item, 'snow');
+  assert.equal(share.hours, 500);
+  assert.equal(share.expectedBillableHours, 400);
+});
+
+test('legacy percentage allocation applies once when explicit hours are absent', () => {
+  const item = { plannedHours: 2000, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow', percentage: 25 }] };
+  const share = model.calculateDivisionLabourShare(item, 'snow');
+  assert.equal(share.hours, 500);
+  assert.equal(share.expectedBillableHours, 400);
+});
+
 test('Labour visibility follows positive allocation with legacy ownership fallback only when allocations are absent', () => {
   const shared = { divisionId: 'landscaping', divisionAllocations: [{ divisionId: 'landscaping', percentage: 100 }, { divisionId: 'snow', percentage: 0 }] };
   assert.equal(model.isLabourAllocatedToDivision(shared, 'landscaping'), true);

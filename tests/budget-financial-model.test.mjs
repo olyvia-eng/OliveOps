@@ -87,6 +87,21 @@ test('Division revenue per hour uses allocated expected billable hours and handl
   assert.equal(noHours.revenuePerHour, null);
 });
 
+test('Snow Removal live-shape allocations produce 3,376 billable hours and $2.96 revenue per hour', () => {
+  const snowDivision = [{ id: 'snow-live', budgetId: 'snow-budget', name: 'Snow Removal', revenueTarget: 10000, status: 'active', sortOrder: 0 }];
+  const snowLabour = [
+    { id: 'matt', budgetId: 'snow-budget', divisionId: 'snow-live', category: 'labour', name: 'Matt Jones', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow-live', hours: 950 }, { divisionId: 'landscape-live', hours: 950 }] },
+    { id: 'jane', budgetId: 'snow-budget', divisionId: 'landscape-live', category: 'labour', name: 'Jane Smith', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow-live', hours: 950 }, { divisionId: 'landscape-live', hours: 950 }] },
+    { id: 'john', budgetId: 'snow-budget', divisionId: 'snow-live', category: 'labour', name: 'John Smith', plannedHours: 1600, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow-live', hours: 800 }, { divisionId: 'landscape-live', hours: 800 }] },
+    { id: 'mike', budgetId: 'snow-budget', divisionId: 'snow-live', category: 'labour', name: 'Mike White', plannedHours: 1900, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'snow-live', hours: 1520 }, { divisionId: 'landscape-live', hours: 380 }] },
+  ];
+
+  const snow = model.calculateDivisionFinancials({ divisions: snowDivision, planningItems: [...snowLabour, structuredClone(snowLabour[0])] }, 'snow-live');
+  assert.equal(snow.plannedBillableHours, 3376);
+  assert.equal(snow.revenuePerHour, 10000 / 3376);
+  assert.equal(Number(snow.revenuePerHour.toFixed(2)), 2.96);
+});
+
 test('shared overhead detail shows only each Division allocated share', () => {
   const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
   const snow = model.calculateDivisionFinancials({ divisions, planningItems }, 'snow');

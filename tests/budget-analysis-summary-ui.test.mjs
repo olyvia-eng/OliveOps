@@ -33,13 +33,13 @@ test('dollar and percent modes derive from one canonical target margin', () => {
   assert.match(summaryModelSource, /profit \/ \(profit \+ costs\) \* 100/);
 });
 
-test('chart consumes summary segments and exposes rather than normalizes shortfall', () => {
+test('chart consumes summary segments and exposes rather than normalizes additional revenue needed', () => {
   assert.match(summarySource, /PieChart/);
   assert.match(summarySource, /data=\{pieData\}/);
   assert.match(summarySource, /summary\.chartSegments/);
   assert.doesNotMatch(summarySource, /Revenue distribution chart view|Stacked|Separate revenue distribution bars/);
   assert.match(summarySource, /pieData\.map/);
-  assert.match(summarySource, /summary\.shortfall/);
+  assert.match(summarySource, /summary\.additionalRevenueNeeded/);
   assert.match(summaryModelSource, /chartTotal = Math\.max\(revenue, requiredRevenue, 1\)/);
   assert.match(summaryModelSource, /chartSegments = lines\.slice\(1\)/);
 });
@@ -48,7 +48,16 @@ test('current profit stays distinct from target profit and Pricing reads the sam
   assert.match(summaryModelSource, /currentProfit = revenue - totalPlannedCosts/);
   assert.match(summaryModelSource, /requiredRevenue = totalPlannedCosts \/ \(1 - targetNetProfitPct \/ 100\)/);
   assert.match(summaryModelSource, /targetNetProfit = requiredRevenue - totalPlannedCosts/);
-  assert.match(summarySource, /Current Budget Profit/);
+  assert.match(summarySource, /Current Budget/);
+  assert.match(summarySource, /To Reach Target/);
+  assert.match(summarySource, /Required Revenue/);
+  assert.match(summarySource, /Target Profit/);
+  assert.match(summarySource, /Additional Revenue Needed/);
+  assert.match(summarySource, /additional revenue is needed/);
+  assert.doesNotMatch(summarySource, /revenue gap/);
+  assert.match(summarySource, /isValidTargetMarginInput\(parsed\)/);
+  assert.match(summarySource, /target\.targetNetProfit/);
+  assert.doesNotMatch(summarySource, /summary\.revenue \* nextMargin/);
   assert.match(workspaceSource, /targetMarginPct=\{budget\.targetMarginPct\}/);
   assert.match(pricingModelSource, /budget\.targetMarginPct \?\? 20/);
 });

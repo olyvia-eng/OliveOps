@@ -23,11 +23,14 @@ export interface BudgetAnalysisSummary {
   targetNetProfit: number;
   targetNetProfitPct: number;
   requiredRevenue: number;
+  additionalRevenueNeeded: number;
   shortfall: number;
   surplusAfterTarget: number;
   feasible: boolean;
 }
+export const MAX_TARGET_MARGIN_PCT: number;
 export function normalizeTargetMargin(value: number | null | undefined): number;
+export function isValidTargetMarginInput(value: unknown): boolean;
 export function formatTargetMarginPercent(value: number | null | undefined): string;
 export function targetMarginFromDollars(targetProfit: number, revenue: number): number;
 export function buildBudgetAnalysisSummary(financials: BudgetFinancials, targetMarginPct: number | null | undefined): BudgetAnalysisSummary;

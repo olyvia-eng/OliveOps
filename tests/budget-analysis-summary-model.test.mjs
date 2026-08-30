@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildBudgetAnalysisSummary, formatTargetMarginPercent, targetMarginFromDollars } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
+import { buildBudgetAnalysisSummary, formatTargetMarginPercent, isValidTargetMarginInput, MAX_TARGET_MARGIN_PCT, normalizeTargetMargin, targetMarginFromDollars } from '../src/pages/budget/budgetAnalysisSummaryModel.js';
 
 const financials = {
   revenue: 500000,
@@ -55,4 +55,62 @@ test('chart uses summary values and preserves an over-target shortfall without n
 test('Target Profit Margin display preserves meaningful precision without trailing zeroes', () => {
   assert.equal(formatTargetMarginPercent(78.4313725), '78.43%');
   assert.equal(formatTargetMarginPercent(20), '20%');
+});
+
+test('target-margin economics distinguish current results from the revenue required at target', () => {
+  const summary = buildBudgetAnalysisSummary({
+    revenue: 510000,
+    directLabour: 200000,
+    directEquipment: 100000,
+    materials: 80000,
+    subcontractors: 40000,
+    totalOverhead: 34420,
+  }, 50);
+
+  assert.equal(summary.totalPlannedCosts, 454420);
+  assert.equal(summary.currentProfit, 55580);
+  assert.ok(Math.abs(summary.currentProfitMarginPct - 10.898039215686275) < 0.000001);
+  assert.equal(summary.requiredRevenue, 908840);
+  assert.equal(summary.targetNetProfit, 454420);
+  assert.equal(summary.additionalRevenueNeeded, 398840);
+  assert.equal(summary.shortfall, summary.additionalRevenueNeeded);
+});
+
+test('target-margin boundaries remain finite and reject invalid user input', () => {
+  const zeroTarget = buildBudgetAnalysisSummary(financials, 0);
+  assert.equal(zeroTarget.requiredRevenue, zeroTarget.totalPlannedCosts);
+  assert.equal(zeroTarget.targetNetProfit, 0);
+
+  const upperTarget = buildBudgetAnalysisSummary(financials, MAX_TARGET_MARGIN_PCT);
+  assert.ok(Math.abs(upperTarget.requiredRevenue - upperTarget.totalPlannedCosts / 0.05) < 0.000001);
+  assert.equal(Number.isFinite(upperTarget.requiredRevenue), true);
+  assert.equal(isValidTargetMarginInput(MAX_TARGET_MARGIN_PCT), true);
+  for (const invalid of [100, 101, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(isValidTargetMarginInput(invalid), false);
+  }
+
+  assert.equal(normalizeTargetMargin(100), MAX_TARGET_MARGIN_PCT);
+  assert.equal(normalizeTargetMargin(Number.NaN), 0);
+  for (const value of Object.values(buildBudgetAnalysisSummary(financials, 100))) {
+    if (typeof value === 'number') assert.equal(Number.isFinite(value), true);
+  }
+});
+
+test('target summary safely handles over-target, zero-cost, and zero-revenue Budgets', () => {
+  const overTarget = buildBudgetAnalysisSummary({ ...financials, revenue: 1000000 }, 10);
+  assert.equal(overTarget.additionalRevenueNeeded, 0);
+  assert.equal(overTarget.feasible, true);
+
+  const zeroCosts = buildBudgetAnalysisSummary({ revenue: 100, directLabour: 0, directEquipment: 0, materials: 0, subcontractors: 0, totalOverhead: 0 }, 50);
+  assert.equal(zeroCosts.requiredRevenue, 0);
+  assert.equal(zeroCosts.targetNetProfit, 0);
+  assert.equal(zeroCosts.additionalRevenueNeeded, 0);
+
+  const zeroRevenue = buildBudgetAnalysisSummary({ ...financials, revenue: 0 }, 50);
+  assert.equal(zeroRevenue.currentProfit, -475000);
+  assert.equal(zeroRevenue.currentProfitMarginPct, null);
+  assert.equal(zeroRevenue.additionalRevenueNeeded, 950000);
+  for (const value of [zeroRevenue.currentProfit, zeroRevenue.requiredRevenue, zeroRevenue.targetNetProfit, zeroRevenue.additionalRevenueNeeded]) {
+    assert.equal(Number.isFinite(value), true);
+  }
 });
