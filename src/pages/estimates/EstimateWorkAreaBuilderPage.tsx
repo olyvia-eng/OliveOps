@@ -458,9 +458,44 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             : <Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>Custom {CATEGORY_ADD_LABEL[catalogCategory]}</Button>}
         />
       ) : !catalogLoading && !catalogError ? (
-        <div className="space-y-3">
+        <div className={catalogCategory === 'material' ? 'space-y-1.5' : 'space-y-3'}>
           {visibleCatalogCandidates.map((candidate) => {
             const canAdd = Boolean(candidate.pricingItem?.pricingAvailable || candidate.pricingItem?.pricingReadiness === 'needs_review');
+            if (candidate.category === 'material') {
+              const materialStatus = candidate.pricingItem?.sourceOrigin === 'catalog_only'
+                ? 'Not in selected Budget'
+                : candidate.pricingItem?.sourceOrigin === 'legacy_budget_only'
+                  ? 'Legacy Budget item'
+                  : 'In selected Budget';
+              return (
+                <div key={candidate.key} className="rounded-lg border border-brand-100 bg-white px-2.5 py-2 dark:border-brand-600 dark:bg-brand-800">
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
+                    <p className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-brand-50" title={candidate.displayName}>{candidate.displayName}</p>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-gray-900 dark:text-brand-50">{candidate.priceText}</p>
+                      <Button
+                        size="sm"
+                        variant={canAdd ? 'secondary' : 'ghost'}
+                        onClick={() => {
+                          if (canAdd) handleAddFromCandidate(candidate);
+                        }}
+                        disabled={!canAdd || candidate.alreadyAdded || addingCandidateKey === candidate.key}
+                        className="h-8 px-2"
+                        title={candidate.disabledReason}
+                        aria-label={candidate.alreadyAdded ? `${candidate.displayName} already added` : `Add ${candidate.displayName}`}
+                      >
+                        {!candidate.alreadyAdded && canAdd ? <Plus size={14} /> : null} {candidate.alreadyAdded ? 'Added' : 'Add'}
+                      </Button>
+                    </div>
+                    <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-gray-500 dark:text-brand-300">
+                      <span>{materialStatus}</span>
+                      {candidate.pricingItem?.costRate != null ? <><span aria-hidden="true">·</span><span>Cost {formatCurrency(candidate.pricingItem.costRate)}/{candidate.unit}</span></> : null}
+                    </div>
+                    {candidate.pricingItem?.pricingReadiness === 'needs_review' && candidate.pricingItem.pricingReason ? <p className="col-span-2 truncate text-xs text-amber-700 dark:text-amber-300" title={candidate.pricingItem.pricingReason}>{candidate.pricingItem.pricingReason}</p> : !canAdd && candidate.disabledReason ? <p className="col-span-2 truncate text-xs text-accent-700" title={candidate.disabledReason}>{candidate.disabledReason}</p> : null}
+                  </div>
+                </div>
+              );
+            }
             return (
             <div key={candidate.key} className="rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-3">
               <div className="flex items-start justify-between gap-3">

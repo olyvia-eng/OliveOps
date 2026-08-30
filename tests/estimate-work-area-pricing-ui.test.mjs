@@ -130,3 +130,17 @@ test('Material drawer searches the merged catalog and uses stable source identit
   assert.match(builderSource, /pricingReadiness === 'needs_review'/);
   assert.match(builderSource, /setPricingLineItemId\(nextItem\.id\)/);
 });
+
+test('Material drawer uses compact rows without changing pricing behavior', () => {
+  assert.match(builderSource, /candidate\.category === 'material'/);
+  assert.match(builderSource, /grid-cols-\[minmax\(0,1fr\)_auto\]/);
+  assert.match(builderSource, /truncate text-sm font-semibold[^>]*title=\{candidate\.displayName\}/);
+  assert.match(builderSource, /\{candidate\.priceText\}/);
+  assert.match(builderSource, /Cost \{formatCurrency\(candidate\.pricingItem\.costRate\)\}\/\{candidate\.unit\}/);
+  assert.match(builderSource, /Not in selected Budget/);
+  assert.match(builderSource, /In selected Budget/);
+  assert.match(builderSource, /aria-label=\{candidate\.alreadyAdded \? `\$\{candidate\.displayName\} already added` : `Add \$\{candidate\.displayName\}`\}/);
+  assert.match(builderSource, /pricingReadiness === 'needs_review'/);
+  assert.match(builderSource, /placeholder=\{`Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}\.\.\.`\}/);
+  assert.doesNotMatch(builderSource, /candidate\.category === 'material'[\s\S]{0,2500}CATEGORY_LABEL\[candidate\.category\]/);
+});
