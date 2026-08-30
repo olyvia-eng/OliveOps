@@ -14,6 +14,7 @@ function comparableDraft(draft) {
       assignmentValue: draft.form.assignmentValue ?? '',
       trigger: [...draft.form.trigger].sort(),
       completionRequirement: draft.form.completionRequirement ?? 'reminder',
+      requiresApproval: draft.form.requiresApproval ?? false,
     },
     fields: draft.fields.map((field, order) => ({
       id: field.id,
@@ -24,6 +25,9 @@ function comparableDraft(draft) {
       defaultValue: field.defaultValue ?? '',
       placeholder: field.placeholder ?? '',
       options: field.options ?? [],
+      acceptedResponse: field.acceptedResponse
+        ? { value: field.acceptedResponse.value, message: field.acceptedResponse.message ?? '' }
+        : null,
       order,
     })),
   };
@@ -32,11 +36,11 @@ function comparableDraft(draft) {
 /** @param {FormRecord} form @param {FormField[]} fields @returns {FormBuilderDraft} */
 export function createFormBuilderDraft(form, fields) {
   return {
-    form: { ...form, trigger: [...form.trigger], completionRequirement: form.completionRequirement ?? 'reminder' },
+    form: { ...form, trigger: [...form.trigger], completionRequirement: form.completionRequirement ?? 'reminder', requiresApproval: form.requiresApproval ?? false },
     fields: fields
       .slice()
       .sort((left, right) => left.order - right.order)
-      .map((field, order) => ({ ...field, options: [...(field.options ?? [])], order })),
+      .map((field, order) => ({ ...field, options: [...(field.options ?? [])], acceptedResponse: field.acceptedResponse ? { ...field.acceptedResponse } : undefined, order })),
   };
 }
 

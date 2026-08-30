@@ -48,7 +48,7 @@ function installDdb(t) {
     if (type === 'UpdateCommand') {
       const itemKey = key(input.Key.PK, input.Key.SK);
       const item = store.get(itemKey);
-      if (!item || item.status !== input.ExpressionAttributeValues[':submitted']) throw Object.assign(new Error('conflict'), { name: 'ConditionalCheckFailedException' });
+      if (!item || item.status !== input.ExpressionAttributeValues[':pendingReview']) throw Object.assign(new Error('conflict'), { name: 'ConditionalCheckFailedException' });
       store.set(itemKey, { ...item, status: input.ExpressionAttributeValues[':status'] });
       return {};
     }
@@ -84,7 +84,7 @@ test('connected Form lifecycle persists builder changes, employee answers, and r
   await createFormFieldForBusiness({ businessId, formField: { id: 'notes', formId: form.id, type: 'single_line_text', label: 'Old label', helpText: '', required: true, placeholder: '', options: [], order: 0 } });
   assert.equal((await listFormsForBusiness(businessId))[0].completionRequirement, 'reminder');
 
-  const savedForm = { ...form, name: 'Daily Field Report', description: 'Record progress.', category: 'job_site', status: 'active', trigger: ['after_leaving_job', 'daily', 'on_demand'], completionRequirement: 'required', updatedAt: '2026-08-18T10:05:00.000Z' };
+  const savedForm = { ...form, name: 'Daily Field Report', description: 'Record progress.', category: 'job_site', status: 'active', trigger: ['after_leaving_job', 'daily', 'on_demand'], completionRequirement: 'required', requiresApproval: true, updatedAt: '2026-08-18T10:05:00.000Z' };
   await updateFormForBusiness({ businessId, form: savedForm });
   await updateFormFieldForBusiness({ businessId, formField: { id: 'notes', formId: form.id, type: 'single_line_text', label: 'Work completed', helpText: 'Be specific', required: true, placeholder: 'Summary', options: [], order: 1 } });
   await createFormFieldForBusiness({ businessId, formField: { id: 'notes-copy', formId: form.id, type: 'single_line_text', label: 'Work completed (Copy)', helpText: '', required: false, placeholder: '', options: [], order: 0 } });
@@ -106,6 +106,7 @@ test('connected Form lifecycle persists builder changes, employee answers, and r
 
   const submitted = await call(employeeHandler, 'employee-token', { method: 'POST', query: { action: 'submit' }, body: { formId: form.id, trigger: 'on_demand', responses: [{ fieldId: 'notes', value: 'Installed drainage.' }] } });
   assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.status, 'pending_review');
   assert.equal((await listFormResponsesForBusiness(businessId)).length, 1);
 
   const detail = await call(employeeHandler, 'employee-token', { query: { action: 'submission', id: submitted.body.submission.id } });

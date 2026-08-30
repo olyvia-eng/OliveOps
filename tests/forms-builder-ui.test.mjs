@@ -48,6 +48,9 @@ test('Forms builder dirty state tracks meaningful form and field changes', () =>
 
   const changedTriggers = createFormBuilderDraft({ ...form, trigger: ['after_clock_out', 'daily'] }, fields);
   assert.equal(isFormBuilderDirty(baseline, changedTriggers), true);
+
+  assert.equal(isFormBuilderDirty(baseline, createFormBuilderDraft({ ...form, requiresApproval: true }, fields)), true);
+  assert.equal(isFormBuilderDirty(baseline, createFormBuilderDraft(form, [{ ...fields[0], acceptedResponse: { value: '2026-08-18', message: 'Use today.' } }, fields[1]])), true);
 });
 
 test('Forms trigger groups warn only when workflow and schedule requirements overlap', () => {
@@ -85,6 +88,7 @@ test('Forms editor exposes full-width setup, explicit automation concepts, and s
   assert.match(source, /Add another trigger/);
   assert.match(source, /No recurring schedule/);
   assert.match(source, /Completion Requirement/);
+  assert.match(source, /Require approval after submission/);
   assert.match(source, /Reminder Only/);
   assert.match(source, /Allow employees to open this form anytime/);
   assert.match(source, /How This Form Works/);
@@ -147,6 +151,8 @@ test('field configuration is contextual and option editing is structured', async
   assert.match(source, /open=\{editingField !== null\}/);
   assert.match(source, /label="Field Type"/);
   assert.match(source, /Add Option/);
+  assert.match(source, /Require a specific answer/);
+  assert.match(source, /Accepted answer/);
   assert.match(source, /moveFieldOption/);
   assert.match(source, /removeFieldOption/);
   assert.doesNotMatch(source, /Options \(comma-separated\)/);

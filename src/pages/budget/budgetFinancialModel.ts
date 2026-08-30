@@ -26,6 +26,13 @@ export interface DirectCostDetailItem {
   amount: number;
 }
 
+export interface EquipmentCostComposition {
+  maintenance: number;
+  fuel: number;
+  insurance: number;
+  paymentsOther: number;
+}
+
 export interface DivisionFinancials {
   divisionId: string;
   divisionName: string;
@@ -35,6 +42,9 @@ export interface DivisionFinancials {
   materials: number;
   subcontractors: number;
   directCostItems: DirectCostDetailItem[];
+  equipmentCostComposition: EquipmentCostComposition;
+  plannedBillableHours: number;
+  revenuePerHour: number | null;
   totalDirectCosts: number;
   grossProfit: number | null;
   grossMargin: number | null;
@@ -69,6 +79,18 @@ const equipmentMonths = (item: PlanningItem, divisionId: string) => item.equipme
 
 const equipmentShare = (item: PlanningItem, divisionId: string) => itemAnnualCost(item) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12;
 
+const allocatedEquipmentComponent = (item: PlanningItem, divisionId: string, value: number | undefined) => (
+  finiteNonNegative(value) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12
+);
+
+const equipmentComposition = (items: PlanningItem[], divisionId: string, total: number): EquipmentCostComposition => {
+  const directEquipment = items.filter((item) => item.category === 'equipment' && item.classification !== 'overhead');
+  const maintenance = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyMaintenanceCost), 0);
+  const fuel = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyFuelCost), 0);
+  const insurance = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyInsuranceCost), 0);
+  return { maintenance, fuel, insurance, paymentsOther: total - maintenance - fuel - insurance };
+};
+
 const localItemCost = (item: PlanningItem, divisionId: string) => item.divisionId === divisionId ? itemAnnualCost(item) : 0;
 
 const overheadItemName = (item: PlanningItem, category: OverheadDetailCategory) => (
@@ -102,18 +124,21 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const missingCategories = (['labour', 'equipment', 'materials', 'subcontractors'] as const)
     .filter((category) => !categoryPresent(category));
   const isComplete = missingCategories.length === 0;
+  const labourShares = items.filter((item) => item.category === 'labour')
+    .map((item) => ({ item, share: calculateDivisionLabourShare(item, divisionId) }));
   const directLabourItems = items.filter((item) => item.category === 'labour')
-    .map((item) => directCostDetail(item, 'labour', calculateDivisionLabourShare(item, divisionId).directLabourCost))
+    .map((item) => directCostDetail(item, 'labour', labourShares.find((entry) => entry.item.id === item.id)?.share.directLabourCost ?? 0))
     .filter((item) => item.amount > 0);
   const directLabour = directLabourItems.reduce((sum, item) => sum + item.amount, 0);
-  const overheadLabourItems = items
-    .filter((item) => item.category === 'labour')
-    .map((item) => overheadDetail(item, 'labour', calculateDivisionLabourShare(item, divisionId).overheadLabourCost))
+  const plannedBillableHours = labourShares.reduce((sum, entry) => sum + entry.share.expectedBillableHours, 0);
+  const overheadLabourItems = labourShares
+    .map(({ item, share }) => overheadDetail(item, 'labour', share.overheadLabourCost))
     .filter((item) => item.amount > 0);
   const directEquipmentItems = items.filter((item) => item.category === 'equipment' && item.classification !== 'overhead')
     .map((item) => directCostDetail(item, 'equipment', equipmentShare(item, divisionId)))
     .filter((item) => item.amount > 0);
   const directEquipment = directEquipmentItems.reduce((sum, item) => sum + item.amount, 0);
+  const equipmentCostComposition = equipmentComposition(items, divisionId, directEquipment);
   const overheadEquipmentItems = items
     .filter((item) => item.category === 'equipment' && item.classification === 'overhead')
     .map((item) => overheadDetail(item, 'equipment', equipmentShare(item, divisionId)))
@@ -136,6 +161,7 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const overheadEquipment = overheadEquipmentItems.reduce((sum, item) => sum + item.amount, 0);
   const allocatedOverhead = otherOverheadItems.reduce((sum, item) => sum + item.amount, 0);
   const revenue = finiteNonNegative(division?.revenueTarget);
+  const revenuePerHour = plannedBillableHours > 0 ? revenue / plannedBillableHours : null;
   const totalDirectCosts = directLabour + directEquipment + materials + subcontractors;
   const grossProfit = isComplete ? revenue - totalDirectCosts : null;
   const grossMargin = grossProfit !== null && revenue > 0 ? grossProfit / revenue * 100 : null;
@@ -154,6 +180,9 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
     materials,
     subcontractors,
     directCostItems,
+    equipmentCostComposition,
+    plannedBillableHours,
+    revenuePerHour,
     totalDirectCosts,
     grossProfit,
     grossMargin,
@@ -185,6 +214,12 @@ export function calculateBudgetFinancials(input: BudgetFinancialInput) {
     }
     return items;
   }, new Map<string, DirectCostDetailItem>()).values()];
+  const equipmentCostComposition = divisions.reduce((composition, division) => ({
+    maintenance: composition.maintenance + division.equipmentCostComposition.maintenance,
+    fuel: composition.fuel + division.equipmentCostComposition.fuel,
+    insurance: composition.insurance + division.equipmentCostComposition.insurance,
+    paymentsOther: composition.paymentsOther + division.equipmentCostComposition.paymentsOther,
+  }), { maintenance: 0, fuel: 0, insurance: 0, paymentsOther: 0 });
   const overheadItems = [...divisions.reduce((items, division) => {
     for (const item of division.overheadItems) {
       const key = `${item.category}:${item.itemId}`;
@@ -205,6 +240,7 @@ export function calculateBudgetFinancials(input: BudgetFinancialInput) {
     materials: total('materials'),
     subcontractors: total('subcontractors'),
     directCostItems,
+    equipmentCostComposition,
     totalDirectCosts,
     grossProfit,
     grossMargin,

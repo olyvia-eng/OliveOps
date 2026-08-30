@@ -28,7 +28,7 @@ function installDdb(t) {
     if (type === 'UpdateCommand') {
       const itemKey = recordKey(input.Key.PK, input.Key.SK);
       const item = store.get(itemKey);
-      if (!item || item.status !== input.ExpressionAttributeValues[':submitted']) {
+      if (!item || item.status !== input.ExpressionAttributeValues[':pendingReview']) {
         throw Object.assign(new Error('conflict'), { name: 'ConditionalCheckFailedException' });
       }
       store.set(itemKey, { ...item, status: input.ExpressionAttributeValues[':status'] });
@@ -102,10 +102,10 @@ test('job-scoped submission reads require review roles and tenant-owned assigned
   assert.equal((await getRequest('admin-token', { jobId: 'job-a', formId: 'form-b' })).statusCode, 404);
 });
 
-test('foreman can approve a submitted Form without changing its ownership', async (t) => {
+test('foreman can approve a Form pending review without changing its ownership', async (t) => {
   const store = installDdb(t);
   await seedSession(store, { userId: 'foreman-a', role: 'foreman', token: 'foreman-token' });
-  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#submission-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#submission-a', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'submission-a', formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'submitted' });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#submission-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#submission-a', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'submission-a', formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'pending_review' });
 
   const res = await request('foreman-token', 'submission-a', 'approved');
   assert.equal(res.statusCode, 200);
@@ -130,7 +130,7 @@ test('review endpoint denies crew, invalid transitions, and cross-tenant IDs', a
 test('competing review transitions cannot overwrite the first decision', async (t) => {
   const store = installDdb(t);
   await seedSession(store, { userId: 'admin-a', role: 'admin', token: 'admin-token' });
-  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#submission-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#submission-a', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'submission-a', formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'submitted' });
+  store.set(recordKey('BUSINESS#biz-a', 'FORM_SUBMISSION#submission-a'), { PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#submission-a', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'submission-a', formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'pending_review' });
 
   const [approved, rejected] = await Promise.all([
     request('admin-token', 'submission-a', 'approved'),
@@ -151,7 +151,7 @@ test('owner, admin, and foreman can persist approve or reject decisions', async 
   for (const reviewer of reviewers) await seedSession(store, reviewer);
   for (const [index, reviewer] of reviewers.entries()) {
     const id = `submission-${index}`;
-    store.set(recordKey('BUSINESS#biz-a', `FORM_SUBMISSION#${id}`), { PK: 'BUSINESS#biz-a', SK: `FORM_SUBMISSION#${id}`, entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: id, formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'submitted' });
+    store.set(recordKey('BUSINESS#biz-a', `FORM_SUBMISSION#${id}`), { PK: 'BUSINESS#biz-a', SK: `FORM_SUBMISSION#${id}`, entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: id, formId: 'form-a', employeeId: 'employee-a', submittedAt: '2026-01-01T00:00:00.000Z', status: 'pending_review' });
     const result = await request(reviewer.token, id, reviewer.status);
     assert.equal(result.statusCode, 200, reviewer.role);
     assert.equal(store.get(recordKey('BUSINESS#biz-a', `FORM_SUBMISSION#${id}`)).status, reviewer.status, reviewer.role);

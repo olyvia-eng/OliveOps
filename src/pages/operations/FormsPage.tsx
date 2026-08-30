@@ -339,6 +339,7 @@ const FORM_TEMPLATES: FormTemplate[] = [
 ];
 
 const FIELD_TYPES_WITH_OPTIONS = new Set<FormFieldType>(['multiple_choice', 'dropdown', 'checkbox']);
+const FIELD_TYPES_WITH_ACCEPTED_RESPONSE = new Set<FormFieldType>(['yes_no', 'multiple_choice', 'dropdown', 'checkbox']);
 
 const toLabel = (value: string) => value
   .split('_')
@@ -368,9 +369,7 @@ export default function FormsPage() {
     addFormField,
     updateFormField,
     deleteFormField,
-    addFormSubmission,
     updateFormSubmission,
-    upsertFormResponse,
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<FormsTab>('overview');
@@ -392,7 +391,6 @@ export default function FormsPage() {
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | FormSubmissionStatus>('all');
   const [viewSubmissionId, setViewSubmissionId] = useState<string | null>(null);
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
-  const [submitAsEmployeeId, setSubmitAsEmployeeId] = useState('');
   const [submitResponses, setSubmitResponses] = useState<Record<string, string>>({});
 
   const sortedForms = useMemo(() => {
@@ -511,6 +509,7 @@ export default function FormsPage() {
       assignmentValue: '',
       trigger: ['on_demand'],
       completionRequirement: 'reminder',
+      requiresApproval: false,
       division: '',
     });
 
@@ -535,6 +534,7 @@ export default function FormsPage() {
       defaultValue: '',
       placeholder: '',
       options: FIELD_TYPES_WITH_OPTIONS.has(fieldType) ? ['Option 1', 'Option 2'] : [],
+      acceptedResponse: undefined,
       order: builderDraft.fields.length,
     };
     setBuilderDraft({ ...builderDraft, fields: [...builderDraft.fields, field] });
@@ -665,6 +665,7 @@ export default function FormsPage() {
       assignmentValue: '',
       trigger: ['on_demand'],
       completionRequirement: 'reminder',
+      requiresApproval: false,
       division: '',
     });
 
@@ -688,7 +689,6 @@ export default function FormsPage() {
 
   const openSubmissionScreen = () => {
     if (!selectedForm) return;
-    setSubmitAsEmployeeId(employees[0]?.id ?? '');
     const previewFields = activeTab === 'builder' ? builderDraft?.fields ?? [] : fieldsForSelectedForm;
     const today = new Date().toISOString().slice(0, 10);
     setSubmitResponses(Object.fromEntries(previewFields.map((field) => [
@@ -696,32 +696,6 @@ export default function FormsPage() {
       field.type === 'date' && field.defaultValue?.toLowerCase() === 'today' ? today : field.defaultValue ?? '',
     ])));
     setSubmitModalOpen(true);
-  };
-
-  const submitFormResponse = () => {
-    if (!selectedForm || !submitAsEmployeeId) return;
-
-    const submission = addFormSubmission({
-      formId: selectedForm.id,
-      employeeId: submitAsEmployeeId,
-      jobId: jobs[0]?.id,
-      submittedAt: new Date().toISOString(),
-      status: 'submitted',
-      submittedBy: employees.find((employee) => employee.id === submitAsEmployeeId)?.name ?? 'Employee',
-    });
-
-    for (const field of fieldsForSelectedForm) {
-      const value = submitResponses[field.id] ?? '';
-      upsertFormResponse({
-        id: `${submission.id}-${field.id}`,
-        submissionId: submission.id,
-        fieldId: field.id,
-        value,
-      });
-    }
-
-    setSubmitModalOpen(false);
-    setActiveTab('submissions');
   };
 
   const activeSubmission = viewSubmissionId
@@ -1114,6 +1088,14 @@ export default function FormsPage() {
                   </fieldset>
 
                   <div>
+                    <h4 className="text-sm font-medium text-gray-900">Submission Review</h4>
+                    <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
+                      <input type="checkbox" className="mt-0.5" checked={builderForm.requiresApproval ?? false} onChange={(event) => updateBuilderForm({ requiresApproval: event.target.checked })} />
+                      <span><span className="block text-sm font-semibold text-gray-900">Require approval after submission</span><span className="mt-1 block text-xs leading-5 text-gray-500">New submissions wait for an administrator to approve or reject them.</span></span>
+                    </label>
+                  </div>
+
+                  <div>
                     <h4 className="text-sm font-medium text-gray-900">Employee Access</h4>
                     <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
                       <input type="checkbox" className="mt-0.5" checked={builderForm.trigger.includes('on_demand')} onChange={(event) => updateBuilderForm({ trigger: setFormOnDemand(builderForm.trigger, event.target.checked) })} />
@@ -1197,12 +1179,10 @@ export default function FormsPage() {
                   <option value="all">All Statuses</option>
                   <option value="draft">Draft</option>
                   <option value="submitted">Submitted</option>
+                  <option value="pending_review">Pending Review</option>
                   <option value="approved">Approved</option>
                   <option value="rejected">Rejected</option>
                 </Select>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <Button variant="secondary" onClick={openSubmissionScreen}>Open Submission Screen</Button>
               </div>
             </Card>
 
@@ -1328,6 +1308,18 @@ export default function FormsPage() {
 
             <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={editingField.required} onChange={(event) => updateDraftField(editingField.id, { required: event.target.checked })} /> Required field</label>
 
+            {FIELD_TYPES_WITH_ACCEPTED_RESPONSE.has(editingField.type) && (
+              <section className="border-t border-gray-200 pt-5">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700"><input type="checkbox" checked={Boolean(editingField.acceptedResponse)} onChange={(event) => updateDraftField(editingField.id, { acceptedResponse: event.target.checked ? { value: editingField.type === 'yes_no' ? 'yes' : editingField.options?.[0] ?? '', message: '' } : undefined })} /> Require a specific answer</label>
+                {editingField.acceptedResponse ? <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <Select label="Accepted answer" value={editingField.acceptedResponse.value} onChange={(event) => updateDraftField(editingField.id, { acceptedResponse: { ...editingField.acceptedResponse!, value: event.target.value } })}>
+                    {(editingField.type === 'yes_no' ? ['yes', 'no'] : editingField.options ?? []).map((option) => <option key={option} value={option}>{toLabel(option)}</option>)}
+                  </Select>
+                  <Input label="Message when answer is not accepted" value={editingField.acceptedResponse.message ?? ''} placeholder="Choose the required answer to continue." onChange={(event) => updateDraftField(editingField.id, { acceptedResponse: { ...editingField.acceptedResponse!, message: event.target.value } })} />
+                </div> : null}
+              </section>
+            )}
+
             {FIELD_TYPES_WITH_OPTIONS.has(editingField.type) && (
               <section className="border-t border-gray-200 pt-5">
                 <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold text-gray-900">Options</h3><p className="mt-1 text-xs text-gray-500">Add and arrange the choices employees can select.</p></div><Button type="button" variant="secondary" size="sm" onClick={() => addFieldOption(editingField.id)}><Plus size={14} /> Add Option</Button></div>
@@ -1389,7 +1381,6 @@ export default function FormsPage() {
         footer={(
           <>
             <Button variant="secondary" onClick={() => setSubmitModalOpen(false)}>{activeTab === 'builder' ? 'Close Preview' : 'Cancel'}</Button>
-            {activeTab !== 'builder' && <Button onClick={submitFormResponse}>Submit</Button>}
           </>
         )}
       >
@@ -1402,13 +1393,6 @@ export default function FormsPage() {
               {/* TODO: Add robust offline-first local draft persistence for field users. */}
               {/* TODO: Add periodic auto-save draft sync workflow for poor connectivity environments. */}
             </div>
-
-            {activeTab !== 'builder' && (
-              <Select label="Submit As Employee" value={submitAsEmployeeId} onChange={(event) => setSubmitAsEmployeeId(event.target.value)}>
-                <option value="">Select employee</option>
-                {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
-              </Select>
-            )}
 
             <div className="space-y-3">
               {(builderForm?.id === selectedForm.id ? builderFields : fieldsForSelectedForm).map((field) => {
@@ -1597,7 +1581,7 @@ export default function FormsPage() {
         title="Submission Details"
         footer={(
           <div className="flex items-center justify-end gap-2">
-            {activeSubmission?.status === 'submitted' && (
+            {activeSubmission?.status === 'pending_review' && (
               <>
                 <Button variant="secondary" onClick={() => updateFormSubmission(activeSubmission.id, { status: 'rejected' })}>Reject</Button>
                 <Button onClick={() => updateFormSubmission(activeSubmission.id, { status: 'approved' })}>Approve</Button>

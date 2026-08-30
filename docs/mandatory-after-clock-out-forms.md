@@ -45,7 +45,7 @@ When Required forms apply, the endpoint does not close the time entry. It return
 }
 ```
 
-Each form package contains `requirementId`, `formId`, `title`, `description`, `category`, `trigger`, `order`, `context`, and `completionRequirement`. Form fields and complete definitions remain available through bootstrap and the employee Forms API.
+Each form package contains `requirementId`, `formId`, `title`, `description`, `category`, `trigger`, `order`, `context`, `completionRequirement`, and a complete immutable `form` snapshot. The snapshot includes field options, selector choices, accepted-response rules, and the Form approval policy as they existed when clock-out began.
 
 Retrying initiation for the active time entry returns the existing workflow and preserves its original intended clock-out timestamp. Reusing the same idempotency key with a changed payload returns `clock_idempotency_conflict`.
 
@@ -69,6 +69,8 @@ POST /api/employee?action=submit
 The server derives the employee from the session and the form context from the persisted workflow. Supplied context identifiers must match that workflow. The submission header stores both correlation IDs.
 
 The existing transaction atomically writes the idempotency claim, submission header, responses, and workflow completion update. A successful idempotent replay returns the original submission and still represents the same completed requirement; it does not increment completion again or create duplicate answers.
+
+Accepted-response rules are evaluated from the immutable occurrence snapshot. Editing or archiving the source Form after initiation does not change an in-progress requirement. Legacy occurrence records without a form snapshot remain completable using the current Form fields. A valid submission configured for approval is stored as `pending_review` and completes the requirement immediately; office approval never blocks clock-out finalization.
 
 A submission can satisfy exactly one requirement in exactly one occurrence. Previous clock-out submissions, another form's requirement ID, another employee, and another business cannot satisfy it.
 

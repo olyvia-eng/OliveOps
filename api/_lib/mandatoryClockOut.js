@@ -3,7 +3,7 @@ import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 import { isFormAssignedToEmployee, isJobOperationallyActive } from './formsEngine.js';
 
-const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'approved']);
+const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'pending_review', 'approved']);
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 export const clockOutWorkflowSk = (occurrenceId) => `CLOCK_OUT_WORKFLOW#${occurrenceId}`;
@@ -39,6 +39,48 @@ function safeContext({ job, equipment, division }) {
   };
 }
 
+function choicesForField(field, { employee, jobs, customers }) {
+  if (field.type === 'employee_selector') return [{ value: employee.id, label: employee.name }];
+  if (field.type === 'job_selector') return jobs.map((job) => ({ value: job.id, label: job.title }));
+  if (field.type === 'customer_selector') {
+    const customerIds = new Set(jobs.map((job) => job.customerId).filter(Boolean));
+    return customers.filter((customer) => customerIds.has(customer.id)).map((customer) => ({ value: customer.id, label: customer.name }));
+  }
+  return undefined;
+}
+
+function formSnapshot({ form, context, fields, employee, jobs, customers }) {
+  return {
+    id: form.id,
+    name: form.name,
+    description: form.description,
+    category: form.category,
+    trigger: 'after_clock_out',
+    required: true,
+    completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
+    requiresApproval: form.requiresApproval === true,
+    enforcement: form.completionRequirement === 'required' ? 'blocking' : 'advisory',
+    context,
+    fields: fields
+      .filter((field) => field.formId === form.id)
+      .sort((left, right) => left.order - right.order)
+      .map((field) => ({
+        id: field.id,
+        type: field.type,
+        label: field.label,
+        helpText: field.helpText ?? '',
+        required: field.required,
+        defaultValue: field.defaultValue ?? '',
+        placeholder: field.placeholder ?? '',
+        options: field.options ?? [],
+        acceptedResponse: field.acceptedResponse,
+        order: field.order,
+        choices: choicesForField(field, { employee, jobs, customers }),
+      })),
+    submissionState: { completed: false },
+  };
+}
+
 function assignmentContext({ form, employee, crews, divisions, jobs, equipment }) {
   const assignmentValue = text(form.assignmentValue || form.division);
   if (form.assignedTo === 'job') {
@@ -63,7 +105,7 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
   return isFormAssignedToEmployee({ form, employee, crews, divisions, ...context }) ? context : null;
 }
 
-export function resolveAfterClockOutForms({ forms = [], employee, crews = [], divisions = [], jobs = [], equipment = [] }) {
+export function resolveAfterClockOutForms({ forms = [], fields = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [] }) {
   const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
@@ -81,6 +123,7 @@ export function resolveAfterClockOutForms({ forms = [], employee, crews = [], di
       order: applicable.length,
       context: packagedContext,
       completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
+      form: formSnapshot({ form, context: packagedContext, fields, employee, jobs: actionableJobs, customers }),
     });
   }
 

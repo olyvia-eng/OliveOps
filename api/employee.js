@@ -138,6 +138,7 @@ function safeFields(formId, data, jobs = data.actionableJobs) {
   return data.fields.filter((field) => field.formId === formId).sort((left, right) => left.order - right.order).map((field) => ({
     id: field.id, type: field.type, label: field.label, helpText: field.helpText ?? '', required: field.required,
     defaultValue: field.defaultValue ?? '', placeholder: field.placeholder ?? '', options: field.options ?? [], order: field.order,
+    acceptedResponse: field.acceptedResponse,
     choices: choicesForField(field, data, jobs),
   }));
 }
@@ -356,7 +357,7 @@ export default async function handler(req, res) {
     if (requiresMandatoryWorkflow && !workflowRequirement) {
       return res.status(404).json({ ok: false, code: 'workflow_requirement_not_found', error: `Required form is not part of this ${requiresClockInWorkflow ? 'clock-in' : 'clock-out'} workflow.` });
     }
-    if (requiresClockInWorkflow && workflowRequirement?.form) form = workflowRequirement.form;
+    if (workflowRequirement?.form) form = workflowRequirement.form;
     if (!workflowRequirement && form.status !== 'active') return res.status(409).json({ ok: false, error: 'This form is not active.' });
     if (workflowRequirement && !workflowContextMatchesPayload(workflowRequirement, payload)) {
       return res.status(403).json({ ok: false, code: 'workflow_context_mismatch', error: 'Form context does not match the clock-out workflow.' });
@@ -366,14 +367,14 @@ export default async function handler(req, res) {
       : requestedContext(req, data);
     if (context.error) return res.status(403).json({ ok: false, error: context.error });
     if (!workflowRequirement && !isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) return res.status(403).json({ ok: false, error: 'This form is not assigned or available to this employee.' });
-    const fields = requiresClockInWorkflow && workflowRequirement?.form?.fields
+    const fields = workflowRequirement?.form?.fields
       ? workflowRequirement.form.fields
       : data.fields.filter((field) => field.formId === form.id);
-    const choicesByFieldId = requiresClockInWorkflow && workflowRequirement?.form?.fields
+    const choicesByFieldId = workflowRequirement?.form?.fields
       ? Object.fromEntries(fields.filter((field) => field.choices).map((field) => [field.id, field.choices]))
       : Object.fromEntries(safeFields(form.id, data, workflowRequirement ? data.authorizedJobs : data.actionableJobs).filter((field) => field.choices).map((field) => [field.id, field.choices]));
     const validation = validateEmployeeFormResponses({ fields, responses: payload?.responses, choicesByFieldId });
-    if (!validation.ok) return res.status(400).json({ ok: false, error: validation.error, fieldId: validation.fieldId });
+    if (!validation.ok) return res.status(400).json({ ok: false, code: validation.code, error: validation.error, fieldId: validation.fieldId });
     const submittedAt = new Date().toISOString();
     const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
     const payloadFingerprint = clientSubmissionId
@@ -397,7 +398,7 @@ export default async function handler(req, res) {
     const submission = {
       id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope, workflowOccurrenceId, workflowRequirementId }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
-      trigger, periodKey: scope.periodKey, submittedAt, status: 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
+      trigger, periodKey: scope.periodKey, submittedAt, status: form.requiresApproval ? 'pending_review' : 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
       clientSubmissionId: clientSubmissionId || undefined,
       workflowOccurrenceId: workflowRequirement ? workflowOccurrenceId : undefined,
       workflowRequirementId: workflowRequirement ? workflowRequirementId : undefined,

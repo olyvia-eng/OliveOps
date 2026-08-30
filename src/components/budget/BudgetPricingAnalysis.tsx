@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Card, EmptyState } from "../ui";
 import { useStore } from "../../store";
 import type { Budget, BudgetDivisionPlanningItem } from "../../types";
+import type { BudgetFinancials } from "../../pages/budget/budgetFinancialModel";
 import { formatCurrency } from "../../utils";
 import {
   buildBudgetPricingRows,
@@ -17,6 +18,7 @@ import OverheadRecoveryEditor from "./OverheadRecoveryEditor";
 interface Props {
   budget: Budget;
   planningItems: BudgetDivisionPlanningItem[];
+  financials: BudgetFinancials;
   canEdit: boolean;
 }
 
@@ -101,6 +103,7 @@ const unavailableCostReason = (
 export default function BudgetPricingAnalysis({
   budget,
   planningItems,
+  financials,
   canEdit,
 }: Props) {
   const {
@@ -250,11 +253,13 @@ export default function BudgetPricingAnalysis({
             customer pricing.
           </p>
         </div>
-        {divisions.map((division) => (
-          <OverheadRecoveryEditor
+        {divisions.map((division) => {
+          const divisionFinancials = financials.divisions.find((item) => item.divisionId === division.id);
+          const revenuePerHour = divisionFinancials?.revenuePerHour;
+          return <OverheadRecoveryEditor
             key={division.id}
             title={division.name}
-            description={`Allocated overhead: ${formatCurrency(recovery.divisions[division.id]?.totalOverhead ?? 0)}`}
+            description={`Revenue Target: ${formatCurrency(divisionFinancials?.revenue ?? division.revenueTarget)} · Revenue / Hour: ${revenuePerHour == null ? '—' : formatCurrency(revenuePerHour)} · Allocated overhead: ${formatCurrency(recovery.divisions[division.id]?.totalOverhead ?? 0)}`}
             totalOverhead={recovery.divisions[division.id]?.totalOverhead ?? 0}
             policy={division.overheadRecoveryPolicy}
             canEdit={canEdit}
@@ -263,8 +268,8 @@ export default function BudgetPricingAnalysis({
                 overheadRecoveryPolicy,
               })
             }
-          />
-        ))}
+          />;
+        })}
         {divisions.length === 0 ? (
           <Card>
             <EmptyState

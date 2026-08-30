@@ -371,3 +371,26 @@ test('invalid client keys are rejected, legacy submissions serialize null, and f
   const retry = await submit('transaction-retry-key-001');
   assert.equal(retry.statusCode, 201);
 });
+
+test('accepted responses are exposed and enforced before pending-review submissions are written', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'safety-check' });
+  store.get(key('BUSINESS#biz-a', 'FORM#safety-check')).requiresApproval = true;
+  const field = store.get(key('BUSINESS#biz-a', 'FORM_FIELD#safety-check-notes'));
+  Object.assign(field, { type: 'yes_no', acceptedResponse: { value: 'yes', message: 'Confirm the site is safe.' } });
+
+  const available = await request('token-a', { action: 'forms' });
+  assert.deepEqual(available.body.available[0].fields[0].acceptedResponse, { value: 'yes', message: 'Confirm the site is safe.' });
+
+  const rejected = await request('token-a', { method: 'POST', action: 'submit', body: { data: { formId: 'safety-check', responses: [{ fieldId: 'safety-check-notes', value: 'no' }] } } });
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(rejected.body.code, 'form_response_requirement_failed');
+  assert.equal(rejected.body.fieldId, 'safety-check-notes');
+  assert.match(rejected.body.error, /Confirm the site is safe/);
+  assert.equal([...store.values()].some((item) => item.entityType === 'FORM_SUBMISSION'), false);
+
+  const accepted = await request('token-a', { method: 'POST', action: 'submit', body: { data: { formId: 'safety-check', responses: [{ fieldId: 'safety-check-notes', value: 'yes' }] } } });
+  assert.equal(accepted.statusCode, 201);
+  assert.equal(accepted.body.submission.status, 'pending_review');
+});

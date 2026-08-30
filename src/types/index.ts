@@ -898,6 +898,7 @@ export interface FormRecord {
   assignmentValue?: string;
   trigger: FormTrigger[];
   completionRequirement?: 'reminder' | 'required';
+  requiresApproval?: boolean;
   division?: string;
   createdAt: string;
   updatedAt: string;
@@ -913,10 +914,14 @@ export interface FormField {
   defaultValue?: string;
   placeholder?: string;
   options?: string[];
+  acceptedResponse?: {
+    value: string;
+    message?: string;
+  };
   order: number;
 }
 
-export type FormSubmissionStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
+export type FormSubmissionStatus = 'draft' | 'submitted' | 'pending_review' | 'approved' | 'rejected';
 
 export interface FormSubmission {
   id: ID;

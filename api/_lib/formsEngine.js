@@ -1,6 +1,6 @@
 import { getPeriodKeyForTrigger, normalizeBusinessTimeZone } from './businessTime.js';
 
-const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'approved']);
+const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'pending_review', 'approved']);
 const CONTEXT_TRIGGERS = new Set(['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
 const DISPLAY_FIELD_TYPES = new Set(['section_header', 'paragraph_text']);
 const OPTION_FIELD_TYPES = new Set(['checkbox', 'multiple_choice', 'dropdown']);
@@ -147,8 +147,8 @@ function validDate(value) {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-function responseError(field, message) {
-  return { ok: false, error: `${field.label}: ${message}`, fieldId: field.id };
+function responseError(field, message, code) {
+  return { ok: false, error: `${field.label}: ${message}`, fieldId: field.id, ...(code ? { code } : {}) };
 }
 
 export function validateEmployeeFormResponses({ fields = [], responses, choicesByFieldId = {} }) {
@@ -190,6 +190,9 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
     if (SELECTOR_FIELD_TYPES.has(field.type)) {
       const allowedValues = new Set((choicesByFieldId[field.id] ?? []).map((choice) => choice.value));
       if (!allowedValues.has(value)) return responseError(field, 'must reference an available option.');
+    }
+    if (field.acceptedResponse && value !== text(field.acceptedResponse.value)) {
+      return responseError(field, text(field.acceptedResponse.message) || 'Choose the required answer to continue.', 'form_response_requirement_failed');
     }
     normalizedResponses.push({ fieldId: field.id, value });
   }

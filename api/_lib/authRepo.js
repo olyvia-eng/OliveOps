@@ -2143,6 +2143,7 @@ export async function listFormsForBusiness(businessId) {
     assignmentValue: item.assignmentValue,
     trigger: item.trigger ?? [],
     completionRequirement: item.completionRequirement ?? 'reminder',
+    requiresApproval: item.requiresApproval === true,
     division: item.division,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -2190,6 +2191,7 @@ export async function getFormForBusiness(businessId, formId) {
         assignmentValue: result.Item.assignmentValue,
         trigger: result.Item.trigger ?? [],
         completionRequirement: result.Item.completionRequirement ?? 'reminder',
+        requiresApproval: result.Item.requiresApproval === true,
         division: result.Item.division,
         createdAt: result.Item.createdAt,
         updatedAt: result.Item.updatedAt,
@@ -2252,6 +2254,7 @@ export async function listFormFieldsForBusiness(businessId) {
     defaultValue: item.defaultValue,
     placeholder: item.placeholder,
     options: item.options ?? [],
+    acceptedResponse: item.acceptedResponse,
     order: item.order ?? 0,
   }));
 }
@@ -2297,6 +2300,7 @@ export async function getFormFieldForBusiness(businessId, formFieldId) {
         defaultValue: result.Item.defaultValue,
         placeholder: result.Item.placeholder,
         options: result.Item.options ?? [],
+        acceptedResponse: result.Item.acceptedResponse,
         order: result.Item.order ?? 0,
       }
     : null;
@@ -2441,9 +2445,9 @@ export async function reviewFormSubmissionForBusiness({ businessId, formSubmissi
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: formSubmissionSk(formSubmissionId) },
     UpdateExpression: 'SET #status = :status',
-    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :submitted',
+    ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :pendingReview',
     ExpressionAttributeNames: { '#status': 'status' },
-    ExpressionAttributeValues: { ':status': status, ':submitted': 'submitted' },
+    ExpressionAttributeValues: { ':status': status, ':pendingReview': 'pending_review' },
   }));
   return { ok: true };
 }

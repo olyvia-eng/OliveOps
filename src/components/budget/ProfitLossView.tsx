@@ -1,9 +1,9 @@
 import { Fragment, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { formatCurrency } from '../../utils';
 import type { Budget, BudgetDivision } from '../../types';
-import type { BudgetFinancials, DirectCostDetailCategory, DirectCostDetailItem, DivisionFinancials, OverheadDetailCategory, OverheadDetailItem } from '../../pages/budget/budgetFinancialModel';
+import type { BudgetFinancials, DirectCostDetailCategory, DirectCostDetailItem, DivisionFinancials, EquipmentCostComposition, OverheadDetailCategory, OverheadDetailItem } from '../../pages/budget/budgetFinancialModel';
 import DivisionMonthlyComparison from './DivisionMonthlyComparison';
 
 const amount = (value: number | null) => value === null ? '—' : formatCurrency(value);
@@ -39,13 +39,28 @@ const directCostGroups: Array<{ category: DirectCostDetailCategory; label: strin
   { category: 'subcontractors', label: 'Subcontractors' },
 ];
 
-function DirectCostRows({ items, totals }: { items: DirectCostDetailItem[] | undefined; totals: Record<DirectCostDetailCategory, number> }) {
+function DirectCostRows({ items, totals, equipmentComposition }: { items: DirectCostDetailItem[] | undefined; totals: Record<DirectCostDetailCategory, number>; equipmentComposition: EquipmentCostComposition }) {
   const detailItems = items ?? [];
+  const [expanded, setExpanded] = useState<Record<DirectCostDetailCategory, boolean>>({ labour: true, equipment: true, materials: true, subcontractors: true });
   return <>
-    {directCostGroups.map((group) => <Fragment key={group.category}>
-      <Row label={group.label} value={totals[group.category]} />
-      {detailItems.filter((item) => item.category === group.category).map((item) => <tr key={`${item.category}:${item.itemId}`} className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">{item.name}</td><td className="px-5 py-1 text-right tabular-nums">{amount(item.amount)}</td></tr>)}
-    </Fragment>)}
+    {directCostGroups.map((group) => {
+      const groupItems = detailItems.filter((item) => item.category === group.category);
+      const collapsible = group.category === 'labour' || group.category === 'equipment';
+      const isExpanded = !collapsible || expanded[group.category];
+      return <Fragment key={group.category}>
+        <tr className="text-gray-700 dark:text-brand-100"><td className="px-5 py-2 pl-8">{collapsible ? <button type="button" className="flex w-full items-center gap-2 text-left font-medium" aria-expanded={isExpanded} onClick={() => setExpanded((current) => ({ ...current, [group.category]: !current[group.category] }))}>{isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<span>{group.label}</span></button> : group.label}</td><td className="px-5 py-2 text-right tabular-nums">{amount(totals[group.category])}</td></tr>
+        {group.category === 'equipment' && isExpanded ? <>
+          {([
+            ['Maintenance', equipmentComposition.maintenance],
+            ['Fuel', equipmentComposition.fuel],
+            ['Insurance', equipmentComposition.insurance],
+          ] as const).map(([label, value]) => <tr key={label} className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">{label}</td><td className="px-5 py-1 text-right tabular-nums">{amount(value)}</td></tr>)}
+          {Math.abs(equipmentComposition.paymentsOther) > 0.005 ? <tr className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">Payments / Other</td><td className="px-5 py-1 text-right tabular-nums">{amount(equipmentComposition.paymentsOther)}</td></tr> : null}
+          {groupItems.length > 0 ? <tr><td colSpan={2} className="px-5 pb-1 pl-12 pt-3 text-[11px] font-semibold uppercase text-gray-400 dark:text-brand-400">Equipment Items</td></tr> : null}
+        </> : null}
+        {isExpanded ? groupItems.map((item) => <tr key={`${item.category}:${item.itemId}`} className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">{item.name}</td><td className="px-5 py-1 text-right tabular-nums">{amount(item.amount)}</td></tr>) : null}
+      </Fragment>;
+    })}
     <Row label="Total Direct Costs" value={Object.values(totals).reduce((sum, value) => sum + value, 0)} total />
   </>;
 }
@@ -75,7 +90,7 @@ export function DivisionProfitLossView({ fiscalYear, financials }: { fiscalYear:
     <IncompleteNotice missingCategories={financials.missingCategories} />
     <Card className="overflow-hidden"><table className="w-full text-sm"><tbody>
       <SectionHeading>Revenue</SectionHeading><Row label="Budgeted Revenue" value={financials.revenue} /><Row label="Total Revenue" value={financials.revenue} total />
-      <SectionHeading>Direct Costs</SectionHeading><DirectCostRows items={financials.directCostItems} totals={{ labour: financials.directLabour, equipment: financials.directEquipment, materials: financials.materials, subcontractors: financials.subcontractors }} />
+      <SectionHeading>Direct Costs</SectionHeading><DirectCostRows items={financials.directCostItems} equipmentComposition={financials.equipmentCostComposition} totals={{ labour: financials.directLabour, equipment: financials.directEquipment, materials: financials.materials, subcontractors: financials.subcontractors }} />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
       <SectionHeading>Overhead</SectionHeading><OverheadRows items={financials.overheadItems} total={financials.totalOverhead} />
       <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />
@@ -91,7 +106,7 @@ export function BudgetProfitLossView({ budget, divisions, financials }: { budget
     <IncompleteNotice missingCategories={missingCategories} />
     <Card className="overflow-hidden"><table className="w-full text-sm"><tbody>
       <SectionHeading>Revenue</SectionHeading>{financials.divisions.map((division) => <Row key={division.divisionId} label={division.divisionName} value={division.revenue} />)}<Row label="Total Revenue" value={financials.revenue} total />
-      <SectionHeading>Direct Costs</SectionHeading><DirectCostRows items={financials.directCostItems} totals={{ labour: financials.directLabour, equipment: financials.directEquipment, materials: financials.materials, subcontractors: financials.subcontractors }} />
+      <SectionHeading>Direct Costs</SectionHeading><DirectCostRows items={financials.directCostItems} equipmentComposition={financials.equipmentCostComposition} totals={{ labour: financials.directLabour, equipment: financials.directEquipment, materials: financials.materials, subcontractors: financials.subcontractors }} />
       <Row label="Gross Profit" value={financials.grossProfit} total /><MarginRow label="Gross Margin" value={financials.grossMargin} />
       <SectionHeading>Overhead</SectionHeading><OverheadRows items={financials.overheadItems} total={financials.totalOverhead} />
       <Row label="Net Profit" value={financials.operatingProfit} total /><MarginRow label="Net Profit Margin" value={financials.operatingMargin} />

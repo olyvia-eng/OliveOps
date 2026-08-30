@@ -1,6 +1,6 @@
 # Employee Forms API
 
-Required forms using `after_clock_out` are server-enforced through a persisted clock-out occurrence. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md) for initiation, submission correlation, recovery, and finalization contracts. Other workflow triggers remain advisory.
+Required forms using `before_clock_in` or `after_clock_out` are server-enforced through persisted workflow occurrences. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md) for the clock-out initiation, submission correlation, recovery, and finalization contracts. Other workflow triggers remain advisory.
 
 Phase 1 exposes the existing OliveOps Forms definitions and submissions to employee clients. The Forms builder remains the source of `FormRecord` and `FormField` data. Mobile clients must use `/api/employee`; they must not read or write Forms through `/api/data`.
 
@@ -74,7 +74,7 @@ A renderable Form instance has this shape:
 
 Missing context values and incomplete submission-state metadata are omitted from JSON.
 
-`required` is the existing trigger-derived workspace flag: it is `false` only for `on_demand`. `completionRequirement` is the builder policy (`reminder` or `required`) and defaults to `reminder` for legacy records. `enforcement` is currently always `advisory`; neither flag authorizes mobile to block a workflow.
+`required` is the existing trigger-derived workspace flag: it is `false` only for `on_demand`. `completionRequirement` is the builder policy (`reminder` or `required`) and defaults to `reminder` for legacy records. `enforcement` is `blocking` only for Required before-clock-in and after-clock-out occurrences; all other triggers are advisory.
 
 ## Check a required trigger
 
@@ -97,7 +97,7 @@ Valid workflow triggers are `before_clock_in`, `after_clock_out`, `before_starti
 }
 ```
 
-All checks remain advisory. Clock-in, clock-out, starting work, leaving a job, and completing a job continue even when `forms` is non-empty, including Forms whose `completionRequirement` is `required`. The mobile app should surface missing Forms without turning them into workflow blockers. Authoritative blocking requires a future server-owned workflow transition contract.
+This discovery endpoint is advisory and does not itself authorize a client-side block. Required before-clock-in and after-clock-out Forms are enforced only through their server-owned persisted workflow occurrences. Starting work, leaving a job, and completing a job remain advisory even when this endpoint returns Forms whose `completionRequirement` is `required`.
 
 ## Submit a Form
 
@@ -122,7 +122,7 @@ Content-Type: application/json
 
 `trigger` must be configured on the active Form. Context IDs are optional unless needed by the Form assignment or trigger. A job must be directly assigned to the employee or assigned to one of their active crews. Equipment must be assigned through the supplied authorized job. Division must agree with the job context.
 
-The server validates all answers, creates the submission and responses in one DynamoDB transaction, and returns `201`:
+The server validates all answers, creates the submission and responses in one DynamoDB transaction, and returns `201`. Forms configured with `requiresApproval: true` return `status: "pending_review"`; all others return `status: "submitted"`.
 
 ```json
 {
@@ -205,7 +205,7 @@ Employees can retrieve only their own submissions. The response includes summary
 
 ## Field rendering and validation
 
-Each field package includes `id`, `type`, `label`, `helpText`, `required`, `defaultValue`, `placeholder`, `options`, and `order`. Selector fields also include authorized `choices` as `{ "value", "label" }` objects.
+Each field package includes `id`, `type`, `label`, `helpText`, `required`, `defaultValue`, `placeholder`, `options`, `acceptedResponse`, and `order`. Selector fields also include authorized `choices` as `{ "value", "label" }` objects. `acceptedResponse` has an exact `value` and an optional administrator-authored `message`; it is available for Yes/No and configured-option fields.
 
 | Type | Mobile behavior | Submitted value |
 | --- | --- | --- |
@@ -222,6 +222,8 @@ Each field package includes `id`, `type`, `label`, `helpText`, `required`, `defa
 | `photo_upload`, `file_upload` | Render as unavailable in Phase 1 | Do not submit an answer |
 
 Optional blank answers may be omitted. Duplicate field IDs, fields from another Form, display-field answers, and values outside server-provided options are rejected.
+
+After normal type and option validation, the server compares any configured accepted response. A mismatch returns `400` with `code: "form_response_requirement_failed"`, the `fieldId`, and the configured message or a fallback message. No submission, response, idempotency claim, or mandatory-workflow completion is written on failure.
 
 ### Attachments
 
@@ -251,7 +253,7 @@ Timestamps are stored in UTC. Period keys are calculated in the configured IANA 
 - Monthly: local calendar month, for example `2026-03`.
 - Job start/leaving/completion: completion is scoped to the authorized job context and exact trigger. `after_leaving_job`, `job_completed`, and legacy `after_completing_job` do not satisfy one another.
 
-A `submitted` or `approved` submission satisfies a required instance. A `draft` or `rejected` submission does not.
+A `submitted`, `pending_review`, or `approved` submission satisfies a required instance. A `draft` or `rejected` submission does not. Approval is a downstream office workflow and never delays clock-in or clock-out after the employee has submitted valid answers.
 
 ## Errors and retry behavior
 
@@ -279,4 +281,4 @@ Content-Type: application/json
 { "status": "approved" }
 ```
 
-Only `submitted → approved|rejected` is allowed. The endpoint derives the tenant from the reviewer session and cannot mutate submission ownership, context, answers, or timestamps.
+Only `pending_review → approved|rejected` is allowed. The endpoint derives the tenant from the reviewer session and cannot mutate submission ownership, context, answers, or timestamps. Generic `/api/data` reads remain available according to role, but writes to `form-submissions` and `form-responses` are rejected; submissions must use the canonical employee endpoint.

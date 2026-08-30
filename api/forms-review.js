@@ -117,8 +117,8 @@ export default async function handler(req, res) {
 
   const submission = await getFormSubmissionForBusiness(session.businessId, submissionId);
   if (!submission) return res.status(404).json({ ok: false, error: 'Submission not found.' });
-  if (submission.status !== 'submitted') {
-    return res.status(409).json({ ok: false, error: 'Only submitted Forms can be reviewed.' });
+  if (submission.status !== 'pending_review') {
+    return res.status(409).json({ ok: false, error: 'Only Forms pending review can be approved or rejected.' });
   }
 
   const reviewed = { ...submission, status };

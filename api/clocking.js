@@ -791,17 +791,19 @@ export default async function handler(req, res) {
       if (!employee?.active) {
         return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
       }
-      const [jobs, equipment, crews, divisions] = await Promise.all([
+      const [jobs, equipment, crews, divisions, fields, customers] = await Promise.all([
         listJobsForBusiness(session.businessId),
         listEquipmentAssetsForBusiness(session.businessId),
         listCrewsForBusiness(session.businessId),
         listDivisionsForBusiness(session.businessId),
+        listFormFieldsForBusiness(session.businessId),
+        listCustomersForBusiness(session.businessId),
       ]);
       const entryJobIds = Array.isArray(activeEntry.jobIds) && activeEntry.jobIds.length > 0
         ? activeEntry.jobIds
         : activeEntry.jobId ? [activeEntry.jobId] : [];
       const entryJobs = jobs.filter((job) => entryJobIds.includes(job.id));
-      const applicableForms = resolveAfterClockOutForms({ forms, employee, crews, divisions, jobs: entryJobs, equipment });
+      const applicableForms = resolveAfterClockOutForms({ forms, fields, employee, crews, divisions, jobs: entryJobs, equipment, customers });
       if (applicableForms.requiredForms.length > 0) {
         const existingWorkflow = await getPendingClockOutWorkflowForEmployee(session.businessId, activeEntry.employeeId);
         if (existingWorkflow) {

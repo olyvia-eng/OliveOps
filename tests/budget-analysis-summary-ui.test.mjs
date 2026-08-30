@@ -34,14 +34,11 @@ test('dollar and percent modes derive from one canonical target margin', () => {
 });
 
 test('chart consumes summary segments and exposes rather than normalizes shortfall', () => {
-  assert.match(summarySource, /useState<'stacked' \| 'bars'>\('stacked'\)/);
-  assert.match(summarySource, /Revenue distribution chart view/);
-  assert.match(summarySource, /value === 'stacked' \? 'Stacked' : 'Bars'/);
-  assert.match(summarySource, /chartMode === 'stacked'/);
-  assert.match(summarySource, /Separate revenue distribution bars/);
-  assert.match(summarySource, /summary\.chartSegments\.map/);
-  assert.match(summarySource, /summary\.revenueMarkerPct/);
-  assert.match(summarySource, /Revenue limit/);
+  assert.match(summarySource, /PieChart/);
+  assert.match(summarySource, /data=\{pieData\}/);
+  assert.match(summarySource, /summary\.chartSegments/);
+  assert.doesNotMatch(summarySource, /Revenue distribution chart view|Stacked|Separate revenue distribution bars/);
+  assert.match(summarySource, /pieData\.map/);
   assert.match(summarySource, /summary\.shortfall/);
   assert.match(summaryModelSource, /chartTotal = Math\.max\(revenue, requiredRevenue, 1\)/);
   assert.match(summaryModelSource, /chartSegments = lines\.slice\(1\)/);
@@ -61,5 +58,7 @@ test('existing Overhead Recovery and Pricing remain below the financial summary'
   const pricingSource = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
   assert.match(pricingSource, />\s*Overhead Recovery\s*<\/h2>/);
   assert.match(pricingSource, />\s*Pricing\s*<\/h2>/);
+  assert.match(workspaceSource, /financials=\{financials\}/);
+  assert.match(pricingSource, /Revenue \/ Hour/);
   for (const label of ['Labour', 'Equipment', 'Materials', 'Subcontractors']) assert.match(pricingSource, new RegExp(`label: ["']${label}["']`));
 });

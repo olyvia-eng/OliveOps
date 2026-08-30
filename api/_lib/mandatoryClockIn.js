@@ -56,6 +56,7 @@ function formSnapshot({ form, context, fields, employee, jobs, customers }) {
     trigger: 'before_clock_in',
     required: true,
     completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
+    requiresApproval: form.requiresApproval === true,
     enforcement: form.completionRequirement === 'required' ? 'blocking' : 'advisory',
     context,
     fields: fields
@@ -70,6 +71,7 @@ function formSnapshot({ form, context, fields, employee, jobs, customers }) {
         defaultValue: field.defaultValue ?? '',
         placeholder: field.placeholder ?? '',
         options: field.options ?? [],
+        acceptedResponse: field.acceptedResponse,
         order: field.order,
         choices: choicesForField(field, { employee, jobs, customers }),
       })),

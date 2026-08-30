@@ -64,4 +64,10 @@ test('financial statements render authoritative direct-cost child detail', () =>
   assert.match(statement, /function DirectCostRows/);
   assert.match(statement, /financials\.directCostItems/);
   assert.match(model, /directCostItems/);
+  assert.match(statement, /aria-expanded=\{isExpanded\}/);
+  assert.match(statement, /Maintenance/);
+  assert.match(statement, /Fuel/);
+  assert.match(statement, /Insurance/);
+  assert.match(statement, /Math\.abs\(equipmentComposition\.paymentsOther\) > 0\.005/);
+  assert.match(statement, /Equipment Items/);
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { BudgetFinancials } from '../../pages/budget/budgetFinancialModel';
 import { buildBudgetAnalysisSummary, normalizeTargetMargin, targetMarginFromDollars, type AnalysisValueMode } from '../../pages/budget/budgetAnalysisSummaryModel.js';
 import { formatCurrency } from '../../utils';
@@ -12,24 +13,27 @@ interface Props {
   onTargetMarginChange: (targetMarginPct: number) => Promise<unknown> | unknown;
 }
 
-const segmentStyles = {
-  labour: 'bg-emerald-600',
-  equipment: 'bg-sky-600',
-  materials: 'bg-amber-500',
-  subcontractors: 'bg-rose-500',
-  overhead: 'bg-gray-500',
-  targetProfit: 'bg-brand-600',
+const segmentColors = {
+  labour: '#059669',
+  equipment: '#0284c7',
+  materials: '#d97706',
+  subcontractors: '#e11d48',
+  overhead: '#6b7280',
+  targetProfit: '#536246',
+  surplus: '#d1d5db',
 } as const;
 
 const formatPercent = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
 
 export default function BudgetAnalysisSummary({ financials, targetMarginPct, canEdit, onTargetMarginChange }: Props) {
   const [mode, setMode] = useState<AnalysisValueMode>('dollars');
-  const [chartMode, setChartMode] = useState<'stacked' | 'bars'>('stacked');
   const [canonicalMargin, setCanonicalMargin] = useState(() => normalizeTargetMargin(targetMarginPct));
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const summary = useMemo(() => buildBudgetAnalysisSummary(financials, canonicalMargin), [canonicalMargin, financials]);
+  const pieData = summary.surplusAfterTarget > 0
+    ? [...summary.chartSegments, { key: 'surplus' as const, label: 'Above target', amount: summary.surplusAfterTarget, widthPct: summary.surplusAfterTarget / summary.chartTotal * 100 }]
+    : summary.chartSegments;
   const displayTarget = (nextMode: AnalysisValueMode, margin = canonicalMargin) => nextMode === 'percent'
     ? String(Number(margin.toFixed(2)))
     : String(Number((summary.totalPlannedCosts / (1 - margin / 100) - summary.totalPlannedCosts).toFixed(2)));
@@ -102,35 +106,16 @@ export default function BudgetAnalysisSummary({ financials, targetMarginPct, can
       </section>
 
       <section className="border-t border-gray-200 bg-gray-50 p-5 sm:p-6 lg:border-l lg:border-t-0 dark:border-brand-600 dark:bg-brand-800/40" aria-labelledby="revenue-distribution-heading">
-        <div className="flex items-start justify-between gap-4">
+        <div>
           <div>
             <p className="text-xs font-semibold uppercase text-gray-500 dark:text-brand-300">Revenue Distribution</p>
             <h3 id="revenue-distribution-heading" className="mt-1 text-base font-semibold text-gray-950 dark:text-brand-50">Where each revenue dollar goes</h3>
           </div>
-          <div className="inline-flex shrink-0 rounded-lg border border-brand-100 bg-white p-1 dark:border-brand-600 dark:bg-brand-700" role="group" aria-label="Revenue distribution chart view">
-            {(['stacked', 'bars'] as const).map((value) => <button key={value} type="button" aria-pressed={chartMode === value} onClick={() => setChartMode(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold ${chartMode === value ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-brand-200'}`}>{value === 'stacked' ? 'Stacked' : 'Bars'}</button>)}
-          </div>
         </div>
-        {chartMode === 'stacked' ? <>
-          <div className="relative mt-7">
-            <div className="flex h-12 overflow-hidden rounded-md bg-gray-200 dark:bg-brand-700" aria-label="Stacked revenue distribution chart">
-              {summary.chartSegments.map((segment) => <div key={segment.key} className={`${segmentStyles[segment.key]} min-w-0`} style={{ width: `${segment.widthPct}%` }} title={`${segment.label}: ${formatCurrency(segment.amount)}`} />)}
-              {summary.surplusAfterTarget > 0 ? <div className="bg-gray-300 dark:bg-brand-600" style={{ width: `${summary.surplusAfterTarget / summary.chartTotal * 100}%` }} title={`Revenue above target: ${formatCurrency(summary.surplusAfterTarget)}`} /> : null}
-            </div>
-            {summary.shortfall > 0 ? <div className="absolute -top-2 h-16 border-l-2 border-dashed border-gray-900 dark:border-white" style={{ left: `${summary.revenueMarkerPct}%` }}><span className="absolute -top-5 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold text-gray-700 dark:text-brand-100">Revenue limit</span></div> : null}
-          </div>
-          <div className="mt-6 grid gap-x-4 gap-y-2 sm:grid-cols-2">
-            {summary.chartSegments.map((segment) => <div key={segment.key} className="flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 text-gray-600 dark:text-brand-200"><span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${segmentStyles[segment.key]}`} />{segment.label}</span><span className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(segment.amount)}</span></div>)}
-            {summary.surplusAfterTarget > 0 ? <div className="flex items-center justify-between gap-3 text-xs"><span className="flex items-center gap-2 text-gray-600 dark:text-brand-200"><span className="h-2.5 w-2.5 rounded-sm bg-gray-300 dark:bg-brand-600" />Above target</span><span className="font-medium tabular-nums">{formatCurrency(summary.surplusAfterTarget)}</span></div> : null}
-          </div>
-        </> : <div className="mt-5 space-y-3" aria-label="Separate revenue distribution bars">
-          {summary.chartSegments.map((segment) => <div key={segment.key}>
-            <div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="font-medium text-gray-600 dark:text-brand-200">{segment.label}</span><span className="tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(segment.amount)}</span></div>
-            <div className="relative h-3 overflow-hidden rounded-sm bg-gray-200 dark:bg-brand-700"><div className={`h-full ${segmentStyles[segment.key]}`} style={{ width: `${segment.widthPct}%` }} />{summary.shortfall > 0 ? <div className="absolute inset-y-0 border-l border-dashed border-gray-900 dark:border-white" style={{ left: `${summary.revenueMarkerPct}%` }} /> : null}</div>
-          </div>)}
-          {summary.surplusAfterTarget > 0 ? <div><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="font-medium text-gray-600 dark:text-brand-200">Above target</span><span className="tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(summary.surplusAfterTarget)}</span></div><div className="h-3 overflow-hidden rounded-sm bg-gray-200 dark:bg-brand-700"><div className="h-full bg-gray-300 dark:bg-brand-600" style={{ width: `${summary.surplusAfterTarget / summary.chartTotal * 100}%` }} /></div></div> : null}
-          {summary.shortfall > 0 ? <p className="text-right text-[11px] font-semibold text-gray-600 dark:text-brand-200">Dashed marker: Revenue limit</p> : null}
-        </div>}
+        <div className="mt-4 h-56" aria-label="Revenue distribution pie chart"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={pieData} dataKey="amount" nameKey="label" cx="50%" cy="50%" innerRadius={48} outerRadius={88} strokeWidth={2}>{pieData.map((segment) => <Cell key={segment.key} fill={segmentColors[segment.key]} />)}</Pie><Tooltip formatter={(value) => formatCurrency(Number(value))} /></PieChart></ResponsiveContainer></div>
+        <div className="mt-3 grid gap-x-4 gap-y-2 sm:grid-cols-2">
+          {pieData.map((segment) => <div key={segment.key} className="flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 text-gray-600 dark:text-brand-200"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: segmentColors[segment.key] }} />{segment.label}</span><span className="font-medium tabular-nums text-gray-800 dark:text-brand-100">{formatCurrency(segment.amount)}</span></div>)}
+        </div>
         {summary.shortfall > 0 ? <div className="mt-5 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800 dark:border-amber-800 dark:text-amber-200"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p><span className="font-semibold">{formatCurrency(summary.shortfall)} revenue gap.</span> Planned costs at the configured Target Profit Margin require {formatCurrency(summary.requiredRevenue)}.</p></div> : null}
       </section>
     </div>

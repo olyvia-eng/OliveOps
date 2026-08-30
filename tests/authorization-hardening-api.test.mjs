@@ -561,6 +561,27 @@ test('crew_member cannot PATCH/DELETE another employee records by id', async (t)
   assert.equal(taskOther.title, 'Other Task');
 });
 
+test('generic data writes cannot create or mutate Form submissions and responses', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-1', userId: 'user-admin-1', role: 'admin', email: 'admin1@example.com' });
+  await createBearerSession({ businessId: 'biz-1', userId: 'user-admin-1', role: 'admin', email: 'admin1@example.com', token: 'token-admin-forms' });
+
+  const attempts = [
+    requestWithToken('token-admin-forms', 'POST', 'form-submissions', { data: { id: 'bypass-submission' } }),
+    requestWithToken('token-admin-forms', 'PATCH', 'form-submissions', { data: { status: 'approved' } }, 'submission-a'),
+    requestWithToken('token-admin-forms', 'DELETE', 'form-submissions', {}, 'submission-a'),
+    requestWithToken('token-admin-forms', 'POST', 'form-responses', { data: { id: 'bypass-response' } }),
+    requestWithToken('token-admin-forms', 'PATCH', 'form-responses', { data: { value: 'tampered' } }, 'response-a'),
+  ];
+
+  for (const req of attempts) {
+    const res = createMockRes();
+    await dataHandler(req, res);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, 'canonical_form_submission_required');
+  }
+});
+
 test('cross-tenant id probes on mutating endpoints do not disclose or mutate records', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {

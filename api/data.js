@@ -570,7 +570,8 @@ const FORM_FIELD_TYPES = new Set([
   'job_selector',
   'customer_selector',
 ]);
-const FORM_SUBMISSION_STATUSES = new Set(['draft', 'submitted', 'approved', 'rejected']);
+const FORM_SUBMISSION_STATUSES = new Set(['draft', 'submitted', 'pending_review', 'approved', 'rejected']);
+const CANONICAL_FORM_WRITE_ENTITIES = new Set(['form-submissions', 'form-responses']);
 const TASK_STATUSES = new Set(['open', 'completed']);
 const TASK_PRIORITIES = new Set(['low', 'normal', 'high']);
 const TASK_RELATED_ENTITY_TYPES = new Set(['customer', 'estimate', 'job', 'invoice', 'employee']);
@@ -1385,6 +1386,9 @@ function validateFormRecord(record) {
   if (record.completionRequirement !== undefined && !['reminder', 'required'].includes(record.completionRequirement)) {
     return 'Form completion requirement is invalid.';
   }
+  if (record.requiresApproval !== undefined && typeof record.requiresApproval !== 'boolean') {
+    return 'Form approval requirement is invalid.';
+  }
   return null;
 }
 
@@ -1405,6 +1409,13 @@ function validateFormFieldRecord(record) {
   }
   if (record.options !== undefined && record.options !== null && (!Array.isArray(record.options) || record.options.some((opt) => typeof opt !== 'string'))) {
     return 'Form field options are invalid.';
+  }
+  if (record.acceptedResponse !== undefined && record.acceptedResponse !== null) {
+    if (typeof record.acceptedResponse !== 'object' || !isNonEmptyString(record.acceptedResponse.value)) return 'Form field accepted response is invalid.';
+    if (record.acceptedResponse.message !== undefined && typeof record.acceptedResponse.message !== 'string') return 'Form field accepted response message is invalid.';
+    if (record.type === 'yes_no' && !['yes', 'no'].includes(record.acceptedResponse.value)) return 'Form field accepted response must be yes or no.';
+    if (['checkbox', 'multiple_choice', 'dropdown'].includes(record.type) && !record.options?.includes(record.acceptedResponse.value)) return 'Form field accepted response must be a configured option.';
+    if (!['yes_no', 'checkbox', 'multiple_choice', 'dropdown'].includes(record.type)) return 'This Form field type cannot require a specific response.';
   }
   if (typeof record.order !== 'number' || Number.isNaN(record.order) || record.order < 0) {
     return 'Form field order must be zero or greater.';
@@ -1594,6 +1605,12 @@ export default async function handler(req, res) {
   const config = getConfig(entity);
   if (!config) {
     return res.status(400).json({ ok: false, error: 'Invalid data entity' });
+  }
+
+  if (req.method !== 'GET' && CANONICAL_FORM_WRITE_ENTITIES.has(entity)) {
+    const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
+    if (!session) return;
+    return res.status(409).json({ ok: false, code: 'canonical_form_submission_required', error: 'Use the employee Forms submission API to create submissions and responses.' });
   }
 
   if (req.method === 'GET') {

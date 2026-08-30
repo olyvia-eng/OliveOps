@@ -285,6 +285,7 @@ test('Required workflow persists one complete immutable form snapshot across eve
     trigger: 'before_clock_in',
     required: true,
     completionRequirement: 'required',
+    requiresApproval: false,
     enforcement: 'blocking',
     context: requirement.context,
     fields: [{
@@ -296,6 +297,7 @@ test('Required workflow persists one complete immutable form snapshot across eve
       defaultValue: '',
       placeholder: '',
       options: [],
+      acceptedResponse: undefined,
       order: 0,
       choices: undefined,
     }],

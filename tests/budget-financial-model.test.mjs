@@ -10,9 +10,9 @@ const divisions = [
   { id: 'snow', budgetId: 'budget', name: 'Snow & Ice', revenueTarget: 600000, status: 'active', sortOrder: 1 },
 ];
 const planningItems = [
-  { id: 'ryan', budgetId: 'budget', divisionId: 'hardscape', category: 'labour', compType: 'salaried', annualSalary: 100000, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', percentage: 60 }, { divisionId: 'snow', percentage: 40 }] },
+  { id: 'ryan', budgetId: 'budget', divisionId: 'hardscape', category: 'labour', compType: 'salaried', annualSalary: 100000, plannedHours: 2000, expectedBillablePct: 80, labourClassification: 'billable', divisionAllocations: [{ divisionId: 'hardscape', percentage: 60 }, { divisionId: 'snow', percentage: 40 }] },
   { id: 'admin', budgetId: 'budget', divisionId: 'hardscape', category: 'labour', name: 'Office Administrator', compType: 'salaried', annualSalary: 50000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', percentage: 50 }, { divisionId: 'snow', percentage: 50 }] },
-  { id: 'excavator', budgetId: 'budget', divisionId: 'hardscape', category: 'equipment', classification: 'billable', plannedAmount: 120000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'snow', months: 5 }] },
+  { id: 'excavator', budgetId: 'budget', divisionId: 'hardscape', category: 'equipment', classification: 'billable', plannedAmount: 120000, yearlyMaintenanceCost: 12000, yearlyFuelCost: 24000, yearlyInsuranceCost: 6000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'snow', months: 5 }] },
   { id: 'truck', budgetId: 'budget', divisionId: 'hardscape', category: 'equipment', name: 'Crew Truck - 101', classification: 'overhead', plannedAmount: 24000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 6 }, { divisionId: 'snow', months: 6 }] },
   { id: 'stone', budgetId: 'budget', divisionId: 'hardscape', category: 'materials', unitCost: 100, plannedQuantity: 1000 },
   { id: 'salt', budgetId: 'budget', divisionId: 'snow', category: 'materials', plannedAmount: 80000 },
@@ -62,6 +62,30 @@ test('Division direct-cost detail exposes allocated sources and reconciles by ca
   assert.equal(hardscape.directCostItems.reduce((sum, item) => sum + item.amount, 0), hardscape.totalDirectCosts);
 });
 
+test('Division equipment composition uses allocated source economics and reconciles to authoritative total', () => {
+  const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
+  assert.deepEqual(hardscape.equipmentCostComposition, {
+    maintenance: 7000,
+    fuel: 14000,
+    insurance: 3500,
+    paymentsOther: 45500,
+  });
+  assert.equal(Object.values(hardscape.equipmentCostComposition).reduce((sum, value) => sum + value, 0), hardscape.directEquipment);
+});
+
+test('Division revenue per hour uses allocated expected billable hours and handles zero safely', () => {
+  const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
+  const snow = model.calculateDivisionFinancials({ divisions, planningItems }, 'snow');
+  assert.equal(hardscape.plannedBillableHours, 960);
+  assert.equal(hardscape.revenuePerHour, 950000 / 960);
+  assert.equal(snow.plannedBillableHours, 640);
+  assert.equal(snow.revenuePerHour, 600000 / 640);
+
+  const noHours = model.calculateDivisionFinancials({ divisions, planningItems: planningItems.filter((item) => item.category !== 'labour') }, 'hardscape');
+  assert.equal(noHours.plannedBillableHours, 0);
+  assert.equal(noHours.revenuePerHour, null);
+});
+
 test('shared overhead detail shows only each Division allocated share', () => {
   const hardscape = model.calculateDivisionFinancials({ divisions, planningItems }, 'hardscape');
   const snow = model.calculateDivisionFinancials({ divisions, planningItems }, 'snow');
@@ -90,6 +114,7 @@ test('Budget financials roll up allocated Division overhead and count shared cos
   assert.equal(result.overheadItems.reduce((sum, item) => sum + item.amount, 0), result.totalOverhead);
   assert.equal(result.directCostItems.reduce((sum, item) => sum + item.amount, 0), result.totalDirectCosts);
   assert.equal(result.directCostItems.find((item) => item.itemId === 'ryan')?.amount, 100000);
+  assert.equal(Object.values(result.equipmentCostComposition).reduce((sum, value) => sum + value, 0), result.directEquipment);
   assert.deepEqual(result.overheadItems.find((item) => item.itemId === 'secretary'), {
     itemId: 'secretary', name: 'Insurance', category: 'other', amount: 60000,
   });

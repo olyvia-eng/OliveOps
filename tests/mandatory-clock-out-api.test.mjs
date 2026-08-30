@@ -120,16 +120,16 @@ function seedActiveShift(store, { businessId, employeeId, entryId, jobIds = [] }
   });
 }
 
-function seedForm(store, { businessId, id, completionRequirement = 'required', assignedTo = 'everyone', assignmentValue }) {
+function seedForm(store, { businessId, id, completionRequirement = 'required', assignedTo = 'everyone', assignmentValue, requiresApproval = false, acceptedResponse }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), {
     PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: `Form ${id}`,
     description: `${id} description`, category: 'operations', status: 'active', assignedTo, assignmentValue,
-    trigger: ['after_clock_out'], completionRequirement,
+    trigger: ['after_clock_out'], completionRequirement, requiresApproval,
   });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), {
     PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId,
-    formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0,
+    formFieldId: `${id}-notes`, formId: id, type: acceptedResponse ? 'yes_no' : 'single_line_text', label: 'Notes', required: true, options: [], acceptedResponse, order: 0,
   });
 }
 
@@ -265,6 +265,34 @@ test('required forms create one recoverable idempotent workflow and block direct
   });
   assert.equal(uncorrelatedSubmission.statusCode, 409);
   assert.equal(uncorrelatedSubmission.body.code, 'workflow_occurrence_required');
+});
+
+test('clock-out uses immutable accepted-response and approval rules without approval blocking finalization', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'safety', requiresApproval: true, acceptedResponse: { value: 'yes', message: 'Confirm the site is safe.' } }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal(requirement.form.requiresApproval, true);
+  assert.deepEqual(requirement.form.fields[0].acceptedResponse, { value: 'yes', message: 'Confirm the site is safe.' });
+
+  const sourceForm = context.store.get(key(`BUSINESS#${context.businessId}`, 'FORM#safety'));
+  const sourceField = context.store.get(key(`BUSINESS#${context.businessId}`, 'FORM_FIELD#safety-notes'));
+  sourceForm.requiresApproval = false;
+  sourceField.acceptedResponse = { value: 'no', message: 'Changed later.' };
+
+  const rejected = await formRequest(context.token, {
+    formId: 'safety', trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId, responses: [{ fieldId: 'safety-notes', value: 'no' }],
+  });
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(rejected.body.code, 'form_response_requirement_failed');
+
+  const accepted = await formRequest(context.token, {
+    formId: 'safety', trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId, responses: [{ fieldId: 'safety-notes', value: 'yes' }],
+  });
+  assert.equal(accepted.statusCode, 201);
+  assert.equal(accepted.body.submission.status, 'pending_review');
+  assert.equal((await clockingRequest(context.token, { action: 'clock-out-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } })).statusCode, 200);
 });
 
 test('canonical submission completes one requirement and finalization preserves the original timestamp idempotently', async (t) => {
