@@ -136,7 +136,7 @@ test('existing Estimate snapshots do not silently reprice or lose legacy employe
 test('calculated Division Labour pricing exposes a class without employee identities', () => {
   const catalog = buildCalculated();
   assert.deepEqual(catalog.labour.map((item) => [item.name, item.labourClassId, item.sellRate, item.costRate, item.pricingStatus]), [
-    ['Labourer', 'class-labourer', 37.5, 30, 'calculated'],
+    ['Labourer', 'class-labourer', 50, 30, 'calculated'],
   ]);
   assert.equal(JSON.stringify(catalog.labour).includes('Ryan Field'), false);
   assert.equal(JSON.stringify(catalog.labour).includes('John Field'), false);
@@ -147,8 +147,8 @@ test('calculated Division Labour pricing exposes a class without employee identi
   assert.equal(result.estimate.lineItems[0].itemName, 'Labourer');
   assert.equal(result.estimate.lineItems[0].labourClassId, 'class-labourer');
   assert.equal(result.estimate.lineItems[0].unitCost, 30);
-  assert.equal(result.estimate.lineItems[0].sellPrice, 37.5);
-  assert.equal(result.estimate.lineItems[0].total, 375);
+  assert.equal(result.estimate.lineItems[0].sellPrice, 50);
+  assert.equal(result.estimate.lineItems[0].total, 500);
   assert.equal(result.estimate.lineItems[0].markupPercent, 0);
 
   const forgedClass = applyAuthoritativeEstimatePricing({
@@ -326,7 +326,7 @@ test('all Division categories use calculated pricing without saved approval reco
     materials: catalog.materials.map((item) => item.sellRate),
     subcontractors: catalog.subcontractors.map((item) => item.sellRate),
   }, {
-    labour: [37.5],
+    labour: [50],
     equipment: [15],
     materials: [12.5],
     subcontractors: [125],
@@ -350,20 +350,20 @@ test('all Division categories use calculated pricing without saved approval reco
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.estimate.lineItems.map((item) => [item.category, item.unitCost, item.sellPrice, item.total]), [
-    ['labour', 30, 37.5, 300],
+    ['labour', 30, 50, 400],
     ['equipment', 12, 15, 120],
     ['material', 10, 12.5, 250],
     ['subcontractor', 100, 125, 125],
   ]);
   assert.deepEqual(result.estimate.lineItems.map((item) => [item.recoveredCostPerUnit, item.targetMarginPct, item.calculatedRateAtEstimate, item.estimateRateAtEstimate]), [
-    [30, 20, 37.5, 37.5],
+    [40, 20, 50, 50],
     [12, 20, 15, 15],
     [10, 20, 12.5, 12.5],
     [100, 20, 125, 125],
   ]);
   assert.equal(result.estimate.lineItems.every((item) => item.total === item.quantity * item.sellPrice), true);
   assert.equal(result.estimate.lineItems.reduce((sum, item) => sum + item.quantity * item.unitCost, 0), 636);
-  assert.equal(result.estimate.lineItems.reduce((sum, item) => sum + item.total, 0), 795);
+  assert.equal(result.estimate.lineItems.reduce((sum, item) => sum + item.total, 0), 895);
 });
 
 test('new Estimates use explicit custom equipment rates without reinterpreting legacy sell prices', () => {
@@ -389,7 +389,7 @@ test('Division catalog snapshots calculated labour components immutably', () => 
   const labourer = catalog.labour.find((item) => item.labourClassId === 'class-labourer');
   assert.equal(labourer.sourceRateId, undefined);
   assert.equal(labourer.divisionId, 'hardscape');
-  assert.equal(labourer.sellRate, 37.5);
+  assert.equal(labourer.sellRate, 50);
 
   const requested = { id: 'line-v2', category: 'labour', divisionId: 'hardscape', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-class:class-labourer', sourceEntityId: 'class-labourer', itemName: '', description: '', quantity: 2, unit: 'hr', unitCost: 0, sellPrice: 0, total: 0 };
   const result = applyAuthoritativeEstimatePricing({ existingEstimate: { lineItems: [], workAreas: [] }, nextEstimate: { id: 'estimate-v2', pricingBudgetId: budgetId, lineItems: [requested], workAreas: [] }, catalog });
@@ -403,12 +403,12 @@ test('Division catalog snapshots calculated labour components immutably', () => 
     margin: result.estimate.lineItems[0].targetMarginPct,
     recommended: result.estimate.lineItems[0].recommendedRateAtEstimate,
     approved: result.estimate.lineItems[0].sellPrice,
-  }, { pricingVersion: 2, direct: 30, division: 0, company: 0, recovered: 30, margin: 20, recommended: 37.5, approved: 37.5 });
+  }, { pricingVersion: 2, direct: 30, division: 10, company: 0, recovered: 40, margin: 20, recommended: 50, approved: 50 });
 
   const changedCatalog = structuredClone(catalog);
   changedCatalog.labour.find((item) => item.labourClassId === 'class-labourer').sellRate = 100;
   const unchanged = applyAuthoritativeEstimatePricing({ existingEstimate: result.estimate, nextEstimate: structuredClone(result.estimate), catalog: changedCatalog });
-  assert.equal(unchanged.estimate.lineItems[0].sellPrice, 37.5);
+  assert.equal(unchanged.estimate.lineItems[0].sellPrice, 50);
   assert.equal(unchanged.estimate.lineItems[0].labourClassName, 'Labourer');
 });
 

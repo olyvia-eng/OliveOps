@@ -1,8 +1,10 @@
 import type { EquipmentAsset, EquipmentCostType } from '../types';
 import {
   calculateEquipmentCostBreakdownModel,
+  calculateAnnualEquipmentCostModel,
   calculateEquipmentRatePricingModel,
   calculateSuggestedEquipmentSellRateModel,
+  resolveEquipmentClassificationModel,
   resolveEquipmentSellRatePreviewModel,
 } from './equipmentPricingModel.js';
 
@@ -15,6 +17,9 @@ export interface EquipmentPricingInput {
   averageFuelBurnPerHour?: number;
   yearlyInsuranceCost: number;
   yearlyMaintenanceCost: number;
+  expectedReplacementCost?: number;
+  expectedResaleValue?: number;
+  remainingUsefulMonths?: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
 }
@@ -23,6 +28,8 @@ export interface EquipmentCostBreakdown {
   paymentPerPeriod: number;
   paymentFrequencyPerYear: number;
   annualPayments: number;
+  monthlyReplacementReserve: number;
+  annualReplacementReserve: number;
   fuelPricePerUnit: number;
   fuelBurnPerHour: number;
   fuelCostPerHour: number;
@@ -63,6 +70,20 @@ export interface EquipmentRatePricingBreakdown {
 
 export function calculateEquipmentCostBreakdown(input: EquipmentPricingInput): EquipmentCostBreakdown {
   return calculateEquipmentCostBreakdownModel(input) as EquipmentCostBreakdown;
+}
+
+export function calculateAnnualEquipmentCost(input: Partial<EquipmentPricingInput> & {
+  costType?: EquipmentCostType;
+  plannedAmount?: number;
+  paymentFrequencyPerYear?: number;
+  utilizationHours?: number;
+  rentalCost?: number;
+}): number {
+  return calculateAnnualEquipmentCostModel(input) as number;
+}
+
+export function resolveEquipmentClassification(item: { classification?: EquipmentAsset['equipmentClassification'] }, equipmentAsset?: EquipmentAsset) {
+  return resolveEquipmentClassificationModel(item, equipmentAsset) as NonNullable<EquipmentAsset['equipmentClassification']>;
 }
 
 export function calculateEquipmentRatePricing(input: EquipmentRatePricingInput): EquipmentRatePricingBreakdown {

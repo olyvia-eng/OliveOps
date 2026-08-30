@@ -345,3 +345,103 @@ test('legacy top-level overhead normalizes once and retains its source record', 
   assert.equal(second.body.migratedCount, 0);
   assert.equal(second.body.items.length, 1);
 });
+
+test('Budget equipment save atomically updates approved Catalog identity and Budget assumptions', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+  const assetKey = key('BUSINESS#biz-a', 'EQUIPMENT#equipment-1');
+  store.get(assetKey).serialNumber = 'SERIAL-1';
+  store.get(assetKey).notes = 'Preserve this';
+
+  const create = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: {
+    catalogPatch: { name: 'Bobcat E60', type: 'Mini Excavator', equipmentClassification: 'overhead', costType: 'owned' },
+    data: { equipmentId: 'equipment-1', expectedReplacementCost: 120000, expectedResaleValue: 30000, remainingUsefulMonths: 60, plannedAmount: 18000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  } }, create);
+
+  assert.equal(create.statusCode, 200);
+  assert.equal(create.body.equipmentAsset.name, 'Bobcat E60');
+  assert.equal(create.body.equipmentAsset.serialNumber, 'SERIAL-1');
+  assert.equal(create.body.equipmentAsset.notes, 'Preserve this');
+  assert.equal(create.body.item.expectedReplacementCost, 120000);
+  assert.equal(create.body.item.name, undefined);
+  assert.equal(create.body.item.classification, undefined);
+  assert.equal(create.body.item.costType, undefined);
+  assert.equal(store.get(assetKey).name, 'Bobcat E60');
+});
+
+test('Budget equipment save atomically creates a new Catalog asset without storing Budget economics on it', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape');
+
+  const create = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: {
+    createEquipmentAsset: true,
+    catalogPatch: { name: 'Plate Compactor', type: 'Compaction', equipmentClassification: 'billable', costType: 'owned' },
+    data: { expectedReplacementCost: 12000, expectedResaleValue: 2000, remainingUsefulMonths: 40, yearlyMaintenanceCost: 500, plannedAmount: 3500, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  } }, create);
+
+  assert.equal(create.statusCode, 200);
+  assert.equal(create.body.item.equipmentId, create.body.equipmentAsset.id);
+  assert.equal(create.body.equipmentAsset.expectedReplacementCost, undefined);
+  assert.equal(create.body.equipmentAsset.yearlyMaintenanceCost, undefined);
+  assert.ok(store.has(key('BUSINESS#biz-a', `EQUIPMENT#${create.body.equipmentAsset.id}`)));
+  assert.ok([...store.values()].some((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.equipmentId === create.body.equipmentAsset.id));
+});
+
+test('Budget equipment replacement and Catalog patch validation reject invalid or non-owned fields', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+  const base = { equipmentId: 'equipment-1', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] };
+  const patch = { name: 'Bobcat', type: 'Excavator', equipmentClassification: 'billable', costType: 'owned' };
+
+  const resale = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { catalogPatch: patch, data: { ...base, expectedReplacementCost: 10000, expectedResaleValue: 10001, remainingUsefulMonths: 12 } } }, resale);
+  assert.equal(resale.statusCode, 400);
+  assert.equal(resale.body.error, 'Expected resale value cannot exceed expected replacement cost.');
+
+  const months = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { catalogPatch: patch, data: { ...base, expectedReplacementCost: 10000, expectedResaleValue: 10000, remainingUsefulMonths: 0 } } }, months);
+  assert.equal(months.statusCode, 400);
+  assert.equal(months.body.error, 'Remaining useful months must be greater than zero.');
+
+  const unsupported = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { catalogPatch: { ...patch, yearlyFuelCost: 999 }, data: base } }, unsupported);
+  assert.equal(unsupported.statusCode, 400);
+  assert.match(unsupported.body.error, /cannot be changed from Budget planning/);
+});
+
+test('equipment import copies replacement assumptions and authoritative planned amount exactly', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-2026', '2026');
+  seedBudget(store, 'biz-a', 'budget-2027', '2027');
+  seedDivision(store, 'biz-a', 'budget-2026', 'source');
+  seedDivision(store, 'biz-a', 'budget-2027', 'target');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+  const created = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-2026', divisionId: 'source', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { catalogPatch: {
+    name: 'Bobcat E50', type: 'Excavator', equipmentClassification: 'billable', costType: 'owned',
+  }, data: {
+    equipmentId: 'equipment-1', expectedReplacementCost: 90000, expectedResaleValue: 18000, remainingUsefulMonths: 48, plannedAmount: 25000,
+    equipmentDivisionAllocations: [{ divisionId: 'source', months: 12 }],
+  } } }, created);
+  assert.equal(created.body.item.plannedAmount, 18000);
+  const preview = response();
+  await importHandler({ method: 'GET', query: { budgetId: 'budget-2027', divisionId: 'target', category: 'equipment', sourceBudgetId: 'budget-2026', sourceDivisionId: 'source' }, headers: { authorization: 'Bearer token-a' } }, preview);
+  const imported = response();
+  await importHandler({ method: 'POST', query: {}, headers: { authorization: 'Bearer token-a' }, body: { budgetId: 'budget-2027', divisionId: 'target', category: 'equipment', sourceBudgetId: 'budget-2026', sourceDivisionId: 'source', sourceItemIds: [preview.body.items[0].sourceItemId] } }, imported);
+  assert.equal(imported.statusCode, 200);
+  assert.equal(imported.body.items[0].expectedReplacementCost, 90000);
+  assert.equal(imported.body.items[0].expectedResaleValue, 18000);
+  assert.equal(imported.body.items[0].remainingUsefulMonths, 48);
+  assert.equal(imported.body.items[0].plannedAmount, 18000);
+});

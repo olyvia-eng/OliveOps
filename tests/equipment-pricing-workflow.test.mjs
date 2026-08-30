@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  calculateAnnualEquipmentCostModel,
   calculateEquipmentCostBreakdownModel,
   calculateEquipmentRatePricingModel,
 } from '../src/utils/equipmentPricingModel.js';
@@ -68,6 +69,39 @@ test('legacy fuel inputs remain a fallback when yearly fuel cost is absent', () 
   });
   assert.equal(legacy.annualFuelCost, 18000);
   assert.equal(legacy.totalEquipmentCostPerYear, 52000);
+});
+
+test('owned equipment uses replacement reserve as its only capital cost when assumptions are complete', () => {
+  const result = calculateEquipmentCostBreakdownModel({
+    ...costInput,
+    equipmentCostType: 'owned',
+    equipmentPayment: 9000,
+    expectedReplacementCost: 120000,
+    expectedResaleValue: 30000,
+    remainingUsefulMonths: 60,
+  });
+
+  assert.equal(result.annualPayments, 0);
+  assert.equal(result.monthlyReplacementReserve, 1500);
+  assert.equal(result.annualReplacementReserve, 18000);
+  assert.equal(result.totalEquipmentCostPerYear, 46000);
+});
+
+test('annual equipment fallback prefers planned amount and ignores dormant capital assumptions', () => {
+  assert.equal(calculateAnnualEquipmentCostModel({ ...costInput, plannedAmount: 12345 }), 12345);
+  assert.equal(calculateAnnualEquipmentCostModel({
+    ...costInput,
+    equipmentCostType: 'leased',
+    expectedReplacementCost: 120000,
+    expectedResaleValue: 30000,
+    remainingUsefulMonths: 60,
+  }), 52000);
+  assert.equal(calculateAnnualEquipmentCostModel({
+    ...costInput,
+    equipmentCostType: 'owned',
+    expectedReplacementCost: 120000,
+    expectedResaleValue: 30000,
+  }), 28000);
 });
 
 test('recommended equipment rate applies overhead and target gross margin, not markup', () => {

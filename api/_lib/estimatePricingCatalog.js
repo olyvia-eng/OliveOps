@@ -1,6 +1,7 @@
 import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
 import { buildLabourClassCatalog } from '../../src/pages/data-center/labourClassPricingModel.js';
 import { calculateEstimateSnapshotPricing } from '../../src/utils/estimatePricingModel.js';
+import { resolveEquipmentClassificationModel } from '../../src/utils/equipmentPricingModel.js';
 
 const CATEGORY_MAP = {
   labour: 'labour',
@@ -51,7 +52,7 @@ const itemDivisionIds = (item) => {
 };
 
 const isOverheadEquipment = (item, equipment) => item.category === 'equipment'
-  && (equipment.get(item.equipmentId)?.equipmentClassification ?? item.classification) === 'overhead';
+  && resolveEquipmentClassificationModel(item, equipment.get(item.equipmentId)) === 'overhead';
 
 export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, divisions, divisionId, includeAllDivisions = false, planningItems, budgetRates, employees = [], equipmentAssets = [], labourClasses = [], materialCatalogItems = [], subcontractorCatalogItems = [] }) {
   const entities = {
@@ -62,7 +63,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
   };
   const rates = budgetRates.filter((rate) => rate.budgetId === budgetId && rate.active !== false);
   const calculatedRows = budget?.planningModel === 'divisions_v1' && Array.isArray(divisions)
-    ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees, labourClasses })
+    ? buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees, equipmentAssets, labourClasses })
     : [];
   const uniqueItems = new Map();
 
@@ -97,6 +98,7 @@ export function buildEstimatePricingCatalog({ budget, budgetId = budget?.id, div
       divisions,
       planningItems,
       budgetRates,
+      equipmentAssets,
     });
     for (const labourClass of labourClassRows) {
       for (const pricing of labourClass.pricing) {

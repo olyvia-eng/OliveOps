@@ -1,6 +1,6 @@
 import { buildBudgetPricingRows } from '../budget/budgetPricingModel.js';
 
-export function buildLabourClassCatalog({ labourClasses, employees, budgets, divisions, planningItems, budgetRates }) {
+export function buildLabourClassCatalog({ labourClasses, employees, budgets, divisions, planningItems, budgetRates, equipmentAssets = [] }) {
   return labourClasses.map((labourClass) => {
     const classEmployees = employees.filter((employee) => employee.labourClassId === labourClass.id);
     const pricing = [];
@@ -13,6 +13,7 @@ export function buildLabourClassCatalog({ labourClasses, employees, budgets, div
         planningItems: planningItems.filter((item) => item.budgetId === budget.id),
         budgetRates,
         employees,
+        equipmentAssets,
         labourClasses,
       });
 

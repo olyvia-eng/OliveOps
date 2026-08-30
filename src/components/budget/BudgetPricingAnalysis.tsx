@@ -109,6 +109,7 @@ export default function BudgetPricingAnalysis({
   const {
     budgetRates,
     budgetDivisions,
+    equipmentAssets,
     employees,
     labourClasses,
     updateBudgetDivision,
@@ -133,9 +134,10 @@ export default function BudgetPricingAnalysis({
         planningItems,
         budgetRates,
         employees,
+        equipmentAssets,
         labourClasses,
       }),
-    [budget, budgetRates, divisions, employees, labourClasses, planningItems],
+    [budget, budgetRates, divisions, employees, equipmentAssets, labourClasses, planningItems],
   );
   const labourDiagnostics = useMemo(
     () => buildBudgetLabourPricingDiagnostics({ budget, divisions, planningItems, employees, labourClasses }),
@@ -147,8 +149,9 @@ export default function BudgetPricingAnalysis({
         budget,
         divisions,
         planningItems: resolvedPlanningItems,
+        equipmentAssets,
       }),
-    [budget, divisions, resolvedPlanningItems],
+    [budget, divisions, equipmentAssets, resolvedPlanningItems],
   );
   const recoveryWarnings = Object.values(recovery.divisions).flatMap(
     (scope) => scope.warnings,

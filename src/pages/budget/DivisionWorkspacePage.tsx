@@ -24,7 +24,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   const { budgetId, divisionId } = useParams<{ budgetId: string; divisionId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { budgets, budgetDivisions, budgetDivisionPlanningItems, migrateLegacyBudgetOverhead, updateBudgetDivision } = useStore();
+  const { budgets, budgetDivisions, budgetDivisionPlanningItems, equipmentAssets, migrateLegacyBudgetOverhead, updateBudgetDivision } = useStore();
   const budget = budgets.find((item) => item.id === budgetId);
   const division = budgetDivisions.find((item) => item.id === divisionId && item.budgetId === budgetId);
   const requestedTab = searchParams.get('tab') ?? 'overview';
@@ -87,7 +87,7 @@ export default function DivisionWorkspacePage({ currentUserRole }: { currentUser
   }
 
   const dateRange = `${formatDate(budget.startDate ?? `${budget.fiscalYear}-01-01`)} – ${formatDate(budget.endDate ?? `${budget.fiscalYear}-12-31`)}`;
-  const financials = calculateDivisionFinancials({ divisions: budgetDivisions.filter((item) => item.budgetId === budget.id), planningItems: budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id) }, division.id);
+  const financials = calculateDivisionFinancials({ divisions: budgetDivisions.filter((item) => item.budgetId === budget.id), planningItems: budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id), equipmentAssets }, division.id);
 
   return (
     <div>

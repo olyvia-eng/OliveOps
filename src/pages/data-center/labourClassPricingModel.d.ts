@@ -1,4 +1,4 @@
-import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, Employee, LabourClass } from '../../types';
+import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetRate, Employee, EquipmentAsset, LabourClass } from '../../types';
 
 export interface LabourClassDivisionPricing {
   budgetId: string;
@@ -36,4 +36,5 @@ export function buildLabourClassCatalog(input: {
   divisions: BudgetDivision[];
   planningItems: BudgetDivisionPlanningItem[];
   budgetRates: BudgetRate[];
+  equipmentAssets?: EquipmentAsset[];
 }): LabourClassCatalogRow[];

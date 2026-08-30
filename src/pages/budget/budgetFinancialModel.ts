@@ -1,4 +1,5 @@
-import type { BudgetDivision, BudgetDivisionPlanningItem } from '../../types';
+import type { BudgetDivision, BudgetDivisionPlanningItem, EquipmentAsset } from '../../types';
+import { calculateAnnualEquipmentCost, calculateEquipmentCostBreakdown, resolveEquipmentClassification } from '../../utils/equipmentPricing';
 import { calculateDivisionLabourShare, isLabourAllocatedToDivision } from './divisionLabourPlanningModel';
 import { overheadAllocatedAmount } from './overheadAllocationModel.js';
 
@@ -7,6 +8,7 @@ type PlanningItem = Partial<BudgetDivisionPlanningItem> & Pick<BudgetDivisionPla
 export interface BudgetFinancialInput {
   divisions: BudgetDivision[];
   planningItems: PlanningItem[];
+  equipmentAssets?: EquipmentAsset[];
 }
 
 export type OverheadDetailCategory = 'labour' | 'equipment' | 'other';
@@ -30,6 +32,7 @@ export interface EquipmentCostComposition {
   maintenance: number;
   fuel: number;
   insurance: number;
+  replacementReserve: number;
   paymentsOther: number;
 }
 
@@ -63,32 +66,45 @@ const finiteNonNegative = (value: number | undefined) => (
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 );
 
-const itemAnnualCost = (item: PlanningItem) => {
+const itemAnnualCost = (item: PlanningItem, equipmentAsset?: EquipmentAsset) => {
+  if (item.category === 'equipment') return calculateAnnualEquipmentCost({ ...item, costType: equipmentAsset?.costType ?? item.costType });
   if (item.plannedAmount !== undefined) return finiteNonNegative(item.plannedAmount);
-  if (item.category === 'equipment') {
-    return finiteNonNegative(item.equipmentPayment) * finiteNonNegative(item.equipmentPaymentFrequencyPerYear ?? item.paymentFrequencyPerYear ?? 1)
-      + finiteNonNegative(item.yearlyFuelCost)
-      + finiteNonNegative(item.yearlyInsuranceCost)
-      + finiteNonNegative(item.yearlyMaintenanceCost);
-  }
   return finiteNonNegative(item.unitCost ?? item.rate) * finiteNonNegative(item.plannedQuantity ?? 1);
 };
 
 const equipmentMonths = (item: PlanningItem, divisionId: string) => item.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === divisionId)?.months
   ?? (item.divisionId === divisionId ? item.allocationMonths ?? 12 : 0);
 
-const equipmentShare = (item: PlanningItem, divisionId: string) => itemAnnualCost(item) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12;
+const equipmentShare = (item: PlanningItem, divisionId: string, equipmentAsset?: EquipmentAsset) => itemAnnualCost(item, equipmentAsset) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12;
 
 const allocatedEquipmentComponent = (item: PlanningItem, divisionId: string, value: number | undefined) => (
   finiteNonNegative(value) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12
 );
 
-const equipmentComposition = (items: PlanningItem[], divisionId: string, total: number): EquipmentCostComposition => {
-  const directEquipment = items.filter((item) => item.category === 'equipment' && item.classification !== 'overhead');
+const equipmentComposition = (items: PlanningItem[], equipmentById: Map<string, EquipmentAsset>, divisionId: string, total: number): EquipmentCostComposition => {
+  const directEquipment = items.filter((item) => item.category === 'equipment' && resolveEquipmentClassification(item, equipmentById.get(item.equipmentId ?? '')) !== 'overhead');
   const maintenance = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyMaintenanceCost), 0);
   const fuel = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyFuelCost), 0);
   const insurance = directEquipment.reduce((sum, item) => sum + allocatedEquipmentComponent(item, divisionId, item.yearlyInsuranceCost), 0);
-  return { maintenance, fuel, insurance, paymentsOther: total - maintenance - fuel - insurance };
+  const replacementReserve = directEquipment.reduce((sum, item) => {
+    const costType = equipmentById.get(item.equipmentId ?? '')?.costType ?? item.costType;
+    if (costType !== 'owned') return sum;
+    const breakdown = calculateEquipmentCostBreakdown({
+      equipmentCostType: costType,
+      equipmentPayment: finiteNonNegative(item.equipmentPayment),
+      equipmentPaymentFrequencyPerYear: finiteNonNegative(item.equipmentPaymentFrequencyPerYear ?? item.paymentFrequencyPerYear),
+      yearlyFuelCost: finiteNonNegative(item.yearlyFuelCost),
+      yearlyInsuranceCost: finiteNonNegative(item.yearlyInsuranceCost),
+      yearlyMaintenanceCost: finiteNonNegative(item.yearlyMaintenanceCost),
+      expectedReplacementCost: item.expectedReplacementCost,
+      expectedResaleValue: item.expectedResaleValue,
+      remainingUsefulMonths: item.remainingUsefulMonths,
+      sellableHoursPerYear: finiteNonNegative(item.sellableHoursPerYear ?? item.utilizationHours),
+      equipmentHoursPerDay: finiteNonNegative(item.equipmentHoursPerDay),
+    });
+    return sum + allocatedEquipmentComponent(item, divisionId, breakdown.annualReplacementReserve);
+  }, 0);
+  return { maintenance, fuel, insurance, replacementReserve, paymentsOther: total - maintenance - fuel - insurance - replacementReserve };
 };
 
 const localItemCost = (item: PlanningItem, divisionId: string) => item.divisionId === divisionId ? itemAnnualCost(item) : 0;
@@ -116,6 +132,7 @@ const directCostDetail = (item: PlanningItem, category: DirectCostDetailCategory
 export function calculateDivisionFinancials(input: BudgetFinancialInput, divisionId: string): DivisionFinancials {
   const division = input.divisions.find((item) => item.id === divisionId);
   const items = [...new Map(input.planningItems.map((item) => [item.id, item])).values()];
+  const equipmentById = new Map((input.equipmentAssets ?? []).map((item) => [item.id, item]));
   const categoryPresent = (category: PlanningItem['category']) => items.some((item) => item.category === category && (
     category === 'labour' ? isLabourAllocatedToDivision(item, divisionId)
       : category === 'equipment' ? finiteNonNegative(equipmentMonths(item, divisionId)) > 0
@@ -134,14 +151,14 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const overheadLabourItems = labourShares
     .map(({ item, share }) => overheadDetail(item, 'labour', share.overheadLabourCost))
     .filter((item) => item.amount > 0);
-  const directEquipmentItems = items.filter((item) => item.category === 'equipment' && item.classification !== 'overhead')
-    .map((item) => directCostDetail(item, 'equipment', equipmentShare(item, divisionId)))
+  const directEquipmentItems = items.filter((item) => item.category === 'equipment' && resolveEquipmentClassification(item, equipmentById.get(item.equipmentId ?? '')) !== 'overhead')
+    .map((item) => directCostDetail({ ...item, name: equipmentById.get(item.equipmentId ?? '')?.name ?? item.name }, 'equipment', equipmentShare(item, divisionId, equipmentById.get(item.equipmentId ?? ''))))
     .filter((item) => item.amount > 0);
   const directEquipment = directEquipmentItems.reduce((sum, item) => sum + item.amount, 0);
-  const equipmentCostComposition = equipmentComposition(items, divisionId, directEquipment);
+  const equipmentCostComposition = equipmentComposition(items, equipmentById, divisionId, directEquipment);
   const overheadEquipmentItems = items
-    .filter((item) => item.category === 'equipment' && item.classification === 'overhead')
-    .map((item) => overheadDetail(item, 'equipment', equipmentShare(item, divisionId)))
+    .filter((item) => item.category === 'equipment' && resolveEquipmentClassification(item, equipmentById.get(item.equipmentId ?? '')) === 'overhead')
+    .map((item) => overheadDetail({ ...item, name: equipmentById.get(item.equipmentId ?? '')?.name ?? item.name }, 'equipment', equipmentShare(item, divisionId, equipmentById.get(item.equipmentId ?? ''))))
     .filter((item) => item.amount > 0);
   const materialItems = items.filter((item) => item.category === 'materials')
     .map((item) => directCostDetail(item, 'materials', localItemCost(item, divisionId)))
@@ -218,8 +235,9 @@ export function calculateBudgetFinancials(input: BudgetFinancialInput) {
     maintenance: composition.maintenance + division.equipmentCostComposition.maintenance,
     fuel: composition.fuel + division.equipmentCostComposition.fuel,
     insurance: composition.insurance + division.equipmentCostComposition.insurance,
+    replacementReserve: composition.replacementReserve + division.equipmentCostComposition.replacementReserve,
     paymentsOther: composition.paymentsOther + division.equipmentCostComposition.paymentsOther,
-  }), { maintenance: 0, fuel: 0, insurance: 0, paymentsOther: 0 });
+  }), { maintenance: 0, fuel: 0, insurance: 0, replacementReserve: 0, paymentsOther: 0 });
   const overheadItems = [...divisions.reduce((items, division) => {
     for (const item of division.overheadItems) {
       const key = `${item.category}:${item.itemId}`;

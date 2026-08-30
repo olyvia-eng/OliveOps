@@ -58,6 +58,21 @@ test('invalid recovery allocation makes calculated pricing unavailable', () => {
   assert.equal(row.recommendedRate, 0);
 });
 
+test('Catalog classification overrides stale planning classification in recovery and pricing', () => {
+  const budget = { id: 'budget', targetMarginPct: 20 };
+  const divisions = [{ id: 'division', budgetId: budget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) }];
+  const planningItems = [
+    { id: 'equipment', equipmentId: 'asset', budgetId: budget.id, category: 'equipment', plannedAmount: 12000, sellableHoursPerYear: 600, classification: 'billable', equipmentDivisionAllocations: [{ divisionId: 'division', months: 12 }] },
+  ];
+  const equipmentAssets = [{ id: 'asset', equipmentClassification: 'overhead', costType: 'owned' }];
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems, equipmentAssets });
+  const rows = buildBudgetPricingRows({ budget, divisions, planningItems, equipmentAssets, budgetRates: [] });
+
+  assert.equal(recovery.divisions.division.totalOverhead, 12000);
+  assert.equal(recovery.divisions.division.denominators.equipment, 0);
+  assert.equal(rows.some((row) => row.item.id === 'equipment'), false);
+});
+
 test('recovery uses Labour hours and annual class costs without counting overhead resources twice', () => {
   const budget = { id: 'budget' };
   const divisions = [

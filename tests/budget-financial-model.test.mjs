@@ -68,6 +68,7 @@ test('Division equipment composition uses allocated source economics and reconci
     maintenance: 7000,
     fuel: 14000,
     insurance: 3500,
+    replacementReserve: 0,
     paymentsOther: 45500,
   });
   assert.equal(Object.values(hardscape.equipmentCostComposition).reduce((sum, value) => sum + value, 0), hardscape.directEquipment);
@@ -165,4 +166,24 @@ test('duplicate snapshots of the same planning id are counted only once', () => 
   assert.equal(result.directEquipment, 120000);
   assert.equal(result.overheadLabour, 50000);
   assert.equal(result.overheadEquipment, 24000);
+});
+
+test('linked Catalog classification and ownership control financial placement and reserve composition', () => {
+  const equipment = {
+    id: 'owned-loader', equipmentId: 'loader', budgetId: 'budget', divisionId: 'hardscape', category: 'equipment',
+    classification: 'billable', plannedAmount: 28000, yearlyFuelCost: 4000, yearlyInsuranceCost: 2000, yearlyMaintenanceCost: 4000,
+    expectedReplacementCost: 120000, expectedResaleValue: 30000, remainingUsefulMonths: 60,
+    equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }],
+  };
+  const asset = { id: 'loader', name: 'Owned Loader', costType: 'owned', equipmentClassification: 'overhead' };
+  const scopedItems = [...planningItems.filter((item) => item.id !== 'truck' && item.id !== 'excavator'), equipment];
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: scopedItems, equipmentAssets: [asset] }, 'hardscape');
+
+  assert.equal(result.directCostItems.some((item) => item.itemId === 'owned-loader'), false);
+  assert.deepEqual(result.overheadItems.find((item) => item.itemId === 'owned-loader'), { itemId: 'owned-loader', name: 'Owned Loader', category: 'equipment', amount: 28000 });
+
+  const directResult = model.calculateDivisionFinancials({ divisions, planningItems: scopedItems, equipmentAssets: [{ ...asset, equipmentClassification: 'billable' }] }, 'hardscape');
+  assert.equal(directResult.equipmentCostComposition.replacementReserve, 18000);
+  assert.equal(Object.values(directResult.equipmentCostComposition).reduce((sum, value) => sum + value, 0), directResult.directEquipment);
+  assert.equal(directResult.equipmentCostComposition.paymentsOther, 0);
 });

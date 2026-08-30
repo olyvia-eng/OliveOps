@@ -22,7 +22,7 @@ export function labourDivisionShare(item: BudgetDivisionPlanningItem, divisionId
 export function plannedBillableLabourHours(item: BudgetDivisionPlanningItem): number;
 export function equipmentAnnualCost(item: BudgetDivisionPlanningItem): number;
 export function equipmentDivisionAnnualCost(item: BudgetDivisionPlanningItem, divisionId: string): number;
-export function buildOverheadRecoveryModel(input: { budget: Budget; divisions: BudgetDivision[]; planningItems: BudgetDivisionPlanningItem[] }): { divisions: Record<string, RecoveryScope> };
+export function buildOverheadRecoveryModel(input: { budget: Budget; divisions: BudgetDivision[]; planningItems: BudgetDivisionPlanningItem[]; equipmentAssets?: import('../../types').EquipmentAsset[] }): { divisions: Record<string, RecoveryScope> };
 export function recoveryPerUnit(scope: RecoveryScope | undefined, category: RecoveryCategory, directCostPerUnit: number): number;
 export function grossMarginRate(recoveredCostPerUnit: number, targetMarginPct: number): number;
 export type { OverheadRecoveryPolicy };

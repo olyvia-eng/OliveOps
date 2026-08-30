@@ -8,7 +8,7 @@ import BudgetPlanImportDialog from './BudgetPlanImportDialog';
 import { calculateDivisionLabour, calculateDivisionLabourShare, isLabourAllocatedToDivision, labourAllocationForDivision, labourAllocationTotal, splitLabourAllocationsEvenly } from '../../pages/budget/divisionLabourPlanningModel';
 import EquipmentInfoForm from '../equipment/EquipmentInfoForm';
 import { emptyEquipmentInfoFormValue, normalizeEquipmentInfoForm, type EquipmentInfoFormValue, validateEquipmentInfoForm } from '../equipment/equipmentFormModel';
-import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
+import { calculateAnnualEquipmentCost, calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
 import { overheadAllocatedAmount, overheadAllocationForDivision, overheadAllocationTotal, overheadAllocationsAreValid, splitOverheadAllocationsEvenly } from '../../pages/budget/overheadAllocationModel.js';
 import { resolveEmployeeCostInputs } from '../../utils/employeeLabourCost';
 
@@ -62,7 +62,7 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addEquipmentAsset, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, saveBudgetEquipmentPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
   const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
@@ -166,15 +166,18 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const labourInputsValid = category !== 'labour' || ((draft.expectedBillablePct ?? 0) <= 100 && (draft.overtimeMultiplier ?? 1.5) >= 1);
   const linkedEquipment = equipmentAssets.find((item) => item.id === draft.equipmentId);
   const equipmentFormValue: EquipmentInfoFormValue = {
-    description: draft.name ?? draft.description ?? linkedEquipment?.name ?? '',
-    costCode: draft.costCode ?? linkedEquipment?.type ?? '',
-    equipmentCostType: draft.costType ?? linkedEquipment?.costType ?? 'financed',
-    equipmentClassification: draft.classification ?? linkedEquipment?.equipmentClassification ?? 'billable',
+    description: linkedEquipment?.name ?? draft.name ?? draft.description ?? '',
+    costCode: linkedEquipment?.type ?? draft.costCode ?? '',
+    equipmentCostType: linkedEquipment?.costType ?? draft.costType ?? 'financed',
+    equipmentClassification: linkedEquipment?.equipmentClassification ?? draft.classification ?? 'billable',
     equipmentPayment: draft.equipmentPayment ?? linkedEquipment?.equipmentPayment ?? 0,
     equipmentPaymentFrequencyPerYear: draft.equipmentPaymentFrequencyPerYear ?? draft.paymentFrequencyPerYear ?? linkedEquipment?.equipmentPaymentFrequencyPerYear ?? 12,
     yearlyFuelCost: draft.yearlyFuelCost ?? linkedEquipment?.yearlyFuelCost ?? 0,
     yearlyInsuranceCost: draft.yearlyInsuranceCost ?? linkedEquipment?.yearlyInsuranceCost ?? 0,
     yearlyMaintenanceCost: draft.yearlyMaintenanceCost ?? linkedEquipment?.yearlyMaintenanceCost ?? 0,
+    expectedReplacementCost: draft.expectedReplacementCost,
+    expectedResaleValue: draft.expectedResaleValue,
+    remainingUsefulMonths: draft.remainingUsefulMonths,
     sellableHoursPerYear: draft.sellableHoursPerYear ?? draft.utilizationHours ?? 0,
     equipmentHoursPerDay: draft.equipmentHoursPerDay ?? 8,
     rentalCost: draft.rentalCost ?? linkedEquipment?.rentalCost ?? 0,
@@ -206,6 +209,9 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       yearlyFuelCost: value.yearlyFuelCost,
       yearlyInsuranceCost: value.yearlyInsuranceCost,
       yearlyMaintenanceCost: value.yearlyMaintenanceCost,
+      expectedReplacementCost: value.expectedReplacementCost,
+      expectedResaleValue: value.expectedResaleValue,
+      remainingUsefulMonths: value.remainingUsefulMonths,
       sellableHoursPerYear: value.sellableHoursPerYear,
       utilizationHours: undefined,
       equipmentHoursPerDay: value.equipmentHoursPerDay,
@@ -243,47 +249,17 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
         saveInFlight.current = false;
         return;
       }
-      let equipmentId = draft.equipmentId;
-      if (!equipmentId) {
-        const created = await addEquipmentAsset({
-          name: normalized.description,
-          type: normalized.costCode || 'General Equipment',
-          status: 'available',
-          costType: normalized.equipmentCostType,
-          equipmentClassification: normalized.equipmentClassification,
-          serialNumber: '',
-          hourlyCost: equipmentCostBreakdown.totalCostPerHour,
-          equipmentPayment: normalized.equipmentPayment,
-          equipmentPaymentFrequencyPerYear: normalized.equipmentPaymentFrequencyPerYear,
-          yearlyFuelCost: normalized.yearlyFuelCost,
-          yearlyInsuranceCost: normalized.yearlyInsuranceCost,
-          yearlyMaintenanceCost: normalized.yearlyMaintenanceCost,
-          rentalCost: normalized.equipmentCostType === 'rental' ? normalized.rentalCost : undefined,
-          rentalUnit: normalized.equipmentCostType === 'rental' ? normalized.rentalUnit : undefined,
-          notes: '',
-        });
-        if (!created.ok || !created.id) {
-          setEquipmentError('Could not create equipment in the catalog.');
-          setSaving(false);
-          saveInFlight.current = false;
-          return;
-        }
-        equipmentId = created.id;
-      }
       nextDraft = {
         ...nextDraft,
-        equipmentId,
-        name: normalized.description,
-        description: normalized.description,
-        costCode: normalized.costCode,
-        costType: normalized.equipmentCostType,
-        classification: normalized.equipmentClassification,
         equipmentPayment: normalized.equipmentPayment,
         equipmentPaymentFrequencyPerYear: normalized.equipmentPaymentFrequencyPerYear,
         paymentFrequencyPerYear: undefined,
         yearlyFuelCost: normalized.yearlyFuelCost,
         yearlyInsuranceCost: normalized.yearlyInsuranceCost,
         yearlyMaintenanceCost: normalized.yearlyMaintenanceCost,
+        expectedReplacementCost: normalized.expectedReplacementCost,
+        expectedResaleValue: normalized.expectedResaleValue,
+        remainingUsefulMonths: normalized.remainingUsefulMonths,
         sellableHoursPerYear: normalized.sellableHoursPerYear,
         utilizationHours: undefined,
         equipmentHoursPerDay: normalized.equipmentHoursPerDay,
@@ -293,6 +269,28 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
         allocationMonths: undefined,
         plannedAmount: normalized.equipmentCostType === 'rental' ? normalized.rentalCost : equipmentCostBreakdown.totalEquipmentCostPerYear,
       };
+      const { name: _name, description: _description, costCode: _costCode, costType: _costType, classification: _classification, ...planningData } = nextDraft;
+      const result = await saveBudgetEquipmentPlanningItem({
+        planningItem: {
+          ...planningData,
+          budgetId: budget.id,
+          divisionId: division.id,
+          category,
+        },
+        existingItem: editing === 'new' ? undefined : editing ?? undefined,
+        createEquipmentAsset: !draft.equipmentId,
+        catalogPatch: {
+          name: normalized.description,
+          type: normalized.costCode || 'General Equipment',
+          equipmentClassification: normalized.equipmentClassification,
+          costType: normalized.equipmentCostType,
+        },
+      });
+      setSaving(false);
+      saveInFlight.current = false;
+      if (result) setEditing(null);
+      else setEquipmentError('Equipment changes could not be saved. Check your connection and try again.');
+      return;
     }
     const result =
       editing === 'new'
@@ -334,7 +332,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const plannedAmount = (item: BudgetDivisionPlanningItem) => {
     if (item.category === 'labour') return calculateDivisionLabourShare(item, division.id).annualLabourCost;
     if (item.category === 'equipment') {
-      const annualCost = item.plannedAmount ?? (item.equipmentPayment ?? 0) * (item.equipmentPaymentFrequencyPerYear ?? item.paymentFrequencyPerYear ?? 1) + (item.yearlyFuelCost ?? 0) + (item.yearlyInsuranceCost ?? 0) + (item.yearlyMaintenanceCost ?? 0);
+      const asset = equipmentAssets.find((value) => value.id === item.equipmentId);
+      const annualCost = calculateAnnualEquipmentCost({ ...item, costType: asset?.costType ?? item.costType });
       return (annualCost * equipmentMonthsForDivision(item)) / 12;
     }
     if (item.category === 'overhead') return overheadAllocatedAmount(item, division.id);
@@ -701,6 +700,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   <Select
                     label="Existing Equipment (optional)"
                     value={draft.equipmentId ?? ''}
+                    disabled={editing !== 'new'}
                     onChange={(event) => {
                       const asset = equipmentAssets.find((item) => item.id === event.target.value);
                       setEquipmentError('');
@@ -742,7 +742,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 </div>
               </section>
 
-              <EquipmentInfoForm value={equipmentFormValue} onChange={setEquipmentFormValue} context="budget" identityReadOnly={Boolean(draft.equipmentId)} totalEquipmentCostPerYear={equipmentCostBreakdown.totalEquipmentCostPerYear} totalCostPerHour={equipmentCostBreakdown.totalCostPerHour} totalCostPerDay={equipmentCostBreakdown.totalCostPerDay} showCalculationDetails={showEquipmentCalcDetails} onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)} />
+              <EquipmentInfoForm value={equipmentFormValue} onChange={setEquipmentFormValue} context="budget" totalEquipmentCostPerYear={equipmentCostBreakdown.totalEquipmentCostPerYear} annualPayments={equipmentCostBreakdown.annualPayments} annualReplacementReserve={equipmentCostBreakdown.annualReplacementReserve} totalCostPerHour={equipmentCostBreakdown.totalCostPerHour} totalCostPerDay={equipmentCostBreakdown.totalCostPerDay} showCalculationDetails={showEquipmentCalcDetails} onToggleCalculationDetails={() => setShowEquipmentCalcDetails((value) => !value)} />
 
               <section className="border-t border-gray-200 pt-5">
                 <h3 className="text-sm font-semibold text-gray-900">Allocate Annual Equipment Cost</h3>

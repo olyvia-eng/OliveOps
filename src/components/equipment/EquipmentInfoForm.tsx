@@ -9,6 +9,8 @@ interface EquipmentInfoFormProps {
   context?: 'catalog' | 'budget';
   identityReadOnly?: boolean;
   totalEquipmentCostPerYear: number;
+  annualPayments?: number;
+  annualReplacementReserve?: number;
   totalCostPerHour: number;
   totalCostPerDay: number;
   showCalculationDetails: boolean;
@@ -66,6 +68,15 @@ export function EquipmentFormFields({ value, onChange, context = 'catalog', iden
         <div className="flex flex-col gap-1.5"><label className="text-sm font-medium text-gray-700">Yearly Maintenance Cost</label><div className="relative"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">$</span><Input type="number" min={0} step={0.01} value={value.yearlyMaintenanceCost} className="pl-7" onChange={(event) => set('yearlyMaintenanceCost', Number(event.target.value || 0))} /></div></div>
         </> : null}
       </div>
+      {context === 'budget' && value.equipmentCostType === 'owned' ? <div className="mt-5 border-t border-gray-200 pt-5">
+        <h3 className="text-sm font-semibold text-gray-900">Replacement Reserve</h3>
+        <p className="mt-1 text-xs text-gray-500">Optional. Complete all three assumptions to include an annual replacement reserve in this Budget.</p>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Input label="Expected Replacement Cost" type="number" min={0} step={0.01} value={value.expectedReplacementCost ?? ''} onChange={(event) => set('expectedReplacementCost', event.target.value === '' ? undefined : Number(event.target.value))} />
+          <Input label="Expected Resale Value" type="number" min={0} step={0.01} value={value.expectedResaleValue ?? ''} onChange={(event) => set('expectedResaleValue', event.target.value === '' ? undefined : Number(event.target.value))} />
+          <Input label="Remaining Useful Months" type="number" min={1} step={1} value={value.remainingUsefulMonths ?? ''} onChange={(event) => set('remainingUsefulMonths', event.target.value === '' ? undefined : Number(event.target.value))} />
+        </div>
+      </div> : null}
     </section>
   </>;
 }
@@ -76,6 +87,8 @@ export default function EquipmentInfoForm({
   context = 'budget',
   identityReadOnly = false,
   totalEquipmentCostPerYear,
+  annualPayments = 0,
+  annualReplacementReserve = 0,
   totalCostPerHour,
   totalCostPerDay,
   showCalculationDetails,
@@ -152,7 +165,8 @@ export default function EquipmentInfoForm({
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
           <h3 className="font-semibold text-gray-900">Equipment Cost Calculation</h3>
           <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">
-            <dt>Annual Payments</dt><dd>{formatCurrency(value.equipmentCostType === 'owned' ? 0 : Number(value.equipmentPayment || 0) * Number(value.equipmentPaymentFrequencyPerYear || 0))}</dd>
+            <dt>Annual Payments</dt><dd>{formatCurrency(annualPayments)}</dd>
+            {value.equipmentCostType === 'owned' && value.expectedReplacementCost !== undefined && value.expectedResaleValue !== undefined && value.remainingUsefulMonths !== undefined ? <><dt>Annual Replacement Reserve</dt><dd>{formatCurrency(annualReplacementReserve)}</dd></> : null}
             <dt>Yearly Fuel Cost</dt><dd>{formatCurrency(Number(value.yearlyFuelCost || 0))}</dd>
             <dt>Insurance</dt><dd>{formatCurrency(Number(value.yearlyInsuranceCost || 0))}</dd>
             <dt>Maintenance</dt><dd>{formatCurrency(Number(value.yearlyMaintenanceCost || 0))}</dd>

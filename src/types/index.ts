@@ -1069,6 +1069,9 @@ export interface BudgetDivisionPlanningItem {
   yearlyFuelCost?: number;
   yearlyInsuranceCost?: number;
   yearlyMaintenanceCost?: number;
+  expectedReplacementCost?: number;
+  expectedResaleValue?: number;
+  remainingUsefulMonths?: number;
   rentalCost?: number;
   rentalUnit?: EquipmentRentalUnit;
   sellableHoursPerYear?: number;

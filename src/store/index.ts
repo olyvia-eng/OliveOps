@@ -229,6 +229,12 @@ interface AppState {
   updateBudgetDivision: (budgetId: ID, id: ID, data: Partial<BudgetDivision>) => Promise<BudgetDivision | null>;
   addBudgetDivisionPlanningItem: (input: Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'>) => Promise<BudgetDivisionPlanningItem | null>;
   updateBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem, data: Partial<BudgetDivisionPlanningItem>) => Promise<BudgetDivisionPlanningItem | null>;
+  saveBudgetEquipmentPlanningItem: (input: {
+    planningItem: Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'> | Partial<BudgetDivisionPlanningItem>;
+    existingItem?: BudgetDivisionPlanningItem;
+    catalogPatch: Pick<EquipmentAsset, 'name' | 'type' | 'equipmentClassification' | 'costType'>;
+    createEquipmentAsset: boolean;
+  }) => Promise<BudgetDivisionPlanningItem | null>;
   deleteBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem) => Promise<boolean>;
   reorderBudgetDivisionPlanningItems: (budgetId: ID, divisionId: ID, category: BudgetDivisionPlanningItem['category'], orderedIds: ID[]) => Promise<boolean>;
   migrateLegacyBudgetOverhead: (budgetId: ID) => Promise<boolean>;
@@ -1911,6 +1917,28 @@ export const useStore = create<AppState>()((set, get) => ({
           return payload.item;
         } catch (error) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Planning item could not be updated.') });
+          return null;
+        }
+      },
+      saveBudgetEquipmentPlanningItem: async ({ planningItem, existingItem, catalogPatch, createEquipmentAsset }) => {
+        const source = existingItem ?? planningItem;
+        try {
+          const query = `/api/budget-division-plans?budgetId=${encodeURIComponent(source.budgetId!)}&divisionId=${encodeURIComponent(source.divisionId!)}&category=equipment${existingItem ? `&id=${encodeURIComponent(existingItem.id)}` : ''}`;
+          const response = await fetch(query, {
+            method: existingItem ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: planningItem, catalogPatch, createEquipmentAsset }),
+          });
+          const payload = await response.json() as { ok?: boolean; item?: BudgetDivisionPlanningItem; equipmentAsset?: EquipmentAsset; error?: string };
+          if (!response.ok || !payload.ok || !payload.item || !payload.equipmentAsset) throw new Error(payload.error);
+          set((state) => ({
+            budgetDivisionPlanningItems: [...state.budgetDivisionPlanningItems.filter((item) => item.id !== payload.item!.id), payload.item!],
+            equipmentAssets: [payload.equipmentAsset!, ...state.equipmentAssets.filter((item) => item.id !== payload.equipmentAsset!.id)],
+          }));
+          return payload.item;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Equipment planning changes could not be saved.') });
           return null;
         }
       },

@@ -98,7 +98,8 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(planner, /allocation\.divisionId === division\.id && allocation\.months > 0/);
   assert.match(planner, /equipmentMonthsForDivision/);
   assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\)\) \/ 12/);
-  assert.match(planner, /addEquipmentAsset/);
+  assert.match(planner, /saveBudgetEquipmentPlanningItem/);
+  assert.doesNotMatch(planner, /await addEquipmentAsset/);
   assert.match(planner, /Add to Budget/);
   assert.match(planner, /Save Equipment/);
   assert.match(sharedForm, /Payment Frequency \(# per year\)/);
@@ -106,8 +107,9 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.doesNotMatch(sharedForm, /Fuel Price Unit|Fuel Burned per Hour|Months Used Per Year|Budget Sell Rate/);
 });
 
-test('active equipment planning uses payment times frequency once with legacy fallbacks', () => {
-  assert.match(planner, /item\.equipmentPaymentFrequencyPerYear \?\? item\.paymentFrequencyPerYear \?\? 1/);
+test('active equipment planning uses the shared annual calculator with legacy field inputs', () => {
+  assert.match(planner, /calculateAnnualEquipmentCost/);
+  assert.doesNotMatch(planner, /item\.equipmentPayment.*item\.equipmentPaymentFrequencyPerYear/);
   assert.match(planner, /draft\.sellableHoursPerYear \?\? draft\.utilizationHours \?\? 0/);
   assert.match(planner, /plannedAmount: normalized\.equipmentCostType === 'rental' \? normalized\.rentalCost : equipmentCostBreakdown\.totalEquipmentCostPerYear/);
   assert.match(planner, /paymentFrequencyPerYear: undefined/);

@@ -14,7 +14,7 @@ export function divisionPlanIdentity(item) {
 const SHARED_FIELDS = ['name', 'description', 'sortOrder'];
 const CATEGORY_FIELDS = {
   labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'labourClassification', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'divisionAllocations'],
-  equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'rentalCost', 'rentalUnit', 'unit'],
+  equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'expectedReplacementCost', 'expectedResaleValue', 'remainingUsefulMonths', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'rentalCost', 'rentalUnit', 'unit', 'equipmentDivisionAllocations'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
   subcontractors: ['vendorId', 'subcontractorCatalogItemId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
   overhead: ['costCode', 'plannedAmount', 'overheadDivisionAllocations', 'legacyBudgetItemId'],

@@ -6,21 +6,25 @@ import {
   listBudgetPlanningItems,
   listDivisionPlanningItems,
   reorderDivisionPlanningItems,
+  saveEquipmentPlanningItemWithAsset,
   updateDivisionPlanningItem,
 } from './_lib/budgetDivisionPlanning.js';
 import { DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, normalizeLabourPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
+import { calculateAnnualEquipmentCostModel } from '../src/utils/equipmentPricingModel.js';
 
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
 const isNonNegative = (value) => value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
 
 function validate(item) {
   if (!DIVISION_PLAN_CATEGORIES.includes(item.category)) return 'Planning category is invalid.';
-  if (!isText(item.name) && !isText(item.description)) return 'A planning item name or description is required.';
+  if (!isText(item.name) && !isText(item.description) && !(item.category === 'equipment' && isText(item.equipmentId))) return 'A planning item name or description is required.';
   if (!divisionPlanIdentity(item)) return 'A planning item identity is required.';
-  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate', 'rentalCost']) {
+  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'expectedReplacementCost', 'expectedResaleValue', 'remainingUsefulMonths', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate', 'rentalCost']) {
     if (!isNonNegative(item[field])) return `${field} must be zero or greater.`;
   }
   if (item.category === 'equipment' && !isText(item.equipmentId)) return 'Equipment must reference a catalog asset.';
+  if (item.category === 'equipment' && item.expectedReplacementCost !== undefined && item.expectedResaleValue !== undefined && item.expectedResaleValue > item.expectedReplacementCost) return 'Expected resale value cannot exceed expected replacement cost.';
+  if (item.category === 'equipment' && item.costType === 'owned' && item.expectedReplacementCost !== undefined && item.expectedResaleValue !== undefined && item.remainingUsefulMonths !== undefined && item.remainingUsefulMonths <= 0) return 'Remaining useful months must be greater than zero.';
   if (item.category === 'equipment' && item.costType === 'rental' && (!isNonNegative(item.rentalCost) || !['hr', 'day', 'week', 'month'].includes(item.rentalUnit))) return 'Rental equipment requires a rental cost and unit.';
   if (item.allocationMonths !== undefined && item.allocationMonths > 12) return 'Equipment allocation months cannot exceed 12.';
   if (item.allocationPercent !== undefined && item.allocationPercent > 100) return 'Equipment allocation percent cannot exceed 100.';
@@ -53,9 +57,26 @@ function validate(item) {
   return null;
 }
 
-async function validateReferences(businessId, item) {
+const CATALOG_PATCH_FIELDS = new Set(['name', 'type', 'equipmentClassification', 'costType']);
+
+function validateCatalogPatch(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'Catalog details are required.';
+  const unsupported = Object.keys(patch).find((field) => !CATALOG_PATCH_FIELDS.has(field));
+  if (unsupported) return `Catalog field ${unsupported} cannot be changed from Budget planning.`;
+  if (!isText(patch.name)) return 'Equipment name is required.';
+  if (!isText(patch.type)) return 'Equipment type is required.';
+  if (!['billable', 'overhead'].includes(patch.equipmentClassification)) return 'Equipment classification is invalid.';
+  if (!['financed', 'leased', 'owned', 'rental'].includes(patch.costType)) return 'Equipment ownership / source is invalid.';
+  return null;
+}
+
+const withCalculatedEquipmentAmount = (item, costType) => item.category === 'equipment'
+  ? { ...item, plannedAmount: calculateAnnualEquipmentCostModel({ ...item, costType: costType ?? item.costType, plannedAmount: undefined }) }
+  : item;
+
+async function validateReferences(businessId, item, { skipEquipment = false } = {}) {
   if (item.employeeId && !await getEmployeeForBusiness(businessId, item.employeeId)) return 'Employee must belong to this business.';
-  if (item.equipmentId && !await getEquipmentAssetForBusiness(businessId, item.equipmentId)) return 'Equipment must belong to this business.';
+  if (!skipEquipment && item.equipmentId && !await getEquipmentAssetForBusiness(businessId, item.equipmentId)) return 'Equipment must belong to this business.';
   if (item.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, item.materialCatalogItemId)) return 'Material must belong to this business.';
   const subcontractorId = item.subcontractorCatalogItemId ?? item.vendorId;
   if (item.category === 'subcontractors' && subcontractorId && !await getSubcontractorCatalogItemForBusiness(businessId, subcontractorId)) return 'Subcontractor must belong to this business.';
@@ -123,11 +144,29 @@ export default async function handler(req, res) {
     const itemId = req.query?.id;
     if (req.method === 'POST') {
       const now = new Date().toISOString();
-      const item = normalizeLabourPlanAssumptions({ ...req.body?.data, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
-      const error = validate(item);
+      const catalogPatch = req.body?.catalogPatch;
+      const createEquipmentAsset = category === 'equipment' && req.body?.createEquipmentAsset === true;
+      const equipmentId = createEquipmentAsset ? generateId() : req.body?.data?.equipmentId;
+      let item = normalizeLabourPlanAssumptions({ ...req.body?.data, equipmentId, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
+      const effectiveItem = category === 'equipment' && catalogPatch ? { ...item, costType: catalogPatch.costType } : item;
+      const error = validate(effectiveItem);
       if (error) return res.status(400).json({ ok: false, error });
-      const referenceError = await validateReferences(session.businessId, item);
+      item = withCalculatedEquipmentAmount(item, catalogPatch?.costType);
+      if (category === 'equipment' && catalogPatch) {
+        const catalogError = validateCatalogPatch(catalogPatch);
+        if (catalogError) return res.status(400).json({ ok: false, error: catalogError });
+      }
+      const referenceError = await validateReferences(session.businessId, item, { skipEquipment: createEquipmentAsset });
       if (referenceError) return res.status(400).json({ ok: false, error: referenceError });
+      if (category === 'equipment' && catalogPatch) {
+        const currentAsset = createEquipmentAsset ? null : await getEquipmentAssetForBusiness(session.businessId, equipmentId);
+        if (!createEquipmentAsset && !currentAsset) return res.status(404).json({ ok: false, error: 'Equipment must belong to this business.' });
+        const equipmentAsset = createEquipmentAsset
+          ? { id: equipmentId, ...catalogPatch, status: 'available', serialNumber: '', hourlyCost: 0, notes: '', createdAt: now, updatedAt: now }
+          : { ...currentAsset, ...catalogPatch, id: currentAsset.id, updatedAt: now };
+        const saved = await saveEquipmentPlanningItemWithAsset({ businessId: session.businessId, equipmentAsset, createEquipmentAsset, item });
+        return res.status(200).json({ ok: true, ...saved });
+      }
       const saved = await createDivisionPlanningItem({ businessId: session.businessId, item });
       return res.status(200).json({ ok: true, item: saved });
     }
@@ -137,11 +176,23 @@ export default async function handler(req, res) {
       await deleteDivisionPlanningItem({ businessId: session.businessId, item: existing });
       return res.status(200).json({ ok: true });
     }
-    const next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId: existing.divisionId, category, updatedAt: new Date().toISOString() });
-    const error = validate(next);
+    let next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId: existing.divisionId, category, updatedAt: new Date().toISOString() });
+    if (category === 'equipment' && next.equipmentId !== existing.equipmentId) return res.status(400).json({ ok: false, error: 'Linked equipment cannot be changed after the planning item is created.' });
+    const effectiveNext = category === 'equipment' && req.body?.catalogPatch ? { ...next, costType: req.body.catalogPatch.costType } : next;
+    const error = validate(effectiveNext);
     if (error) return res.status(400).json({ ok: false, error });
+    next = withCalculatedEquipmentAmount(next, req.body?.catalogPatch?.costType);
     const referenceError = await validateReferences(session.businessId, next);
     if (referenceError) return res.status(400).json({ ok: false, error: referenceError });
+    if (category === 'equipment' && req.body?.catalogPatch) {
+      const catalogError = validateCatalogPatch(req.body.catalogPatch);
+      if (catalogError) return res.status(400).json({ ok: false, error: catalogError });
+      const existingAsset = await getEquipmentAssetForBusiness(session.businessId, next.equipmentId);
+      if (!existingAsset) return res.status(404).json({ ok: false, error: 'Equipment must belong to this business.' });
+      const equipmentAsset = { ...existingAsset, ...req.body.catalogPatch, id: existingAsset.id, updatedAt: next.updatedAt };
+      const saved = await saveEquipmentPlanningItemWithAsset({ businessId: session.businessId, equipmentAsset, createEquipmentAsset: false, previous: existing, item: next });
+      return res.status(200).json({ ok: true, ...saved });
+    }
     const saved = await updateDivisionPlanningItem({ businessId: session.businessId, previous: existing, item: next });
     return res.status(200).json({ ok: true, item: saved });
   } catch (error) {

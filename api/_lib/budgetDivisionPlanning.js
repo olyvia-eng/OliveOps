@@ -3,6 +3,7 @@ import { ddb, tableName } from './db.js';
 import { divisionPlanIdentity, normalizeLabourPlanAssumptions } from './budgetDivisionPlanningModel.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
+const equipmentSk = (equipmentId) => `EQUIPMENT#${equipmentId}`;
 const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLAN#${budgetId}#DIVISION#${divisionId}#${category ? `CATEGORY#${category}#` : ''}`;
 const budgetCategoryPrefix = (budgetId, category) => `BUDGET_DIVISION_PLAN#${budgetId}#CATEGORY#${category}#`;
 const legacyPlanSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
@@ -78,6 +79,42 @@ export async function createDivisionPlanningItem({ businessId, item }) {
     { Put: { TableName: tableName, Item: identityItem(businessId, item), ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
   ] }));
   return item;
+}
+
+export async function saveEquipmentPlanningItemWithAsset({ businessId, equipmentAsset, createEquipmentAsset, previous, item }) {
+  const equipmentRecord = {
+    PK: businessPk(businessId),
+    SK: equipmentSk(equipmentAsset.id),
+    entityType: 'EQUIPMENT_ASSET',
+    businessId,
+    equipmentId: equipmentAsset.id,
+    ...equipmentAsset,
+  };
+  const transaction = [
+    { Put: {
+      TableName: tableName,
+      Item: equipmentRecord,
+      ConditionExpression: createEquipmentAsset
+        ? 'attribute_not_exists(PK) AND attribute_not_exists(SK)'
+        : 'attribute_exists(PK) AND attribute_exists(SK)',
+    } },
+    { Put: {
+      TableName: tableName,
+      Item: storedItem(businessId, item),
+      ConditionExpression: previous
+        ? 'attribute_exists(PK) AND attribute_exists(SK)'
+        : 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    } },
+  ];
+  if (!previous) {
+    transaction.push({ Put: {
+      TableName: tableName,
+      Item: identityItem(businessId, item),
+      ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    } });
+  }
+  await ddb.send(new TransactWriteCommand({ TransactItems: transaction }));
+  return { equipmentAsset, item };
 }
 
 export async function createDivisionPlanningItems({ businessId, items }) {

@@ -51,10 +51,11 @@ function DirectCostRows({ items, totals, equipmentComposition }: { items: Direct
         <tr className="text-gray-700 dark:text-brand-100"><td className="px-5 py-2 pl-8">{collapsible ? <button type="button" className="flex w-full items-center gap-2 text-left font-medium" aria-expanded={isExpanded} onClick={() => setExpanded((current) => ({ ...current, [group.category]: !current[group.category] }))}>{isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}<span>{group.label}</span></button> : group.label}</td><td className="px-5 py-2 text-right tabular-nums">{amount(totals[group.category])}</td></tr>
         {group.category === 'equipment' && isExpanded ? <>
           {([
-            ['Maintenance', equipmentComposition.maintenance],
             ['Fuel', equipmentComposition.fuel],
             ['Insurance', equipmentComposition.insurance],
+            ['Maintenance', equipmentComposition.maintenance],
           ] as const).map(([label, value]) => <tr key={label} className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">{label}</td><td className="px-5 py-1 text-right tabular-nums">{amount(value)}</td></tr>)}
+          {Math.abs(equipmentComposition.replacementReserve) > 0.005 ? <tr className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">Replacement Reserve</td><td className="px-5 py-1 text-right tabular-nums">{amount(equipmentComposition.replacementReserve)}</td></tr> : null}
           {Math.abs(equipmentComposition.paymentsOther) > 0.005 ? <tr className="text-xs text-gray-500 dark:text-brand-300"><td className="px-5 py-1 pl-12">Payments / Other</td><td className="px-5 py-1 text-right tabular-nums">{amount(equipmentComposition.paymentsOther)}</td></tr> : null}
           {groupItems.length > 0 ? <tr><td colSpan={2} className="px-5 pb-1 pl-12 pt-3 text-[11px] font-semibold uppercase text-gray-400 dark:text-brand-400">Equipment Items</td></tr> : null}
         </> : null}

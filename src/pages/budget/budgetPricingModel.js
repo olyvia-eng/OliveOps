@@ -1,5 +1,6 @@
 import { annualLabourCost, buildOverheadRecoveryModel, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
 import { applyEmployeeCostInputs, calculateLabourCostFromInputs } from '../../utils/employeeLabourCost.js';
+import { resolveEquipmentClassificationModel } from '../../utils/equipmentPricingModel.js';
 
 const number = (value) => {
   const result = Number(value ?? 0);
@@ -141,7 +142,7 @@ const buildLegacyRows = ({ budget, uniqueItems, budgetRates }) => {
   }).sort((left, right) => (left.item.name || left.item.description || '').localeCompare(right.item.name || right.item.description || ''));
 };
 
-export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees = [], labourClasses = [] }) {
+export function buildBudgetPricingRows({ budget, divisions, planningItems, budgetRates, employees = [], equipmentAssets = [], labourClasses = [] }) {
   const preparedPlanningItems = prepareBudgetPricingInputs({ planningItems, employees });
   const uniqueItems = [...new Map(preparedPlanningItems
     .filter((item) => item.budgetId === budget.id && ['labour', 'equipment', 'materials', 'subcontractors'].includes(item.category))
@@ -149,12 +150,14 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
   if (!Array.isArray(divisions)) return buildLegacyRows({ budget, uniqueItems, budgetRates });
 
   const margin = Math.min(99, number(budget.targetMarginPct ?? 20));
-  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems: preparedPlanningItems });
+  const equipmentById = new Map(equipmentAssets.map((item) => [item.id, item]));
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems: preparedPlanningItems, equipmentAssets });
   const costs = new Map();
   for (const item of uniqueItems) {
     if (item.category === 'labour') costs.set(item.id, labourCost(item).perUnit);
     else if (item.category === 'equipment') {
-      if (item.costType === 'rental') costs.set(item.id, number(item.rentalCost));
+      const costType = equipmentById.get(item.equipmentId)?.costType ?? item.costType;
+      if (costType === 'rental') costs.set(item.id, number(item.rentalCost));
       else {
         const hours = number(item.sellableHoursPerYear ?? item.utilizationHours);
         costs.set(item.id, hours > 0 ? number(item.plannedAmount) / hours : 0);
@@ -228,7 +231,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
   const itemRows = uniqueItems
     .filter((item) => item.category !== 'labour'
       && item.labourClassification !== 'overhead'
-      && item.classification !== 'overhead')
+      && (item.category !== 'equipment' || resolveEquipmentClassificationModel(item, equipmentById.get(item.equipmentId)) !== 'overhead'))
     .flatMap((item) => divisionIdsForItem(item).map((divisionId) => {
       const type = typeForCategory(item.category);
       const costRate = costs.get(item.id) ?? 0;
@@ -249,7 +252,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
         divisionName: division?.name ?? 'Division',
         type,
         rate,
-        unit: item.costType === 'rental' ? item.rentalUnit || item.unit || 'hr' : item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
+        unit: (equipmentById.get(item.equipmentId)?.costType ?? item.costType) === 'rental' ? item.rentalUnit || item.unit || 'hr' : item.unit || (type === 'labour' || type === 'equipment' ? 'hr' : 'unit'),
         costRate,
         overheadPerUnit: divisionOverheadPerUnit,
         divisionOverheadPerUnit,

@@ -36,7 +36,7 @@ export default function BudgetWorkspacePage({ currentUserRole }: Props) {
   const { budgetId } = useParams<{ budgetId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { budgets, budgetDivisions, budgetDivisionPlanningItems, updateBudget, addBudgetDivision, updateBudgetDivision, migrateLegacyBudgetOverhead } = useStore();
+  const { budgets, budgetDivisions, budgetDivisionPlanningItems, equipmentAssets, updateBudget, addBudgetDivision, updateBudgetDivision, migrateLegacyBudgetOverhead } = useStore();
   const budget = budgets.find((item) => item.id === budgetId);
   const divisions = useMemo(() => budgetDivisions.filter((item) => item.budgetId === budgetId).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)), [budgetDivisions, budgetId]);
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -139,6 +139,7 @@ export default function BudgetWorkspacePage({ currentUserRole }: Props) {
   const financials = calculateBudgetFinancials({
     divisions: activeDivisions,
     planningItems: budgetPlanningItems,
+    equipmentAssets,
   });
   const divisionFinancials = new Map(financials.divisions.map((item) => [item.divisionId, item]));
   const tabs: Array<{ key: BudgetTab; label: string }> = [

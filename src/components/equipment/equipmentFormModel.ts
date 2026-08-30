@@ -10,6 +10,9 @@ export interface EquipmentInfoFormValue {
   yearlyFuelCost: number;
   yearlyInsuranceCost: number;
   yearlyMaintenanceCost: number;
+  expectedReplacementCost?: number;
+  expectedResaleValue?: number;
+  remainingUsefulMonths?: number;
   sellableHoursPerYear: number;
   equipmentHoursPerDay: number;
   rentalCost: number;
@@ -47,18 +50,38 @@ export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => {
     ['Rental cost', value.rentalCost],
   ] as const;
   const invalidField = numericFields.find(([, fieldValue]) => !Number.isFinite(fieldValue) || fieldValue < 0);
-  return invalidField ? `${invalidField[0]} must be zero or greater.` : null;
+  if (invalidField) return `${invalidField[0]} must be zero or greater.`;
+  for (const [label, fieldValue] of [
+    ['Expected replacement cost', value.expectedReplacementCost],
+    ['Expected resale value', value.expectedResaleValue],
+    ['Remaining useful months', value.remainingUsefulMonths],
+  ] as const) {
+    if (fieldValue !== undefined && (!Number.isFinite(fieldValue) || fieldValue < 0)) return `${label} must be zero or greater.`;
+  }
+  if (value.expectedReplacementCost !== undefined && value.expectedResaleValue !== undefined && value.expectedResaleValue > value.expectedReplacementCost) {
+    return 'Expected resale value cannot exceed expected replacement cost.';
+  }
+  const reserveInputsComplete = value.expectedReplacementCost !== undefined
+    && value.expectedResaleValue !== undefined
+    && value.remainingUsefulMonths !== undefined;
+  if (value.equipmentCostType === 'owned' && reserveInputsComplete && (value.remainingUsefulMonths ?? 0) <= 0) {
+    return 'Remaining useful months must be greater than zero.';
+  }
+  return null;
 };
 
 export const normalizeEquipmentInfoForm = (value: EquipmentInfoFormValue): EquipmentInfoFormValue => ({
   ...value,
   description: value.description.trim(),
   costCode: value.costCode.trim(),
-  equipmentPayment: value.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(value.equipmentPayment || 0)),
-  equipmentPaymentFrequencyPerYear: value.equipmentCostType === 'owned' ? 0 : Math.max(0, Number(value.equipmentPaymentFrequencyPerYear || 0)),
+  equipmentPayment: Math.max(0, Number(value.equipmentPayment || 0)),
+  equipmentPaymentFrequencyPerYear: Math.max(0, Number(value.equipmentPaymentFrequencyPerYear || 0)),
   yearlyFuelCost: Math.max(0, Number(value.yearlyFuelCost || 0)),
   yearlyInsuranceCost: Math.max(0, Number(value.yearlyInsuranceCost || 0)),
   yearlyMaintenanceCost: Math.max(0, Number(value.yearlyMaintenanceCost || 0)),
+  expectedReplacementCost: value.expectedReplacementCost === undefined ? undefined : Number(value.expectedReplacementCost),
+  expectedResaleValue: value.expectedResaleValue === undefined ? undefined : Number(value.expectedResaleValue),
+  remainingUsefulMonths: value.remainingUsefulMonths === undefined ? undefined : Number(value.remainingUsefulMonths),
   sellableHoursPerYear: Math.max(0, Number(value.sellableHoursPerYear || 0)),
   equipmentHoursPerDay: Math.max(0, Number(value.equipmentHoursPerDay || 0)),
   rentalCost: Math.max(0, Number(value.rentalCost || 0)),
