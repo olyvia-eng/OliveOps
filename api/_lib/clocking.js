@@ -331,6 +331,7 @@ export function buildClockOutTransaction({
   jobId,
   jobIds,
   workType,
+  workAreaId,
   clockIn,
   employeeName = '',
   labourCostRateSnapshot,
