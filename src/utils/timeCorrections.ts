@@ -38,6 +38,13 @@ export function buildEffectiveTimeEntries(
       : undefined;
 
     const requestedJobIds = correction.requestedJobId ? [correction.requestedJobId] : undefined;
+    const changesActivityOrJob = Boolean(correction.requestedActivityType || correction.requestedJobId);
+    const nextWorkAreaId = nextWorkType === 'job'
+      ? (changesActivityOrJob ? correction.requestedWorkAreaId : entry.workAreaId)
+      : undefined;
+    const nextWorkAreaNameSnapshot = nextWorkType === 'job'
+      ? (changesActivityOrJob ? correction.requestedWorkAreaNameSnapshot : entry.workAreaNameSnapshot)
+      : undefined;
 
     return {
       ...entry,
@@ -46,6 +53,8 @@ export function buildEffectiveTimeEntries(
       jobId: correction.requestedJobId ?? entry.jobId,
       jobIds: requestedJobIds ?? entry.jobIds,
       workType: nextWorkType,
+      workAreaId: nextWorkAreaId,
+      workAreaNameSnapshot: nextWorkAreaNameSnapshot,
       unbillableCategoryId: nextUnbillableCategoryId,
       unbillableCategoryName: nextUnbillableCategoryName,
     };

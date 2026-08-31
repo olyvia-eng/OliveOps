@@ -1677,6 +1677,18 @@ export default function FormsPage() {
                               ) : <span key={fileId} className="text-xs text-gray-400">Signature unavailable</span>)}
                               <p className="text-xs text-gray-500">Signed by: {activeSubmission.submittedBy ?? 'Authenticated user'} · Submitted: {formatDateTime(response.signedAt ?? activeSubmission.submittedAt)}</p>
                             </div>
+                          ) : fieldType === 'photo_upload' ? (
+                            response.fileIds?.[0] ? (
+                              submissionFileUrls[response.fileIds[0]] === undefined ? (
+                                <span className="text-xs text-gray-400">Loading photo...</span>
+                              ) : submissionFileUrls[response.fileIds[0]] ? (
+                                <img
+                                  src={submissionFileUrls[response.fileIds[0]]}
+                                  alt={fieldLabel}
+                                  className="h-36 max-w-72 rounded border border-gray-200 bg-white object-contain"
+                                />
+                              ) : <span className="text-xs text-gray-400">Photo unavailable</span>
+                            ) : <span className="text-xs text-gray-400">Photo unavailable</span>
                           ) : displayValue || response.fileIds?.join(', ') || '—'}
                         </td>
                       </tr>

@@ -11,6 +11,7 @@ import type { TimeEntry, TimeOffRequest } from '../../types';
 import { durationHours, formatDateTime } from '../../utils';
 import { parseStorageApiResponse } from '../../utils/fileUpload';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
+import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import { formatTimeOffRange } from '../../utils/timeOff';
 import { getEmployeeRangeStart, scopeEmployeeProfileRecords } from './employeeProfileModel.js';
 
@@ -47,11 +48,7 @@ const tabKeys = new Set<ProfileTab>(tabs.map((tab) => tab.key));
 const roleLabel = (role: string) => role.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 
 function entryWorkLabel(entry: TimeEntry, jobs: Array<{ id: string; title: string }>) {
-  if (entry.workType === 'drive_time') return 'Drive Time';
-  if (entry.workType === 'non_billable') return entry.unbillableCategoryName || 'Non-Billable Work';
-  const jobIds = entry.jobIds?.length ? entry.jobIds : (entry.jobId ? [entry.jobId] : []);
-  const titles = jobIds.map((jobId) => jobs.find((job) => job.id === jobId)?.title).filter((title): title is string => Boolean(title));
-  return titles.length > 0 ? titles.join(', ') : 'Job Work';
+  return getTimeEntryWorkLabel(entry, jobs);
 }
 
 function formatBytes(bytes: number) {

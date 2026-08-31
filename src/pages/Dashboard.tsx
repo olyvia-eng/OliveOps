@@ -7,6 +7,7 @@ import { buildDashboardOnboardingItems, calculateDashboardOnboardingProgress } f
 import { Card, PageHeader, StatCard } from '../components/ui';
 import { useStore } from '../store';
 import { formatCurrency } from '../utils';
+import { getTimeEntryWorkLabel } from '../utils/timeEntryPresentation.js';
 
 type ActivityEvent = {
   id: string;
@@ -85,7 +86,7 @@ export default function Dashboard({ businessId = '', businessName = '' }: Dashbo
       const eventAt = entry.clockOut ?? entry.clockIn;
       return {
         id: `time-${entry.id}`,
-        label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out' : 'clocked in'}`,
+        label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out from' : 'clocked in to'} ${getTimeEntryWorkLabel(entry, jobs)}`,
         timestamp: eventAt,
         sortAt: parseTimestamp(eventAt),
       };

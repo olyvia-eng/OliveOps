@@ -97,6 +97,39 @@ function seedSignatureFile(store, {
   });
 }
 
+function makePhotoForm(store, { id = 'photo-form', required = true } = {}) {
+  seedForm(store, { id });
+  Object.assign(store.get(key('BUSINESS#biz-a', `FORM_FIELD#${id}-notes`)), {
+    type: 'photo_upload',
+    label: 'Photo of completed work',
+    required,
+  });
+}
+
+function seedPhotoFile(store, {
+  fileId = 'photo-file',
+  formId = 'photo-form',
+  fieldId = `${formId}-notes`,
+  clientSubmissionId = 'photo-submission-001',
+  employeeId = 'employee-a',
+  userId = 'user-a',
+  uploadStatus = 'uploaded',
+  claimedSubmissionId,
+  checksumSha256 = 'photo-checksum-a',
+  mimeType = 'image/jpeg',
+  sizeBytes = 1024,
+  workflowOccurrenceId,
+  workflowRequirementId,
+} = {}) {
+  store.set(key('BUSINESS#biz-a', `FILE#${fileId}`), {
+    PK: 'BUSINESS#biz-a', SK: `FILE#${fileId}`, entityType: 'form-attachment', businessId: 'biz-a', fileId,
+    entityId: clientSubmissionId, category: 'photo', formId, fieldId, clientSubmissionId,
+    submitterEmployeeId: employeeId, submitterUserId: userId, uploadStatus, mimeType, sizeBytes,
+    objectKey: `biz-a/${fileId}/photo.jpg`, checksumSha256, claimedSubmissionId,
+    workflowOccurrenceId, workflowRequirementId,
+  });
+}
+
 async function request(token, { method = 'GET', action, query = {}, body }) {
   const res = response();
   await employeeHandler({ method, query: { action, ...query }, headers: { authorization: `Bearer ${token}` }, body }, res);
@@ -450,7 +483,7 @@ test('drawn Signature is required, claimed once, snapshotted, and idempotently r
 
   assert.equal((await request('token-a', { method: 'POST', action: 'submit', body: { ...body, responses: [] } })).statusCode, 400);
   const submitted = await request('token-a', { method: 'POST', action: 'submit', body });
-  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.statusCode, 201, JSON.stringify(submitted.body));
   assert.equal(submitted.body.submission.status, 'pending_review');
   const response = [...store.values()].find((item) => item.entityType === 'FORM_RESPONSE');
   assert.equal(response.value, '');
@@ -534,4 +567,78 @@ test('submission detail prefers immutable field snapshots and preserves legacy t
   assert.equal(legacy.body.answers[0].type, 'signature');
   assert.equal(legacy.body.answers[0].value, 'Ryan Smith');
   assert.equal(legacy.body.answers[0].fileIds, undefined);
+});
+
+test('Photo Upload requires exactly one completed photo, claims it, and replays idempotently', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makePhotoForm(store);
+  seedPhotoFile(store);
+  const body = {
+    formId: 'photo-form', clientSubmissionId: 'photo-submission-001',
+    responses: [{ fieldId: 'photo-form-notes', value: '', fileIds: ['photo-file'] }],
+  };
+
+  assert.equal((await request('token-a', { method: 'POST', action: 'submit', body: { ...body, responses: [] } })).statusCode, 400);
+  assert.equal((await request('token-a', { method: 'POST', action: 'submit', body: { ...body, responses: [{ ...body.responses[0], fileIds: ['photo-file', 'other'] }] } })).statusCode, 400);
+  const submitted = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(submitted.statusCode, 201);
+  const response = [...store.values()].find((item) => item.entityType === 'FORM_RESPONSE');
+  assert.deepEqual(response.fileIds, ['photo-file']);
+  assert.equal(response.value, '');
+  assert.equal(response.typeSnapshot, 'photo_upload');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'FILE#photo-file')).claimedSubmissionId, submitted.body.submission.id);
+
+  const replay = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
+});
+
+test('optional Photo Upload may be omitted but invalid or mismatched staged photos fail closed', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makePhotoForm(store, { required: false });
+  assert.equal((await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'photo-form', clientSubmissionId: 'photo-empty-001', responses: [] } })).statusCode, 201);
+
+  const cases = [
+    ['fabricated', null],
+    ['wrong-form', { formId: 'another-form' }],
+    ['wrong-field', { fieldId: 'another-field' }],
+    ['wrong-employee', { employeeId: 'employee-b' }],
+    ['wrong-user', { userId: 'user-b' }],
+    ['wrong-workflow', { workflowOccurrenceId: 'workflow-other' }],
+    ['wrong-requirement', { workflowRequirementId: 'requirement-other' }],
+    ['incomplete', { uploadStatus: 'pending' }],
+    ['claimed', { claimedSubmissionId: 'another-submission' }],
+    ['invalid-mime', { mimeType: 'image/heic' }],
+    ['oversized', { sizeBytes: 8 * 1024 * 1024 + 1 }],
+  ];
+  for (const [fileId, override] of cases) {
+    const clientSubmissionId = `photo-${fileId}-001`;
+    if (override) seedPhotoFile(store, { fileId, clientSubmissionId, ...override });
+    const result = await request('token-a', { method: 'POST', action: 'submit', body: {
+      formId: 'photo-form', clientSubmissionId,
+      responses: [{ fieldId: 'photo-form-notes', fileIds: [fileId] }],
+    } });
+    assert.ok([400, 409].includes(result.statusCode), fileId);
+  }
+});
+
+test('changing a Photo Upload file under one client submission ID conflicts without claiming the replacement', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makePhotoForm(store);
+  seedPhotoFile(store, { fileId: 'photo-a' });
+  seedPhotoFile(store, { fileId: 'photo-b', checksumSha256: 'photo-checksum-b' });
+  const submit = (fileId) => request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'photo-form', clientSubmissionId: 'photo-submission-001',
+    responses: [{ fieldId: 'photo-form-notes', fileIds: [fileId] }],
+  } });
+  const initial = await submit('photo-a');
+  assert.equal(initial.statusCode, 201, JSON.stringify(initial.body));
+  const changed = await submit('photo-b');
+  assert.equal(changed.statusCode, 409);
+  assert.equal(changed.body.error, 'submission_idempotency_conflict');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'FILE#photo-b')).claimedSubmissionId, undefined);
 });

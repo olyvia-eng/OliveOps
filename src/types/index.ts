@@ -810,6 +810,9 @@ export interface TimeCorrectionRequest {
   requestedClockInAt?: string;
   requestedClockOutAt?: string;
   requestedJobId?: ID;
+  requestedWorkAreaId?: ID;
+  requestedWorkAreaNameSnapshot?: string;
+  clockingContractVersion?: number;
   requestedActivityType?: TimeEntryWorkType;
   requestedUnbillableCategoryId?: ID;
   requestedUnbillableCategoryName?: string;
@@ -826,6 +829,8 @@ export interface TimeCorrectionRequest {
   originalClockOutAt?: string;
   originalJobId?: ID;
   originalJobIds?: ID[];
+  originalWorkAreaId?: ID;
+  originalWorkAreaNameSnapshot?: string;
   originalActivityType?: TimeEntryWorkType;
   originalUnbillableCategoryId?: ID;
   originalUnbillableCategoryName?: string;
@@ -860,6 +865,8 @@ export interface TimeEntry {
   jobId?: ID;
   jobIds?: ID[];
   workType: TimeEntryWorkType;
+  workAreaId?: ID;
+  workAreaNameSnapshot?: string;
   unbillableCategoryId?: ID;
   unbillableCategoryName?: string;
   clockIn: string;

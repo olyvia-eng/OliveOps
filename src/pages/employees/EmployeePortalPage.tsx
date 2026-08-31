@@ -5,6 +5,7 @@ import { useStore } from '../../store';
 import { Button, Card, Input, Modal, Select } from '../../components/ui';
 import { durationHours, formatDateTime } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
+import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import type { TimeCorrectionRequestType, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import CalendarPage from '../calendar/CalendarPage';
@@ -238,16 +239,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
 
   const activeEntryJobTitle = useMemo(() => {
     if (!activeEntry) return '—';
-    if (activeEntry.workType === 'drive_time') return 'Drive Time';
-    if (activeEntry.workType === 'non_billable') return 'Non-Billable Work';
-
-    const ids = Array.isArray(activeEntry.jobIds) && activeEntry.jobIds.length > 0
-      ? activeEntry.jobIds
-      : (activeEntry.jobId ? [activeEntry.jobId] : []);
-    const titles = ids
-      .map((id) => jobs.find((job) => job.id === id)?.title)
-      .filter((value): value is string => Boolean(value));
-    return titles.length > 0 ? titles.join(', ') : 'Job Work';
+    return getTimeEntryWorkLabel(activeEntry, jobs);
   }, [activeEntry, jobs]);
 
   const toggleJobSelection = (jobId: string) => {

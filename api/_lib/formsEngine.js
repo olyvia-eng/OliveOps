@@ -184,7 +184,26 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
       });
       continue;
     }
-    if (MEDIA_FIELD_TYPES.has(field.type)) {
+    if (field.type === 'photo_upload') {
+      if (typeof response.value === 'string' && /^(?:data:|[A-Za-z0-9+/]{256,}={0,2}$)/.test(response.value.trim())) {
+        return responseError(field, 'file bytes and base64 values are not accepted.');
+      }
+      if (value) return responseError(field, 'must reference an uploaded photo by file ID.');
+      if (fileIds.length === 0) {
+        if (field.required) return responseError(field, 'a photo is required.');
+        continue;
+      }
+      if (fileIds.length !== 1) return responseError(field, 'must reference exactly one photo.');
+      normalizedResponses.push({
+        fieldId: field.id,
+        value: '',
+        fileIds,
+        labelSnapshot: field.label,
+        typeSnapshot: field.type,
+      });
+      continue;
+    }
+    if (field.type === 'file_upload') {
       if (typeof response.value === 'string' && /^(?:data:|[A-Za-z0-9+/]{256,}={0,2}$)/.test(response.value.trim())) {
         return responseError(field, 'file bytes and base64 values are not accepted.');
       }
@@ -219,6 +238,9 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
   }
 
   for (const field of fields) {
+    if (field.required && field.type === 'photo_upload' && !seen.has(field.id)) {
+      return responseError(field, 'a photo is required.');
+    }
     if (field.required && !DISPLAY_FIELD_TYPES.has(field.type) && !MEDIA_FIELD_TYPES.has(field.type) && !seen.has(field.id)) {
       return responseError(field, 'a response is required.');
     }

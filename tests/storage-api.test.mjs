@@ -61,7 +61,11 @@ function baseDeps(overrides = {}) {
     getFeedbackForBusiness: async () => null,
     getTimeEntryForBusiness: async () => ({ id: 'time-1', employeeId: 'emp-1', status: 'clocked_in' }),
     listEmployeesForBusiness: async () => [{ id: 'emp-1', userId: 'user-1', active: true }],
+    listEquipmentAssetsForBusiness: async () => [],
     listFilesForBusiness: async () => [],
+    listJobsForBusiness: async () => [],
+    listDivisionsForBusiness: async () => [],
+    listCrewsForBusiness: async () => [],
     updateFeedbackForBusiness: async () => ({ ok: true }),
     updateExpenseForBusiness: async () => ({ ok: true }),
     updateTimeEntryForBusiness: async () => ({ ok: true }),
@@ -219,7 +223,7 @@ test('Form signature prepare-upload enforces PNG policy and stores trusted bindi
   let pendingFile;
   let trustedPlan;
   const handler = createStorageHandler(baseDeps({
-    getFormForBusiness: async () => ({ id: 'form-1' }),
+    getFormForBusiness: async () => ({ id: 'form-1', status: 'active', assignedTo: 'everyone' }),
     getFormFieldForBusiness: async () => ({ id: 'field-1', formId: 'form-1', type: 'signature' }),
     createPendingFileForBusiness: async ({ file }) => { pendingFile = file; return { ok: true }; },
     createPresignedUploadUrl: async ({ plan }) => { trustedPlan = plan; return { ok: true, uploadUrl: 'https://signed.example/signature', plan }; },
@@ -244,7 +248,7 @@ test('Form signature prepare-upload enforces PNG policy and stores trusted bindi
 
 test('Form signature prepare-upload rejects non-PNG and oversized payloads', async () => {
   const handler = createStorageHandler(baseDeps({
-    getFormForBusiness: async () => ({ id: 'form-1' }),
+    getFormForBusiness: async () => ({ id: 'form-1', status: 'active', assignedTo: 'everyone' }),
     getFormFieldForBusiness: async () => ({ id: 'field-1', formId: 'form-1', type: 'signature' }),
   }));
   for (const [fileName, mimeType, sizeBytes] of [
@@ -257,6 +261,56 @@ test('Form signature prepare-upload rejects non-PNG and oversized payloads', asy
       formId: 'form-1', fieldId: 'field-1', clientSubmissionId: 'signature-submission-001', fileName, mimeType, sizeBytes,
     } }, res);
     assert.equal(res.statusCode, 400);
+  }
+});
+
+test('Form photo prepare-upload stores immutable context and enforces image policy', async () => {
+  let pendingFile;
+  const handler = createStorageHandler(baseDeps({
+    getFormForBusiness: async () => ({ id: 'form-1', status: 'active', assignedTo: 'everyone' }),
+    getFormFieldForBusiness: async () => ({ id: 'field-1', formId: 'form-1', type: 'photo_upload' }),
+    createPendingFileForBusiness: async ({ file }) => { pendingFile = file; return { ok: true }; },
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: {
+    action: 'prepare-upload', entityType: 'form-attachment', entityId: 'submission-001', category: 'photo',
+    formId: 'form-1', fieldId: 'field-1', clientSubmissionId: 'submission-001',
+    fileName: 'work.jpg', mimeType: 'image/jpeg', sizeBytes: 2_000_000,
+  } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.requiredHeaders, { 'Content-Type': 'image/jpeg', 'If-None-Match': '*' });
+  assert.equal(pendingFile.entityType, 'form-attachment');
+  assert.equal(pendingFile.formId, 'form-1');
+  assert.equal(pendingFile.fieldId, 'field-1');
+  assert.equal(pendingFile.submitterEmployeeId, 'emp-1');
+  assert.equal(pendingFile.submitterUserId, 'user-1');
+});
+
+test('Form photo prepare-upload rejects wrong fields, employees, workflows, MIME types, and oversized images', async () => {
+  const validForm = { id: 'form-1', status: 'active', assignedTo: 'employee', assignmentValue: 'emp-1' };
+  const validField = { id: 'field-1', formId: 'form-1', type: 'photo_upload' };
+  const cases = [
+    { overrides: { getFormFieldForBusiness: async () => ({ ...validField, type: 'file_upload' }) }, expected: 403 },
+    { overrides: { getFormForBusiness: async () => ({ ...validForm, assignmentValue: 'emp-2' }) }, expected: 403 },
+    { body: { workflowOccurrenceId: 'wrong', workflowRequirementId: 'wrong' }, expected: 403 },
+    { body: { fileName: 'photo.heic', mimeType: 'image/heic' }, expected: 400 },
+    { body: { sizeBytes: 8 * 1024 * 1024 + 1 }, expected: 400 },
+  ];
+  for (const item of cases) {
+    const handler = createStorageHandler(baseDeps({
+      getFormForBusiness: async () => validForm,
+      getFormFieldForBusiness: async () => validField,
+      ...item.overrides,
+    }));
+    const res = createMockRes();
+    await handler({ method: 'POST', body: {
+      action: 'prepare-upload', entityType: 'form-attachment', entityId: 'submission-001', category: 'photo',
+      formId: 'form-1', fieldId: 'field-1', clientSubmissionId: 'submission-001',
+      fileName: 'work.jpg', mimeType: 'image/jpeg', sizeBytes: 1024,
+      ...item.body,
+    } }, res);
+    assert.equal(res.statusCode, item.expected);
   }
 });
 

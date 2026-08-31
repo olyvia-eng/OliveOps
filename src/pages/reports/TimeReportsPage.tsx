@@ -9,6 +9,7 @@ import type { BusinessUserRole } from '../../auth/types';
 import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
+import { getTimeEntryJobLabel, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -38,16 +39,7 @@ function normalizeJobIds(entry: Partial<TimeEntry>): string[] {
 }
 
 function entryLabel(entry: Partial<TimeEntry>, jobs: Array<{ id: string; title: string }>) {
-  const workType = normalizeWorkType(entry);
-  if (workType === 'drive_time') return 'Drive Time';
-  if (workType === 'non_billable') return 'Non-Billable Work';
-
-  const jobIds = normalizeJobIds(entry);
-  const titles = jobIds
-    .map((jobId) => jobs.find((job) => job.id === jobId)?.title)
-    .filter((value): value is string => Boolean(value));
-
-  return titles.length > 0 ? titles.join(', ') : 'Job Work';
+  return getTimeEntryWorkLabel(entry, jobs);
 }
 
 function entryTypeMeta(entry: Partial<TimeEntry>) {
@@ -59,6 +51,12 @@ function entryTypeMeta(entry: Partial<TimeEntry>) {
     return { label: 'Non-Billable', className: 'bg-brand-100 text-brand-700' };
   }
   return { label: 'Job Work', className: 'bg-brand-200 text-brand-800' };
+}
+
+function correctionLocationLabel(jobId: string | undefined, workAreaNameSnapshot: string | undefined, jobs: Array<{ id: string; title: string }>) {
+  const jobLabel = jobId ? jobs.find((job) => job.id === jobId)?.title : undefined;
+  const workAreaLabel = workAreaNameSnapshot?.trim();
+  return [jobLabel, workAreaLabel].filter(Boolean).join(' · ');
 }
 
 function escapeCsvValue(value: string | number | null | undefined) {
@@ -750,11 +748,13 @@ export default function TimeReportsPage({
                       {item.originalClockInAt ? formatDateTime(item.originalClockInAt) : '—'}
                       {' - '}
                       {item.originalClockOutAt ? formatDateTime(item.originalClockOutAt) : '—'}
+                      {correctionLocationLabel(item.originalJobId, item.originalWorkAreaNameSnapshot, jobs) ? <p className="mt-1 font-medium text-gray-700">{correctionLocationLabel(item.originalJobId, item.originalWorkAreaNameSnapshot, jobs)}</p> : null}
                     </td>
                     <td className="py-2 text-xs text-gray-500">
                       {item.requestedClockInAt ? formatDateTime(item.requestedClockInAt) : '—'}
                       {' - '}
                       {item.requestedClockOutAt ? formatDateTime(item.requestedClockOutAt) : '—'}
+                      {correctionLocationLabel(item.requestedJobId ?? item.originalJobId, item.requestedWorkAreaNameSnapshot, jobs) ? <p className="mt-1 font-medium text-gray-700">{correctionLocationLabel(item.requestedJobId ?? item.originalJobId, item.requestedWorkAreaNameSnapshot, jobs)}</p> : null}
                     </td>
                     <td className="py-2 text-gray-600 max-w-xs truncate">{item.reason || '—'}</td>
                     <td className="py-2 text-xs text-gray-500">{formatDateTime(item.submittedAt)}</td>
@@ -979,6 +979,7 @@ export default function TimeReportsPage({
                 const workType = normalizeWorkType(entry);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const isFocusedEmployee = selectedEmployeeId === entry.employeeId;
+                const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
                 return (
                   <tr
                     key={entry.id}
@@ -986,7 +987,10 @@ export default function TimeReportsPage({
                   >
                     <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
                     <td className="py-2 capitalize text-gray-600">{workType.replace('_', ' ')}</td>
-                    <td className="py-2 text-gray-600 max-w-xs truncate">{entryLabel(entry, jobs)}</td>
+                    <td className="py-2 text-gray-600 max-w-xs">
+                      <p className="truncate">{workType === 'job' ? getTimeEntryJobLabel(entry, jobs) : entryLabel(entry, jobs)}</p>
+                      {workAreaLabel ? <p className="truncate text-xs text-gray-500">Work Area: {workAreaLabel}</p> : null}
+                    </td>
                     <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
                     <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
                     <td className="py-2 text-gray-600 max-w-xs truncate">

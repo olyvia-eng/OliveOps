@@ -132,11 +132,12 @@ function seedSignatureFile(store, context, requirement, clientSubmissionId) {
   return fileId;
 }
 
-function seedJob(store, { businessId, id, status, employeeId }) {
+function seedJob(store, { businessId, id, status, employeeId, operationalWorkAreas }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `JOB#${id}`), {
     PK: pk, SK: `JOB#${id}`, entityType: 'JOB', businessId, jobId: id, title: id,
     status, assignedEmployeeIds: [employeeId], assignedEquipmentIds: [],
+    operationalWorkAreas,
   });
 }
 
@@ -422,6 +423,32 @@ test('required before-clock-in Signature claims its artifact before workflow fin
   assert.equal(submitted.statusCode, 201);
   assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `FILE#${fileId}`)).claimedSubmissionId, submitted.body.submission.id);
   assert.equal((await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } })).statusCode, 200);
+});
+
+test('mandatory before-clock-in finalization exposes persisted Work Area fields through bootstrap', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'work-area-required' }] });
+  seedJob(context.store, {
+    businessId: context.businessId,
+    id: 'job-a',
+    status: 'scheduled',
+    employeeId: context.employeeId,
+    operationalWorkAreas: [{ id: 'area-excavation', name: 'Excavation', status: 'in_progress', sortOrder: 0 }],
+  });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId, {
+    workType: 'job', jobIds: ['job-a'], workAreaId: 'area-excavation', clockingContractVersion: 2,
+  }) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  const finalized = await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.timeEntry.workAreaId, 'area-excavation');
+  assert.equal(finalized.body.timeEntry.workAreaNameSnapshot, 'Excavation');
+
+  const bootstrapResponse = response();
+  await bootstrapHandler({ method: 'GET', query: {}, headers: { authorization: `Bearer ${context.token}` } }, bootstrapResponse);
+  const entry = bootstrapResponse.body.timeEntries.find((item) => item.id === finalized.body.timeEntry.id);
+  assert.equal(entry.workAreaId, 'area-excavation');
+  assert.equal(entry.workAreaNameSnapshot, 'Excavation');
 });
 
 test('persisted before-clock-in workflow remains completable after its job closes', async (t) => {

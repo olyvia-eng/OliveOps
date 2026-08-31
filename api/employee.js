@@ -42,6 +42,8 @@ import {
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const FORM_IDEMPOTENCY_RETENTION_DAYS = 30;
+const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -391,8 +393,9 @@ export default async function handler(req, res) {
     const validation = validateEmployeeFormResponses({ fields, responses: payload?.responses, choicesByFieldId });
     if (!validation.ok) return res.status(400).json({ ok: false, code: validation.code, error: validation.error, fieldId: validation.fieldId });
     const signatureResponses = validation.responses.filter((response) => response.typeSnapshot === 'signature');
-    if (signatureResponses.length > 0 && !clientSubmissionId) {
-      return res.status(400).json({ ok: false, error: 'A client submission ID is required for signature uploads.' });
+    const photoResponses = validation.responses.filter((response) => response.typeSnapshot === 'photo_upload');
+    if ((signatureResponses.length > 0 || photoResponses.length > 0) && !clientSubmissionId) {
+      return res.status(400).json({ ok: false, error: 'A client submission ID is required for Form attachments.' });
     }
     const signatureFiles = new Map();
     for (const response of signatureResponses) {
@@ -417,6 +420,32 @@ export default async function handler(req, res) {
       signatureFiles.set(response.fieldId, file);
       response.artifactFingerprint = `${file.id}:${file.checksumSha256 || file.etag}`;
     }
+    const photoFiles = new Map();
+    for (const response of photoResponses) {
+      const file = await getFileForBusiness(session.businessId, response.fileIds[0]);
+      const matchesContext = file
+        && file.entityType === 'form-attachment'
+        && file.category === 'photo'
+        && file.uploadStatus === 'uploaded'
+        && FORM_PHOTO_MIME_TYPES.has(file.mimeType)
+        && Number(file.sizeBytes) > 0
+        && Number(file.sizeBytes) <= FORM_PHOTO_MAX_BYTES
+        && file.formId === form.id
+        && file.fieldId === response.fieldId
+        && file.clientSubmissionId === clientSubmissionId
+        && file.submitterEmployeeId === data.employee.id
+        && file.submitterUserId === session.id
+        && text(file.workflowOccurrenceId) === workflowOccurrenceId
+        && text(file.workflowRequirementId) === workflowRequirementId
+        && text(file.jobId) === text(payload?.jobId)
+        && text(file.equipmentId) === text(payload?.equipmentId)
+        && text(file.divisionId) === text(payload?.divisionId);
+      if (!matchesContext || (!file.checksumSha256 && !file.etag)) {
+        return res.status(400).json({ ok: false, fieldId: response.fieldId, error: `${response.labelSnapshot}: photo artifact is invalid or incomplete.` });
+      }
+      photoFiles.set(response.fieldId, file);
+      response.artifactFingerprint = `${file.id}:${file.checksumSha256 || file.etag}`;
+    }
     const submittedAt = new Date().toISOString();
     const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
     const payloadFingerprint = clientSubmissionId
@@ -431,6 +460,9 @@ export default async function handler(req, res) {
     }
     if ([...signatureFiles.values()].some((file) => file.claimedSubmissionId)) {
       return res.status(409).json({ ok: false, error: 'A signature artifact has already been used.' });
+    }
+    if ([...photoFiles.values()].some((file) => file.claimedSubmissionId)) {
+      return res.status(409).json({ ok: false, error: 'A photo artifact has already been used.' });
     }
     if (requiresMandatoryWorkflow && workflow.status !== 'pending_required_forms') {
       return res.status(409).json({
@@ -463,6 +495,10 @@ export default async function handler(req, res) {
       fieldId: response.fieldId,
       signedAt: submittedAt,
     }));
+    const attachmentClaims = photoResponses.map((response) => ({
+      fileId: response.fileIds[0],
+      fieldId: response.fieldId,
+    }));
     const submissionResponse = { ...submission, responsesCreated: responses.length };
     try {
       await createEmployeeFormSubmissionForBusiness({
@@ -483,6 +519,7 @@ export default async function handler(req, res) {
           updatedAt: submittedAt,
         }) : undefined,
         signatureClaims,
+        attachmentClaims,
       });
     } catch (error) {
       if (error?.name === 'TransactionCanceledException' && clientSubmissionId) {

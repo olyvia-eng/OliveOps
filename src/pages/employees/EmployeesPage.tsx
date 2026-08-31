@@ -5,6 +5,7 @@ import { PageHeader, Button, Card, Badge, Modal, Input, EmptyState } from '../..
 import { Plus, Clock, LogOut, Users } from 'lucide-react';
 import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
+import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import type { Employee, EmployeeRole } from '../../types';
 import ClockInModal from './ClockInModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
@@ -78,18 +79,7 @@ export default function EmployeesPage() {
   const getActiveEntry = (empId: string) =>
     timeEntries.find((te) => te.employeeId === empId && te.status === 'clocked_in');
 
-  const entryWorkLabel = (entry: { workType?: string; jobId?: string; jobIds?: string[] }) => {
-    if (entry.workType === 'drive_time') return 'Drive Time';
-    if (entry.workType === 'non_billable') return 'Non-Billable Work';
-
-    const ids = Array.isArray(entry.jobIds) && entry.jobIds.length > 0
-      ? entry.jobIds
-      : (entry.jobId ? [entry.jobId] : []);
-    const titles = ids
-      .map((id) => jobs.find((job) => job.id === id)?.title)
-      .filter((value): value is string => Boolean(value));
-    return titles.length > 0 ? titles.join(', ') : 'Job Work';
-  };
+  const entryWorkLabel = (entry: ReturnType<typeof getActiveEntry>) => getTimeEntryWorkLabel(entry ?? {}, jobs);
 
   const renderEmployeeCard = (emp: Employee, activeEntry: ReturnType<typeof getActiveEntry>, activeWorkLabel: string | null, todayHours: number) => {
     const compensationType = emp.compensationType ?? 'hourly';

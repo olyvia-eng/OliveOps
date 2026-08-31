@@ -12,6 +12,7 @@ import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, Time
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
+import { getTimeEntryWorkAreaLabel } from '../../utils/timeEntryPresentation.js';
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
 import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
@@ -675,7 +676,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                 const employee = employees.find((item) => item.id === entry.employeeId);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const typeMeta = timeEntryTypeMeta(entry);
-                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
+                const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
+                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p>{workAreaLabel ? <p className="mt-1 text-xs font-medium text-gray-600">Work Area: {workAreaLabel}</p> : null}<p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
               })}</ul>
             )}
           </Card>

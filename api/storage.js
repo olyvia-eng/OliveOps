@@ -23,7 +23,9 @@ import {
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
   listEmployeesForBusiness,
+  listEquipmentAssetsForBusiness,
   listFilesForBusiness,
+  listJobsForBusiness,
   updateFeedbackForBusiness,
   updateFileForBusiness,
   updateExpenseForBusiness,
@@ -31,6 +33,8 @@ import {
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, canReadEntity, canWriteEntity } from './_lib/authorization.js';
 import { listCrewsForBusiness } from './_lib/schedulingConfig.js';
+import { listDivisionsForBusiness } from './_lib/schedulingConfig.js';
+import { isFormAssignedToEmployee } from './_lib/formsEngine.js';
 import { findClockInWorkflowRequirement, getClockInWorkflowForBusiness } from './_lib/mandatoryClockIn.js';
 import { findWorkflowRequirement, getClockOutWorkflowForBusiness } from './_lib/mandatoryClockOut.js';
 
@@ -38,7 +42,10 @@ const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
 const DOCUMENT_ENTITY_ID = 'library';
 const FORM_SIGNATURE_ENTITY_TYPE = 'form-signature';
+const FORM_ATTACHMENT_ENTITY_TYPE = 'form-attachment';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
+const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
+const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DOCUMENT_CATEGORIES = new Set(['contracts', 'proposals', 'permits', 'insurance', 'compliance', 'photos', 'misc']);
 const ATTACHMENT_ALLOWLIST = {
@@ -51,6 +58,7 @@ const ATTACHMENT_ALLOWLIST = {
   employee: new Set(['document', 'photo', 'misc']),
   feedback: new Set(['screenshot']),
   [FORM_SIGNATURE_ENTITY_TYPE]: new Set(['signature']),
+  [FORM_ATTACHMENT_ENTITY_TYPE]: new Set(['photo']),
 };
 
 const COMPLETION_ALLOWED_KEYS = new Set(['action', 'fileId', 'checksum', 'etag']);
@@ -182,7 +190,7 @@ function ensureAllowedKeys(body, allowedKeys) {
   return unexpectedKeys.length === 0;
 }
 
-function buildPendingFileRecord({ session, plan, entityType, entityId, category, fileName, mimeType, sizeBytes, signatureContext }) {
+function buildPendingFileRecord({ session, plan, entityType, entityId, category, fileName, mimeType, sizeBytes, formContext }) {
   const now = nowIso();
   return {
     id: plan.fileId,
@@ -207,7 +215,7 @@ function buildPendingFileRecord({ session, plan, entityType, entityId, category,
     updatedAt: now,
     expiresAt: plan.expiresAt,
     ttl: Math.floor(new Date(plan.expiresAt).getTime() / 1000),
-    ...signatureContext,
+    ...formContext,
   };
 }
 
@@ -234,12 +242,15 @@ const defaultDeps = {
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
   listEmployeesForBusiness,
+  listEquipmentAssetsForBusiness,
   listFilesForBusiness,
+  listJobsForBusiness,
   updateFeedbackForBusiness,
   updateFileForBusiness,
   updateExpenseForBusiness,
   updateTimeEntryForBusiness,
   listCrewsForBusiness,
+  listDivisionsForBusiness,
   getClockInWorkflowForBusiness,
   findClockInWorkflowRequirement,
   getClockOutWorkflowForBusiness,
@@ -257,7 +268,7 @@ export function createStorageHandler(overrides = {}) {
   }
 
   async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode = 'read' }) {
-    if (entityType === FORM_SIGNATURE_ENTITY_TYPE) {
+    if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE) {
       const file = await deps.getFileForBusiness(session.businessId, entityId);
       if (!file) return null;
       if (file.claimedSubmissionId) {
@@ -273,7 +284,8 @@ export function createStorageHandler(overrides = {}) {
       const employee = await resolveSessionEmployee(session);
       return {
         entity: file,
-        allowed: file.uploadedByUserId === session.id && file.signerEmployeeId === employee?.id,
+        allowed: file.uploadedByUserId === session.id
+          && (file.submitterEmployeeId ?? file.signerEmployeeId) === employee?.id,
       };
     }
 
@@ -366,18 +378,24 @@ export function createStorageHandler(overrides = {}) {
             return res.status(400).json({ ok: false, error: validation.error });
           }
 
-          let signatureContext;
-          if (entityType === FORM_SIGNATURE_ENTITY_TYPE) {
+          let formContext;
+          if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE) {
             const formId = typeof body.formId === 'string' ? body.formId.trim() : '';
             const fieldId = typeof body.fieldId === 'string' ? body.fieldId.trim() : '';
             const clientSubmissionId = typeof body.clientSubmissionId === 'string' ? body.clientSubmissionId.trim() : '';
             const workflowOccurrenceId = typeof body.workflowOccurrenceId === 'string' ? body.workflowOccurrenceId.trim() : '';
             const workflowRequirementId = typeof body.workflowRequirementId === 'string' ? body.workflowRequirementId.trim() : '';
-            if (validation.mimeType !== 'image/png' || validation.sizeBytes > SIGNATURE_MAX_BYTES) {
+            const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
+            const equipmentId = typeof body.equipmentId === 'string' ? body.equipmentId.trim() : '';
+            const divisionId = typeof body.divisionId === 'string' ? body.divisionId.trim() : '';
+            if (entityType === FORM_SIGNATURE_ENTITY_TYPE && (validation.mimeType !== 'image/png' || validation.sizeBytes > SIGNATURE_MAX_BYTES)) {
               return res.status(400).json({ ok: false, error: 'Signatures must be PNG files no larger than 2 MB.' });
             }
+            if (entityType === FORM_ATTACHMENT_ENTITY_TYPE && (!FORM_PHOTO_MIME_TYPES.has(validation.mimeType) || validation.sizeBytes > FORM_PHOTO_MAX_BYTES)) {
+              return res.status(400).json({ ok: false, error: 'Form photos must be JPEG, PNG, or WebP files no larger than 8 MB.' });
+            }
             if (!formId || !fieldId || !CLIENT_SUBMISSION_ID_PATTERN.test(clientSubmissionId) || entityId !== clientSubmissionId) {
-              return res.status(400).json({ ok: false, error: 'Signature upload context is invalid.' });
+              return res.status(400).json({ ok: false, error: 'Form attachment upload context is invalid.' });
             }
             const [liveForm, liveField, employee] = await Promise.all([
               deps.getFormForBusiness(session.businessId, formId),
@@ -386,6 +404,7 @@ export function createStorageHandler(overrides = {}) {
             ]);
             let form = liveForm;
             let field = liveField;
+            let workflowAuthorized = false;
             if (workflowOccurrenceId && workflowRequirementId && employee) {
               const [clockInWorkflow, clockOutWorkflow] = await Promise.all([
                 deps.getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId),
@@ -398,23 +417,49 @@ export function createStorageHandler(overrides = {}) {
               if (workflow?.employeeId === employee.id && requirement?.form) {
                 form = requirement.form;
                 field = requirement.form.fields?.find((candidate) => candidate.id === fieldId);
+                workflowAuthorized = true;
               }
             }
-            if (!form || !field || field.formId && field.formId !== form.id || field.type !== 'signature' || !employee) {
+            const expectedFieldType = entityType === FORM_SIGNATURE_ENTITY_TYPE ? 'signature' : 'photo_upload';
+            if (!form || !field || field.formId && field.formId !== form.id || field.type !== expectedFieldType || !employee) {
               return res.status(403).json({ ok: false, error: 'Forbidden' });
             }
-            signatureContext = {
+            if (entityType === FORM_ATTACHMENT_ENTITY_TYPE && (workflowOccurrenceId || workflowRequirementId) && !workflowAuthorized) {
+              return res.status(403).json({ ok: false, error: 'Forbidden' });
+            }
+            if (!workflowAuthorized) {
+              const [jobs, equipment, crews, divisions] = await Promise.all([
+                deps.listJobsForBusiness(session.businessId),
+                deps.listEquipmentAssetsForBusiness(session.businessId),
+                deps.listCrewsForBusiness(session.businessId),
+                deps.listDivisionsForBusiness(session.businessId),
+              ]);
+              const job = jobs.find((candidate) => candidate.id === (jobId || (form.assignedTo === 'job' ? form.assignmentValue : '')));
+              const equipmentAsset = equipment.find((candidate) => candidate.id === (equipmentId || (form.assignedTo === 'equipment' ? form.assignmentValue : '')));
+              const division = divisions.find((candidate) => candidate.id === (divisionId || job?.divisionId));
+              if (form.status !== 'active' || !isFormAssignedToEmployee({ form, employee, crews, divisions, job, equipment: equipmentAsset, division })) {
+                return res.status(403).json({ ok: false, error: 'Forbidden' });
+              }
+            }
+            formContext = {
               formId,
               fieldId,
               clientSubmissionId,
               workflowOccurrenceId: workflowOccurrenceId || undefined,
               workflowRequirementId: workflowRequirementId || undefined,
-              signerEmployeeId: employee.id,
-              signerUserId: session.id,
+              jobId: jobId || undefined,
+              equipmentId: equipmentId || undefined,
+              divisionId: divisionId || undefined,
+              submitterEmployeeId: employee.id,
+              submitterUserId: session.id,
+              ...(entityType === FORM_SIGNATURE_ENTITY_TYPE ? {
+                signerEmployeeId: employee.id,
+                signerUserId: session.id,
+              } : {}),
             };
           }
 
-          const resolvedEntity = entityType === FORM_SIGNATURE_ENTITY_TYPE
+          const resolvedEntity = entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE
             ? { entity: { id: entityId }, allowed: true }
             : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode: 'write' });
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {
@@ -427,7 +472,7 @@ export function createStorageHandler(overrides = {}) {
             mimeType: validation.mimeType,
             sizeBytes: validation.sizeBytes,
           });
-          if (entityType === FORM_SIGNATURE_ENTITY_TYPE) plan.writeOnce = true;
+          if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE) plan.writeOnce = true;
 
           const pendingRecord = buildPendingFileRecord({
             session,
@@ -438,7 +483,7 @@ export function createStorageHandler(overrides = {}) {
             fileName: typeof fileName === 'string' && fileName.trim() ? fileName.trim() : validation.fileName,
             mimeType: validation.mimeType,
             sizeBytes: validation.sizeBytes,
-            signatureContext,
+            formContext,
           });
 
           await deps.createPendingFileForBusiness({ businessId: session.businessId, file: pendingRecord });
@@ -496,7 +541,7 @@ export function createStorageHandler(overrides = {}) {
           const entityResolution = await resolveAttachmentEntityWithDeps({
             session,
             entityType: file.entityType,
-            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE ? file.id : file.entityId,
+            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
             accessMode: 'read',
           });
           if (!entityResolution?.allowed) {
@@ -521,14 +566,14 @@ export function createStorageHandler(overrides = {}) {
           if (!file) {
             return res.status(404).json({ ok: false, error: 'File not found.' });
           }
-          if (file.entityType === FORM_SIGNATURE_ENTITY_TYPE && file.claimedSubmissionId) {
+          if ((file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE) && file.claimedSubmissionId) {
             return res.status(409).json({ ok: false, error: 'A finalized signature cannot be deleted.' });
           }
 
           const entityResolution = await resolveAttachmentEntityWithDeps({
             session,
             entityType: file.entityType,
-            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE ? file.id : file.entityId,
+            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
             accessMode: 'write',
           });
           if (!entityResolution?.allowed) {
@@ -570,7 +615,7 @@ export function createStorageHandler(overrides = {}) {
           const resolvedEntity = await resolveAttachmentEntityWithDeps({
             session,
             entityType: file.entityType,
-            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE ? file.id : file.entityId,
+            entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
             accessMode: 'write',
           });
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {
@@ -581,7 +626,7 @@ export function createStorageHandler(overrides = {}) {
           const attachmentField = file.entityType === DOCUMENT_ENTITY_TYPE
             ? undefined
             : getAttachmentFieldForCategory({ entityType: file.entityType, category: normalizedCategory });
-          if (file.entityType !== DOCUMENT_ENTITY_TYPE && file.entityType !== FORM_SIGNATURE_ENTITY_TYPE && !attachmentField) {
+          if (file.entityType !== DOCUMENT_ENTITY_TYPE && file.entityType !== FORM_SIGNATURE_ENTITY_TYPE && file.entityType !== FORM_ATTACHMENT_ENTITY_TYPE && !attachmentField) {
             return res.status(400).json({ ok: false, error: 'Unsupported attachment category.' });
           }
 
@@ -702,7 +747,7 @@ export function createStorageHandler(overrides = {}) {
             const resolution = await resolveAttachmentEntityWithDeps({
               session,
               entityType: file.entityType,
-              entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE ? file.id : file.entityId,
+              entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
               accessMode: 'read',
             });
             return Boolean(resolution?.allowed);

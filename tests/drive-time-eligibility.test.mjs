@@ -232,7 +232,7 @@ function installDdbMock(t) {
   return store;
 }
 
-function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds }) {
+function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds, operationalWorkAreas }) {
   const inferredEmployeeIds = [...store.values()]
     .filter((item) => item.PK === `BUSINESS#${businessId}` && item.entityType === 'EMPLOYEE')
     .map((item) => item.employeeId);
@@ -247,6 +247,7 @@ function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds 
       title,
       status: 'scheduled',
       assignedEmployeeIds: assignedEmployeeIds ?? inferredEmployeeIds,
+      operationalWorkAreas,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
@@ -279,7 +280,7 @@ function seedUnbillableCategory(store, {
   );
 }
 
-function seedActiveShiftForEntry(store, { businessId, employeeId, entryId, clockIn, workType = 'job', jobIds = [] }) {
+function seedActiveShiftForEntry(store, { businessId, employeeId, entryId, clockIn, workType = 'job', jobIds = [], workAreaId, workAreaNameSnapshot }) {
   store.set(
     mapKey(`BUSINESS#${businessId}`, `TIME#${entryId}`),
     {
@@ -292,6 +293,8 @@ function seedActiveShiftForEntry(store, { businessId, employeeId, entryId, clock
       workType,
       jobId: jobIds[0],
       jobIds,
+      workAreaId,
+      workAreaNameSnapshot,
       clockIn,
       breakMinutes: 0,
       notes: '',
@@ -363,6 +366,8 @@ async function setupSwitchContext({
   activeEntryId,
   activeWorkType,
   activeJobIds = [],
+  activeWorkAreaId,
+  activeWorkAreaNameSnapshot,
   activeClockIn = '2026-08-01T08:00:00.000Z',
   token,
 }) {
@@ -399,6 +404,8 @@ async function setupSwitchContext({
     clockIn: activeClockIn,
     workType: activeWorkType,
     jobIds: activeJobIds,
+    workAreaId: activeWorkAreaId,
+    workAreaNameSnapshot: activeWorkAreaNameSnapshot,
   });
 
   await createBearerTokenForUser({
@@ -1354,6 +1361,57 @@ test('switch activity is idempotent and returns same safe result for retries', a
   assert.equal(activeEntries.length, 1);
 });
 
+test('switch activity closes the previous Work Area segment and exposes the new active Work Area', async (t) => {
+  const businessId = 'biz-switch-work-area';
+  const employeeId = 'emp-switch-work-area';
+  const token = 'token-switch-work-area';
+  const store = await setupSwitchContext({
+    t,
+    businessId,
+    userId: 'user-switch-work-area',
+    employeeId,
+    email: 'switch-area@example.com',
+    paidDriveTimeEnabled: true,
+    activeEntryId: 'entry-excavation',
+    activeWorkType: 'job',
+    activeJobIds: ['job-a'],
+    activeWorkAreaId: 'area-excavation',
+    activeWorkAreaNameSnapshot: 'Excavation',
+    token,
+  });
+  seedJob(store, {
+    businessId,
+    jobId: 'job-a',
+    title: 'Smith Residence',
+    operationalWorkAreas: [
+      { id: 'area-excavation', name: 'Excavation', status: 'in_progress', sortOrder: 0 },
+      { id: 'area-base', name: 'Base Prep', status: 'not_started', sortOrder: 1 },
+    ],
+  });
+
+  const switched = await callClocking(token, 'switch-activity', {
+    workType: 'job',
+    jobIds: ['job-a'],
+    workAreaId: 'area-base',
+    clockingContractVersion: 2,
+    requestId: 'switch-to-base',
+    idempotencyKey: 'switch-to-base',
+  });
+  assert.equal(switched.statusCode, 200);
+  assert.equal(switched.body.timeEntry.workAreaId, 'area-base');
+  assert.equal(switched.body.timeEntry.workAreaNameSnapshot, 'Base Prep');
+
+  const entries = await listTimeEntriesForBusiness(businessId);
+  const previous = entries.find((entry) => entry.id === 'entry-excavation');
+  const active = entries.find((entry) => entry.id === switched.body.timeEntry.id);
+  assert.equal(previous.status, 'clocked_out');
+  assert.equal(previous.workAreaId, 'area-excavation');
+  assert.equal(previous.workAreaNameSnapshot, 'Excavation');
+  assert.equal(active.status, 'clocked_in');
+  assert.equal(active.workAreaId, 'area-base');
+  assert.equal(active.workAreaNameSnapshot, 'Base Prep');
+});
+
 test('switch activity transaction failure does not leave half-completed state', async (t) => {
   const store = await setupSwitchContext({
     t,
@@ -1711,6 +1769,29 @@ async function callClocking(token, action, body) {
 }
 
 const isoOffset = (baseMs, offsetMs) => new Date(baseMs + offsetMs).toISOString();
+
+test('offline clock-in returns and lists the persisted Work Area identity and snapshot', async (t) => {
+  const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'work-area');
+  const jobItem = store.get(mapKey(`BUSINESS#${businessId}`, 'JOB#job-a'));
+  jobItem.operationalWorkAreas = [{ id: 'area-excavation', name: 'Excavation', status: 'in_progress', sortOrder: 0 }];
+  const result = await callClocking(token, 'clock-in', {
+    employeeId,
+    workType: 'job',
+    jobIds: ['job-a'],
+    workAreaId: 'area-excavation',
+    clockingContractVersion: 2,
+    requestId: 'offline-work-area',
+    idempotencyKey: 'offline-work-area',
+    clientOccurredAt: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.timeEntry.workAreaId, 'area-excavation');
+  assert.equal(result.body.timeEntry.workAreaNameSnapshot, 'Excavation');
+  const [listed] = await listTimeEntriesForBusiness(businessId);
+  assert.equal(listed.workAreaId, 'area-excavation');
+  assert.equal(listed.workAreaNameSnapshot, 'Excavation');
+});
 
 test('complete delayed sequence preserves event boundaries and separate server receipt metadata', async (t) => {
   const { store, businessId, employeeId, token } = await setupOfflineClockingContext(t, 'sequence');

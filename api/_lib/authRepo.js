@@ -2153,6 +2153,11 @@ export async function listFilesForBusiness(businessId) {
     workflowRequirementId: item.workflowRequirementId,
     signerEmployeeId: item.signerEmployeeId,
     signerUserId: item.signerUserId,
+    submitterEmployeeId: item.submitterEmployeeId,
+    submitterUserId: item.submitterUserId,
+    jobId: item.jobId,
+    equipmentId: item.equipmentId,
+    divisionId: item.divisionId,
     claimedSubmissionId: item.claimedSubmissionId,
   }));
 }
@@ -2201,6 +2206,11 @@ export async function getFileForBusiness(businessId, fileId) {
     workflowRequirementId: result.Item.workflowRequirementId,
     signerEmployeeId: result.Item.signerEmployeeId,
     signerUserId: result.Item.signerUserId,
+    submitterEmployeeId: result.Item.submitterEmployeeId,
+    submitterUserId: result.Item.submitterUserId,
+    jobId: result.Item.jobId,
+    equipmentId: result.Item.equipmentId,
+    divisionId: result.Item.divisionId,
     claimedSubmissionId: result.Item.claimedSubmissionId,
   };
 }
@@ -2640,8 +2650,8 @@ export async function getEmployeeFormSubmissionIdempotency({ businessId, employe
   } : null;
 }
 
-export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency, workflowCompletion, signatureClaims = [] }) {
-  const maximumResponses = 100 - 1 - (idempotency ? 1 : 0) - (workflowCompletion ? 1 : 0) - signatureClaims.length;
+export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency, workflowCompletion, signatureClaims = [], attachmentClaims = [] }) {
+  const maximumResponses = 100 - 1 - (idempotency ? 1 : 0) - (workflowCompletion ? 1 : 0) - signatureClaims.length - attachmentClaims.length;
   if (!Array.isArray(responses) || responses.length > maximumResponses) {
     throw new RangeError(`A form submission can contain at most ${maximumResponses} answers.`);
   }
@@ -2706,6 +2716,26 @@ export async function createEmployeeFormSubmissionForBusiness({ businessId, subm
           ':signedAt': claim.signedAt,
           ':uploaded': 'uploaded',
           ':entityType': 'form-signature',
+          ':formId': submission.formId,
+          ':fieldId': claim.fieldId,
+          ':clientSubmissionId': submission.clientSubmissionId,
+          ':employeeId': submission.employeeId,
+          ':userId': submission.submittedByUserId,
+        },
+      },
+    })),
+    ...attachmentClaims.map((claim) => ({
+      Update: {
+        TableName: tableName,
+        Key: { PK: businessPk(businessId), SK: fileSk(claim.fileId) },
+        UpdateExpression: 'SET claimedSubmissionId = :submissionId REMOVE #ttl, expiresAt',
+        ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND uploadStatus = :uploaded AND attribute_not_exists(claimedSubmissionId) AND entityType = :entityType AND category = :category AND formId = :formId AND fieldId = :fieldId AND clientSubmissionId = :clientSubmissionId AND submitterEmployeeId = :employeeId AND submitterUserId = :userId',
+        ExpressionAttributeNames: { '#ttl': 'ttl' },
+        ExpressionAttributeValues: {
+          ':submissionId': submission.id,
+          ':uploaded': 'uploaded',
+          ':entityType': 'form-attachment',
+          ':category': 'photo',
           ':formId': submission.formId,
           ':fieldId': claim.fieldId,
           ':clientSubmissionId': submission.clientSubmissionId,
@@ -5002,6 +5032,8 @@ export async function listTimeEntriesForBusiness(businessId) {
       ? item.jobIds
       : (item.jobId ? [item.jobId] : []),
     workType: item.workType ?? 'job',
+    workAreaId: item.workAreaId ?? undefined,
+    workAreaNameSnapshot: item.workAreaNameSnapshot ?? undefined,
     unbillableCategoryId: item.unbillableCategoryId ?? undefined,
     unbillableCategoryName: item.unbillableCategoryName ?? undefined,
     clockIn: item.clockIn,

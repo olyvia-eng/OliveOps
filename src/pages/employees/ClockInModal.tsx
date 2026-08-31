@@ -4,6 +4,7 @@ import { Button, Modal } from '../../components/ui';
 import { Clock, LogOut, UserRound } from 'lucide-react';
 import { formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
+import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import type { TimeEntryWorkType } from '../../types';
 
 type Step = 'select_employee' | 'select_job' | 'clocked_in';
@@ -194,6 +195,7 @@ export default function ClockInModal({ open, onClose }: Props) {
           <LogOut size={48} className="text-accent-700" />
           <div className="text-center">
             <p className="font-semibold text-gray-900 text-lg">{foundEmployee.name}</p>
+            <p className="mt-1 text-sm font-medium text-gray-700">{getTimeEntryWorkLabel(activeEntry, jobs)}</p>
             <p className="text-gray-500 text-sm mt-1">
               Clocked in since {formatDateTime(activeEntry.clockIn)}
             </p>

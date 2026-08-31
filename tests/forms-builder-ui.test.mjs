@@ -170,6 +170,10 @@ test('Signature uses reusable pointer capture with Clear and Form cloning opens 
   assert.match(formsSource, /setActiveTab\('builder'\)/);
   assert.match(formsSource, /response\.typeSnapshot \?\? field\?\.type/);
   assert.match(formsSource, /response\.labelSnapshot \?\? field\?\.label/);
+  assert.match(formsSource, /fieldType === 'photo_upload'/);
+  assert.match(formsSource, /Loading photo\.\.\./);
+  assert.match(formsSource, /Photo unavailable/);
+  assert.match(formsSource, /resolveAttachmentUrl\(\{ fileId \}\)/);
   assert.match(signatureSource, /onPointerDown/);
   assert.match(signatureSource, /onPointerMove/);
   assert.match(signatureSource, /onPointerUp/);
