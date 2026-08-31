@@ -110,6 +110,17 @@ test('recovery uses Labour hours and annual class costs without counting overhea
   assert.equal(rows.some((row) => row.item.id === 'manager' || row.item.id === 'shop-truck'), false);
 });
 
+test('mixed Labour contributes only its overhead portion to recovery and field hours to the denominator', () => {
+  const budget = { id: 'budget' };
+  const divisions = [{ id: 'division', budgetId: budget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: policy(allocation(100, 0, 0, 0)) }];
+  const planningItems = [{ id: 'foreman', budgetId: budget.id, category: 'labour', compType: 'salaried', annualSalary: 100000, plannedHours: 2000, fieldProducingPct: 60, expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'division', hours: 2000 }] }];
+  const scope = buildOverheadRecoveryModel({ budget, divisions, planningItems }).divisions.division;
+
+  assert.equal(scope.totalOverhead, 40000);
+  assert.equal(scope.denominators.labour, 960);
+  assert.equal(scope.rates.labour, 40000 / 960);
+});
+
 test('Snow Removal Revenue per Hour and labour recovery use the same 3,376-hour denominator', () => {
   const budget = { id: 'snow-budget' };
   const divisions = [{ id: 'snow', budgetId: budget.id, name: 'Snow Removal', status: 'active', overheadRecoveryPolicy: policy(allocation(100, 0, 0, 0)) }];

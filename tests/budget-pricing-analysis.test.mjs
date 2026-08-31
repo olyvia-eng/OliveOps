@@ -143,6 +143,16 @@ test('Labour Class cost is weighted by allocated billable hours and excludes ove
   assert.equal(rows.filter((row) => row.item.id === 'loader').length, 2);
 });
 
+test('Labour Class pricing uses only the direct portion of mixed Labour cost', () => {
+  const items = [{ id: 'foreman', budgetId: budget.id, category: 'labour', employeeId: 'foreman', compType: 'salaried', annualSalary: 100000, plannedHours: 2000, fieldProducingPct: 60, expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] }];
+  const employees = [{ id: 'foreman', name: 'Foreman', labourClassId: 'labourer', compensationType: 'salary', hourlyRate: 100000, payrollBurdenPct: 0 }];
+  const row = buildBudgetPricingRows({ budget, divisions, planningItems: items, budgetRates: [], employees, labourClasses }).find((value) => value.labourClassPricing);
+  assert.equal(row.annualCost, 60000);
+  assert.equal(row.billableHours, 960);
+  assert.equal(row.costRate, 62.5);
+  assert.equal(row.divisionOverhead, 40000);
+});
+
 test('Labour Class pricing is omitted when no productive Employee plan exists', () => {
   const rows = buildBudgetPricingRows({ budget, divisions, planningItems: [{ id: 'manager', employeeId: 'manager', budgetId: budget.id, category: 'labour', compType: 'salaried', annualSalary: 60000, plannedHours: 2000, labourClassification: 'overhead', divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] }], budgetRates: [], employees: [{ id: 'manager', labourClassId: 'labourer' }], labourClasses });
   assert.equal(rows.length, 0);

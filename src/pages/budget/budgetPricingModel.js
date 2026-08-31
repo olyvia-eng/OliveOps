@@ -1,4 +1,4 @@
-import { annualLabourCost, buildOverheadRecoveryModel, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
+import { buildOverheadRecoveryModel, directLabourCost, grossMarginRate, labourDivisionShare, plannedBillableLabourHours, recoveryPerUnit } from './overheadRecoveryModel.js';
 import { applyEmployeeCostInputs, calculateLabourCostFromInputs } from '../../utils/employeeLabourCost.js';
 import { resolveEquipmentClassificationModel } from '../../utils/equipmentPricingModel.js';
 
@@ -27,6 +27,7 @@ const labourCost = (item) => {
     overtimeMultiplier: Math.max(1, number(item.overtimeMultiplier) || 1.5),
     expectedBillablePct: Math.min(100, number(item.expectedBillablePct)),
     classification: item.labourClassification === 'overhead' ? 'overhead' : 'billable',
+    fieldProducingPct: item.fieldProducingPct,
   });
   return { annual: calculated.annualLabourCost, units: calculated.expectedBillableHours, perUnit: calculated.directCostPerBillableHour };
 };
@@ -52,11 +53,11 @@ export function buildBudgetLabourPricingDiagnostics({ budget, divisions = [], pl
   const activeClassIds = new Set(labourClasses.filter((labourClass) => labourClass.active !== false).map((labourClass) => labourClass.id));
   const activeDivisions = divisions.filter((division) => division.status === 'active');
   const planned = prepareBudgetPricingInputs({ planningItems, employees })
-    .filter((item) => item.budgetId === budget.id && item.category === 'labour' && item.labourClassification !== 'overhead')
+    .filter((item) => item.budgetId === budget.id && item.category === 'labour' && plannedBillableLabourHours(item) > 0)
     .flatMap((item) => activeDivisions.flatMap((division) => {
       const share = labourDivisionShare(item, division.id);
       const allocatedHours = number(item.plannedHours) * share;
-      const allocatedCost = annualLabourCost(item) * share;
+      const allocatedCost = directLabourCost(item) * share;
       if (share <= 0 || (allocatedHours <= 0 && allocatedCost <= 0)) return [];
       const employee = employeeById.get(item.employeeId);
       const labourClassId = employee?.labourClassId;
@@ -167,7 +168,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
   }
 
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
-  const labourItems = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification !== 'overhead');
+  const labourItems = uniqueItems.filter((item) => item.category === 'labour' && plannedBillableLabourHours(item) > 0);
   const labourRows = labourClasses.filter((labourClass) => labourClass.active !== false).flatMap((labourClass) => {
     const classItems = labourItems.filter((item) => employeeById.get(item.employeeId)?.labourClassId === labourClass.id);
     return divisions.filter((division) => division.status === 'active').flatMap((division) => {
@@ -178,7 +179,7 @@ export function buildBudgetPricingRows({ budget, divisions, planningItems, budge
           employeeId: item.employeeId,
           name: employeeById.get(item.employeeId)?.name || item.name || item.description || 'Employee',
           billableHours: plannedBillableLabourHours(item) * share,
-          annualCost: annualLabourCost(item) * share,
+          annualCost: directLabourCost(item) * share,
         };
       }).filter((item) => item.billableHours > 0);
       if (contributors.length === 0) return [];

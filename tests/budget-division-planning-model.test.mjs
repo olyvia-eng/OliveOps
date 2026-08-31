@@ -43,13 +43,14 @@ test('Labour import copies reusable assumptions and remaps Division allocations 
   const source = {
     id: 'source-labour', budgetId: 'old', divisionId: 'old-land', category: 'labour', employeeId: 'employee-1',
     plannedHours: 2000,
-    labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
+    labourClassification: 'billable', fieldProducingPct: 60, expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
     divisionAllocations: [{ divisionId: 'old-land', percentage: 60 }, { divisionId: 'old-snow', percentage: 40 }],
   };
   const divisionIdMap = new Map([['old-land', 'new-land'], ['old-snow', 'new-snow']]);
   const copied = copyDivisionPlanAssumptions(source, { budgetId: 'new', divisionId: 'new-land', divisionIdMap }, () => 'new-item', '2027-01-01T00:00:00.000Z');
   assert.equal(copied.id, 'new-item');
   assert.equal(copied.labourClassification, 'billable');
+  assert.equal(copied.fieldProducingPct, 60);
   assert.equal(copied.expectedBillablePct, 80);
   assert.equal(copied.overtimeHours, 120);
   assert.equal(copied.overtimeMultiplier, 1.5);
@@ -75,4 +76,10 @@ test('legacy Labour percentages remain readable when planned hours are absent', 
     divisionAllocations: [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }],
   });
   assert.deepEqual(normalized.divisionAllocations, [{ divisionId: 'land', percentage: 60 }, { divisionId: 'snow', percentage: 40 }]);
+});
+
+test('Labour normalization preserves explicit field allocation and derives legacy defaults', () => {
+  assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', fieldProducingPct: 60 }).fieldProducingPct, 60);
+  assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', labourClassification: 'billable' }).fieldProducingPct, 100);
+  assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', labourClassification: 'overhead' }).fieldProducingPct, 0);
 });

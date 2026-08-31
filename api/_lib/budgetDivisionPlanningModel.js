@@ -13,7 +13,7 @@ export function divisionPlanIdentity(item) {
 
 const SHARED_FIELDS = ['name', 'description', 'sortOrder'];
 const CATEGORY_FIELDS = {
-  labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'labourClassification', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'divisionAllocations'],
+  labour: ['employeeId', 'role', 'compType', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'labourClassification', 'fieldProducingPct', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'divisionAllocations'],
   equipment: ['equipmentId', 'costType', 'classification', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'expectedReplacementCost', 'expectedResaleValue', 'remainingUsefulMonths', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'rentalCost', 'rentalUnit', 'unit', 'equipmentDivisionAllocations'],
   materials: ['materialCatalogItemId', 'unit', 'unitCost', 'plannedQuantity', 'plannedAmount'],
   subcontractors: ['vendorId', 'subcontractorCatalogItemId', 'unit', 'rate', 'plannedQuantity', 'plannedAmount'],
@@ -68,10 +68,14 @@ export function normalizeLabourPlanAssumptions(item) {
     ? Math.min(100, Math.max(0, (item.billableHours / plannedHours) * 100))
     : 0;
   const labourClassification = item.labourClassification === 'overhead' ? 'overhead' : 'billable';
+  const fieldProducingPct = item.fieldProducingPct === undefined
+    ? (labourClassification === 'overhead' ? 0 : 100)
+    : item.fieldProducingPct;
   return {
     ...item,
-    labourClassification,
-    expectedBillablePct: labourClassification === 'overhead'
+    labourClassification: fieldProducingPct > 0 ? 'billable' : 'overhead',
+    fieldProducingPct,
+    expectedBillablePct: fieldProducingPct <= 0
       ? 0
       : (Number.isFinite(item.expectedBillablePct) ? item.expectedBillablePct : fallbackBillablePct),
     overtimeHours: Number.isFinite(item.overtimeHours) ? item.overtimeHours : 0,

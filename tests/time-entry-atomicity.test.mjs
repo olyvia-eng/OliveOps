@@ -85,6 +85,36 @@ test('clock-in transaction creates one lock, one time entry, one audit event and
   assert.equal(tx.TransactItems[3].Put.Item.entityType, 'AUDIT_EVENT');
 });
 
+test('clock-in transaction persists canonical Work Area identity and snapshot', () => {
+  const tx = buildClockInTransaction({
+    businessId: 'biz-1',
+    employeeId: 'emp-1',
+    userId: 'user-1',
+    timeEntryId: 'entry-1',
+    clockInAt: '2026-08-05T10:00:00.000Z',
+    jobIds: ['job-1'],
+    workType: 'job',
+    workAreaId: 'area-1',
+    workAreaNameSnapshot: 'Foundation',
+    requestId: 'req-1',
+    idempotencyKey: 'key-1',
+    payloadHash: 'hash-1',
+    source: 'mobile',
+    auditEventId: 'audit-1',
+  });
+
+  const idempotency = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'IDEMPOTENCY').Put.Item;
+  const entry = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'TIME_ENTRY').Put.Item;
+  const audit = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'AUDIT_EVENT').Put.Item;
+  assert.deepEqual(
+    { id: entry.workAreaId, name: entry.workAreaNameSnapshot },
+    { id: 'area-1', name: 'Foundation' },
+  );
+  assert.equal(idempotency.response.workAreaId, 'area-1');
+  assert.equal(idempotency.response.workAreaNameSnapshot, 'Foundation');
+  assert.equal(audit.metadata.workAreaId, 'area-1');
+});
+
 test('clock-in uses a conditional put for the active-shift lock and no condition checks', () => {
   const tx = buildClockInTransaction({
     businessId: 'biz-1',
@@ -359,6 +389,43 @@ test('switch-activity transaction does not target duplicate item keys', () => {
 
   const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
   assert.deepEqual(duplicates, []);
+});
+
+test('switch-activity transaction persists the next Work Area snapshot and audits both identities', () => {
+  const tx = buildSwitchActivityTransaction({
+    businessId: 'biz-1',
+    employeeId: 'emp-1',
+    userId: 'user-1',
+    previousTimeEntry: {
+      id: 'entry-old',
+      workType: 'job',
+      jobIds: ['job-a'],
+      workAreaId: 'area-old',
+      clockIn: '2026-08-05T10:00:00.000Z',
+    },
+    nextTimeEntry: {
+      id: 'entry-new',
+      workType: 'job',
+      jobIds: ['job-b'],
+      workAreaId: 'area-new',
+      workAreaNameSnapshot: 'Second Floor',
+    },
+    switchedAt: '2026-08-05T11:30:00.000Z',
+    requestId: 'req-switch',
+    idempotencyKey: 'switch-key',
+    payloadHash: 'switch-hash',
+    source: 'mobile',
+    auditEventId: 'audit-switch',
+  });
+
+  const idempotency = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'IDEMPOTENCY').Put.Item;
+  const entry = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'TIME_ENTRY').Put.Item;
+  const audit = tx.TransactItems.find((item) => item.Put?.Item?.entityType === 'AUDIT_EVENT').Put.Item;
+  assert.equal(entry.workAreaId, 'area-new');
+  assert.equal(entry.workAreaNameSnapshot, 'Second Floor');
+  assert.equal(idempotency.response.workAreaId, 'area-new');
+  assert.equal(audit.metadata.previousWorkAreaId, 'area-old');
+  assert.equal(audit.metadata.newWorkAreaId, 'area-new');
 });
 
 test('clocking errors are normalized into client-safe responses', () => {

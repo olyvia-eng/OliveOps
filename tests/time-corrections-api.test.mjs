@@ -51,8 +51,15 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     },
   ];
   const jobs = [
-    { id: 'job-1', title: 'Job 1', assignedEmployeeIds: ['emp-1'] },
-    { id: 'job-2', title: 'Job 2', assignedEmployeeIds: ['emp-1'] },
+    {
+      id: 'job-1', title: 'Job 1', assignedEmployeeIds: ['emp-1'],
+      operationalWorkAreas: [{ id: 'area-1', name: 'Foundation', status: 'in_progress' }],
+    },
+    {
+      id: 'job-2', title: 'Job 2', assignedEmployeeIds: ['emp-1'],
+      operationalWorkAreas: [{ id: 'area-2', name: 'Framing', status: 'not_started' }],
+      sourceEstimateWorkAreas: [{ id: 'estimate-area-2', name: 'Estimate Framing' }],
+    },
     { id: 'job-other', title: 'Other Job', assignedEmployeeIds: ['emp-2'] },
   ];
   const unbillableCategories = [
@@ -128,7 +135,7 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     now: () => now,
   });
 
-  return { handler, corrections, timeEntries };
+  return { handler, corrections, jobs, timeEntries };
 }
 
 test('employee submits forgot clock-out correction and original punch is preserved on request', async () => {
@@ -152,6 +159,71 @@ test('employee submits forgot clock-out correction and original punch is preserv
   assert.equal(corrections.length, 1);
   assert.equal(corrections[0].status, 'pending');
   assert.equal(corrections[0].originalClockOutAt, '2026-08-06T20:30:00.000Z');
+});
+
+test('new correction contract snapshots only a Job-owned operational Work Area', async () => {
+  const { handler, corrections } = createHarness();
+  const validRes = createMockRes();
+  await handler({
+    method: 'POST',
+    query: { action: 'create' },
+    body: {
+      timeEntryId: 'entry-1',
+      requestType: 'wrong_job',
+      requestedActivityType: 'job',
+      requestedJobId: 'job-2',
+      requestedWorkAreaId: 'area-2',
+      clockingContractVersion: 2,
+      reason: 'Worked on framing instead',
+    },
+  }, validRes);
+
+  assert.equal(validRes.statusCode, 200);
+  assert.equal(corrections[0].requestedWorkAreaId, 'area-2');
+  assert.equal(corrections[0].requestedWorkAreaNameSnapshot, 'Framing');
+
+  const invalidRes = createMockRes();
+  await handler({
+    method: 'POST',
+    query: { action: 'create' },
+    body: {
+      timeEntryId: 'entry-1',
+      requestType: 'wrong_job',
+      requestedActivityType: 'job',
+      requestedJobId: 'job-2',
+      requestedWorkAreaId: 'estimate-area-2',
+      clockingContractVersion: 2,
+      reason: 'Invalid estimate source id',
+    },
+  }, invalidRes);
+  assert.equal(invalidRes.statusCode, 400);
+});
+
+test('approval revalidates the requested Work Area against the effective Job', async () => {
+  const { handler, corrections, jobs } = createHarness({ sessionRole: 'owner' });
+  corrections.push({
+    id: 'corr-work-area',
+    employeeId: 'emp-1',
+    timeEntryId: 'entry-1',
+    requestType: 'wrong_job',
+    status: 'pending',
+    requestedActivityType: 'job',
+    requestedJobId: 'job-2',
+    requestedWorkAreaId: 'area-2',
+    requestedWorkAreaNameSnapshot: 'Framing',
+    clockingContractVersion: 2,
+    reason: 'Worked on framing instead',
+    submittedByUserId: 'user-crew_member',
+    submittedAt: '2026-08-07T00:00:00.000Z',
+    createdAt: '2026-08-07T00:00:00.000Z',
+    updatedAt: '2026-08-07T00:00:00.000Z',
+  });
+  jobs[1].operationalWorkAreas[0].status = 'complete';
+
+  const res = createMockRes();
+  await handler({ method: 'POST', query: { action: 'approve' }, body: { id: 'corr-work-area' } }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(corrections[0].status, 'pending');
 });
 
 test('employee cannot approve correction requests', async () => {

@@ -1103,6 +1103,7 @@ export interface BudgetDivisionPlanningItem {
   annualSalary?: number;
   plannedHours?: number;
   labourClassification?: LabourClassification;
+  fieldProducingPct?: number;
   expectedBillablePct?: number;
   divisionAllocations?: LabourDivisionAllocation[];
   billableHours?: number;

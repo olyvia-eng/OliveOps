@@ -36,6 +36,12 @@ export function normalizeTimeCorrectionRequest(input) {
     requestedClockInAt: toIsoOrNull(input?.requestedClockInAt) ?? undefined,
     requestedClockOutAt: toIsoOrNull(input?.requestedClockOutAt) ?? undefined,
     requestedJobId: typeof input?.requestedJobId === 'string' && input.requestedJobId.trim() ? input.requestedJobId.trim() : undefined,
+    requestedWorkAreaId: typeof input?.requestedWorkAreaId === 'string' && input.requestedWorkAreaId.trim()
+      ? input.requestedWorkAreaId.trim()
+      : undefined,
+    clockingContractVersion: Number.isInteger(Number(input?.clockingContractVersion))
+      ? Number(input.clockingContractVersion)
+      : undefined,
     requestedActivityType: typeof input?.requestedActivityType === 'string' ? input.requestedActivityType.trim() : undefined,
     requestedUnbillableCategoryId: typeof input?.requestedUnbillableCategoryId === 'string' && input.requestedUnbillableCategoryId.trim()
       ? input.requestedUnbillableCategoryId.trim()
@@ -155,6 +161,13 @@ export function buildEffectiveTimeEntries(timeEntries, timeCorrections) {
     const nextJobIds = correction.requestedJobId
       ? [correction.requestedJobId]
       : (Array.isArray(entry.jobIds) ? entry.jobIds : (entry.jobId ? [entry.jobId] : []));
+    const changesActivityOrJob = Boolean(correction.requestedActivityType || correction.requestedJobId);
+    const nextWorkAreaId = nextWorkType === 'job'
+      ? (changesActivityOrJob ? correction.requestedWorkAreaId ?? null : entry.workAreaId)
+      : undefined;
+    const nextWorkAreaNameSnapshot = nextWorkType === 'job'
+      ? (changesActivityOrJob ? correction.requestedWorkAreaNameSnapshot ?? null : entry.workAreaNameSnapshot)
+      : undefined;
 
     return {
       ...entry,
@@ -163,6 +176,8 @@ export function buildEffectiveTimeEntries(timeEntries, timeCorrections) {
       jobId: correction.requestedJobId ?? entry.jobId,
       jobIds: nextJobIds,
       workType: nextWorkType,
+      workAreaId: nextWorkAreaId,
+      workAreaNameSnapshot: nextWorkAreaNameSnapshot,
       unbillableCategoryId: nextUnbillableCategoryId,
       unbillableCategoryName: nextUnbillableCategoryName,
     };

@@ -1327,7 +1327,7 @@ async function validateBudgetRateRelationships(businessId, record) {
   if (record.category === 'labour' && record.pricingVersion === 2 && record.budgetItemId === averageLabourId) {
     const hasBillableLabour = planningItems.some((item) => item.budgetId === record.budgetId
       && item.category === 'labour'
-      && item.labourClassification !== 'overhead'
+      && (item.fieldProducingPct ?? (item.labourClassification === 'overhead' ? 0 : 100)) > 0
       && item.divisionAllocations?.some((allocation) => allocation.divisionId === record.divisionId && Number(allocation.hours ?? allocation.percentage ?? 0) > 0));
     return hasBillableLabour ? null : 'Average Labour pricing requires planned billable Labour in the selected Division.';
   }

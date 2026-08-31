@@ -46,6 +46,56 @@ test('overhead Labour has no billable capacity or direct cost and enters overhea
   assert.equal(result.overheadLabourCost, 80000);
 });
 
+test('field-producing allocation supports 100/0, 0/100, 50/50, and 60/40 without double counting', () => {
+  const expected = [
+    [100, 100000, 0, 1600],
+    [0, 0, 100000, 0],
+    [50, 50000, 50000, 800],
+    [60, 60000, 40000, 960],
+  ];
+
+  for (const [fieldProducingPct, directCost, overheadCost, billableHours] of expected) {
+    const result = model.calculateDivisionLabour({
+      compType: 'salaried', annualSalary: 100000, plannedHours: 2000,
+      labourClassification: 'billable', fieldProducingPct, expectedBillablePct: 80,
+    });
+    assert.equal(result.fieldProducingPct, fieldProducingPct);
+    assert.equal(result.overheadPct, 100 - fieldProducingPct);
+    assert.equal(result.directLabourCost, directCost);
+    assert.equal(result.overheadLabourCost, overheadCost);
+    assert.equal(result.expectedBillableHours, billableHours);
+    assert.equal(result.directLabourCost + result.overheadLabourCost, result.annualLabourCost);
+  }
+});
+
+test('Division allocation independently distributes both portions of split Labour', () => {
+  const item = {
+    id: 'split-foreman', category: 'labour', compType: 'salaried', annualSalary: 100000,
+    plannedHours: 2000, fieldProducingPct: 60, expectedBillablePct: 80,
+    divisionAllocations: [{ divisionId: 'landscaping', hours: 1400 }, { divisionId: 'snow', hours: 600 }],
+  };
+  const landscaping = model.calculateDivisionLabourShare(item, 'landscaping');
+  const snow = model.calculateDivisionLabourShare(item, 'snow');
+
+  assert.deepEqual(
+    [landscaping.directLabourCost, landscaping.overheadLabourCost, landscaping.expectedBillableHours],
+    [42000, 28000, 672],
+  );
+  assert.deepEqual(
+    [snow.directLabourCost, snow.overheadLabourCost, snow.expectedBillableHours],
+    [18000, 12000, 288],
+  );
+  assert.equal(landscaping.annualLabourCost + snow.annualLabourCost, 100000);
+  assert.equal(landscaping.directLabourCost + snow.directLabourCost, 60000);
+  assert.equal(landscaping.overheadLabourCost + snow.overheadLabourCost, 40000);
+});
+
+test('legacy billable and overhead Labour retain equivalent field-producing allocation', () => {
+  assert.equal(model.calculateDivisionLabour({ labourClassification: 'billable' }).fieldProducingPct, 100);
+  assert.equal(model.calculateDivisionLabour({}).fieldProducingPct, 100);
+  assert.equal(model.calculateDivisionLabour({ labourClassification: 'overhead' }).fieldProducingPct, 0);
+});
+
 test('division allocation distributes cost and billable hours without changing totals', () => {
   const item = { id: 'ryan-plan', category: 'labour', compType: 'salaried', annualSalary: 90000, plannedHours: 2000, labourClassification: 'billable', expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'landscaping', hours: 1200 }, { divisionId: 'snow', hours: 800 }] };
   const allocated = model.allocateLabourCost(item);

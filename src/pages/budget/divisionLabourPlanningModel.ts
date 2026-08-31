@@ -16,7 +16,8 @@ export function calculateDivisionLabour(item: Partial<BudgetDivisionPlanningItem
   const overtimeHours = finiteNonNegative(item.overtimeHours);
   const overtimeMultiplier = finiteNonNegative(item.overtimeMultiplier, 1.5);
   const payrollBurdenPct = finiteNonNegative(item.payrollBurdenPct ?? item.labourBurdenPct);
-  const expectedBillablePct = classification === 'billable'
+  const hasExplicitSplit = typeof item.fieldProducingPct === 'number' && Number.isFinite(item.fieldProducingPct);
+  const expectedBillablePct = classification === 'billable' || hasExplicitSplit
     ? Math.min(100, finiteNonNegative(item.expectedBillablePct))
     : 0;
   const calculated = calculateLabourCostFromInputs({
@@ -26,7 +27,7 @@ export function calculateDivisionLabour(item: Partial<BudgetDivisionPlanningItem
     payrollBurdenPct,
     benefitsExtraCost: finiteNonNegative(item.benefitsExtraCost),
     bonus: finiteNonNegative(item.bonus),
-  }, { regularHours: plannedHours, overtimeHours, overtimeMultiplier, expectedBillablePct, classification });
+  }, { regularHours: plannedHours, overtimeHours, overtimeMultiplier, expectedBillablePct, classification, fieldProducingPct: item.fieldProducingPct });
   const employerCosts = finiteNonNegative(item.benefitsExtraCost) + finiteNonNegative(item.bonus);
 
   return {
@@ -37,11 +38,14 @@ export function calculateDivisionLabour(item: Partial<BudgetDivisionPlanningItem
     payrollBurdenCost: calculated.payrollBurdenCost,
     employerCosts,
     annualLabourCost: calculated.annualLabourCost,
+    fieldProducingPct: calculated.fieldProducingPct,
+    overheadPct: calculated.overheadPct,
+    fieldProducingHours: calculated.fieldProducingHours,
     expectedBillablePct,
     expectedBillableHours: calculated.expectedBillableHours,
     directCostPerBillableHour: calculated.directCostPerBillableHour,
-    directLabourCost: classification === 'billable' ? calculated.annualLabourCost : 0,
-    overheadLabourCost: classification === 'overhead' ? calculated.annualLabourCost : 0,
+    directLabourCost: calculated.directLabourCost,
+    overheadLabourCost: calculated.overheadLabourCost,
   };
 }
 

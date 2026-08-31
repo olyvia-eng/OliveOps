@@ -202,3 +202,12 @@ test('linked Catalog classification and ownership control financial placement an
   assert.equal(Object.values(directResult.equipmentCostComposition).reduce((sum, value) => sum + value, 0), directResult.directEquipment);
   assert.equal(directResult.equipmentCostComposition.paymentsOther, 0);
 });
+
+test('mixed Labour splits direct and overhead cost while Revenue per Hour uses field billable capacity', () => {
+  const mixed = [{ id: 'foreman', budgetId: 'budget', divisionId: 'hardscape', category: 'labour', compType: 'salaried', annualSalary: 100000, plannedHours: 2000, fieldProducingPct: 60, expectedBillablePct: 80, divisionAllocations: [{ divisionId: 'hardscape', hours: 2000 }] }];
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: mixed }, 'hardscape');
+  assert.equal(result.directLabour, 60000);
+  assert.equal(result.overheadLabour, 40000);
+  assert.equal(result.plannedBillableHours, 960);
+  assert.equal(result.revenuePerHour, 950000 / 960);
+});

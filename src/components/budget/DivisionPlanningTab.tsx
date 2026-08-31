@@ -84,6 +84,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
             compType: 'hourly',
             plannedHours: 1900,
             labourClassification: 'billable',
+            fieldProducingPct: 100,
             expectedBillablePct: 80,
             overtimeHours: 0,
             overtimeMultiplier: 1.5,
@@ -115,9 +116,20 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     setEditing('new');
   };
   const openEdit = (item: BudgetDivisionPlanningItem) => {
+    const equipmentAsset = item.category === 'equipment'
+      ? equipmentAssets.find((value) => value.id === item.equipmentId)
+      : undefined;
     setDraft({
       ...item,
+      ...(equipmentAsset ? {
+        name: equipmentAsset.name,
+        description: equipmentAsset.name,
+        costCode: equipmentAsset.type,
+        costType: equipmentAsset.costType,
+        classification: equipmentAsset.equipmentClassification ?? 'billable',
+      } : {}),
       labourClassification: item.labourClassification ?? 'billable',
+      fieldProducingPct: item.fieldProducingPct ?? (item.labourClassification === 'overhead' ? 0 : 100),
       expectedBillablePct: item.expectedBillablePct ?? 0,
       overtimeHours: item.overtimeHours ?? 0,
       overtimeMultiplier: item.overtimeMultiplier ?? 1.5,
@@ -163,25 +175,24 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const draftLabour = calculateDivisionLabour(draft);
   const allocationTotal = labourAllocationTotal(draft.divisionAllocations);
   const labourAllocationValid = category !== 'labour' || Math.abs(allocationTotal - (draft.plannedHours ?? 0)) < 0.001;
-  const labourInputsValid = category !== 'labour' || ((draft.expectedBillablePct ?? 0) <= 100 && (draft.overtimeMultiplier ?? 1.5) >= 1);
-  const linkedEquipment = equipmentAssets.find((item) => item.id === draft.equipmentId);
+  const labourInputsValid = category !== 'labour' || ((draft.fieldProducingPct ?? 100) <= 100 && (draft.expectedBillablePct ?? 0) <= 100 && (draft.overtimeMultiplier ?? 1.5) >= 1);
   const equipmentFormValue: EquipmentInfoFormValue = {
-    description: linkedEquipment?.name ?? draft.name ?? draft.description ?? '',
-    costCode: linkedEquipment?.type ?? draft.costCode ?? '',
-    equipmentCostType: linkedEquipment?.costType ?? draft.costType ?? 'financed',
-    equipmentClassification: linkedEquipment?.equipmentClassification ?? draft.classification ?? 'billable',
-    equipmentPayment: draft.equipmentPayment ?? linkedEquipment?.equipmentPayment ?? 0,
-    equipmentPaymentFrequencyPerYear: draft.equipmentPaymentFrequencyPerYear ?? draft.paymentFrequencyPerYear ?? linkedEquipment?.equipmentPaymentFrequencyPerYear ?? 12,
-    yearlyFuelCost: draft.yearlyFuelCost ?? linkedEquipment?.yearlyFuelCost ?? 0,
-    yearlyInsuranceCost: draft.yearlyInsuranceCost ?? linkedEquipment?.yearlyInsuranceCost ?? 0,
-    yearlyMaintenanceCost: draft.yearlyMaintenanceCost ?? linkedEquipment?.yearlyMaintenanceCost ?? 0,
+    description: draft.name ?? draft.description ?? '',
+    costCode: draft.costCode ?? '',
+    equipmentCostType: draft.costType ?? 'financed',
+    equipmentClassification: draft.classification ?? 'billable',
+    equipmentPayment: draft.equipmentPayment ?? 0,
+    equipmentPaymentFrequencyPerYear: draft.equipmentPaymentFrequencyPerYear ?? draft.paymentFrequencyPerYear ?? 12,
+    yearlyFuelCost: draft.yearlyFuelCost ?? 0,
+    yearlyInsuranceCost: draft.yearlyInsuranceCost ?? 0,
+    yearlyMaintenanceCost: draft.yearlyMaintenanceCost ?? 0,
     expectedReplacementCost: draft.expectedReplacementCost,
     expectedResaleValue: draft.expectedResaleValue,
     remainingUsefulMonths: draft.remainingUsefulMonths,
     sellableHoursPerYear: draft.sellableHoursPerYear ?? draft.utilizationHours ?? 0,
     equipmentHoursPerDay: draft.equipmentHoursPerDay ?? 8,
-    rentalCost: draft.rentalCost ?? linkedEquipment?.rentalCost ?? 0,
-    rentalUnit: draft.rentalUnit ?? linkedEquipment?.rentalUnit ?? 'day',
+    rentalCost: draft.rentalCost ?? 0,
+    rentalUnit: draft.rentalUnit ?? 'day',
   };
   const equipmentCostBreakdown = calculateEquipmentCostBreakdown(equipmentFormValue);
   const equipmentAllocationTotal = (draft.equipmentDivisionAllocations ?? []).reduce((sum, allocation) => sum + Number(allocation.months || 0), 0);
@@ -240,6 +251,10 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     saveInFlight.current = true;
     setSaving(true);
     let nextDraft = { ...draft };
+    if (category === 'labour') {
+      nextDraft.labourClassification = draftLabour.fieldProducingPct > 0 ? 'billable' : 'overhead';
+      nextDraft.fieldProducingPct = draftLabour.fieldProducingPct;
+    }
     if (category === 'equipment') {
       const normalized = normalizeEquipmentInfoForm(equipmentFormValue);
       const validationError = validateEquipmentInfoForm(normalized);
@@ -418,7 +433,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                           {category === 'labour' ? (
                             <>
                               <p>
-                                {item.role ?? item.compType ?? 'Labour'} · {labour.classification === 'overhead' ? 'Overhead' : `${labour.expectedBillablePct}% billable · ${labourShare.expectedBillableHours.toFixed(0)} allocated hrs · ${formatCurrency(labour.directCostPerBillableHour)}/hr`}
+                                {item.role ?? item.compType ?? 'Labour'} · {labour.fieldProducingPct}% field / {labour.overheadPct}% overhead · {labour.expectedBillablePct}% billable · {labourShare.expectedBillableHours.toFixed(0)} allocated hrs
                               </p>
                               <p className="mt-1 text-xs font-medium text-brand-500">
                                 Allocation: {labourShare.hours} hours to {division.name}
@@ -494,6 +509,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                     role: employee?.role ?? current.role,
                     ...(costInputs ?? {}),
                     labourClassification: employee ? (employee.labourType === 'overhead' ? 'overhead' : 'billable') : current.labourClassification,
+                    fieldProducingPct: employee ? (employee.labourType === 'overhead' ? 0 : 100) : current.fieldProducingPct,
                     expectedBillablePct: employee?.labourType === 'overhead' ? 0 : current.expectedBillablePct,
                   }));
                 }}
@@ -564,54 +580,24 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               </Select>
               <Input type="number" min={0} label={draft.compType === 'salaried' ? 'Annual salary' : 'Base hourly wage'} value={draft.compType === 'salaried' ? (draft.annualSalary ?? 0) : (draft.hourlyRate ?? 0)} onChange={(event) => setNumber(draft.compType === 'salaried' ? 'annualSalary' : 'hourlyRate', event.target.value)} />
               <fieldset className="sm:col-span-2 border-y border-brand-100 py-4 dark:border-brand-600">
-                <legend className="font-semibold text-brand-900 dark:text-brand-50">Labour Classification</legend>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="flex cursor-pointer gap-3">
-                    <input
-                      type="radio"
-                      name="labour-classification"
-                      value="billable"
-                      checked={(draft.labourClassification ?? 'billable') === 'billable'}
-                      onChange={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          labourClassification: 'billable',
-                        }))
-                      }
-                    />
-                    <span>
-                      <strong className="block text-sm">Billable Labour</strong>
-                      <span className="text-xs text-brand-400">Labour expected to be recovered directly through jobs.</span>
-                    </span>
-                  </label>
-                  <label className="flex cursor-pointer gap-3">
-                    <input
-                      type="radio"
-                      name="labour-classification"
-                      value="overhead"
-                      checked={draft.labourClassification === 'overhead'}
-                      onChange={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          labourClassification: 'overhead',
-                          expectedBillablePct: 0,
-                        }))
-                      }
-                    />
-                    <span>
-                      <strong className="block text-sm">Overhead Labour</strong>
-                      <span className="text-xs text-brand-400">Labour that supports operations but is not normally charged directly to jobs.</span>
-                    </span>
-                  </label>
+                <legend className="font-semibold text-brand-900 dark:text-brand-50">Labour Allocation</legend>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Input type="number" min={0} max={100} label="Field-Producing %" value={draft.fieldProducingPct ?? 100} onChange={(event) => setNumber('fieldProducingPct', event.target.value)} />
+                    <p className="mt-1 text-xs text-brand-400">Share of annual cost and working hours assigned to direct field production.</p>
+                    {(draft.fieldProducingPct ?? 100) > 100 ? <p className="mt-1 text-xs font-semibold text-accent-700">Field-Producing % cannot exceed 100%.</p> : null}
+                  </div>
+                  <div>
+                    <Input type="number" label="Overhead %" value={100 - draftLabour.fieldProducingPct} disabled />
+                    <p className="mt-1 text-xs text-brand-400">Derived from the field-producing allocation.</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Input type="number" min={0} max={100} label="Expected Billable %" value={draft.expectedBillablePct ?? 0} onChange={(event) => setNumber('expectedBillablePct', event.target.value)} />
+                    <p className="mt-1 text-xs text-brand-400">Share of field-producing hours expected to be charged to jobs.</p>
+                    {(draft.expectedBillablePct ?? 0) > 100 ? <p className="mt-1 text-xs font-semibold text-accent-700">Expected Billable % cannot exceed 100%.</p> : null}
+                  </div>
                 </div>
               </fieldset>
-              {draft.labourClassification !== 'overhead' ? (
-                <div className="sm:col-span-2">
-                  <Input type="number" min={0} max={100} label="Expected Billable %" value={draft.expectedBillablePct ?? 0} onChange={(event) => setNumber('expectedBillablePct', event.target.value)} />
-                  <p className="mt-1 text-xs text-brand-400">Estimated percentage of this employee's paid working hours that can realistically be charged to jobs.</p>
-                  {(draft.expectedBillablePct ?? 0) > 100 ? <p className="mt-1 text-xs font-semibold text-accent-700">Expected Billable % cannot exceed 100%.</p> : null}
-                </div>
-              ) : null}
               <div className="sm:col-span-2 mt-2">
                 <h3 className="font-semibold text-brand-900 dark:text-brand-50">Working Hours / Overtime</h3>
               </div>
@@ -643,7 +629,15 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                     <dt className="text-brand-400">Annual Labour Cost</dt>
                     <dd className="font-semibold">{formatCurrency(draftLabour.annualLabourCost)}</dd>
                   </div>
-                  {draft.labourClassification !== 'overhead' ? (
+                  <div>
+                    <dt className="text-brand-400">Direct Labour</dt>
+                    <dd className="font-semibold">{formatCurrency(draftLabour.directLabourCost)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-brand-400">Overhead Labour</dt>
+                    <dd className="font-semibold">{formatCurrency(draftLabour.overheadLabourCost)}</dd>
+                  </div>
+                  {draftLabour.fieldProducingPct > 0 ? (
                     <>
                       <div>
                         <dt className="text-brand-400">Expected Billable Hours</dt>

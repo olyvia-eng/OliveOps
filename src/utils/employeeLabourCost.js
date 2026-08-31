@@ -5,6 +5,11 @@ const nonNegative = (value, fallback = 0) => (
 export const DEFAULT_PAYROLL_BURDEN_PCT = 18;
 export const DEFAULT_ANNUAL_PAID_HOURS = 2080;
 
+export function resolveFieldProducingPct(value, labourClassification) {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.min(100, Math.max(0, value));
+  return labourClassification === 'overhead' ? 0 : 100;
+}
+
 export function resolveEmployeeCostInputs(employee, legacy) {
   const compensationType = employee.compensationType === 'salary' ? 'salaried' : 'hourly';
   return {
@@ -31,12 +36,17 @@ export function calculateLabourCostFromInputs(inputs, context = {}) {
   const overtimeHours = nonNegative(context.overtimeHours);
   const overtimeMultiplier = Math.max(1, nonNegative(context.overtimeMultiplier, 1.5));
   const expectedBillablePct = Math.min(100, nonNegative(context.expectedBillablePct, 100));
+  const fieldProducingPct = resolveFieldProducingPct(context.fieldProducingPct, context.classification);
+  const overheadPct = 100 - fieldProducingPct;
   const regularWageCost = inputs.compType === 'salaried' ? inputs.annualSalary : inputs.hourlyRate * regularHours;
   const overtimeWageCost = inputs.compType === 'salaried' ? 0 : inputs.hourlyRate * overtimeHours * overtimeMultiplier;
   const payrollBurdenCost = (regularWageCost + overtimeWageCost) * (inputs.payrollBurdenPct / 100);
   const employerCost = payrollBurdenCost + inputs.benefitsExtraCost + inputs.bonus;
   const annualLabourCost = regularWageCost + overtimeWageCost + employerCost;
-  const expectedBillableHours = context.classification === 'overhead' ? 0 : regularHours * (expectedBillablePct / 100);
+  const fieldProducingHours = regularHours * (fieldProducingPct / 100);
+  const expectedBillableHours = fieldProducingHours * (expectedBillablePct / 100);
+  const directLabourCost = annualLabourCost * (fieldProducingPct / 100);
+  const overheadLabourCost = annualLabourCost - directLabourCost;
 
   return {
     ...inputs,
@@ -48,8 +58,13 @@ export function calculateLabourCostFromInputs(inputs, context = {}) {
     annualLabourCost,
     employerCostPerPaidHour: regularHours > 0 ? employerCost / regularHours : 0,
     labourCostPerPaidHour: regularHours > 0 ? annualLabourCost / regularHours : 0,
+    fieldProducingPct,
+    overheadPct,
+    fieldProducingHours,
     expectedBillableHours,
-    directCostPerBillableHour: expectedBillableHours > 0 ? annualLabourCost / expectedBillableHours : 0,
+    directLabourCost,
+    overheadLabourCost,
+    directCostPerBillableHour: expectedBillableHours > 0 ? directLabourCost / expectedBillableHours : 0,
   };
 }
 

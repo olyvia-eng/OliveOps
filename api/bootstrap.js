@@ -42,6 +42,7 @@ import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlann
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
 import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from './_lib/mandatoryClockOut.js';
 import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
+import { getEligibleJobWorkAreas, WORK_AREA_CLOCKING_CONTRACT_VERSION } from './_lib/jobWorkAreas.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -115,6 +116,11 @@ export default async function handler(req, res) {
 
     const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
     const visibleJobIds = new Set(visibleJobs.map((job) => job.id));
+    const mobileClockingJobs = visibleJobs.map((job) => ({
+      ...job,
+      hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
+      eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
+    }));
 
     return res.status(200).json({
       ok: true,
@@ -122,6 +128,7 @@ export default async function handler(req, res) {
         paidDriveTime: Boolean(sessionEmployee),
         requiredBeforeClockInForms: true,
         requiredAfterClockOutForms: true,
+        workAreaClockingVersion: WORK_AREA_CLOCKING_CONTRACT_VERSION,
       },
       timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
       forms: filterRecordsForSession(session, 'forms', forms),
@@ -136,7 +143,7 @@ export default async function handler(req, res) {
       crews: filterRecordsForSession(session, 'crews', crews),
       divisions: filterRecordsForSession(session, 'divisions', divisions),
       customers: filterRecordsForSession(session, 'customers', customers),
-      jobs: visibleJobs,
+      jobs: mobileClockingJobs,
       estimates: filterRecordsForSession(session, 'estimates', estimates),
       invoices: filterRecordsForSession(session, 'invoices', invoices),
       expenses: filterRecordsForSession(session, 'expenses', expenses),

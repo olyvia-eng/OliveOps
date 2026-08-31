@@ -9,6 +9,7 @@ export interface EmployeeLabourCostContext {
   overtimeMultiplier?: number;
   expectedBillablePct?: number;
   classification?: 'billable' | 'overhead';
+  fieldProducingPct?: number;
 }
 
 export interface ResolvedEmployeeCostInputs {
@@ -21,6 +22,7 @@ export interface ResolvedEmployeeCostInputs {
 }
 
 export function resolveEmployeeCostInputs(employee: Employee, legacy?: Partial<BudgetDivisionPlanningItem>): ResolvedEmployeeCostInputs;
+export function resolveFieldProducingPct(value: unknown, labourClassification?: 'billable' | 'overhead'): number;
 export function applyEmployeeCostInputs(item: BudgetDivisionPlanningItem, employee?: Employee): BudgetDivisionPlanningItem;
 export function calculateLabourCostFromInputs(inputs: ResolvedEmployeeCostInputs, context?: EmployeeLabourCostContext): ResolvedEmployeeCostInputs & {
   regularHours: number;
@@ -31,7 +33,12 @@ export function calculateLabourCostFromInputs(inputs: ResolvedEmployeeCostInputs
   annualLabourCost: number;
   employerCostPerPaidHour: number;
   labourCostPerPaidHour: number;
+  fieldProducingPct: number;
+  overheadPct: number;
+  fieldProducingHours: number;
   expectedBillableHours: number;
+  directLabourCost: number;
+  overheadLabourCost: number;
   directCostPerBillableHour: number;
 };
 export function calculateEmployeeLabourCost(employee: Employee, context?: EmployeeLabourCostContext): ReturnType<typeof calculateLabourCostFromInputs>;

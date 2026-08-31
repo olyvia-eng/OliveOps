@@ -18,6 +18,8 @@ export function emptyRecoveryAllocation(): OverheadRecoveryAllocation;
 export function recoveryAllocationTotal(allocation?: OverheadRecoveryAllocation): number;
 export function recoveryAllocationIsValid(allocation?: OverheadRecoveryAllocation): boolean;
 export function annualLabourCost(item: BudgetDivisionPlanningItem): number;
+export function directLabourCost(item: BudgetDivisionPlanningItem): number;
+export function overheadLabourCost(item: BudgetDivisionPlanningItem): number;
 export function labourDivisionShare(item: BudgetDivisionPlanningItem, divisionId: string): number;
 export function plannedBillableLabourHours(item: BudgetDivisionPlanningItem): number;
 export function equipmentAnnualCost(item: BudgetDivisionPlanningItem): number;

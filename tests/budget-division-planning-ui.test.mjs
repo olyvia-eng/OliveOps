@@ -48,12 +48,13 @@ test('successful imports merge authoritative records without refreshing the brow
   assert.doesNotMatch(importer, /window\.location|location\.reload/);
 });
 
-test('Labour form separates classification, billable capacity, overtime, and Division allocation', () => {
-  assert.match(planner, /Labour Classification/);
-  assert.match(planner, /Billable Labour/);
-  assert.match(planner, /Overhead Labour/);
+test('Labour form separates field allocation, billable capacity, overtime, and Division allocation', () => {
+  assert.match(planner, /Labour Allocation/);
   assert.match(planner, /Expected Billable %/);
-  assert.match(planner, /draft\.labourClassification !== 'overhead'/);
+  assert.match(planner, /Field-Producing %/);
+  assert.match(planner, /Overhead %/);
+  assert.match(planner, /100 - draftLabour\.fieldProducingPct/);
+  assert.doesNotMatch(planner, /name="labour-classification"/);
   assert.match(planner, /Planned Overtime Hours \/ Year/);
   assert.match(planner, /Overtime Multiplier/);
   assert.match(planner, /Expected Billable Hours/);
@@ -105,6 +106,18 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(sharedForm, /Payment Frequency \(# per year\)/);
   assert.doesNotMatch(equipmentBranch, /label="Annual payment"|label="Utilization hours"|label="Planned amount"/);
   assert.doesNotMatch(sharedForm, /Fuel Price Unit|Fuel Burned per Hour|Months Used Per Year|Budget Sell Rate/);
+});
+
+test('linked Budget equipment uses one editable local draft without Catalog rehydration', () => {
+  const equipmentValue = planner.slice(planner.indexOf('const equipmentFormValue'), planner.indexOf('const equipmentCostBreakdown'));
+  const equipmentForm = planner.slice(planner.indexOf('<EquipmentInfoForm'), planner.indexOf('/>', planner.indexOf('<EquipmentInfoForm')) + 2);
+
+  assert.match(equipmentValue, /description: draft\.name \?\? draft\.description/);
+  assert.match(equipmentValue, /costCode: draft\.costCode/);
+  assert.match(equipmentValue, /equipmentCostType: draft\.costType/);
+  assert.match(equipmentValue, /equipmentClassification: draft\.classification/);
+  assert.doesNotMatch(equipmentValue, /linkedEquipment\?\.(name|type|costType|equipmentClassification)/);
+  assert.doesNotMatch(equipmentForm, /identityReadOnly/);
 });
 
 test('active equipment planning uses the shared annual calculator with legacy field inputs', () => {

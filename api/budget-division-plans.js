@@ -19,7 +19,7 @@ function validate(item) {
   if (!DIVISION_PLAN_CATEGORIES.includes(item.category)) return 'Planning category is invalid.';
   if (!isText(item.name) && !isText(item.description) && !(item.category === 'equipment' && isText(item.equipmentId))) return 'A planning item name or description is required.';
   if (!divisionPlanIdentity(item)) return 'A planning item identity is required.';
-  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'expectedReplacementCost', 'expectedResaleValue', 'remainingUsefulMonths', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate', 'rentalCost']) {
+  for (const field of ['sortOrder', 'hourlyRate', 'annualSalary', 'plannedHours', 'billableHours', 'unbillableHours', 'fieldProducingPct', 'expectedBillablePct', 'overtimeHours', 'overtimeMultiplier', 'payrollBurdenPct', 'labourBurdenPct', 'benefitsExtraCost', 'bonus', 'equipmentPayment', 'equipmentPaymentFrequencyPerYear', 'paymentFrequencyPerYear', 'yearlyFuelCost', 'yearlyInsuranceCost', 'yearlyMaintenanceCost', 'expectedReplacementCost', 'expectedResaleValue', 'remainingUsefulMonths', 'sellableHoursPerYear', 'equipmentHoursPerDay', 'utilizationHours', 'allocationMonths', 'allocationPercent', 'plannedAmount', 'unitCost', 'plannedQuantity', 'rate', 'rentalCost']) {
     if (!isNonNegative(item[field])) return `${field} must be zero or greater.`;
   }
   if (item.category === 'equipment' && !isText(item.equipmentId)) return 'Equipment must reference a catalog asset.';
@@ -30,6 +30,7 @@ function validate(item) {
   if (item.allocationPercent !== undefined && item.allocationPercent > 100) return 'Equipment allocation percent cannot exceed 100.';
   if (item.category === 'labour') {
     if (!['billable', 'overhead'].includes(item.labourClassification)) return 'Labour classification is invalid.';
+    if (item.fieldProducingPct > 100) return 'Field-producing percent cannot exceed 100.';
     if (item.expectedBillablePct > 100) return 'Expected billable percent cannot exceed 100.';
     if (item.overtimeMultiplier < 1) return 'Overtime multiplier must be at least 1.';
     if (!Array.isArray(item.divisionAllocations) || item.divisionAllocations.length === 0) return 'Labour must be allocated across Divisions.';

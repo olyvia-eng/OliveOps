@@ -22,9 +22,12 @@ const labourCost = (item) => calculateLabourCostFromInputs({
   overtimeMultiplier: Math.max(1, nonNegative(item.overtimeMultiplier) || 1.5),
   expectedBillablePct: Math.min(100, nonNegative(item.expectedBillablePct)),
   classification: item.labourClassification === 'overhead' ? 'overhead' : 'billable',
+  fieldProducingPct: item.fieldProducingPct,
 });
 
 export const annualLabourCost = (item) => labourCost(item).annualLabourCost;
+export const directLabourCost = (item) => labourCost(item).directLabourCost;
+export const overheadLabourCost = (item) => labourCost(item).overheadLabourCost;
 
 export const labourDivisionShare = (item, divisionId) => {
   const allocation = item.divisionAllocations?.find((value) => value.divisionId === divisionId);
@@ -101,7 +104,7 @@ export function buildOverheadRecoveryModel({ budget, divisions, planningItems, e
   const divisionScopes = {};
 
   for (const division of divisions.filter((item) => item.budgetId === budget.id && item.status === 'active')) {
-    const overheadLabour = uniqueItems.filter((item) => item.category === 'labour' && item.labourClassification === 'overhead').reduce((sum, item) => sum + annualLabourCost(item) * labourDivisionShare(item, division.id), 0);
+    const overheadLabour = uniqueItems.filter((item) => item.category === 'labour').reduce((sum, item) => sum + overheadLabourCost(item) * labourDivisionShare(item, division.id), 0);
     const overheadEquipment = uniqueItems.filter((item) => item.category === 'equipment' && equipmentClassification(item) === 'overhead').reduce((sum, item) => sum + equipmentAnnualCost(item, equipmentById.get(item.equipmentId)) * nonNegative(equipmentMonths(item, division.id)) / 12, 0);
     const overheadItems = uniqueItems.filter((item) => item.category === 'overhead').reduce((sum, item) => sum + overheadAllocatedAmount(item, division.id), 0);
     const denominators = {

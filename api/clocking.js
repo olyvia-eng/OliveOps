@@ -51,6 +51,10 @@ import {
   resolveBeforeClockInForms,
 } from './_lib/mandatoryClockIn.js';
 import { calculateEmployeeLabourCost } from '../src/utils/employeeLabourCost.js';
+import {
+  resolveClockingWorkArea,
+  WORK_AREA_CLOCKING_CONTRACT_VERSION,
+} from './_lib/jobWorkAreas.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -126,7 +130,7 @@ function hasClockInTimelineConflict(entries, employeeId, eventOccurredAt) {
   });
 }
 
-export function canRecordDriveTime(workType, employee) {
+export function canRecordDriveTime(workType, _employee) {
   if (workType !== 'drive_time') return true;
   return true;
 }
@@ -196,8 +200,9 @@ async function resolveActiveUnbillableCategoryOrError({ businessId, categoryId }
 }
 
 async function validateClockingJobs({ session, jobIds }) {
-  if (jobIds.length === 0) return { ok: true };
+  if (jobIds.length === 0) return { ok: true, jobs: [] };
   const crews = await listCrewsForBusiness(session.businessId);
+  const jobs = [];
 
   for (const jobId of jobIds) {
     const job = await getJobForBusiness(session.businessId, jobId);
@@ -205,9 +210,20 @@ async function validateClockingJobs({ session, jobIds }) {
     if (!authorizeRecordAccess(session, 'jobs', job, { crews })) {
       return { ok: false, status: 403, code: 'offline_job_unauthorized', error: 'Forbidden' };
     }
+    jobs.push(job);
   }
 
-  return { ok: true };
+  return { ok: true, jobs };
+}
+
+async function validateClockingSelection({ session, workType, jobIds, workAreaId, contractVersion }) {
+  const jobValidation = await validateClockingJobs({ session, jobIds });
+  if (!jobValidation.ok) return jobValidation;
+  if (workType !== 'job') return { ok: true, workAreaId: null, workAreaNameSnapshot: null };
+  if (Number(contractVersion) >= WORK_AREA_CLOCKING_CONTRACT_VERSION && jobIds.length !== 1) {
+    return { ok: false, status: 400, code: 'job_selection_invalid', error: 'Select one Job for Job Work.' };
+  }
+  return resolveClockingWorkArea({ job: jobValidation.jobs[0], workType, workAreaId, contractVersion });
 }
 
 export default async function handler(req, res) {
@@ -293,11 +309,15 @@ export default async function handler(req, res) {
     if (!VALID_WORK_TYPES.has(intent?.workType)) {
       return res.status(409).json({ ok: false, code: 'clock_in_intent_invalid', error: 'Saved clock-in work type is invalid.' });
     }
-    if (intent.workType === 'job' || intent.workType === 'drive_time') {
-      const jobValidation = await validateClockingJobs({ session, jobIds: intent.jobIds ?? [] });
-      if (!jobValidation.ok) {
-        return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code ?? 'clock_in_intent_invalid', error: jobValidation.error });
-      }
+    const workAreaValidation = await validateClockingSelection({
+      session,
+      workType: intent.workType,
+      jobIds: intent.jobIds ?? [],
+      workAreaId: intent.workAreaId,
+      contractVersion: intent.clockingContractVersion,
+    });
+    if (!workAreaValidation.ok) {
+      return res.status(workAreaValidation.status).json({ ok: false, code: workAreaValidation.code ?? 'clock_in_intent_invalid', error: workAreaValidation.error });
     }
     let unbillableCategory;
     if (intent.workType === 'non_billable') {
@@ -321,6 +341,8 @@ export default async function handler(req, res) {
       jobId: intent.jobIds?.[0],
       jobIds: intent.jobIds ?? [],
       workType: intent.workType,
+      workAreaId: workAreaValidation.workAreaId,
+      workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
       unbillableCategoryId: unbillableCategory?.id,
       unbillableCategoryName: unbillableCategory?.name,
       clockIn: finalizedAt,
@@ -344,6 +366,8 @@ export default async function handler(req, res) {
       auditEventId: `${session.id}:${workflow.requestId}:clock-in`,
       jobIds: intent.jobIds ?? [],
       workType: intent.workType,
+      workAreaId: workAreaValidation.workAreaId,
+      workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
       unbillableCategoryId: unbillableCategory?.id,
       unbillableCategoryName: unbillableCategory?.name,
       employeeName: employee.name,
@@ -470,14 +494,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'Invalid activity type.' });
     }
     const requestedJobIds = getNormalizedJobIds(req.body?.jobIds);
+    const clockingContractVersion = Number(req.body?.clockingContractVersion) || undefined;
     if (requestedWorkType === 'job' && requestedJobIds.length === 0) {
       return res.status(400).json({ ok: false, error: 'At least one job is required for job work.' });
     }
-    if (requestedWorkType === 'job' || requestedWorkType === 'drive_time') {
-      const jobValidation = await validateClockingJobs({ session, jobIds: requestedJobIds });
-      if (!jobValidation.ok) {
-        return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code, error: jobValidation.error });
-      }
+    const workAreaValidation = await validateClockingSelection({
+      session,
+      workType: requestedWorkType,
+      jobIds: requestedJobIds,
+      workAreaId: req.body?.workAreaId,
+      contractVersion: clockingContractVersion,
+    });
+    if (!workAreaValidation.ok) {
+      return res.status(workAreaValidation.status).json({ ok: false, code: workAreaValidation.code, error: workAreaValidation.error });
     }
     if (!canRecordDriveTime(requestedWorkType, employee)) {
       return res.status(403).json({ ok: false, error: 'Drive time is not enabled for this employee.' });
@@ -506,6 +535,8 @@ export default async function handler(req, res) {
       employeeId,
       workType: requestedWorkType,
       jobIds: requestedJobIds,
+      clockingContractVersion,
+      workAreaId: workAreaValidation.workAreaId,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
         : undefined,
@@ -585,6 +616,9 @@ export default async function handler(req, res) {
             employeeId,
             workType: requestedWorkType,
             jobIds: requestedJobIds,
+            clockingContractVersion,
+            workAreaId: workAreaValidation.workAreaId,
+            workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
             unbillableCategoryId: requestedUnbillableCategory?.id,
             unbillableCategoryName: requestedUnbillableCategory?.name,
           },
@@ -619,6 +653,8 @@ export default async function handler(req, res) {
       auditEventId: `${session.id}:${requestId}:clock-in`,
       jobIds: requestedJobIds,
       workType: requestedWorkType,
+      workAreaId: workAreaValidation.workAreaId,
+      workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
         : undefined,
@@ -636,6 +672,8 @@ export default async function handler(req, res) {
         jobId: requestedJobIds[0],
         jobIds: requestedJobIds,
         workType: requestedWorkType,
+        workAreaId: workAreaValidation.workAreaId,
+        workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
         unbillableCategoryId: requestedWorkType === 'non_billable'
           ? requestedUnbillableCategory.id
           : undefined,
@@ -973,6 +1011,7 @@ export default async function handler(req, res) {
 
     const nextWorkType = workTypeResult.workType;
     const nextJobIds = getNormalizedJobIds(req.body?.jobIds);
+    const clockingContractVersion = Number(req.body?.clockingContractVersion) || undefined;
     const requestedUnbillableCategoryId = typeof req.body?.unbillableCategoryId === 'string'
       ? req.body.unbillableCategoryId.trim()
       : '';
@@ -986,11 +1025,15 @@ export default async function handler(req, res) {
       return res.status(403).json({ ok: false, error: 'Drive time is not enabled for this employee.' });
     }
 
-    if (nextWorkType === 'job' || nextWorkType === 'drive_time') {
-      const jobValidation = await validateClockingJobs({ session, jobIds: nextJobIds });
-      if (!jobValidation.ok) {
-        return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code, error: jobValidation.error });
-      }
+    const workAreaValidation = await validateClockingSelection({
+      session,
+      workType: nextWorkType,
+      jobIds: nextJobIds,
+      workAreaId: req.body?.workAreaId,
+      contractVersion: clockingContractVersion,
+    });
+    if (!workAreaValidation.ok) {
+      return res.status(workAreaValidation.status).json({ ok: false, code: workAreaValidation.code, error: workAreaValidation.error });
     }
 
     const requestId = typeof req.body?.requestId === 'string' && req.body.requestId.trim()
@@ -1005,6 +1048,8 @@ export default async function handler(req, res) {
       employeeId,
       workType: nextWorkType,
       jobIds: nextJobIds,
+      clockingContractVersion,
+      workAreaId: workAreaValidation.workAreaId,
       unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
       requestId,
       idempotencyKey: clientIdempotencyKey,
@@ -1070,6 +1115,8 @@ export default async function handler(req, res) {
         id: nextTimeEntryId,
         workType: nextWorkType,
         jobIds: nextWorkType === 'non_billable' ? [] : nextJobIds,
+        workAreaId: workAreaValidation.workAreaId,
+        workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
         unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategory.id : undefined,
         unbillableCategoryName: nextWorkType === 'non_billable' ? requestedUnbillableCategory.name : undefined,
       },
@@ -1092,6 +1139,8 @@ export default async function handler(req, res) {
         jobId: nextWorkType === 'non_billable' ? undefined : (nextJobIds[0] ?? undefined),
         jobIds: nextWorkType === 'non_billable' ? [] : nextJobIds,
         workType: nextWorkType,
+        workAreaId: workAreaValidation.workAreaId,
+        workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
         unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategory.id : undefined,
         unbillableCategoryName: nextWorkType === 'non_billable' ? requestedUnbillableCategory.name : undefined,
         clockIn: switchedAt,

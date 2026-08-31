@@ -1,12 +1,13 @@
 # Division Labour planning model
 
-Division Labour records reference the shared employee by `employeeId`. Planned hours, billable percentage, classification, overtime, and Division allocations are Budget assumptions and do not update the Employee record.
+Division Labour records reference the shared employee by `employeeId`. Planned hours, field-producing percentage, billable percentage, overtime, and Division allocations are Budget assumptions and do not update the Employee record.
 
 Current Employee compensation type, wage or salary, payroll burden, benefits, and bonus are authoritative when calculating new Budget and Estimate pricing. Persisted compensation fields on Labour planning records remain available as import snapshots and compatibility fallbacks when an older Employee record does not define burden, benefits, or bonus. Pricing prepares these inputs once before calculating Labour cost, overhead recovery, and sell rates, so Budget Analysis and server-authorized Estimate pricing use the same values.
 
 ## Defaults for existing data
 
-- Missing `labourClassification` defaults to `billable`; employee role is never used to infer classification.
+- `fieldProducingPct` is authoritative when present. Missing values inherit the legacy classification: `billable` becomes `100` and `overhead` becomes `0`. A missing classification defaults to `billable`.
+- `overheadPct` is always derived as `100 - fieldProducingPct`; it is not persisted independently.
 - Missing `expectedBillablePct` is derived from legacy billable hours when possible, otherwise `0`.
 - Missing overtime hours default to `0` and the multiplier defaults to `1.5`.
 - Missing Division allocation defaults to 100% for the record's existing Division.
@@ -27,22 +28,30 @@ For salaried Labour, regular wages are the annual salary and overtime wages are 
 
 Payroll burden is applied once to regular and overtime wages. Benefits and bonus are added afterward.
 
-## Billable capacity and direct cost
+## Direct and overhead split
 
-`expected billable hours = regular planned hours × expected billable %`
+`direct labour cost = annual labour cost × field-producing %`
+
+`overhead labour cost = annual labour cost - direct labour cost`
+
+`field-producing hours = regular planned hours × field-producing %`
+
+`expected billable hours = field-producing hours × expected billable %`
 
 Regular planned hours are the Budget's eligible paid-hours assumption. Overtime hours are modeled separately as cost and are not included in billable-hours capacity.
 
-`direct cost per billable hour = annual labour cost ÷ expected billable hours`
+`direct cost per billable hour = direct labour cost ÷ expected billable hours`
 
 Zero billable hours produce no rate. This form does not add overhead recovery, profit, margin, or a sell rate.
 
-Billable Labour contributes annual cost to direct Labour and does not enter the overhead Labour pool. Overhead Labour contributes annual cost to the overhead pool and has no billable hours or direct cost rate.
+The direct and overhead portions always reconcile exactly to annual labour cost. `expectedBillablePct` controls chargeable capacity within field-producing time; it does not change the direct/overhead cost split. The overhead portion enters overhead recovery, while Labour Class pricing uses only direct cost and expected billable hours.
 
 ## Division allocation
 
-`divisionAllocations` is an array of `{ divisionId, percentage }`. Percentages must reference active Divisions in the same Budget and total exactly 100%.
+`divisionAllocations` uses `{ divisionId, hours }` for current records. Hours must reference active Divisions in the same Budget and total planned hours. Legacy percentage allocations remain readable.
 
-`Division annual cost = annual labour cost × Division allocation %`
+`Division direct cost = direct labour cost × Division allocation share`
 
-For billable Labour, `Division billable hours = expected billable hours × Division allocation %`. Allocation distributes cost and capacity; it does not change annual totals and is independent of expected billable percentage.
+`Division overhead cost = overhead labour cost × Division allocation share`
+
+`Division billable hours = expected billable hours × Division allocation share`. Division allocation distributes both cost portions and capacity; it does not change annual totals and remains independent of the field-producing and expected-billable percentages.

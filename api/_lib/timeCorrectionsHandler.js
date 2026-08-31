@@ -22,6 +22,7 @@ import {
 } from './timeCorrections.js';
 import { authorizeRecordAccess } from './authorization.js';
 import { listCrewsForBusiness } from './schedulingConfig.js';
+import { resolveClockingWorkArea } from './jobWorkAreas.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -110,6 +111,8 @@ function buildHistoricalTimeEntryFromRequest({ request, employeeId, reviewedAt }
     jobId: requestedWorkType === 'job' ? requestedJobId : undefined,
     jobIds: requestedWorkType === 'job' && requestedJobId ? [requestedJobId] : [],
     workType: requestedWorkType,
+    workAreaId: requestedWorkType === 'job' ? request.requestedWorkAreaId ?? null : undefined,
+    workAreaNameSnapshot: requestedWorkType === 'job' ? request.requestedWorkAreaNameSnapshot ?? null : undefined,
     unbillableCategoryId: requestedWorkType === 'non_billable' ? request.requestedUnbillableCategoryId : undefined,
     unbillableCategoryName: requestedWorkType === 'non_billable' ? request.requestedUnbillableCategoryName : undefined,
     clockIn,
@@ -131,18 +134,20 @@ function ensureSameBusinessJobOrError(job, requestedJobId) {
 async function validateActivityAndJobRules({
   session,
   request,
-  employee,
   jobId,
+  workType,
+  validateWorkArea,
   getJobForBusinessFn,
   getUnbillableTimeCategoryForBusinessFn,
   listCrewsForBusinessFn,
 }) {
-  if (!jobId && request.requestedActivityType === 'job') {
+  if (!jobId && workType === 'job') {
     return { error: 'Job work corrections must include a requested job.' };
   }
 
+  let job;
   if (jobId) {
-    const job = await getJobForBusinessFn(session.businessId, jobId);
+    job = await getJobForBusinessFn(session.businessId, jobId);
     const error = ensureSameBusinessJobOrError(job, jobId);
     if (error) return { error };
     const crews = await listCrewsForBusinessFn(session.businessId);
@@ -151,7 +156,20 @@ async function validateActivityAndJobRules({
     }
   }
 
-  if (request.requestedActivityType === 'non_billable') {
+  if (validateWorkArea && workType === 'job') {
+    const workAreaValidation = resolveClockingWorkArea({
+      job,
+      workType,
+      workAreaId: request.requestedWorkAreaId,
+      contractVersion: request.clockingContractVersion,
+    });
+    if (!workAreaValidation.ok) {
+      return { error: workAreaValidation.error, status: workAreaValidation.status };
+    }
+    return { error: null, ...workAreaValidation };
+  }
+
+  if (workType === 'non_billable') {
     if (!request.requestedUnbillableCategoryId) {
       return { error: 'Non-billable corrections require an unbillable category.' };
     }
@@ -288,11 +306,21 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         return res.status(400).json({ ok: false, error: 'Target employee is invalid.' });
       }
 
+      const effectiveWorkType = normalized.requestedActivityType ?? timeEntry?.workType;
+      const effectiveJobId = normalized.requestedJobId
+        ?? timeEntry?.jobId
+        ?? (Array.isArray(timeEntry?.jobIds) ? timeEntry.jobIds[0] : undefined);
+      const validatesWorkArea = Boolean(
+        normalized.requestedWorkAreaId
+        || normalized.requestedJobId
+        || normalized.requestedActivityType,
+      );
       const activityValidation = await validateActivityAndJobRules({
         session,
         request: normalized,
-        employee: targetEmployee,
-        jobId: normalized.requestedJobId,
+        jobId: effectiveJobId,
+        workType: effectiveWorkType,
+        validateWorkArea: validatesWorkArea,
         getJobForBusinessFn: deps.getJobForBusiness,
         getUnbillableTimeCategoryForBusinessFn: deps.getUnbillableTimeCategoryForBusiness,
         listCrewsForBusinessFn: deps.listCrewsForBusiness,
@@ -310,6 +338,9 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         requestedClockInAt: normalized.requestedClockInAt,
         requestedClockOutAt: normalized.requestedClockOutAt,
         requestedJobId: normalized.requestedJobId,
+        requestedWorkAreaId: validatesWorkArea ? activityValidation.workAreaId : undefined,
+        requestedWorkAreaNameSnapshot: validatesWorkArea ? activityValidation.workAreaNameSnapshot : undefined,
+        clockingContractVersion: normalized.clockingContractVersion,
         requestedActivityType: normalized.requestedActivityType,
         requestedUnbillableCategoryId: normalized.requestedActivityType === 'non_billable'
           ? normalized.requestedUnbillableCategoryId
@@ -327,6 +358,8 @@ export function createTimeCorrectionsHandler(overrides = {}) {
         originalClockOutAt: timeEntry?.clockOut,
         originalJobId: timeEntry?.jobId,
         originalJobIds: Array.isArray(timeEntry?.jobIds) ? timeEntry.jobIds : undefined,
+        originalWorkAreaId: timeEntry?.workAreaId,
+        originalWorkAreaNameSnapshot: timeEntry?.workAreaNameSnapshot,
         originalActivityType: timeEntry?.workType,
         originalUnbillableCategoryId: timeEntry?.unbillableCategoryId,
         originalUnbillableCategoryName: timeEntry?.unbillableCategoryName,
@@ -380,8 +413,13 @@ export function createTimeCorrectionsHandler(overrides = {}) {
       const activityValidation = await validateActivityAndJobRules({
         session,
         request: correction,
-        employee: targetEmployee,
-        jobId: correction.requestedJobId,
+        jobId: correction.requestedJobId
+          ?? existingEntry?.jobId
+          ?? (Array.isArray(existingEntry?.jobIds) ? existingEntry.jobIds[0] : undefined),
+        workType: correction.requestedActivityType ?? existingEntry?.workType,
+        validateWorkArea: correction.requestedWorkAreaId !== undefined
+          || correction.requestedJobId !== undefined
+          || correction.requestedActivityType !== undefined,
         getJobForBusinessFn: deps.getJobForBusiness,
         getUnbillableTimeCategoryForBusinessFn: deps.getUnbillableTimeCategoryForBusiness,
         listCrewsForBusinessFn: deps.listCrewsForBusiness,

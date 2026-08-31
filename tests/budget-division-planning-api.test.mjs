@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 const key = (pk, sk) => `${pk}|${sk}`;
 const response = () => ({ statusCode: 200, body: null, headers: {}, status(code) { this.statusCode = code; return this; }, setHeader(name, value) { this.headers[name] = value; return this; }, json(body) { this.body = body; return this; } });
 
-function installDdb(t) {
+function installDdb(t, { failTransactions = false } = {}) {
   const store = new Map();
   const original = ddb.send.bind(ddb);
   ddb.send = async (command) => {
@@ -25,6 +25,9 @@ function installDdb(t) {
       return { Items: [...store.values()].filter((item) => item.PK === pk && item.SK.startsWith(prefix)) };
     }
     if (type === 'TransactWriteCommand') {
+      if (failTransactions) {
+        const error = new Error('forced transaction failure'); error.name = 'TransactionCanceledException'; throw error;
+      }
       for (const operation of input.TransactItems) {
         const write = operation.Put ?? operation.Delete;
         const targetKey = key((write.Item ?? write.Key).PK, (write.Item ?? write.Key).SK);
@@ -142,15 +145,26 @@ test('Labour planning validates classification, overtime, and exact same-Budget 
   const valid = response();
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: {
     name: 'Operator', compType: 'hourly', hourlyRate: 30, plannedHours: 2000,
-    labourClassification: 'billable', expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
+    labourClassification: 'billable', fieldProducingPct: 60, expectedBillablePct: 80, overtimeHours: 120, overtimeMultiplier: 1.5,
     divisionAllocations: [{ divisionId: 'land', hours: 1200 }, { divisionId: 'snow', hours: 800 }],
   } } }, valid);
   assert.equal(valid.statusCode, 200);
+  assert.equal(valid.body.item.fieldProducingPct, 60);
   assert.equal(valid.body.item.divisionAllocations.length, 2);
 
   const overBillable = response();
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Labourer', plannedHours: 1900, expectedBillablePct: 101, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, overBillable);
   assert.equal(overBillable.statusCode, 400);
+
+  const invalidFieldPct = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Foreman', plannedHours: 1900, fieldProducingPct: 101, expectedBillablePct: 80, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, invalidFieldPct);
+  assert.equal(invalidFieldPct.statusCode, 400);
+  assert.match(invalidFieldPct.body.error, /Field-producing percent cannot exceed 100/);
+
+  const malformedFieldPct = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Foreman', plannedHours: 1900, fieldProducingPct: 'sixty', expectedBillablePct: 80, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, malformedFieldPct);
+  assert.equal(malformedFieldPct.statusCode, 400);
+  assert.match(malformedFieldPct.body.error, /fieldProducingPct must be zero or greater/);
 
   const invalidMultiplier = response();
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Installer', plannedHours: 1900, overtimeMultiplier: 0.5, divisionAllocations: [{ divisionId: 'land', hours: 1900 }] } } }, invalidMultiplier);
@@ -371,6 +385,25 @@ test('Budget equipment save atomically updates approved Catalog identity and Bud
   assert.equal(create.body.item.classification, undefined);
   assert.equal(create.body.item.costType, undefined);
   assert.equal(store.get(assetKey).name, 'Bobcat E60');
+});
+
+test('Budget equipment transaction failure leaves Catalog and Budget planning unchanged', async (t) => {
+  const store = installDdb(t, { failTransactions: true });
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+  const assetKey = key('BUSINESS#biz-a', 'EQUIPMENT#equipment-1');
+
+  const failed = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: {
+    catalogPatch: { name: 'Unsaved Rename', type: 'Loader', equipmentClassification: 'overhead', costType: 'owned' },
+    data: { equipmentId: 'equipment-1', yearlyFuelCost: 9000, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  } }, failed);
+
+  assert.equal(failed.statusCode, 409);
+  assert.equal(store.get(assetKey).name, 'Bobcat E50');
+  assert.equal([...store.values()].some((item) => item.entityType === 'BUDGET_DIVISION_PLAN'), false);
 });
 
 test('Budget equipment save atomically creates a new Catalog asset without storing Budget economics on it', async (t) => {

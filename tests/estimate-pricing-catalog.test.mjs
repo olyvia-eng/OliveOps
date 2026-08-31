@@ -166,6 +166,14 @@ test('calculated Division Labour pricing exposes a class without employee identi
   assert.equal(authorized.estimate.lineItems[0].sellPrice, 37.5);
 });
 
+test('Estimate Labour Class catalog uses split-aware direct cost and overhead recovery', () => {
+  const splitItems = calculatedPlanningItems.map((item) => item.id === 'labour-ryan' ? { ...item, fieldProducingPct: 60 } : item);
+  const catalog = buildCalculated(splitItems, []);
+  assert.equal(catalog.labour[0].costRate, 32.5);
+  assert.equal(catalog.labour[0].overheadRecoveryPerHour, 17.5);
+  assert.equal(catalog.labour[0].sellRate, 62.5);
+});
+
 test('Labour Class custom rate overrides calculated rate without truthiness fallback', () => {
   const catalog = buildEstimatePricingCatalog({
     budget: calculatedBudget, budgetId, divisions: calculatedDivisions, divisionId: 'hardscape', planningItems: calculatedPlanningItems,

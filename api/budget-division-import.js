@@ -47,7 +47,7 @@ function legacyItemsForCategory({ category, budget, budgetItems, budgetRates, la
         name: employee?.name ?? plan.description ?? 'Labour plan', role: plan.description,
         compType: plan.compType, hourlyRate: plan.hourlyRate, annualSalary: plan.annualSalary,
         plannedHours: plan.hoursPerYear, billableHours: plan.billableHoursYear,
-        labourClassification: 'billable', expectedBillablePct: plan.billablePct,
+        labourClassification: 'billable', fieldProducingPct: 100, expectedBillablePct: plan.billablePct,
         unbillableHours: plan.unbillableHoursYear, overtimeHours: plan.overtimeHoursYear,
         overtimeMultiplier: plan.overtimeMultiplier, payrollBurdenPct: plan.payrollBurdenPct,
         labourBurdenPct: plan.labourBurdenPct, benefitsExtraCost: plan.benefitsExtraCost,
