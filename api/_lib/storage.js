@@ -163,6 +163,7 @@ export async function createPresignedUploadUrl({ businessId, fileName, mimeType,
     Key: plan.key,
     ContentType: validation.mimeType,
     ContentLength: validation.sizeBytes,
+    ...(plan.writeOnce ? { IfNoneMatch: '*' } : {}),
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 600 });

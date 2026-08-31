@@ -31,8 +31,22 @@ function installDdb(t) {
       for (const item of input.TransactItems) {
         const put = item.Put;
         if (put?.ConditionExpression?.includes('attribute_not_exists') && store.has(key(put.Item.PK, put.Item.SK))) throw Object.assign(new Error('conflict'), { name: 'TransactionCanceledException' });
+        const update = item.Update;
+        if (update) {
+          const existing = store.get(key(update.Key.PK, update.Key.SK));
+          if (!existing || existing.uploadStatus !== 'uploaded' || existing.claimedSubmissionId) {
+            throw Object.assign(new Error('conflict'), { name: 'TransactionCanceledException' });
+          }
+        }
       }
       for (const item of input.TransactItems) if (item.Put) store.set(key(item.Put.Item.PK, item.Put.Item.SK), { ...item.Put.Item });
+      for (const item of input.TransactItems) if (item.Update) {
+        const existing = store.get(key(item.Update.Key.PK, item.Update.Key.SK));
+        existing.claimedSubmissionId = item.Update.ExpressionAttributeValues[':submissionId'];
+        existing.signedAt = item.Update.ExpressionAttributeValues[':signedAt'];
+        delete existing.ttl;
+        delete existing.expiresAt;
+      }
       return {};
     }
     return original(command);
@@ -52,6 +66,35 @@ function seedForm(store, { id, businessId = 'biz-a', assignedTo = 'everyone', as
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), { PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), { PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId, formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0 });
+}
+
+function makeSignatureForm(store, { id = 'signature-form', required = true, requiresApproval = false } = {}) {
+  seedForm(store, { id });
+  store.get(key('BUSINESS#biz-a', `FORM#${id}`)).requiresApproval = requiresApproval;
+  Object.assign(store.get(key('BUSINESS#biz-a', `FORM_FIELD#${id}-notes`)), {
+    type: 'signature',
+    label: 'Employee Signature',
+    required,
+  });
+}
+
+function seedSignatureFile(store, {
+  fileId = 'signature-file',
+  formId = 'signature-form',
+  fieldId = `${formId}-notes`,
+  clientSubmissionId = 'signature-submission-001',
+  employeeId = 'employee-a',
+  userId = 'user-a',
+  uploadStatus = 'uploaded',
+  claimedSubmissionId,
+  checksumSha256 = 'checksum-a',
+} = {}) {
+  store.set(key('BUSINESS#biz-a', `FILE#${fileId}`), {
+    PK: 'BUSINESS#biz-a', SK: `FILE#${fileId}`, entityType: 'form-signature', businessId: 'biz-a', fileId,
+    entityId: clientSubmissionId, category: 'signature', formId, fieldId, clientSubmissionId,
+    signerEmployeeId: employeeId, signerUserId: userId, uploadStatus, mimeType: 'image/png', sizeBytes: 1024,
+    objectKey: `biz-a/${fileId}/signature.png`, checksumSha256, claimedSubmissionId,
+  });
 }
 
 async function request(token, { method = 'GET', action, query = {}, body }) {
@@ -393,4 +436,102 @@ test('accepted responses are exposed and enforced before pending-review submissi
   const accepted = await request('token-a', { method: 'POST', action: 'submit', body: { data: { formId: 'safety-check', responses: [{ fieldId: 'safety-check-notes', value: 'yes' }] } } });
   assert.equal(accepted.statusCode, 201);
   assert.equal(accepted.body.submission.status, 'pending_review');
+});
+
+test('drawn Signature is required, claimed once, snapshotted, and idempotently replayed', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makeSignatureForm(store, { requiresApproval: true });
+  seedSignatureFile(store);
+  const body = {
+    formId: 'signature-form', clientSubmissionId: 'signature-submission-001',
+    responses: [{ fieldId: 'signature-form-notes', value: '', fileIds: ['signature-file'] }],
+  };
+
+  assert.equal((await request('token-a', { method: 'POST', action: 'submit', body: { ...body, responses: [] } })).statusCode, 400);
+  const submitted = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.status, 'pending_review');
+  const response = [...store.values()].find((item) => item.entityType === 'FORM_RESPONSE');
+  assert.equal(response.value, '');
+  assert.deepEqual(response.fileIds, ['signature-file']);
+  assert.equal(response.labelSnapshot, 'Employee Signature');
+  assert.equal(response.typeSnapshot, 'signature');
+  assert.equal(response.signerEmployeeId, 'employee-a');
+  assert.equal(response.signerUserId, 'user-a');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'FILE#signature-file')).claimedSubmissionId, submitted.body.submission.id);
+
+  const replay = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
+});
+
+test('optional Signature may be empty and signature artifacts cannot cross binding dimensions', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makeSignatureForm(store, { required: false });
+  const empty = await request('token-a', { method: 'POST', action: 'submit', body: { formId: 'signature-form', clientSubmissionId: 'signature-empty-001', responses: [] } });
+  assert.equal(empty.statusCode, 201);
+
+  for (const [fileId, override] of [
+    ['wrong-form', { formId: 'another-form' }],
+    ['wrong-field', { fieldId: 'another-field' }],
+    ['wrong-employee', { employeeId: 'employee-b' }],
+    ['incomplete', { uploadStatus: 'pending' }],
+    ['claimed', { claimedSubmissionId: 'another-submission' }],
+  ]) {
+    const clientSubmissionId = `signature-${fileId}-001`;
+    seedSignatureFile(store, { fileId, clientSubmissionId, ...override });
+    const result = await request('token-a', { method: 'POST', action: 'submit', body: {
+      formId: 'signature-form', clientSubmissionId,
+      responses: [{ fieldId: 'signature-form-notes', fileIds: [fileId] }],
+    } });
+    assert.ok([400, 409].includes(result.statusCode), fileId);
+  }
+});
+
+test('changing the signature under one client submission ID conflicts without another binding', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  makeSignatureForm(store);
+  seedSignatureFile(store, { fileId: 'signature-a' });
+  seedSignatureFile(store, { fileId: 'signature-b', checksumSha256: 'checksum-b' });
+  const submit = (fileId) => request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'signature-form', clientSubmissionId: 'signature-submission-001',
+    responses: [{ fieldId: 'signature-form-notes', fileIds: [fileId] }],
+  } });
+  assert.equal((await submit('signature-a')).statusCode, 201);
+  const changed = await submit('signature-b');
+  assert.equal(changed.statusCode, 409);
+  assert.equal(changed.body.error, 'submission_idempotency_conflict');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'FILE#signature-b')).claimedSubmissionId, undefined);
+});
+
+test('submission detail prefers immutable field snapshots and preserves legacy typed signatures', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'inspection' });
+  const submitted = await request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'inspection', clientSubmissionId: 'snapshot-submission-001',
+    responses: [{ fieldId: 'inspection-notes', value: 'Original answer' }],
+  } });
+  store.delete(key('BUSINESS#biz-a', 'FORM_FIELD#inspection-notes'));
+  const detail = await request('token-a', { action: 'submission', query: { id: submitted.body.submission.id } });
+  assert.equal(detail.body.answers[0].label, 'Notes');
+  assert.equal(detail.body.answers[0].type, 'single_line_text');
+
+  makeSignatureForm(store, { id: 'legacy-signature' });
+  store.set(key('BUSINESS#biz-a', 'FORM_SUBMISSION#legacy-signature-submission'), {
+    PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#legacy-signature-submission', entityType: 'FORM_SUBMISSION', businessId: 'biz-a',
+    formSubmissionId: 'legacy-signature-submission', formId: 'legacy-signature', employeeId: 'employee-a', submittedAt: '2026-01-01T12:00:00.000Z', status: 'submitted',
+  });
+  store.set(key('BUSINESS#biz-a', 'FORM_RESPONSE#legacy-signature-response'), {
+    PK: 'BUSINESS#biz-a', SK: 'FORM_RESPONSE#legacy-signature-response', entityType: 'FORM_RESPONSE', businessId: 'biz-a',
+    formResponseId: 'legacy-signature-response', submissionId: 'legacy-signature-submission', fieldId: 'legacy-signature-notes', value: 'Ryan Smith', employeeId: 'employee-a',
+  });
+  const legacy = await request('token-a', { action: 'submission', query: { id: 'legacy-signature-submission' } });
+  assert.equal(legacy.body.answers[0].type, 'signature');
+  assert.equal(legacy.body.answers[0].value, 'Ryan Smith');
+  assert.equal(legacy.body.answers[0].fileIds, undefined);
 });

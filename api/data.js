@@ -2245,6 +2245,13 @@ export default async function handler(req, res) {
         return res.status(409).json({ ok: false, error: 'Jobs created from sold estimates cannot be deleted.' });
       }
 
+      if (entity === 'forms') {
+        const submissions = await listFormSubmissionsForBusiness(session.businessId);
+        if (submissions.some((submission) => submission.formId === id)) {
+          return res.status(409).json({ ok: false, error: 'Forms with submission history must be archived instead of deleted.' });
+        }
+      }
+
       if (entity === 'budgets') {
         const result = await deleteBudgetCascadeForBusiness({ businessId: session.businessId, budgetId: id, budget: existing });
         if (!result.ok) return res.status(result.status).json(result);

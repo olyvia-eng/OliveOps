@@ -112,7 +112,7 @@ test('response validation accepts every supported answer-bearing field type', ()
     ['single', 'single_line_text', 'text'], ['multi', 'multi_line_text', 'long text'],
     ['number', 'number', '-2.5'], ['currency', 'currency', '19.99'], ['date', 'date', '2026-08-18'],
     ['time', 'time', '23:59'], ['yes-no', 'yes_no', 'yes'], ['checkbox', 'checkbox', 'checked'],
-    ['multiple', 'multiple_choice', 'A'], ['dropdown', 'dropdown', 'B'], ['signature', 'signature', 'Alex'],
+    ['multiple', 'multiple_choice', 'A'], ['dropdown', 'dropdown', 'B'],
     ['employee', 'employee_selector', 'employee-1'], ['job', 'job_selector', 'job-1'], ['customer', 'customer_selector', 'customer-1'],
   ].map(([id, type, value]) => ({ id, type, label: id, required: true, value, options: ['checked', 'A', 'B'] }));
   const choicesByFieldId = {
@@ -123,6 +123,17 @@ test('response validation accepts every supported answer-bearing field type', ()
   const result = validateEmployeeFormResponses({ fields, responses: fields.map(({ id, value }) => ({ fieldId: id, value })), choicesByFieldId });
   assert.equal(result.ok, true);
   assert.equal(result.responses.length, fields.length);
+
+  const signature = validateEmployeeFormResponses({
+    fields: [{ id: 'signature', type: 'signature', label: 'Signature', required: true }],
+    responses: [{ fieldId: 'signature', fileIds: ['signature-file'] }],
+  });
+  assert.equal(signature.ok, true);
+  assert.deepEqual(signature.responses[0].fileIds, ['signature-file']);
+  assert.equal(validateEmployeeFormResponses({
+    fields: [{ id: 'signature', type: 'signature', label: 'Signature', required: true }],
+    responses: [{ fieldId: 'signature', value: 'Alex' }],
+  }).ok, false);
 
   const presentation = validateEmployeeFormResponses({
     fields: [{ id: 'section', type: 'section_header', label: 'Section' }, { id: 'paragraph', type: 'paragraph_text', label: 'Read this' }, { id: 'photo', type: 'photo_upload', label: 'Photo' }, { id: 'file', type: 'file_upload', label: 'File' }],

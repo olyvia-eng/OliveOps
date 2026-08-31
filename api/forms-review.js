@@ -77,8 +77,8 @@ async function handleGet(session, req, res) {
       const field = fieldsById.get(response.fieldId);
       return {
         ...response,
-        fieldLabel: field?.label ?? response.fieldId,
-        fieldType: field?.type,
+        fieldLabel: response.labelSnapshot ?? field?.label ?? response.fieldId,
+        fieldType: response.typeSnapshot ?? field?.type,
         fieldOrder: field?.order ?? Number.MAX_SAFE_INTEGER,
       };
     })

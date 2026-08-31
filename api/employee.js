@@ -4,6 +4,7 @@ import {
   generateId,
   getBusinessProfile,
   getEmployeeFormSubmissionIdempotency,
+  getFileForBusiness,
   listCustomersForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
@@ -254,7 +255,12 @@ function submissionPayloadFingerprint({ formId, trigger, scope, responses, workf
     workflowOccurrenceId: workflowOccurrenceId ?? null,
     workflowRequirementId: workflowRequirementId ?? null,
     responses: responses
-      .map((response) => ({ fieldId: response.fieldId, value: response.value }))
+      .map((response) => ({
+        fieldId: response.fieldId,
+        value: response.value,
+        fileIds: response.fileIds ?? [],
+        artifactFingerprint: response.artifactFingerprint ?? null,
+      }))
       .sort((left, right) => left.fieldId.localeCompare(right.fieldId)),
   };
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
@@ -304,7 +310,16 @@ export default async function handler(req, res) {
       ok: true,
       submission: completedSubmissions({ ...data, submissions: [submission] })[0],
       form: form ? { id: form.id, name: form.name, description: form.description, category: form.category } : { id: submission.formId, name: 'Archived form' },
-      answers: data.responses.filter((response) => response.submissionId === submission.id).map((response) => ({ fieldId: response.fieldId, label: fieldsById.get(response.fieldId)?.label ?? 'Archived field', type: fieldsById.get(response.fieldId)?.type, value: response.value, fileIds: response.fileIds })),
+      answers: data.responses.filter((response) => response.submissionId === submission.id).map((response) => ({
+        fieldId: response.fieldId,
+        label: response.labelSnapshot ?? fieldsById.get(response.fieldId)?.label ?? 'Archived field',
+        type: response.typeSnapshot ?? fieldsById.get(response.fieldId)?.type,
+        value: response.value,
+        fileIds: response.fileIds,
+        signedAt: response.signedAt,
+        signerEmployeeId: response.signerEmployeeId,
+        signerUserId: response.signerUserId,
+      })),
     });
   }
 
@@ -375,6 +390,33 @@ export default async function handler(req, res) {
       : Object.fromEntries(safeFields(form.id, data, workflowRequirement ? data.authorizedJobs : data.actionableJobs).filter((field) => field.choices).map((field) => [field.id, field.choices]));
     const validation = validateEmployeeFormResponses({ fields, responses: payload?.responses, choicesByFieldId });
     if (!validation.ok) return res.status(400).json({ ok: false, code: validation.code, error: validation.error, fieldId: validation.fieldId });
+    const signatureResponses = validation.responses.filter((response) => response.typeSnapshot === 'signature');
+    if (signatureResponses.length > 0 && !clientSubmissionId) {
+      return res.status(400).json({ ok: false, error: 'A client submission ID is required for signature uploads.' });
+    }
+    const signatureFiles = new Map();
+    for (const response of signatureResponses) {
+      const file = await getFileForBusiness(session.businessId, response.fileIds[0]);
+      const matchesContext = file
+        && file.entityType === 'form-signature'
+        && file.category === 'signature'
+        && file.uploadStatus === 'uploaded'
+        && file.mimeType === 'image/png'
+        && Number(file.sizeBytes) > 0
+        && Number(file.sizeBytes) <= 2 * 1024 * 1024
+        && file.formId === form.id
+        && file.fieldId === response.fieldId
+        && file.clientSubmissionId === clientSubmissionId
+        && file.signerEmployeeId === data.employee.id
+        && file.signerUserId === session.id
+        && text(file.workflowOccurrenceId) === workflowOccurrenceId
+        && text(file.workflowRequirementId) === workflowRequirementId;
+      if (!matchesContext || (!file.checksumSha256 && !file.etag)) {
+        return res.status(400).json({ ok: false, fieldId: response.fieldId, error: `${response.labelSnapshot}: signature artifact is invalid or incomplete.` });
+      }
+      signatureFiles.set(response.fieldId, file);
+      response.artifactFingerprint = `${file.id}:${file.checksumSha256 || file.etag}`;
+    }
     const submittedAt = new Date().toISOString();
     const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
     const payloadFingerprint = clientSubmissionId
@@ -386,6 +428,9 @@ export default async function handler(req, res) {
         if (existing.payloadFingerprint !== payloadFingerprint) return idempotencyConflict(res);
         return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
       }
+    }
+    if ([...signatureFiles.values()].some((file) => file.claimedSubmissionId)) {
+      return res.status(409).json({ ok: false, error: 'A signature artifact has already been used.' });
     }
     if (requiresMandatoryWorkflow && workflow.status !== 'pending_required_forms') {
       return res.status(409).json({
@@ -403,7 +448,21 @@ export default async function handler(req, res) {
       workflowOccurrenceId: workflowRequirement ? workflowOccurrenceId : undefined,
       workflowRequirementId: workflowRequirement ? workflowRequirementId : undefined,
     };
-    const responses = validation.responses.map((response) => ({ id: generateId(), submissionId: submission.id, ...response }));
+    const responses = validation.responses.map(({ artifactFingerprint: _artifactFingerprint, ...response }) => ({
+      id: generateId(),
+      submissionId: submission.id,
+      ...response,
+      ...(response.typeSnapshot === 'signature' ? {
+        signedAt: submittedAt,
+        signerEmployeeId: data.employee.id,
+        signerUserId: session.id,
+      } : {}),
+    }));
+    const signatureClaims = signatureResponses.map((response) => ({
+      fileId: response.fileIds[0],
+      fieldId: response.fieldId,
+      signedAt: submittedAt,
+    }));
     const submissionResponse = { ...submission, responsesCreated: responses.length };
     try {
       await createEmployeeFormSubmissionForBusiness({
@@ -423,6 +482,7 @@ export default async function handler(req, res) {
           requirementId: workflowRequirementId,
           updatedAt: submittedAt,
         }) : undefined,
+        signatureClaims,
       });
     } catch (error) {
       if (error?.name === 'TransactionCanceledException' && clientSubmissionId) {

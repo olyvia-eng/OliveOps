@@ -27,6 +27,8 @@ import {
 } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatDateTime } from '../../utils';
+import SignaturePad from '../../components/forms/SignaturePad';
+import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import {
   createFormBuilderDraft,
   describeFormConfiguration,
@@ -364,6 +366,7 @@ export default function FormsPage() {
     equipmentAssets,
     divisions,
     addForm,
+    cloneForm,
     updateForm,
     deleteForm,
     addFormField,
@@ -386,12 +389,15 @@ export default function FormsPage() {
   const [fieldPickerOpen, setFieldPickerOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [savingBuilder, setSavingBuilder] = useState(false);
+  const [cloningFormId, setCloningFormId] = useState<string | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | FormSubmissionStatus>('all');
   const [viewSubmissionId, setViewSubmissionId] = useState<string | null>(null);
+  const [submissionFileUrls, setSubmissionFileUrls] = useState<Record<string, string>>({});
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
   const [submitResponses, setSubmitResponses] = useState<Record<string, string>>({});
+  const [, setSubmitSignatures] = useState<Record<string, Blob | null>>({});
 
   const sortedForms = useMemo(() => {
     return forms.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -516,6 +522,16 @@ export default function FormsPage() {
     setSelectedFormId(created.id);
     setActiveTab('builder');
     setNewFormModalOpen(false);
+  };
+
+  const handleCloneForm = async (formId: string) => {
+    if (cloningFormId) return;
+    setCloningFormId(formId);
+    const cloned = await cloneForm(formId);
+    setCloningFormId(null);
+    if (!cloned) return;
+    setSelectedFormId(cloned.id);
+    setActiveTab('builder');
   };
 
   const updateBuilderForm = (patch: Partial<FormRecord>) => {
@@ -645,11 +661,16 @@ export default function FormsPage() {
     setActiveTab(tab);
   };
 
-  const deleteSelectedForm = () => {
+  const deleteSelectedForm = async () => {
     if (!selectedForm) return;
 
+    if (submissionsForSelectedForm.length > 0) {
+      await updateForm(selectedForm.id, { status: 'archived' });
+      return;
+    }
+
     for (const field of fieldsForSelectedForm) {
-      deleteFormField(field.id);
+      await deleteFormField(field.id);
     }
 
     deleteForm(selectedForm.id);
@@ -695,6 +716,7 @@ export default function FormsPage() {
       field.id,
       field.type === 'date' && field.defaultValue?.toLowerCase() === 'today' ? today : field.defaultValue ?? '',
     ])));
+    setSubmitSignatures({});
     setSubmitModalOpen(true);
   };
 
@@ -706,6 +728,20 @@ export default function FormsPage() {
     if (!activeSubmission) return [];
     return formResponses.filter((response) => response.submissionId === activeSubmission.id);
   }, [activeSubmission, formResponses]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fileIds = [...new Set(activeSubmissionResponses.flatMap((response) => response.fileIds ?? []))];
+    if (fileIds.length === 0) {
+      setSubmissionFileUrls({});
+      return undefined;
+    }
+    void Promise.all(fileIds.map(async (fileId) => [fileId, await resolveAttachmentUrl({ fileId })] as const))
+      .then((entries) => {
+        if (!cancelled) setSubmissionFileUrls(Object.fromEntries(entries));
+      });
+    return () => { cancelled = true; };
+  }, [activeSubmissionResponses]);
 
   const builderForm = builderDraft?.form ?? null;
   const builderFields = builderDraft?.fields ?? [];
@@ -966,6 +1002,14 @@ export default function FormsPage() {
                     >
                       View Submissions
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={Boolean(cloningFormId)}
+                      onClick={() => void handleCloneForm(form.id)}
+                    >
+                      <Copy size={14} /> {cloningFormId === form.id ? 'Cloning...' : 'Clone Form'}
+                    </Button>
                   </div>
                 </Card>
               ))}
@@ -1140,7 +1184,7 @@ export default function FormsPage() {
               )}
             </section>
 
-            <div className="flex justify-end"><Button variant="danger" size="sm" onClick={deleteSelectedForm}><Trash2 size={14} /> Delete Form</Button></div>
+            <div className="flex justify-end"><Button variant={submissionsForSelectedForm.length > 0 ? 'secondary' : 'danger'} size="sm" onClick={() => void deleteSelectedForm()}><Trash2 size={14} /> {submissionsForSelectedForm.length > 0 ? 'Archive Form' : 'Delete Form'}</Button></div>
           </div>
         ) : (
           <EmptyState
@@ -1539,13 +1583,11 @@ export default function FormsPage() {
 
                 if (field.type === 'signature') {
                   return (
-                    <Input
+                    <SignaturePad
                       key={field.id}
-                      label={`${field.label} (Signature)`}
+                      label={field.label}
                       required={field.required}
-                      placeholder="Type full name to sign"
-                      value={value}
-                      onChange={(event) => setSubmitResponses((current) => ({ ...current, [field.id]: event.target.value }))}
+                      onChange={(signature) => setSubmitSignatures((current) => ({ ...current, [field.id]: signature }))}
                     />
                   );
                 }
@@ -1615,18 +1657,28 @@ export default function FormsPage() {
                 <tbody className="divide-y divide-gray-100">
                   {activeSubmissionResponses.map((response) => {
                     const field = formFields.find((candidate) => candidate.id === response.fieldId);
-                    const fieldLabel = field?.label ?? response.fieldId;
-                    const displayValue = field?.type === 'employee_selector'
+                    const fieldLabel = response.labelSnapshot ?? field?.label ?? response.fieldId;
+                    const fieldType = response.typeSnapshot ?? field?.type;
+                    const displayValue = fieldType === 'employee_selector'
                       ? employees.find((employee) => employee.id === response.value)?.name ?? response.value
-                      : field?.type === 'job_selector'
+                      : fieldType === 'job_selector'
                         ? jobs.find((job) => job.id === response.value)?.title ?? response.value
-                        : field?.type === 'customer_selector'
+                        : fieldType === 'customer_selector'
                           ? customers.find((customer) => customer.id === response.value)?.name ?? response.value
                           : response.value;
                     return (
                       <tr key={response.id}>
                         <td className="px-4 py-3 text-gray-700">{fieldLabel}</td>
-                        <td className="px-4 py-3 text-gray-900">{displayValue || response.fileIds?.join(', ') || '—'}</td>
+                        <td className="px-4 py-3 text-gray-900">
+                          {fieldType === 'signature' && response.fileIds?.length ? (
+                            <div className="space-y-2">
+                              {response.fileIds.map((fileId) => submissionFileUrls[fileId] ? (
+                                <img key={fileId} src={submissionFileUrls[fileId]} alt={`${fieldLabel} signature`} className="h-28 max-w-64 rounded border border-gray-200 bg-white object-contain" />
+                              ) : <span key={fileId} className="text-xs text-gray-400">Signature unavailable</span>)}
+                              <p className="text-xs text-gray-500">Signed by: {activeSubmission.submittedBy ?? 'Authenticated user'} · Submitted: {formatDateTime(response.signedAt ?? activeSubmission.submittedAt)}</p>
+                            </div>
+                          ) : displayValue || response.fileIds?.join(', ') || '—'}
+                        </td>
                       </tr>
                     );
                   })}

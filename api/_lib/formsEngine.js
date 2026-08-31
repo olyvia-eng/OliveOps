@@ -168,6 +168,22 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
 
     const value = typeof response.value === 'string' ? response.value.trim() : '';
     const fileIds = Array.isArray(response.fileIds) ? response.fileIds.map(text).filter(Boolean) : [];
+    if (field.type === 'signature') {
+      if (value) return responseError(field, 'drawn signatures must be submitted as a signature artifact.');
+      if (fileIds.length === 0) {
+        if (field.required) return responseError(field, 'a signature is required.');
+        continue;
+      }
+      if (fileIds.length !== 1) return responseError(field, 'must reference exactly one signature artifact.');
+      normalizedResponses.push({
+        fieldId: field.id,
+        value: '',
+        fileIds,
+        labelSnapshot: field.label,
+        typeSnapshot: field.type,
+      });
+      continue;
+    }
     if (MEDIA_FIELD_TYPES.has(field.type)) {
       if (typeof response.value === 'string' && /^(?:data:|[A-Za-z0-9+/]{256,}={0,2}$)/.test(response.value.trim())) {
         return responseError(field, 'file bytes and base64 values are not accepted.');
@@ -180,7 +196,7 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
       if (field.required) return responseError(field, 'a response is required.');
       continue;
     }
-    if ((field.type === 'single_line_text' || field.type === 'signature') && value.length > 500) return responseError(field, 'must be 500 characters or fewer.');
+    if (field.type === 'single_line_text' && value.length > 500) return responseError(field, 'must be 500 characters or fewer.');
     if (field.type === 'multi_line_text' && value.length > 10_000) return responseError(field, 'must be 10000 characters or fewer.');
     if ((field.type === 'number' || field.type === 'currency') && (!NUMBER_PATTERN.test(value) || !Number.isFinite(Number(value)))) return responseError(field, 'must be a valid number.');
     if (field.type === 'date' && !validDate(value)) return responseError(field, 'must be a valid date in YYYY-MM-DD format.');
@@ -194,7 +210,12 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
     if (field.acceptedResponse && value !== text(field.acceptedResponse.value)) {
       return responseError(field, text(field.acceptedResponse.message) || 'Choose the required answer to continue.', 'form_response_requirement_failed');
     }
-    normalizedResponses.push({ fieldId: field.id, value });
+    normalizedResponses.push({
+      fieldId: field.id,
+      value,
+      labelSnapshot: field.label,
+      typeSnapshot: field.type,
+    });
   }
 
   for (const field of fields) {

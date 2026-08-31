@@ -115,7 +115,8 @@ Content-Type: application/json
   "equipmentId": "equipment-id",
   "divisionId": "division-id",
   "responses": [
-    { "fieldId": "field-id", "value": "Completed west trench" }
+    { "fieldId": "field-id", "value": "Completed west trench" },
+    { "fieldId": "signature-field-id", "fileIds": ["signature-file-id"] }
   ]
 }
 ```
@@ -123,6 +124,10 @@ Content-Type: application/json
 `trigger` must be configured on the active Form. Context IDs are optional unless needed by the Form assignment or trigger. A job must be directly assigned to the employee or assigned to one of their active crews. Equipment must be assigned through the supplied authorized job. Division must agree with the job context.
 
 The server validates all answers, creates the submission and responses in one DynamoDB transaction, and returns `201`. Forms configured with `requiresApproval: true` return `status: "pending_review"`; all others return `status: "submitted"`.
+
+New Signature answers are drawn PNG artifacts, not text values. Before submission, prepare a private upload through `/api/storage` with `entityType: "form-signature"`, `category: "signature"`, the Form and field IDs, the stable `clientSubmissionId`, and mandatory workflow IDs when applicable. Upload the PNG with the returned write-once headers, complete the upload, and then submit its `fileId`. The server verifies the tenant, authenticated employee/user, Form, field, logical submission, workflow correlation, upload state, MIME type, size, and checksum before atomically claiming the artifact with the submission. Signature PNGs are limited to 2 MB.
+
+Each new response stores immutable `labelSnapshot` and `typeSnapshot` values. Signature responses also store the artifact reference, server submission time as `signedAt`, and authenticated signer IDs. Review prefers these snapshots so later Form edits or field deletion do not alter historical rendering. Existing responses without snapshots retain the live-field fallback, and historical Signature string values remain readable as text.
 
 ```json
 {
@@ -217,7 +222,20 @@ Each field package includes `id`, `type`, `label`, `helpText`, `required`, `defa
 | `time` | Time picker | 24-hour `HH:MM` |
 | `yes_no` | Two-choice control | `yes` or `no` |
 | `checkbox`, `multiple_choice`, `dropdown` | Configured options | One exact value from `options` |
-| `signature` | Phase 1 text acknowledgement | String, maximum 500 characters |
+| `signature` | Drawn touch/pointer signature | One completed private PNG `fileId`; optional fields may be omitted |
+
+## Clone a Form
+
+Owner and admin users can clone a tenant-owned Form definition atomically:
+
+```http
+POST /api/forms?action=clone
+Content-Type: application/json
+
+{ "sourceFormId": "form-id" }
+```
+
+The clone receives a new Form ID, new IDs for every field, new timestamps, `status: "draft"`, and exactly `trigger: []`. Its title is suffixed with ` - Copy`; reusable assignment, completion, approval, field ordering, options, accepted-response rules, and Signature definitions are deep-copied. Submissions, responses, artifacts, approvals, workflow occurrences, and source audit history are never copied. The response contains the new `form` and `fields` for immediate Builder navigation.
 | `employee_selector`, `job_selector`, `customer_selector` | Authorized choices | One exact `choices[].value` ID |
 | `photo_upload`, `file_upload` | Render as unavailable in Phase 1 | Do not submit an answer |
 

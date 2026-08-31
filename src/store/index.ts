@@ -267,6 +267,7 @@ interface AppState {
 
   // Forms
   addForm: (form: Omit<FormRecord, 'id' | 'createdAt' | 'updatedAt'>) => FormRecord;
+  cloneForm: (sourceFormId: ID) => Promise<FormRecord | null>;
   updateForm: (id: ID, data: Partial<FormRecord>) => Promise<boolean>;
   deleteForm: (id: ID) => void;
   addFormField: (field: Omit<FormField, 'id'> & { id?: ID }) => Promise<FormField | null>;
@@ -1659,6 +1660,25 @@ export const useStore = create<AppState>()((set, get) => ({
         });
 
         return form;
+      },
+      cloneForm: async (sourceFormId) => {
+        try {
+          const response = await ensureOk(fetch('/api/forms?action=clone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ sourceFormId }),
+          }));
+          const payload = await response.json() as { form: FormRecord; fields: FormField[] };
+          set((state) => ({
+            forms: [...state.forms, payload.form],
+            formFields: [...state.formFields, ...payload.fields],
+          }));
+          return payload.form;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Form could not be cloned.') });
+          return null;
+        }
       },
       updateForm: async (id, data) => {
         const previous = get().forms;

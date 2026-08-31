@@ -2145,6 +2145,15 @@ export async function listFilesForBusiness(businessId) {
     uploadStatus: item.uploadStatus,
     pendingReason: item.pendingReason,
     etag: item.etag,
+    checksumSha256: item.checksumSha256,
+    formId: item.formId,
+    fieldId: item.fieldId,
+    clientSubmissionId: item.clientSubmissionId,
+    workflowOccurrenceId: item.workflowOccurrenceId,
+    workflowRequirementId: item.workflowRequirementId,
+    signerEmployeeId: item.signerEmployeeId,
+    signerUserId: item.signerUserId,
+    claimedSubmissionId: item.claimedSubmissionId,
   }));
 }
 
@@ -2184,6 +2193,15 @@ export async function getFileForBusiness(businessId, fileId) {
     uploadStatus: result.Item.uploadStatus,
     pendingReason: result.Item.pendingReason,
     etag: result.Item.etag,
+    checksumSha256: result.Item.checksumSha256,
+    formId: result.Item.formId,
+    fieldId: result.Item.fieldId,
+    clientSubmissionId: result.Item.clientSubmissionId,
+    workflowOccurrenceId: result.Item.workflowOccurrenceId,
+    workflowRequirementId: result.Item.workflowRequirementId,
+    signerEmployeeId: result.Item.signerEmployeeId,
+    signerUserId: result.Item.signerUserId,
+    claimedSubmissionId: result.Item.claimedSubmissionId,
   };
 }
 
@@ -2225,6 +2243,8 @@ export async function listFormsForBusiness(businessId) {
     completionRequirement: item.completionRequirement ?? 'reminder',
     requiresApproval: item.requiresApproval === true,
     division: item.division,
+    clonedFromFormId: item.clonedFromFormId,
+    createdByUserId: item.createdByUserId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }));
@@ -2273,6 +2293,8 @@ export async function getFormForBusiness(businessId, formId) {
         completionRequirement: result.Item.completionRequirement ?? 'reminder',
         requiresApproval: result.Item.requiresApproval === true,
         division: result.Item.division,
+        clonedFromFormId: result.Item.clonedFromFormId,
+        createdByUserId: result.Item.createdByUserId,
         createdAt: result.Item.createdAt,
         updatedAt: result.Item.updatedAt,
       }
@@ -2309,6 +2331,58 @@ export async function deleteFormForBusiness(businessId, formId) {
     })
   );
 
+  return { ok: true };
+}
+
+export async function cloneFormForBusiness({ businessId, form, fields, auditEvent }) {
+  if (!Array.isArray(fields) || fields.length > 98) {
+    throw new RangeError('A Form clone can contain at most 98 fields.');
+  }
+  const transactionItems = [
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formSk(form.id),
+          entityType: 'FORM',
+          businessId,
+          formId: form.id,
+          ...form,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+    ...fields.map((field) => ({
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formFieldSk(field.id),
+          entityType: 'FORM_FIELD',
+          businessId,
+          formFieldId: field.id,
+          ...field,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    })),
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: auditEventSk(auditEvent.id),
+          entityType: 'AUDIT_EVENT',
+          businessId,
+          eventId: auditEvent.id,
+          ...auditEvent,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+  ];
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
   return { ok: true };
 }
 
@@ -2566,8 +2640,8 @@ export async function getEmployeeFormSubmissionIdempotency({ businessId, employe
   } : null;
 }
 
-export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency, workflowCompletion }) {
-  const maximumResponses = 100 - 1 - (idempotency ? 1 : 0) - (workflowCompletion ? 1 : 0);
+export async function createEmployeeFormSubmissionForBusiness({ businessId, submission, responses, idempotency, workflowCompletion, signatureClaims = [] }) {
+  const maximumResponses = 100 - 1 - (idempotency ? 1 : 0) - (workflowCompletion ? 1 : 0) - signatureClaims.length;
   if (!Array.isArray(responses) || responses.length > maximumResponses) {
     throw new RangeError(`A form submission can contain at most ${maximumResponses} answers.`);
   }
@@ -2620,6 +2694,26 @@ export async function createEmployeeFormSubmissionForBusiness({ businessId, subm
         ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
       },
     })),
+    ...signatureClaims.map((claim) => ({
+      Update: {
+        TableName: tableName,
+        Key: { PK: businessPk(businessId), SK: fileSk(claim.fileId) },
+        UpdateExpression: 'SET claimedSubmissionId = :submissionId, signedAt = :signedAt REMOVE #ttl, expiresAt',
+        ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND uploadStatus = :uploaded AND attribute_not_exists(claimedSubmissionId) AND entityType = :entityType AND formId = :formId AND fieldId = :fieldId AND clientSubmissionId = :clientSubmissionId AND signerEmployeeId = :employeeId AND signerUserId = :userId',
+        ExpressionAttributeNames: { '#ttl': 'ttl' },
+        ExpressionAttributeValues: {
+          ':submissionId': submission.id,
+          ':signedAt': claim.signedAt,
+          ':uploaded': 'uploaded',
+          ':entityType': 'form-signature',
+          ':formId': submission.formId,
+          ':fieldId': claim.fieldId,
+          ':clientSubmissionId': submission.clientSubmissionId,
+          ':employeeId': submission.employeeId,
+          ':userId': submission.submittedByUserId,
+        },
+      },
+    })),
     ...(workflowCompletion ? [workflowCompletion] : []),
   ];
   await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
@@ -2644,6 +2738,11 @@ export async function listFormResponsesForBusiness(businessId) {
     fieldId: item.fieldId,
     value: typeof item.value === 'string' ? item.value : JSON.stringify(item.value ?? ''),
     fileIds: Array.isArray(item.fileIds) ? item.fileIds : undefined,
+    labelSnapshot: item.labelSnapshot,
+    typeSnapshot: item.typeSnapshot,
+    signedAt: item.signedAt,
+    signerEmployeeId: item.signerEmployeeId,
+    signerUserId: item.signerUserId,
     employeeId: item.employeeId,
   }));
 }
@@ -2685,6 +2784,11 @@ export async function getFormResponseForBusiness(businessId, formResponseId) {
         fieldId: result.Item.fieldId,
         value: typeof result.Item.value === 'string' ? result.Item.value : JSON.stringify(result.Item.value ?? ''),
         fileIds: Array.isArray(result.Item.fileIds) ? result.Item.fileIds : undefined,
+        labelSnapshot: result.Item.labelSnapshot,
+        typeSnapshot: result.Item.typeSnapshot,
+        signedAt: result.Item.signedAt,
+        signerEmployeeId: result.Item.signerEmployeeId,
+        signerUserId: result.Item.signerUserId,
         employeeId: result.Item.employeeId,
       }
     : null;

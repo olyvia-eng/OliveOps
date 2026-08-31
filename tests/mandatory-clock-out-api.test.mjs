@@ -120,7 +120,7 @@ function seedActiveShift(store, { businessId, employeeId, entryId, jobIds = [] }
   });
 }
 
-function seedForm(store, { businessId, id, completionRequirement = 'required', assignedTo = 'everyone', assignmentValue, requiresApproval = false, acceptedResponse }) {
+function seedForm(store, { businessId, id, completionRequirement = 'required', assignedTo = 'everyone', assignmentValue, requiresApproval = false, acceptedResponse, signature = false }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), {
     PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: `Form ${id}`,
@@ -131,6 +131,23 @@ function seedForm(store, { businessId, id, completionRequirement = 'required', a
     PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId,
     formFieldId: `${id}-notes`, formId: id, type: acceptedResponse ? 'yes_no' : 'single_line_text', label: 'Notes', required: true, options: [], acceptedResponse, order: 0,
   });
+  if (signature) store.set(key(pk, `FORM_FIELD#${id}-signature`), {
+    PK: pk, SK: `FORM_FIELD#${id}-signature`, entityType: 'FORM_FIELD', businessId,
+    formFieldId: `${id}-signature`, formId: id, type: 'signature', label: 'Employee Signature', required: true, options: [], order: 1,
+  });
+}
+
+function seedSignatureFile(store, context, requirement, clientSubmissionId) {
+  const fileId = `${requirement.formId}-signature-file`;
+  const pk = `BUSINESS#${context.businessId}`;
+  store.set(key(pk, `FILE#${fileId}`), {
+    PK: pk, SK: `FILE#${fileId}`, entityType: 'form-signature', businessId: context.businessId, fileId,
+    category: 'signature', uploadStatus: 'uploaded', mimeType: 'image/png', sizeBytes: 1024, checksumSha256: 'signature-checksum',
+    formId: requirement.formId, fieldId: `${requirement.formId}-signature`, clientSubmissionId,
+    workflowOccurrenceId: context.workflowOccurrenceId, workflowRequirementId: requirement.requirementId,
+    signerEmployeeId: context.employeeId, signerUserId: 'user-a',
+  });
+  return fileId;
 }
 
 async function clockingRequest(token, { method = 'POST', action, body = {}, query = {} }) {
@@ -292,6 +309,29 @@ test('clock-out uses immutable accepted-response and approval rules without appr
   });
   assert.equal(accepted.statusCode, 201);
   assert.equal(accepted.body.submission.status, 'pending_review');
+  assert.equal((await clockingRequest(context.token, { action: 'clock-out-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } })).statusCode, 200);
+});
+
+test('after-clock-out accepted response and required Signature complete pending-review workflow together', async (t) => {
+  const context = await setup(t, { forms: [{
+    id: 'signed-safety', requiresApproval: true, signature: true,
+    acceptedResponse: { value: 'yes', message: 'Confirm fitness.' },
+  }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  const requirement = initiated.body.requiredForms[0];
+  const clientSubmissionId = 'after-clock-out-signature-001';
+  const fileId = seedSignatureFile(context.store, { ...context, workflowOccurrenceId: initiated.body.workflowOccurrenceId }, requirement, clientSubmissionId);
+  const submitted = await formRequest(context.token, {
+    formId: requirement.formId, trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId, clientSubmissionId,
+    responses: [
+      { fieldId: 'signed-safety-notes', value: 'yes' },
+      { fieldId: 'signed-safety-signature', fileIds: [fileId] },
+    ],
+  });
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.status, 'pending_review');
+  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `FILE#${fileId}`)).claimedSubmissionId, submitted.body.submission.id);
   assert.equal((await clockingRequest(context.token, { action: 'clock-out-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } })).statusCode, 200);
 });
 

@@ -106,7 +106,7 @@ async function seedEmployee(store, { businessId, employeeId, userId, token, acti
   await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role: 'crew_member', employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
-function seedForm(store, { businessId, id, trigger = ['before_clock_in'], completionRequirement = 'required', assignedTo = 'everyone', assignmentValue }) {
+function seedForm(store, { businessId, id, trigger = ['before_clock_in'], completionRequirement = 'required', assignedTo = 'everyone', assignmentValue, signature = false }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), {
     PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: `Form ${id}`,
@@ -115,8 +115,21 @@ function seedForm(store, { businessId, id, trigger = ['before_clock_in'], comple
   });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), {
     PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId,
-    formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0,
+    formFieldId: `${id}-notes`, formId: id, type: signature ? 'signature' : 'single_line_text', label: signature ? 'Employee Signature' : 'Notes', required: true, options: [], order: 0,
   });
+}
+
+function seedSignatureFile(store, context, requirement, clientSubmissionId) {
+  const fileId = `${requirement.formId}-signature-file`;
+  const pk = `BUSINESS#${context.businessId}`;
+  store.set(key(pk, `FILE#${fileId}`), {
+    PK: pk, SK: `FILE#${fileId}`, entityType: 'form-signature', businessId: context.businessId, fileId,
+    category: 'signature', uploadStatus: 'uploaded', mimeType: 'image/png', sizeBytes: 1024, checksumSha256: 'signature-checksum',
+    formId: requirement.formId, fieldId: `${requirement.formId}-notes`, clientSubmissionId,
+    workflowOccurrenceId: context.workflowOccurrenceId, workflowRequirementId: requirement.requirementId,
+    signerEmployeeId: context.employeeId, signerUserId: 'user-a',
+  });
+  return fileId;
 }
 
 function seedJob(store, { businessId, id, status, employeeId }) {
@@ -393,6 +406,22 @@ test('submission atomically completes requirement, replays idempotently, and fin
   assert.equal(duplicateFinalize.body.status, 'clock_in_already_finalized');
   assert.equal(duplicateFinalize.body.timeEntry.id, finalized.body.timeEntry.id);
   assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
+});
+
+test('required before-clock-in Signature claims its artifact before workflow finalization', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'signature-required', signature: true }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
+  const requirement = initiated.body.requiredForms[0];
+  const clientSubmissionId = 'before-clock-in-signature-001';
+  const fileId = seedSignatureFile(context.store, { ...context, workflowOccurrenceId: initiated.body.workflowOccurrenceId }, requirement, clientSubmissionId);
+  const submitted = await formRequest(context.token, {
+    formId: requirement.formId, trigger: 'before_clock_in', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId, clientSubmissionId,
+    responses: [{ fieldId: 'signature-required-notes', fileIds: [fileId] }],
+  });
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `FILE#${fileId}`)).claimedSubmissionId, submitted.body.submission.id);
+  assert.equal((await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } })).statusCode, 200);
 });
 
 test('persisted before-clock-in workflow remains completable after its job closes', async (t) => {

@@ -954,6 +954,8 @@ export interface FormRecord {
   completionRequirement?: 'reminder' | 'required';
   requiresApproval?: boolean;
   division?: string;
+  clonedFromFormId?: ID;
+  createdByUserId?: ID;
   createdAt: string;
   updatedAt: string;
 }
@@ -1001,6 +1003,11 @@ export interface FormResponse {
   fieldId: ID;
   value: string;
   fileIds?: ID[];
+  labelSnapshot?: string;
+  typeSnapshot?: FormFieldType;
+  signedAt?: string;
+  signerEmployeeId?: ID;
+  signerUserId?: ID;
   employeeId?: ID;
 }
 

@@ -159,3 +159,23 @@ test('field configuration is contextual and option editing is structured', async
   assert.match(source, /activeTab !== 'builder' &&/);
   assert.match(source, /field\.type === 'date' && field\.defaultValue\?\.toLowerCase\(\) === 'today'/);
 });
+
+test('Signature uses reusable pointer capture with Clear and Form cloning opens the returned draft', async () => {
+  const formsSource = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
+  const signatureSource = await readFile(new URL('../src/components/forms/SignaturePad.tsx', import.meta.url), 'utf8');
+  assert.match(formsSource, /<SignaturePad/);
+  assert.doesNotMatch(formsSource, /Type full name to sign/);
+  assert.match(formsSource, /Clone Form/);
+  assert.match(formsSource, /await cloneForm\(formId\)/);
+  assert.match(formsSource, /setActiveTab\('builder'\)/);
+  assert.match(formsSource, /response\.typeSnapshot \?\? field\?\.type/);
+  assert.match(formsSource, /response\.labelSnapshot \?\? field\?\.label/);
+  assert.match(signatureSource, /onPointerDown/);
+  assert.match(signatureSource, /onPointerMove/);
+  assert.match(signatureSource, /onPointerUp/);
+  assert.match(signatureSource, /setPointerCapture/);
+  assert.match(signatureSource, /touch-none/);
+  assert.match(signatureSource, />Clear<\/Button>/);
+  assert.match(signatureSource, /toBlob\([^]*'image\/png'/);
+  assert.match(signatureSource, /aria-label=\{`\$\{label\} signature pad`\}/);
+});

@@ -49,10 +49,18 @@ function baseDeps(overrides = {}) {
     getExpenseForBusiness: async () => ({ id: 'expense-1', vendor: 'Acme', description: 'd', category: 'other', expenseDate: '2026-01-01', amount: 10, status: 'pending', notes: '' }),
     getFileForBusiness: async () => null,
     getEstimateForBusiness: async () => null,
+    getFormForBusiness: async () => null,
+    getFormFieldForBusiness: async () => null,
+    getFormSubmissionForBusiness: async () => null,
+    getClockInWorkflowForBusiness: async () => null,
+    findClockInWorkflowRequirement: () => null,
+    getClockOutWorkflowForBusiness: async () => null,
+    findWorkflowRequirement: () => null,
     getJobForBusiness: async () => null,
     getEmployeeForBusiness: async () => null,
     getFeedbackForBusiness: async () => null,
     getTimeEntryForBusiness: async () => ({ id: 'time-1', employeeId: 'emp-1', status: 'clocked_in' }),
+    listEmployeesForBusiness: async () => [{ id: 'emp-1', userId: 'user-1', active: true }],
     listFilesForBusiness: async () => [],
     updateFeedbackForBusiness: async () => ({ ok: true }),
     updateExpenseForBusiness: async () => ({ ok: true }),
@@ -205,6 +213,66 @@ test('successful prepare-upload returns presigned URL payload', async () => {
   assert.equal(res.body.expiresAt, '2026-08-06T10:10:00.000Z');
   assert.equal(pendingFile.uploadStatus, 'pending');
   assert.equal(pendingFile.objectKey, 'biz-1/file-1/photo.jpg');
+});
+
+test('Form signature prepare-upload enforces PNG policy and stores trusted binding context', async () => {
+  let pendingFile;
+  let trustedPlan;
+  const handler = createStorageHandler(baseDeps({
+    getFormForBusiness: async () => ({ id: 'form-1' }),
+    getFormFieldForBusiness: async () => ({ id: 'field-1', formId: 'form-1', type: 'signature' }),
+    createPendingFileForBusiness: async ({ file }) => { pendingFile = file; return { ok: true }; },
+    createPresignedUploadUrl: async ({ plan }) => { trustedPlan = plan; return { ok: true, uploadUrl: 'https://signed.example/signature', plan }; },
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: {
+    action: 'prepare-upload', entityType: 'form-signature', entityId: 'signature-submission-001', category: 'signature',
+    formId: 'form-1', fieldId: 'field-1', clientSubmissionId: 'signature-submission-001',
+    workflowOccurrenceId: 'workflow-1', workflowRequirementId: 'requirement-1',
+    fileName: 'signature.png', mimeType: 'image/png', sizeBytes: 20_000,
+  } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.requiredHeaders, { 'Content-Type': 'image/png', 'If-None-Match': '*' });
+  assert.equal(trustedPlan.writeOnce, true);
+  assert.equal(pendingFile.formId, 'form-1');
+  assert.equal(pendingFile.fieldId, 'field-1');
+  assert.equal(pendingFile.signerEmployeeId, 'emp-1');
+  assert.equal(pendingFile.signerUserId, 'user-1');
+  assert.equal(pendingFile.workflowOccurrenceId, 'workflow-1');
+});
+
+test('Form signature prepare-upload rejects non-PNG and oversized payloads', async () => {
+  const handler = createStorageHandler(baseDeps({
+    getFormForBusiness: async () => ({ id: 'form-1' }),
+    getFormFieldForBusiness: async () => ({ id: 'field-1', formId: 'form-1', type: 'signature' }),
+  }));
+  for (const [fileName, mimeType, sizeBytes] of [
+    ['signature.jpg', 'image/jpeg', 1000],
+    ['signature.png', 'image/png', 2 * 1024 * 1024 + 1],
+  ]) {
+    const res = createMockRes();
+    await handler({ method: 'POST', body: {
+      action: 'prepare-upload', entityType: 'form-signature', entityId: 'signature-submission-001', category: 'signature',
+      formId: 'form-1', fieldId: 'field-1', clientSubmissionId: 'signature-submission-001', fileName, mimeType, sizeBytes,
+    } }, res);
+    assert.equal(res.statusCode, 400);
+  }
+});
+
+test('finalized Form signatures cannot be deleted through generic storage', async () => {
+  let removed = false;
+  const handler = createStorageHandler(baseDeps({
+    getFileForBusiness: async () => ({
+      id: 'file-1', entityType: 'form-signature', entityId: 'signature-submission-001', category: 'signature',
+      claimedSubmissionId: 'submission-1', objectKey: 'biz-1/file-1/signature.png', uploadStatus: 'uploaded',
+    }),
+    removeStoredFile: async () => { removed = true; return { ok: true }; },
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'delete', fileId: 'file-1' } }, res);
+  assert.equal(res.statusCode, 409);
+  assert.equal(removed, false);
 });
 
 test('prepare-upload for expense stores trusted entityType, normalized category, and authoritative entityId', async () => {
