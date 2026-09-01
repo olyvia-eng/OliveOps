@@ -114,3 +114,16 @@ test('upcoming and activity streams use only supplied personal records', () => {
   assert.equal(activity.some((item) => item.id === 'time:other'), false);
   assert.equal(activity.length, 3);
 });
+
+test('recent activity keeps active time first and orders historical shifts by clock-in', () => {
+  const activity = buildRecentActivity({
+    timeEntries: [
+      { id: 'older-edited', employeeId: 'emp-1', status: 'clocked_out', clockIn: '2026-08-29T09:00:00Z', clockOut: '2026-08-31T18:00:00Z' },
+      { id: 'newer', employeeId: 'emp-1', status: 'clocked_out', clockIn: '2026-08-30T09:00:00Z', clockOut: '2026-08-30T17:00:00Z' },
+      { id: 'active', employeeId: 'emp-1', status: 'clocked_in', clockIn: '2026-08-28T09:00:00Z' },
+    ],
+    employeeId: 'emp-1',
+  });
+
+  assert.deepEqual(activity.map((item) => item.id), ['time:active', 'time:newer', 'time:older-edited']);
+});

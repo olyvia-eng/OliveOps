@@ -11,7 +11,7 @@ import type { TimeEntry, TimeOffRequest } from '../../types';
 import { durationHours, formatDateTime } from '../../utils';
 import { parseStorageApiResponse } from '../../utils/fileUpload';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
-import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
+import { getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import { formatTimeOffRange } from '../../utils/timeOff';
 import { getEmployeeRangeStart, scopeEmployeeProfileRecords } from './employeeProfileModel.js';
 
@@ -87,7 +87,7 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
   }, [divisions, employeeCrews]);
   const effectiveTimeEntries = useMemo(() => buildEffectiveTimeEntries(timeEntries, timeCorrections), [timeCorrections, timeEntries]);
   const scopedRecords = useMemo(() => scopeEmployeeProfileRecords({ employeeId, timeEntries: effectiveTimeEntries, timeCorrections, formSubmissions }), [effectiveTimeEntries, employeeId, formSubmissions, timeCorrections]);
-  const employeeEntries = useMemo(() => scopedRecords.timeEntries.sort((left, right) => Date.parse(right.clockIn) - Date.parse(left.clockIn)), [scopedRecords.timeEntries]);
+  const employeeEntries = useMemo(() => sortTimeEntriesNewestFirst(scopedRecords.timeEntries), [scopedRecords.timeEntries]);
   const employeeCorrections = useMemo(() => scopedRecords.timeCorrections.sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt)), [scopedRecords.timeCorrections]);
   const employeeSubmissions = scopedRecords.formSubmissions;
   const activeEntry = employeeEntries.find((entry) => entry.status === 'clocked_in') ?? null;

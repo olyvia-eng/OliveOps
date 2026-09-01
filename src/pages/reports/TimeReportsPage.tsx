@@ -9,7 +9,7 @@ import type { BusinessUserRole } from '../../auth/types';
 import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
-import { getTimeEntryJobLabel, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
+import { getTimeEntryJobLabel, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -247,8 +247,7 @@ export default function TimeReportsPage({
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T23:59:59.999`);
 
-    return [...effectiveTimeEntries]
-      .filter((entry) => {
+    return sortTimeEntriesNewestFirst(effectiveTimeEntries.filter((entry) => {
         const clockInDate = new Date(entry.clockIn);
         if (Number.isNaN(clockInDate.getTime())) return false;
         if (clockInDate < start || clockInDate > end) return false;
@@ -282,12 +281,11 @@ export default function TimeReportsPage({
         const workType = normalizeWorkType(entry);
         if (workTypeFilter !== 'all' && workType !== workTypeFilter) return false;
         return true;
-      })
-      .sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
+      }));
   }, [effectiveTimeEntries, employeeSearchValue, endDate, getEmployeeName, jobFilter, selectedEmployeeId, startDate, unbillableCategoryFilter, workTypeFilter]);
 
   const recentEntries = useMemo(
-    () => [...effectiveTimeEntries].sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime()).slice(0, 20),
+    () => sortTimeEntriesNewestFirst(effectiveTimeEntries).slice(0, 20),
     [effectiveTimeEntries]
   );
 

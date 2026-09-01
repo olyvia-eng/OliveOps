@@ -882,6 +882,8 @@ export interface TimeEntry {
   status: ClockStatus;
   labourCostRateSnapshot?: number;
   labourCostTotalSnapshot?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuditEvent {

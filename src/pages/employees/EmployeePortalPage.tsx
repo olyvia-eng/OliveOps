@@ -5,7 +5,7 @@ import { useStore } from '../../store';
 import { Button, Card, Input, Modal, Select } from '../../components/ui';
 import { durationHours, formatDateTime } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
-import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
+import { getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import type { TimeCorrectionRequestType, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import CalendarPage from '../calendar/CalendarPage';
@@ -94,10 +94,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
 
   const myHistoricalEntries = useMemo(() => {
     if (!employee) return [];
-    return timeEntries
-      .filter((entry) => entry.employeeId === employee.id)
-      .slice()
-      .sort((a, b) => Date.parse(b.clockIn) - Date.parse(a.clockIn));
+    return sortTimeEntriesNewestFirst(timeEntries.filter((entry) => entry.employeeId === employee.id));
   }, [employee, timeEntries]);
 
   const myCorrectionRequests = useMemo(() => {

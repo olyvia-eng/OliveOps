@@ -150,10 +150,10 @@ export function buildRecentActivity({ jobs = [], tasks = [], timeEntries = [], c
   const items = [
     ...tasks.map((task) => ({ id: `task:${task.id}`, kind: 'task', title: task.status === 'completed' ? `Completed ${task.title}` : `Task updated: ${task.title}`, timestamp: task.completedAt || task.updatedAt })),
     ...jobs.map((job) => ({ id: `job:${job.id}`, kind: 'job', title: `Job updated: ${job.title}`, timestamp: job.updatedAt })),
-    ...timeEntries.filter((entry) => entry.employeeId === employeeId).map((entry) => ({ id: `time:${entry.id}`, kind: 'time', title: entry.status === 'clocked_in' ? 'Clocked in' : 'Time entry submitted', timestamp: entry.clockOut || entry.clockIn })),
+    ...timeEntries.filter((entry) => entry.employeeId === employeeId).map((entry) => ({ id: `time:${entry.id}`, kind: 'time', title: entry.status === 'clocked_in' ? 'Clocked in' : 'Time entry submitted', timestamp: entry.clockOut || entry.clockIn, sortAt: entry.clockIn, activeTimeEntry: entry.status === 'clocked_in', timeEntryCreatedAt: entry.createdAt })),
     ...corrections.filter((correction) => correction.employeeId === employeeId).map((correction) => ({ id: `correction:${correction.id}`, kind: 'correction', title: `Time correction ${correction.status}`, timestamp: correction.reviewedAt || correction.updatedAt || correction.submittedAt })),
   ];
   return items.filter((item) => Number.isFinite(Date.parse(item.timestamp || '')))
-    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .sort((left, right) => Number(right.activeTimeEntry) - Number(left.activeTimeEntry) || Date.parse(right.sortAt || right.timestamp) - Date.parse(left.sortAt || left.timestamp) || (Date.parse(right.timeEntryCreatedAt || '') || 0) - (Date.parse(left.timeEntryCreatedAt || '') || 0) || left.id.localeCompare(right.id))
     .slice(0, limit);
 }

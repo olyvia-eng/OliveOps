@@ -14,6 +14,8 @@ type ActivityEvent = {
   label: string;
   timestamp: string;
   sortAt: number;
+  activeTimeEntry?: boolean;
+  timeEntryCreatedAt?: number;
 };
 
 const parseTimestamp = (value?: string) => {
@@ -83,18 +85,19 @@ export default function Dashboard({ businessId = '', businessName = '' }: Dashbo
 
     const timeEntryEvents: ActivityEvent[] = timeEntries.map((entry) => {
       const employee = employees.find((value) => value.id === entry.employeeId);
-      const eventAt = entry.clockOut ?? entry.clockIn;
       return {
         id: `time-${entry.id}`,
         label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out from' : 'clocked in to'} ${getTimeEntryWorkLabel(entry, jobs)}`,
-        timestamp: eventAt,
-        sortAt: parseTimestamp(eventAt),
+        timestamp: entry.clockOut ?? entry.clockIn,
+        sortAt: parseTimestamp(entry.clockIn),
+        activeTimeEntry: entry.status === 'clocked_in',
+        timeEntryCreatedAt: parseTimestamp(entry.createdAt),
       };
     });
 
     return [...estimateEvents, ...jobEvents, ...timeEntryEvents]
       .filter((event) => event.sortAt > 0)
-      .sort((a, b) => b.sortAt - a.sortAt)
+      .sort((a, b) => Number(b.activeTimeEntry) - Number(a.activeTimeEntry) || b.sortAt - a.sortAt || (b.timeEntryCreatedAt ?? 0) - (a.timeEntryCreatedAt ?? 0) || a.id.localeCompare(b.id))
       .slice(0, 8);
   }, [employees, estimates, jobs, timeEntries]);
 

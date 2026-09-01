@@ -12,7 +12,7 @@ import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, Time
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
-import { getTimeEntryWorkAreaLabel } from '../../utils/timeEntryPresentation.js';
+import { getTimeEntryWorkAreaLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
 import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
@@ -155,7 +155,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const jobTimeEntries = useMemo(() => {
     if (!job || !id) return [];
 
-    return effectiveTimeEntries.filter((entry) => normalizeEntryJobIds(entry).includes(id));
+    return sortTimeEntriesNewestFirst(effectiveTimeEntries.filter((entry) => normalizeEntryJobIds(entry).includes(id)));
   }, [effectiveTimeEntries, job, id]);
 
   useEffect(() => {

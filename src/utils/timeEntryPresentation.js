@@ -5,6 +5,26 @@ function normalizeJobIds(entry) {
   return typeof entry?.jobId === 'string' && entry.jobId.trim() ? [entry.jobId] : [];
 }
 
+function timestamp(value) {
+  const parsed = Date.parse(value ?? '');
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+export function sortTimeEntriesNewestFirst(entries) {
+  return [...entries].sort((left, right) => {
+    const activeOrder = Number(right?.status === 'clocked_in') - Number(left?.status === 'clocked_in');
+    if (activeOrder !== 0) return activeOrder;
+
+    const clockInOrder = timestamp(right?.clockIn) - timestamp(left?.clockIn);
+    if (clockInOrder !== 0) return clockInOrder;
+
+    const createdOrder = timestamp(right?.createdAt) - timestamp(left?.createdAt);
+    if (createdOrder !== 0) return createdOrder;
+
+    return String(left?.id ?? '').localeCompare(String(right?.id ?? ''));
+  });
+}
+
 export function getTimeEntryWorkAreaLabel(entry) {
   if (entry?.workType !== 'job') return null;
   const snapshot = typeof entry.workAreaNameSnapshot === 'string' ? entry.workAreaNameSnapshot.trim() : '';
