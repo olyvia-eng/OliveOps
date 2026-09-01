@@ -223,6 +223,17 @@ interface AppState {
   // Time Entries
   clockIn: (employeeId: ID, options: { workType: TimeEntryWorkType; jobIds?: ID[]; workAreaId?: ID; unbillableCategoryId?: ID }) => Promise<ClockingActionResult>;
   clockOut: (entryId: ID, breakMinutes?: number, notes?: string, photoAttachmentFileId?: string) => Promise<ClockingActionResult>;
+  editTimeEntry: (entryId: ID, payload: {
+    expectedUpdatedAt: string | null;
+    clockIn: string;
+    clockOut?: string;
+    workType: TimeEntryWorkType;
+    jobId?: ID;
+    workAreaId?: ID | null;
+    unbillableCategoryId?: ID;
+    notes: string;
+    reason?: string;
+  }) => Promise<{ ok: boolean; code?: string; error?: string; timeEntry?: TimeEntry }>;
   addTimeEntry: (e: Omit<TimeEntry, 'id'>) => void;
   updateTimeEntry: (id: ID, data: Partial<TimeEntry>) => void;
   deleteTimeEntry: (id: ID) => void;
@@ -1348,6 +1359,35 @@ export const useStore = create<AppState>()((set, get) => ({
           }));
         }
       },
+      editTimeEntry: async (entryId, payload) => {
+        try {
+          const response = await fetch('/api/clocking?action=edit-time-entry', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ entryId, ...payload }),
+          });
+          const body = await response.json().catch(() => null) as {
+            ok?: boolean;
+            code?: string;
+            error?: string;
+            timeEntry?: TimeEntry;
+          } | null;
+          if (!response.ok || !body?.ok || !body.timeEntry) {
+            return {
+              ok: false,
+              code: body?.code,
+              error: body?.error ?? `Time Entry could not be updated (HTTP ${response.status}).`,
+            };
+          }
+          set((state) => ({
+            timeEntries: state.timeEntries.map((entry) => entry.id === body.timeEntry?.id ? body.timeEntry : entry),
+          }));
+          return { ok: true, timeEntry: body.timeEntry };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error, 'Time Entry could not be updated.') };
+        }
+      },
       addTimeEntry: (e) => {
         const previous = get().timeEntries;
         const timeEntry: TimeEntry = { ...e, id: generateId() };
@@ -1449,6 +1489,7 @@ export const useStore = create<AppState>()((set, get) => ({
             error?: string;
             correction?: TimeCorrectionRequest;
             createdTimeEntry?: TimeEntry;
+            updatedTimeEntry?: TimeEntry;
           } | null;
 
           if (!response.ok || !body?.ok || !body.correction) {
@@ -1464,7 +1505,9 @@ export const useStore = create<AppState>()((set, get) => ({
             )),
             timeEntries: body.createdTimeEntry
               ? [...state.timeEntries, body.createdTimeEntry]
-              : state.timeEntries,
+              : body.updatedTimeEntry
+                ? state.timeEntries.map((entry) => entry.id === body.updatedTimeEntry?.id ? body.updatedTimeEntry : entry)
+                : state.timeEntries,
           }));
 
           return { ok: true, correction: body.correction };

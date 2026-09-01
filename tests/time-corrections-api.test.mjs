@@ -48,6 +48,8 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
       breakMinutes: 0,
       notes: 'Raw notes',
       status: 'clocked_out',
+      createdAt: '2026-08-06T12:00:00.000Z',
+      updatedAt: '2026-08-06T20:30:00.000Z',
     },
   ];
   const jobs = [
@@ -119,6 +121,24 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     return { ok: true, eventId: `audit-${target.id}` };
   };
 
+  const applyTimeEntryMutation = async ({ timeEntryId, changes, reason, correction, now: changedAt }) => {
+    const entry = timeEntries.find((item) => item.id === timeEntryId);
+    const target = corrections.find((item) => item.id === correction.id);
+    if (!entry || !target || target.status !== 'pending') return { ok: false, status: 409, code: 'time_entry_conflict', error: 'Conflict' };
+    Object.assign(entry, changes, {
+      jobIds: changes.workType === 'job' && changes.jobId ? [changes.jobId] : [],
+      workAreaNameSnapshot: changes.workAreaId === 'area-2' ? 'Framing' : entry.workAreaNameSnapshot,
+      updatedAt: changedAt,
+    });
+    target.status = 'approved';
+    target.reviewedByUserId = `user-${sessionRole}`;
+    target.reviewedAt = changedAt;
+    target.reviewNote = reason;
+    target.updatedAt = changedAt;
+    target.mutationAppliedAt = changedAt;
+    return { ok: true, timeEntry: { ...entry }, auditEventId: `audit-${target.id}` };
+  };
+
   const handler = createTimeCorrectionsHandler({
     requireSession,
     createTimeCorrectionForBusiness,
@@ -132,6 +152,7 @@ function createHarness({ sessionRole = 'crew_member', employeePaidDriveTimeEnabl
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
     listCrewsForBusiness,
+    applyTimeEntryMutation,
     now: () => now,
   });
 
@@ -282,8 +303,8 @@ test('employee cannot submit a correction using another employee or unauthorized
   assert.equal(otherJob.statusCode, 403);
 });
 
-test('owner can approve and duplicate approval is idempotent', async () => {
-  const { handler, corrections } = createHarness({ sessionRole: 'owner', employeePaidDriveTimeEnabled: true });
+test('owner can approve through shared mutation and duplicate approval is idempotent', async () => {
+  const { handler, corrections, timeEntries } = createHarness({ sessionRole: 'owner', employeePaidDriveTimeEnabled: true });
   corrections.push({
     id: 'corr-2',
     employeeId: 'emp-1',
@@ -305,6 +326,9 @@ test('owner can approve and duplicate approval is idempotent', async () => {
   assert.equal(first.statusCode, 200);
   assert.equal(first.body.ok, true);
   assert.equal(first.body.correction.status, 'approved');
+  assert.equal(first.body.correction.mutationAppliedAt, '2026-08-07T12:00:00.000Z');
+  assert.equal(first.body.updatedTimeEntry.jobId, 'job-2');
+  assert.equal(timeEntries[0].jobId, 'job-2');
 
   const second = createMockRes();
   await handler(approveReq, second);

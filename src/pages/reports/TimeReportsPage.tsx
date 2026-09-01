@@ -10,6 +10,8 @@ import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } 
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
+import EditTimeEntryModal from '../../components/time/EditTimeEntryModal';
+import { Pencil } from 'lucide-react';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -78,6 +80,7 @@ export default function TimeReportsPage({
     employees,
     unbillableTimeCategories,
     updateTimeEntry,
+    editTimeEntry,
     approveTimeCorrectionRequest,
     rejectTimeCorrectionRequest,
   } = useStore();
@@ -96,6 +99,7 @@ export default function TimeReportsPage({
   const [reviewingCorrectionId, setReviewingCorrectionId] = useState<string | null>(null);
   const [correctionStatusFilter, setCorrectionStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
+  const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
   const detailSectionRef = useRef<HTMLDivElement | null>(null);
 
   const correctionHighlightId = useMemo(() => {
@@ -965,11 +969,12 @@ export default function TimeReportsPage({
                 <th className="py-2 font-medium">Clock Out</th>
                 <th className="py-2 font-medium">Notes</th>
                 <th className="py-2 font-medium text-right">Duration</th>
+                <th className="px-4 py-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredEntries.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
               ) : filteredEntries.map((entry) => {
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const isFocusedEmployee = selectedEmployeeId === entry.employeeId;
@@ -997,6 +1002,9 @@ export default function TimeReportsPage({
                       ) : null}
                     </td>
                     <td className="py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
+                    <td className="px-4 py-2 text-right">
+                      {(currentUserRole === 'owner' || currentUserRole === 'admin') ? <Button variant="ghost" size="sm" onClick={() => setEditingTimeEntry(entry)}><Pencil size={14} /> Edit</Button> : null}
+                    </td>
                   </tr>
                 );
               })}
@@ -1089,6 +1097,14 @@ export default function TimeReportsPage({
       {currentUserRole !== 'admin' && (
         <p className="mt-4 text-xs text-gray-500">Backfill tools are restricted to admin users.</p>
       )}
+      <EditTimeEntryModal
+        entry={editingTimeEntry}
+        employeeName={editingTimeEntry ? getEmployeeName(editingTimeEntry.employeeId) : ''}
+        jobs={jobs}
+        unbillableCategories={unbillableTimeCategories}
+        onClose={() => setEditingTimeEntry(null)}
+        onSave={editTimeEntry}
+      />
     </div>
   );
 }

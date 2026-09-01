@@ -47,6 +47,7 @@ import {
   resolveBeforeClockInForms,
 } from './_lib/mandatoryClockIn.js';
 import { finalizePendingClockIn, finalizePendingClockOut } from './_lib/mandatoryClockingFinalization.js';
+import { applyTimeEntryMutation, canDirectlyEditTimeEntries } from './_lib/timeEntryMutations.js';
 import { calculateEmployeeLabourCost } from '../src/utils/employeeLabourCost.js';
 import {
   resolveClockingWorkArea,
@@ -286,6 +287,38 @@ export default async function handler(req, res) {
     const workflow = await getPendingClockInWorkflowForEmployee(session.businessId, employeeId);
     if (!workflow) return res.status(200).json({ ok: true, blocked: false, status: 'no_pending_clock_in', workflow: null });
     return res.status(200).json({ ok: true, blocked: true, ...clockInWorkflowStatus(workflow) });
+  }
+
+  if (req.method === 'PATCH' && action === 'edit-time-entry') {
+    if (!canDirectlyEditTimeEntries(session)) {
+      return res.status(403).json({ ok: false, code: 'time_entry_edit_forbidden', error: 'Forbidden' });
+    }
+    const timeEntryId = getTimeEntryIdFromRequest(req.body);
+    if (!timeEntryId) {
+      return res.status(400).json({ ok: false, code: 'time_entry_required', error: 'Time Entry is required.' });
+    }
+    if (!Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expectedUpdatedAt')) {
+      return res.status(400).json({ ok: false, code: 'time_entry_version_required', error: 'Time Entry version is required.' });
+    }
+    const result = await applyTimeEntryMutation({
+      session,
+      timeEntryId,
+      expectedUpdatedAt: req.body.expectedUpdatedAt ?? null,
+      changes: {
+        clockIn: req.body.clockIn,
+        clockOut: req.body.clockOut,
+        workType: req.body.workType,
+        jobId: req.body.jobId,
+        workAreaId: req.body.workAreaId,
+        unbillableCategoryId: req.body.unbillableCategoryId,
+        notes: req.body.notes,
+      },
+      reason: typeof req.body.reason === 'string' ? req.body.reason.trim() : '',
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ ok: false, code: result.code, error: result.error });
+    }
+    return res.status(200).json({ ok: true, timeEntry: result.timeEntry, auditEventId: result.auditEventId });
   }
 
   if (req.method !== 'POST') {

@@ -23,6 +23,7 @@ import {
 import { authorizeRecordAccess } from './authorization.js';
 import { listCrewsForBusiness } from './schedulingConfig.js';
 import { resolveClockingWorkArea } from './jobWorkAreas.js';
+import { applyTimeEntryMutation } from './timeEntryMutations.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -199,6 +200,7 @@ export function createTimeCorrectionsHandler(overrides = {}) {
     rejectTimeCorrectionForBusiness,
     listTimeEntriesForBusiness,
     listCrewsForBusiness,
+    applyTimeEntryMutation,
     now: nowIso,
     ...overrides,
   };
@@ -451,6 +453,37 @@ export function createTimeCorrectionsHandler(overrides = {}) {
           employeeId: correction.employeeId,
           reviewedAt,
         });
+      }
+
+      if (existingEntry) {
+        const nextWorkType = correction.requestedActivityType ?? existingEntry.workType;
+        const changesActivityOrJob = correction.requestedActivityType !== undefined || correction.requestedJobId !== undefined;
+        const mutation = await deps.applyTimeEntryMutation({
+          session,
+          timeEntryId: existingEntry.id,
+          expectedUpdatedAt: existingEntry.updatedAt ?? null,
+          changes: {
+            clockIn: correction.requestedClockInAt ?? existingEntry.clockIn,
+            clockOut: correction.requestedClockOutAt ?? existingEntry.clockOut,
+            workType: nextWorkType,
+            jobId: nextWorkType === 'job' ? (correction.requestedJobId ?? existingEntry.jobId ?? existingEntry.jobIds?.[0]) : undefined,
+            workAreaId: nextWorkType === 'job'
+              ? (changesActivityOrJob ? correction.requestedWorkAreaId ?? null : existingEntry.workAreaId ?? null)
+              : undefined,
+            unbillableCategoryId: nextWorkType === 'non_billable'
+              ? (correction.requestedUnbillableCategoryId ?? existingEntry.unbillableCategoryId)
+              : undefined,
+            notes: existingEntry.notes,
+          },
+          reason: reviewNote || correction.reason,
+          correction,
+          now: reviewedAt,
+        });
+        if (!mutation.ok) {
+          return res.status(mutation.status).json({ ok: false, code: mutation.code, error: mutation.error });
+        }
+        const approved = await deps.getTimeCorrectionForBusiness(session.businessId, correction.id);
+        return res.status(200).json({ ok: true, correction: approved, updatedTimeEntry: mutation.timeEntry });
       }
 
       const result = await deps.approveTimeCorrectionForBusiness({

@@ -17,7 +17,7 @@ export function buildEffectiveTimeEntries(
   const approvedByEntryId = new Map<string, TimeCorrectionRequest>();
 
   for (const correction of timeCorrections) {
-    if (correction.status !== 'approved' || !correction.timeEntryId) continue;
+    if (correction.status !== 'approved' || correction.mutationAppliedAt || !correction.timeEntryId) continue;
 
     const existing = approvedByEntryId.get(correction.timeEntryId);
     if (!existing || correctionSortTimestamp(correction) >= correctionSortTimestamp(existing)) {
@@ -28,6 +28,8 @@ export function buildEffectiveTimeEntries(
   return timeEntries.map((entry) => {
     const correction = approvedByEntryId.get(entry.id);
     if (!correction) return entry;
+    const entryUpdatedAt = Date.parse(entry.updatedAt ?? '') || 0;
+    if (entryUpdatedAt > correctionSortTimestamp(correction)) return entry;
 
     const nextWorkType = correction.requestedActivityType ?? entry.workType;
     const nextUnbillableCategoryId = nextWorkType === 'non_billable'

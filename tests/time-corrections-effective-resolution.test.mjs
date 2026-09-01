@@ -52,6 +52,32 @@ test('approved correction overrides effective end time and preserves raw source 
   assert.equal(entries[0].clockOut, '2026-08-06T22:00:00.000Z');
 });
 
+test('physically applied approved correction does not overlay the authoritative entry again', () => {
+  const entries = [{ ...baseEntry, clockOut: '2026-08-06T18:00:00.000Z' }];
+  const corrections = [{
+    id: 'corr-applied',
+    timeEntryId: 'entry-1',
+    status: 'approved',
+    requestedClockOutAt: '2026-08-06T16:30:00.000Z',
+    mutationAppliedAt: '2026-08-07T00:00:00.000Z',
+    reviewedAt: '2026-08-07T00:00:00.000Z',
+  }];
+  const effective = buildEffectiveTimeEntries(entries, corrections);
+  assert.equal(effective[0].clockOut, '2026-08-06T18:00:00.000Z');
+});
+
+test('newer direct edit supersedes a legacy approved correction overlay', () => {
+  const entries = [{ ...baseEntry, clockOut: '2026-08-06T18:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z' }];
+  const corrections = [{
+    id: 'corr-legacy',
+    timeEntryId: 'entry-1',
+    status: 'approved',
+    requestedClockOutAt: '2026-08-06T16:30:00.000Z',
+    reviewedAt: '2026-08-07T00:00:00.000Z',
+  }];
+  assert.equal(buildEffectiveTimeEntries(entries, corrections)[0].clockOut, '2026-08-06T18:00:00.000Z');
+});
+
 test('rejected corrections do not alter effective values', () => {
   const entries = [baseEntry];
   const corrections = [

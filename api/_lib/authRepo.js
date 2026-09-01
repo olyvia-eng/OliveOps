@@ -5054,6 +5054,8 @@ export async function listTimeEntriesForBusiness(businessId, { consistentRead = 
     status: item.status,
     labourCostRateSnapshot: item.labourCostRateSnapshot,
     labourCostTotalSnapshot: item.labourCostTotalSnapshot,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
   };
   });
 }
@@ -5124,6 +5126,8 @@ export async function getTimeEntryForBusiness(businessId, entryId) {
         status: result.Item.status,
         labourCostRateSnapshot: result.Item.labourCostRateSnapshot,
         labourCostTotalSnapshot: result.Item.labourCostTotalSnapshot,
+        createdAt: result.Item.createdAt,
+        updatedAt: result.Item.updatedAt,
       };
       })()
     : null;
@@ -5195,6 +5199,8 @@ function mapTimeCorrectionRecordFromItem(item) {
     originalWorkAreaNameSnapshot: item.originalWorkAreaNameSnapshot,
     originalUnbillableCategoryId: item.originalUnbillableCategoryId,
     originalUnbillableCategoryName: item.originalUnbillableCategoryName,
+    mutationAppliedAt: item.mutationAppliedAt,
+    appliedTimeEntryUpdatedAt: item.appliedTimeEntryUpdatedAt,
   };
 }
 

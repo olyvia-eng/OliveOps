@@ -823,6 +823,8 @@ export interface TimeCorrectionRequest {
   reviewedByUserId?: ID;
   reviewedAt?: string;
   reviewNote?: string;
+  mutationAppliedAt?: string;
+  appliedTimeEntryUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
   originalClockInAt?: string;
