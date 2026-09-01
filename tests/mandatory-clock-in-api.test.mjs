@@ -447,6 +447,11 @@ test('mandatory before-clock-in finalization exposes persisted Work Area fields 
   const bootstrapResponse = response();
   await bootstrapHandler({ method: 'GET', query: {}, headers: { authorization: `Bearer ${context.token}` } }, bootstrapResponse);
   const entry = bootstrapResponse.body.timeEntries.find((item) => item.id === finalized.body.timeEntry.id);
+  assert.equal(bootstrapResponse.statusCode, 200);
+  assert.equal(bootstrapResponse.body.currentActiveEntryId, finalized.body.timeEntry.id);
+  assert.equal(entry.id, finalized.body.timeEntry.id);
+  assert.equal(entry.employeeId, context.employeeId);
+  assert.equal(entry.status, 'clocked_in');
   assert.equal(entry.workAreaId, 'area-excavation');
   assert.equal(entry.workAreaNameSnapshot, 'Excavation');
 });

@@ -34,8 +34,8 @@ type SchedulePayload = {
   scheduleAllDay: boolean;
   scheduleConfirmed: boolean;
   scheduleNotes: string;
-  crewId?: ID;
-  divisionId?: ID;
+  crewId: ID | null;
+  divisionId: ID | null;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
 };
@@ -147,6 +147,10 @@ export default function ScheduleJobModal({
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const equipmentById = useMemo(() => new Map(equipmentAssets.map((asset) => [asset.id, asset])), [equipmentAssets]);
   const crewById = useMemo(() => new Map(crews.map((crew) => [crew.id, crew])), [crews]);
+  const selectableEmployees = useMemo(
+    () => employees.filter((employee) => employee.active || form.assignedEmployeeIds.includes(employee.id)),
+    [employees, form.assignedEmployeeIds]
+  );
   const availableEquipment = useMemo(
     () => equipmentAssets.filter((asset) => !asset.currentJobId || asset.currentJobId === selectedJob?.id),
     [equipmentAssets, selectedJob?.id]
@@ -251,10 +255,10 @@ export default function ScheduleJobModal({
       scheduleAllDay: form.allDay,
       scheduleConfirmed: true,
       scheduleNotes: form.notes.trim(),
-      crewId: form.crewId || undefined,
-      divisionId: form.divisionId || undefined,
-      assignedEmployeeIds: form.assignedEmployeeIds,
-      assignedEquipmentIds: form.assignedEquipmentIds,
+      crewId: form.crewId || null,
+      divisionId: form.divisionId || null,
+      assignedEmployeeIds: [...new Set(form.assignedEmployeeIds)],
+      assignedEquipmentIds: [...new Set(form.assignedEquipmentIds)],
     });
     setSaving(false);
     if (saved) onClose();
@@ -299,7 +303,7 @@ export default function ScheduleJobModal({
             </div>
             <Select label="Primary Crew" value={form.crewId} onChange={(event) => setForm((current) => ({ ...current, crewId: event.target.value }))}>
               <option value="">No primary crew</option>
-              {crews.filter((crew) => crew.active).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
+              {crews.filter((crew) => crew.active || crew.id === form.crewId).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
             </Select>
             <Select label="Division" value={form.divisionId} onChange={(event) => setForm((current) => ({ ...current, divisionId: event.target.value }))}>
               <option value="">No division</option>
@@ -324,7 +328,7 @@ export default function ScheduleJobModal({
           <div className="rounded-2xl border border-brand-100 p-4 dark:border-brand-600">
             <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Employees</h3>
             <div className="mt-3 flex flex-wrap gap-2">
-              {employees.map((employee) => {
+              {selectableEmployees.map((employee) => {
                 const selected = form.assignedEmployeeIds.includes(employee.id);
                 const unavailable = employeeAvailability.get(employee.id) ?? [];
                 return (
@@ -335,7 +339,7 @@ export default function ScheduleJobModal({
                     className={`rounded-lg border px-3 py-1.5 text-left text-sm transition-colors ${selected ? 'border-brand-500 bg-brand-100 text-brand-800 dark:border-brand-300 dark:bg-brand-600 dark:text-brand-50' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
                   >
                     <span className="block font-medium">{employee.name}</span>
-                    <span className={`block text-[11px] ${unavailable.length ? 'text-rose-700 dark:text-rose-200' : 'text-brand-400 dark:text-brand-300'}`}>{unavailable.length ? `${formatTimeOffType(unavailable[0].requestType)} · Unavailable` : 'Available'}</span>
+                    <span className={`block text-[11px] ${unavailable.length || !employee.active ? 'text-rose-700 dark:text-rose-200' : 'text-brand-400 dark:text-brand-300'}`}>{!employee.active ? 'Inactive' : unavailable.length ? `${formatTimeOffType(unavailable[0].requestType)} · Unavailable` : 'Available'}</span>
                   </button>
                 );
               })}

@@ -972,6 +972,10 @@ function uniqueStringList(value) {
   return [...new Set(value.filter((entry) => typeof entry === 'string' && entry.trim().length > 0))];
 }
 
+function hasDuplicateStrings(value) {
+  return Array.isArray(value) && new Set(value).size !== value.length;
+}
+
 function validateJobScheduleOccurrence(occurrence) {
   if (!occurrence || typeof occurrence !== 'object' || Array.isArray(occurrence) || !isNonEmptyString(occurrence.id)) {
     return 'Job schedule occurrence id is required.';
@@ -1048,9 +1052,11 @@ function validateJobRecord(record) {
   if (!Array.isArray(record.assignedEmployeeIds) || record.assignedEmployeeIds.some((value) => typeof value !== 'string' || !value.trim())) {
     return 'Assigned employees are invalid.';
   }
+  if (hasDuplicateStrings(record.assignedEmployeeIds)) return 'Assigned employees must be unique.';
   if (Array.isArray(record.assignedEquipmentIds) && record.assignedEquipmentIds.some((value) => typeof value !== 'string' || !value.trim())) {
     return 'Assigned equipment is invalid.';
   }
+  if (hasDuplicateStrings(record.assignedEquipmentIds)) return 'Assigned equipment must be unique.';
   if (record.taskHeaderLabels !== undefined) {
     if (!record.taskHeaderLabels || typeof record.taskHeaderLabels !== 'object' || Array.isArray(record.taskHeaderLabels)) {
       return 'Job task header labels are invalid.';
@@ -1062,7 +1068,7 @@ function validateJobRecord(record) {
   return null;
 }
 
-async function validateJobRelationships({ businessId, record }) {
+async function validateJobRelationships({ businessId, record, existing }) {
   const occurrenceEmployeeIds = Array.isArray(record.scheduleOccurrences)
     ? record.scheduleOccurrences.flatMap((occurrence) => uniqueStringList(occurrence.assignedEmployeeIds))
     : [];
@@ -1073,8 +1079,10 @@ async function validateJobRelationships({ businessId, record }) {
     return 'Job customer must belong to this business.';
   }
 
-  if (isNonEmptyString(record.crewId) && !await getCrewForBusiness(businessId, record.crewId)) {
-    return 'Assigned crew must belong to this business.';
+  if (isNonEmptyString(record.crewId)) {
+    const crew = await getCrewForBusiness(businessId, record.crewId);
+    if (!crew) return 'Assigned crew must belong to this business.';
+    if (crew.active === false && record.crewId !== existing?.crewId) return 'Assigned crew must be active.';
   }
   if (isNonEmptyString(record.divisionId) && !await getDivisionForBusiness(businessId, record.divisionId)) {
     return 'Assigned division must belong to this business.';
@@ -1084,6 +1092,9 @@ async function validateJobRelationships({ businessId, record }) {
     const employee = await getEmployeeForBusiness(businessId, employeeId);
     if (!employee) {
       return 'Assigned employees must belong to this business.';
+    }
+    if (employee.active === false && !existing?.assignedEmployeeIds?.includes(employeeId)) {
+      return 'Assigned employees must be active.';
     }
   }
 
@@ -2045,6 +2056,7 @@ export default async function handler(req, res) {
         const validationError = validateJobRecord(next) ?? await validateJobRelationships({
           businessId: session.businessId,
           record: next,
+          existing,
         });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
@@ -2194,6 +2206,8 @@ export default async function handler(req, res) {
 
       if (entity === 'jobs') {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: next });
+        const persistedJob = await config.get(session.businessId, id);
+        return res.status(200).json({ ok: true, job: persistedJob });
       }
 
       if (entity === 'estimates') {

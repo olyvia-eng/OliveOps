@@ -572,8 +572,8 @@ export interface Job {
   convertedByUserName?: string;
   customerId: ID;
   pricingBudgetId?: ID;
-  crewId?: ID;
-  divisionId?: ID;
+  crewId?: ID | null;
+  divisionId?: ID | null;
   propertyLabel?: string;
   propertyAddressSnapshot?: string;
   title: string;

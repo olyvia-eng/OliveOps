@@ -221,7 +221,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       jobId: selectedEvent.job.id,
       jobs,
       scheduleWindow: selectedEvent.schedule,
-      crewId: selectedEvent.job.crewId,
+      crewId: selectedEvent.job.crewId ?? undefined,
       assignedEmployeeIds: selectedEvent.job.assignedEmployeeIds ?? [],
       assignedEquipmentIds: selectedEvent.job.assignedEquipmentIds ?? [],
     });
@@ -232,7 +232,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       jobId: entry.job.id,
       jobs,
       scheduleWindow: entry.schedule,
-      crewId: entry.job.crewId,
+      crewId: entry.job.crewId ?? undefined,
       assignedEmployeeIds: entry.job.assignedEmployeeIds ?? [],
       assignedEquipmentIds: entry.job.assignedEquipmentIds ?? [],
     }).length > 0 || getJobTimeOffConflicts(entry.job, approvedTimeOff, crews).length > 0)
@@ -364,7 +364,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       scheduledStartAt: shiftedStart.toISOString(),
       scheduledEndAt: shiftedEnd.toISOString(),
     };
-    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
+    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
     if (conflicts.length > 0) {
       setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void updateJob(jobId, payload); }, cancel: () => setPendingTimeOffOverride(null) });
       return;
@@ -401,7 +401,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
     const entry = allScheduledJobs.find((item) => item.job.id === eventDrop.event.id);
     if (!entry) { eventDrop.revert(); return; }
-    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
+    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
     const save = async () => { const saved = await updateJob(eventDrop.event.id, payload); if (!saved) eventDrop.revert(); };
     if (conflicts.length > 0) {
       setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void save(); }, cancel: () => { setPendingTimeOffOverride(null); eventDrop.revert(); } });
@@ -430,8 +430,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
     scheduleAllDay: boolean;
     scheduleConfirmed: boolean;
     scheduleNotes: string;
-    crewId?: string;
-    divisionId?: string;
+    crewId: string | null;
+    divisionId: string | null;
     assignedEmployeeIds: string[];
     assignedEquipmentIds: string[];
   }) => {

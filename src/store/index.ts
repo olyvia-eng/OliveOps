@@ -944,7 +944,10 @@ export const useStore = create<AppState>()((set, get) => ({
         });
 
         try {
-          await ensureOk(request);
+          const response = await ensureOk(request);
+          const payload = await response.json() as { ok?: boolean; job?: Job };
+          if (!payload.ok || !payload.job) throw new Error('Job changes could not be confirmed.');
+          set((state) => ({ jobs: state.jobs.map((job) => job.id === id ? payload.job as Job : job) }));
           return true;
         } catch (error: unknown) {
           set({ jobs: previous });

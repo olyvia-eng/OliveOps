@@ -21,5 +21,7 @@ test('generic Job PATCH cannot mutate converted commercial or provenance fields'
 
 test('generic Job PATCH retains operational metadata edits and manual Job contract setup', () => {
   assert.equal(validateGenericJobPatch(convertedJob, { title: 'Updated', description: 'Current scope', startDate: '2026-09-01' }), null);
+  assert.equal(validateGenericJobPatch(convertedJob, { divisionId: null, assignedEmployeeIds: ['employee-1'] }), null);
+  assert.equal(validateGenericJobPatch({ ...convertedJob, divisionId: 'division-1' }, { divisionId: 'division-1', assignedEmployeeIds: ['employee-1'] }), null);
   assert.equal(validateGenericJobPatch({ id: 'manual-job' }, { contractValue: 2500 }), null);
 });
