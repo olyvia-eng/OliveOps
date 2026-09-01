@@ -5004,10 +5004,11 @@ export async function deleteEmployeeForBusiness(businessId, employeeId) {
   return { ok: true };
 }
 
-export async function listTimeEntriesForBusiness(businessId) {
+export async function listTimeEntriesForBusiness(businessId, { consistentRead = false } = {}) {
   const result = await ddb.send(
     new QueryCommand({
       TableName: tableName,
+      ConsistentRead: consistentRead,
       KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
       ExpressionAttributeValues: {
         ':pk': businessPk(businessId),

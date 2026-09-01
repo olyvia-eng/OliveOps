@@ -1,4 +1,4 @@
-import { DeleteCommand, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 
 function nowIso() {
@@ -741,6 +741,74 @@ export async function getActiveShiftForEmployee({ businessId, employeeId }) {
     createdAt: result.Item.createdAt,
     updatedAt: result.Item.updatedAt,
   };
+}
+
+export async function clearOrphanActiveShiftForEmployee({ businessId, employeeId }) {
+  const activeShiftResult = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { PK: activeShiftPk(businessId, employeeId), SK: activeShiftSk() },
+    ConsistentRead: true,
+  }));
+  const activeShift = activeShiftResult.Item;
+  if (!activeShift) return { ok: true, cleared: false };
+
+  const activeEntryId = typeof activeShift.activeEntryId === 'string' ? activeShift.activeEntryId.trim() : '';
+  const referencedEntryResult = activeEntryId
+    ? await ddb.send(new GetCommand({
+        TableName: tableName,
+        Key: { PK: businessPk(businessId), SK: timeEntrySk(activeEntryId) },
+        ConsistentRead: true,
+      }))
+    : { Item: undefined };
+  const referencedEntry = referencedEntryResult.Item;
+  if (referencedEntry?.employeeId === employeeId && referencedEntry.status === 'clocked_in') {
+    return { ok: false, cleared: false, reason: 'active-entry-exists' };
+  }
+
+  const lockCondition = activeEntryId
+    ? {
+        ConditionExpression: '#activeEntryId = :activeEntryId',
+        ExpressionAttributeNames: { '#activeEntryId': 'activeEntryId' },
+        ExpressionAttributeValues: { ':activeEntryId': activeEntryId },
+      }
+    : {
+        ConditionExpression: 'attribute_not_exists(#activeEntryId)',
+        ExpressionAttributeNames: { '#activeEntryId': 'activeEntryId' },
+      };
+  const referencedEntryCondition = referencedEntry
+    ? {
+        ConditionExpression: '#status = :status AND #employeeId = :employeeId',
+        ExpressionAttributeNames: { '#status': 'status', '#employeeId': 'employeeId' },
+        ExpressionAttributeValues: { ':status': referencedEntry.status, ':employeeId': referencedEntry.employeeId },
+      }
+    : { ConditionExpression: 'attribute_not_exists(PK)' };
+
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Delete: {
+            TableName: tableName,
+            Key: { PK: activeShiftPk(businessId, employeeId), SK: activeShiftSk() },
+            ...lockCondition,
+          },
+        },
+        ...(activeEntryId ? [{
+          ConditionCheck: {
+            TableName: tableName,
+            Key: { PK: businessPk(businessId), SK: timeEntrySk(activeEntryId) },
+            ...referencedEntryCondition,
+          },
+        }] : []),
+      ],
+    }));
+    return { ok: true, cleared: true, activeEntryId };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException') {
+      return { ok: false, cleared: false, reason: 'state-changed' };
+    }
+    throw error;
+  }
 }
 
 export function resolveClockOutActiveShift({ activeShift, requestedEntryId }) {

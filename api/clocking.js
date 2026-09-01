@@ -5,6 +5,7 @@ import {
   buildClockInTransaction,
   buildClockOutTransaction,
   buildSwitchActivityTransaction,
+  clearOrphanActiveShiftForEmployee,
   getActiveShiftForEmployee,
   validateClockOutPhotoAttachment,
   getClockingErrorResponse,
@@ -325,9 +326,16 @@ export default async function handler(req, res) {
       if (!categoryResult.ok) return res.status(409).json({ ok: false, code: 'clock_in_intent_invalid', error: categoryResult.error });
       unbillableCategory = categoryResult.category;
     }
-    const activeEntries = await listTimeEntriesForBusiness(session.businessId);
+    const activeEntries = await listTimeEntriesForBusiness(session.businessId, { consistentRead: true });
     if (activeEntries.some((entry) => entry.employeeId === workflow.employeeId && entry.status === 'clocked_in')) {
       return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: 'Employee is already clocked in.' });
+    }
+    const activeShiftIntegrity = await clearOrphanActiveShiftForEmployee({
+      businessId: session.businessId,
+      employeeId: workflow.employeeId,
+    });
+    if (!activeShiftIntegrity.ok) {
+      return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: 'Employee clock state changed. Refresh and try again.' });
     }
 
     const finalizedAt = nowIso();

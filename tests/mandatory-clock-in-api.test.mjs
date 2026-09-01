@@ -17,8 +17,9 @@ const response = () => ({
   json(body) { this.body = body; return this; },
 });
 
-function installDdb(t) {
+function installDdb(t, options = {}) {
   const store = new Map();
+  let transactionCount = 0;
   const original = ddb.send.bind(ddb);
   const read = (itemKey) => store.get(key(itemKey.PK, itemKey.SK));
   const field = (token, names = {}) => names[token] ?? token.replace(/^#/, '');
@@ -76,6 +77,8 @@ function installDdb(t) {
       return { Items: [...store.values()].filter((item) => item.PK === pk && (!prefix || item.SK.startsWith(prefix))) };
     }
     if (type === 'TransactWriteCommand') {
+      transactionCount += 1;
+      options.beforeTransaction?.({ input, store, transactionCount });
       const operations = input.TransactItems ?? [];
       const failures = operations.map((item) => {
         const operation = item.Put ?? item.Update ?? item.Delete ?? item.ConditionCheck;
@@ -153,8 +156,8 @@ async function formRequest(token, body) {
   return res;
 }
 
-async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true } = {}) {
-  const store = installDdb(t);
+async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true, ddbOptions } = {}) {
+  const store = installDdb(t, ddbOptions);
   await seedEmployee(store, { businessId, employeeId, userId, token, active });
   for (const form of forms) seedForm(store, { businessId, ...form });
   return { store, businessId, employeeId, token };
@@ -407,6 +410,121 @@ test('submission atomically completes requirement, replays idempotently, and fin
   assert.equal(duplicateFinalize.body.status, 'clock_in_already_finalized');
   assert.equal(duplicateFinalize.body.timeEntry.id, finalized.body.timeEntry.id);
   assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
+});
+
+test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is missing', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  const activeShiftKey = key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
+  context.store.set(activeShiftKey, {
+    PK: `BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`,
+    SK: 'ACTIVE_SHIFT',
+    entityType: 'ACTIVE_SHIFT',
+    employeeId: context.employeeId,
+    activeEntryId: 'missing-entry',
+    status: 'active',
+  });
+
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
+  });
+
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.status, 'clock_in_completed');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, finalized.body.timeEntry.id);
+});
+
+test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is clocked out', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  const businessPk = `BUSINESS#${context.businessId}`;
+  const activeShiftKey = key(`${businessPk}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
+  context.store.set(key(businessPk, 'TIME#old-entry'), {
+    PK: businessPk, SK: 'TIME#old-entry', entityType: 'TIME_ENTRY', entryId: 'old-entry',
+    employeeId: context.employeeId, status: 'clocked_out', clockIn: '2026-08-30T12:00:00.000Z',
+    clockOut: '2026-08-30T13:00:00.000Z',
+  });
+  context.store.set(activeShiftKey, {
+    PK: `${businessPk}#EMPLOYEE#${context.employeeId}`, SK: 'ACTIVE_SHIFT', entityType: 'ACTIVE_SHIFT',
+    employeeId: context.employeeId, activeEntryId: 'old-entry', status: 'active',
+  });
+
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
+  });
+
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.status, 'clock_in_completed');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, finalized.body.timeEntry.id);
+  assert.equal(context.store.get(key(businessPk, 'TIME#old-entry')).status, 'clocked_out');
+});
+
+test('finalization preserves a valid active shift and rejects a second clocked-in TimeEntry', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  const businessPk = `BUSINESS#${context.businessId}`;
+  const activeShiftKey = key(`${businessPk}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
+  context.store.set(key(businessPk, 'TIME#existing-entry'), {
+    PK: businessPk, SK: 'TIME#existing-entry', entityType: 'TIME_ENTRY', entryId: 'existing-entry',
+    employeeId: context.employeeId, status: 'clocked_in', clockIn: '2026-08-31T12:00:00.000Z',
+  });
+  context.store.set(activeShiftKey, {
+    PK: `${businessPk}#EMPLOYEE#${context.employeeId}`, SK: 'ACTIVE_SHIFT', entityType: 'ACTIVE_SHIFT',
+    employeeId: context.employeeId, activeEntryId: 'existing-entry', status: 'active',
+  });
+
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
+  });
+
+  assert.equal(finalized.statusCode, 409);
+  assert.equal(finalized.body.code, 'offline_shift_state_conflict');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, 'existing-entry');
+  assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
+});
+
+test('orphan cleanup preserves a concurrently replaced ACTIVE_SHIFT', async (t) => {
+  let activeShiftKey;
+  const context = await setup(t, {
+    forms: [{ id: 'required' }],
+    ddbOptions: {
+      beforeTransaction: ({ store, transactionCount }) => {
+        if (transactionCount !== 4 || !activeShiftKey) return;
+        store.set(activeShiftKey, {
+          ...store.get(activeShiftKey),
+          activeEntryId: 'concurrent-entry',
+          updatedAt: '2026-08-31T12:00:00.000Z',
+        });
+      },
+    },
+  });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
+  const requirement = initiated.body.requiredForms[0];
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  activeShiftKey = key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
+  context.store.set(activeShiftKey, {
+    PK: `BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`,
+    SK: 'ACTIVE_SHIFT',
+    entityType: 'ACTIVE_SHIFT',
+    employeeId: context.employeeId,
+    activeEntryId: 'missing-entry',
+    status: 'active',
+  });
+
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
+  });
+
+  assert.equal(finalized.statusCode, 409);
+  assert.equal(finalized.body.code, 'offline_shift_state_conflict');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, 'concurrent-entry');
+  assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 0);
 });
 
 test('required before-clock-in Signature claims its artifact before workflow finalization', async (t) => {
