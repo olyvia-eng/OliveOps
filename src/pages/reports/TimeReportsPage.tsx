@@ -1,12 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { endOfWeek, format, startOfMonth, startOfWeek, subWeeks } from 'date-fns';
 import { useLocation } from 'react-router-dom';
 import { useStore } from '../../store';
 import { Card, PageHeader, StatCard, Button, Select, Input } from '../../components/ui';
-import { durationHours, formatDateTime, generateId, nowISO } from '../../utils';
+import { durationHours, formatDateTime } from '../../utils';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import type { BusinessUserRole } from '../../auth/types';
-import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
+import type { TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
@@ -23,6 +23,7 @@ type WorkTypeFilter = 'all' | TimeEntryWorkType;
 type JobFilter = 'all' | string;
 type UnbillableCategoryFilter = 'all' | 'uncategorized' | string;
 type PayrollPeriodPreset = 'custom' | 'this_week' | 'last_week' | 'this_month';
+type ReportTab = 'entries' | 'corrections';
 
 function normalizeWorkType(entry: Partial<TimeEntry>): TimeEntryWorkType {
   if (entry.workType === 'drive_time' || entry.workType === 'non_billable') return entry.workType;
@@ -37,17 +38,6 @@ function normalizeJobIds(entry: Partial<TimeEntry>): string[] {
     return [entry.jobId];
   }
   return [];
-}
-
-function entryTypeMeta(entry: Partial<TimeEntry>) {
-  const workType = normalizeWorkType(entry);
-  if (workType === 'drive_time') {
-    return { label: 'Drive Time', className: 'bg-accent-50 text-accent-600' };
-  }
-  if (workType === 'non_billable') {
-    return { label: 'Non-Billable', className: 'bg-brand-100 text-brand-700' };
-  }
-  return { label: 'Job Work', className: 'bg-brand-200 text-brand-800' };
 }
 
 function correctionLocationLabel(jobId: string | undefined, workAreaNameSnapshot: string | undefined, jobs: Array<{ id: string; title: string }>) {
@@ -67,9 +57,6 @@ function escapeCsvValue(value: string | number | null | undefined) {
 
 export default function TimeReportsPage({
   currentUserRole,
-  currentUserId,
-  currentUserName,
-  currentUserEmail,
 }: TimeReportsPageProps) {
   const location = useLocation();
   const {
@@ -78,7 +65,6 @@ export default function TimeReportsPage({
     jobs,
     employees,
     unbillableTimeCategories,
-    updateTimeEntry,
     approveTimeCorrectionRequest,
     rejectTimeCorrectionRequest,
   } = useStore();
@@ -87,18 +73,13 @@ export default function TimeReportsPage({
   const [payrollPeriodPreset, setPayrollPeriodPreset] = useState<PayrollPeriodPreset>('this_month');
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>('all');
   const [employeeSearch, setEmployeeSearch] = useState('');
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [jobFilter, setJobFilter] = useState<JobFilter>('all');
   const [unbillableCategoryFilter, setUnbillableCategoryFilter] = useState<UnbillableCategoryFilter>('all');
-  const [backfillRunning, setBackfillRunning] = useState(false);
-  const [backfillAuditEvents, setBackfillAuditEvents] = useState<AuditEvent[]>([]);
-  const [loadingBackfillAudits, setLoadingBackfillAudits] = useState(false);
-  const [expandedAuditEventId, setExpandedAuditEventId] = useState<string | null>(null);
   const [reviewingCorrectionId, setReviewingCorrectionId] = useState<string | null>(null);
   const [correctionStatusFilter, setCorrectionStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
-  const detailSectionRef = useRef<HTMLDivElement | null>(null);
+  const [activeTab, setActiveTab] = useState<ReportTab>('entries');
 
   const correctionHighlightId = useMemo(() => {
     const query = new URLSearchParams(location.search);
@@ -116,6 +97,7 @@ export default function TimeReportsPage({
       || requestedStatus === 'rejected'
     ) {
       setCorrectionStatusFilter(requestedStatus);
+      setActiveTab('corrections');
     }
   }, [location.search]);
 
@@ -131,8 +113,6 @@ export default function TimeReportsPage({
     () => [...unbillableTimeCategories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [unbillableTimeCategories]
   );
-  const isJobFocused = jobFilter !== 'all';
-
   const getEmployeeName = useCallback(
     (employeeId: string) => employees.find((employee) => employee.id === employeeId)?.name ?? 'Unknown',
     [employees]
@@ -201,47 +181,6 @@ export default function TimeReportsPage({
     setEndDate(format(endOfWeek(lastWeekReference, { weekStartsOn: 0 }), 'yyyy-MM-dd'));
   };
 
-  useEffect(() => {
-    if (currentUserRole !== 'admin' && currentUserRole !== 'owner') {
-      setBackfillAuditEvents([]);
-      return;
-    }
-
-    let cancelled = false;
-    const loadBackfillAuditEvents = async () => {
-      setLoadingBackfillAudits(true);
-      try {
-        const response = await fetch('/api/data?entity=audit-events', {
-          method: 'GET',
-          credentials: 'include',
-        });
-        if (!response.ok) return;
-
-        const payload = (await response.json()) as { ok?: boolean; items?: AuditEvent[] };
-        if (!payload.ok || !Array.isArray(payload.items)) return;
-
-        const events = payload.items
-          .filter((item) => item.action === 'backfill_time_entries')
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-          .slice(0, 8);
-
-        if (!cancelled) setBackfillAuditEvents(events);
-      } finally {
-        if (!cancelled) setLoadingBackfillAudits(false);
-      }
-    };
-
-    void loadBackfillAuditEvents();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUserRole]);
-
-  useEffect(() => {
-    if (!selectedEmployeeId) return;
-    detailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [selectedEmployeeId]);
-
   const filteredEntries = useMemo(() => {
     const start = new Date(`${startDate}T00:00:00`);
     const end = new Date(`${endDate}T23:59:59.999`);
@@ -255,8 +194,6 @@ export default function TimeReportsPage({
           const employeeName = getEmployeeName(entry.employeeId).toLowerCase();
           if (!employeeName.includes(employeeSearchValue)) return false;
         }
-
-        if (selectedEmployeeId && entry.employeeId !== selectedEmployeeId) return false;
 
         if (jobFilter !== 'all') {
           const workType = normalizeWorkType(entry);
@@ -281,12 +218,7 @@ export default function TimeReportsPage({
         if (workTypeFilter !== 'all' && workType !== workTypeFilter) return false;
         return true;
       }));
-  }, [effectiveTimeEntries, employeeSearchValue, endDate, getEmployeeName, jobFilter, selectedEmployeeId, startDate, unbillableCategoryFilter, workTypeFilter]);
-
-  const recentEntries = useMemo(
-    () => sortTimeEntriesNewestFirst(effectiveTimeEntries).slice(0, 20),
-    [effectiveTimeEntries]
-  );
+  }, [effectiveTimeEntries, employeeSearchValue, endDate, getEmployeeName, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
 
   const totalsByType = useMemo(() => {
     const totals: Record<TimeEntryWorkType, number> = {
@@ -303,61 +235,16 @@ export default function TimeReportsPage({
     return totals;
   }, [filteredEntries]);
 
-  const employeeTotals = useMemo(() => {
-    const map = new Map<string, number>();
-    filteredEntries.forEach((entry) => {
-      const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-      map.set(entry.employeeId, (map.get(entry.employeeId) ?? 0) + hours);
-    });
-
-    return [...map.entries()]
-      .map(([employeeId, hours]) => ({
-        employeeId,
-        name: employees.find((employee) => employee.id === employeeId)?.name ?? 'Unknown',
-        hours,
-      }))
-      .sort((a, b) => b.hours - a.hours);
-  }, [employees, filteredEntries]);
-
-  const jobTotals = useMemo(() => {
-    const map = new Map<string, number>();
-
-    filteredEntries.forEach((entry) => {
-      if (normalizeWorkType(entry) !== 'job') return;
-      const jobIds = normalizeJobIds(entry);
-      if (jobIds.length === 0) return;
-
-      const hoursShare = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes) / jobIds.length;
-      jobIds.forEach((jobId) => {
-        map.set(jobId, (map.get(jobId) ?? 0) + hoursShare);
-      });
-    });
-
-    return [...map.entries()]
-      .map(([jobId, hours]) => ({
-        jobId,
-        title: jobs.find((job) => job.id === jobId)?.title ?? 'Unknown job',
-        hours,
-      }))
-      .sort((a, b) => b.hours - a.hours);
-  }, [filteredEntries, jobs]);
-
-  const legacyEntries = useMemo(
-    () =>
-      timeEntries.filter((entry) => {
-        const hasWorkType = typeof entry.workType === 'string';
-        const jobIds = normalizeJobIds(entry);
-        return !hasWorkType || (normalizeWorkType(entry) === 'job' && jobIds.length === 0 && typeof entry.jobId === 'string');
-      }),
-    [timeEntries]
-  );
-
   const correctionRows = useMemo(() => {
     return timeCorrections
       .filter((item) => item.status === correctionStatusFilter)
       .slice()
       .sort((a, b) => Date.parse(b.submittedAt) - Date.parse(a.submittedAt));
   }, [correctionStatusFilter, timeCorrections]);
+  const pendingCorrectionCount = useMemo(
+    () => timeCorrections.filter((item) => item.status === 'pending').length,
+    [timeCorrections]
+  );
 
   useEffect(() => {
     if (!correctionHighlightId) return;
@@ -399,69 +286,6 @@ export default function TimeReportsPage({
     }
 
     emitAppToast({ tone: 'success', message: 'Correction request rejected.' });
-  };
-
-  const backfillLegacyEntries = async () => {
-    setBackfillRunning(true);
-    try {
-      for (const entry of legacyEntries) {
-        const existingJobIds = normalizeJobIds(entry);
-        const nextWorkType = typeof entry.workType === 'string'
-          ? normalizeWorkType(entry)
-          : (existingJobIds.length > 0 || typeof entry.jobId === 'string' ? 'job' : 'non_billable');
-        const nextJobIds = nextWorkType === 'job'
-          ? (existingJobIds.length > 0 ? existingJobIds : (typeof entry.jobId === 'string' ? [entry.jobId] : []))
-          : [];
-
-        await updateTimeEntry(entry.id, {
-          workType: nextWorkType,
-          jobId: nextWorkType === 'job' ? (entry.jobId ?? nextJobIds[0]) : undefined,
-          jobIds: nextJobIds,
-          breakMinutes: entry.breakMinutes ?? 0,
-          notes: entry.notes ?? '',
-          status: entry.status ?? 'clocked_out',
-          clockIn: entry.clockIn,
-          clockOut: entry.clockOut,
-          employeeId: entry.employeeId,
-        });
-      }
-
-      const auditEvent: AuditEvent = {
-        id: generateId(),
-        action: 'backfill_time_entries',
-        actorUserId: currentUserId,
-        actorName: currentUserName,
-        actorEmail: currentUserEmail,
-        affectedEntryCount: legacyEntries.length,
-        createdAt: nowISO(),
-        metadata: {
-          filters: {
-            startDate,
-            endDate,
-            workTypeFilter,
-            jobFilter,
-            employeeSearch: employeeSearch.trim(),
-          },
-        },
-      };
-
-      const auditResponse = await fetch('/api/data?entity=audit-events', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ data: auditEvent }),
-      });
-
-      if (auditResponse.ok) {
-        setBackfillAuditEvents((current) => [auditEvent, ...current].slice(0, 8));
-      }
-
-      emitAppToast({ tone: 'success', message: 'Legacy time entries backfilled successfully.' });
-    } finally {
-      setBackfillRunning(false);
-    }
   };
 
   const totalHours = filteredEntries.reduce((sum, entry) => sum + durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes), 0);
@@ -539,7 +363,6 @@ export default function TimeReportsPage({
       ['Job', selectedJobLabel],
       ['Unbillable Category', unbillableCategoryFilter === 'all' ? 'All Categories' : unbillableCategoryFilter === 'uncategorized' ? 'Uncategorized' : (unbillableCategoriesSorted.find((item) => item.id === unbillableCategoryFilter)?.name ?? 'Unknown Category')],
       ['Employee Search', employeeFilterLabel],
-      ['Focused Employee', selectedEmployeeId ? getEmployeeName(selectedEmployeeId) : 'None'],
       ['Matching Entries', String(filteredEntries.length)],
       [],
     ];
@@ -576,7 +399,7 @@ export default function TimeReportsPage({
   return (
     <div>
       <PageHeader
-        title="Time Reports"
+        title="Time Tracking"
         subtitle="Filter hours by date, type, employee, and job."
       />
 
@@ -587,8 +410,8 @@ export default function TimeReportsPage({
         <StatCard label="Non-Billable" value={`${totalsByType.non_billable.toFixed(1)} hrs`} color="text-brand-600" />
       </div>
 
-      <Card className="p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-7 gap-3">
+      <Card className="mb-6 p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
           <div>
             <Select
               label="Payroll Period"
@@ -662,45 +485,21 @@ export default function TimeReportsPage({
               placeholder="Search by employee name"
             />
           </div>
-          <div className="flex items-end gap-2">
-            <p className="text-sm text-gray-500">
-              {selectedEmployeeId ? `Focused: ${getEmployeeName(selectedEmployeeId)}` : 'No focused employee'}
-            </p>
-            {selectedEmployeeId && (
-              <Button variant="ghost" size="sm" onClick={() => setSelectedEmployeeId(null)}>
-                Clear Employee
-              </Button>
-            )}
-            <p className="text-sm text-gray-500">
-              {isJobFocused ? `Focused Job: ${getJobTitle(jobFilter)}` : 'No focused job'}
-            </p>
-            {isJobFocused && (
-              <Button variant="ghost" size="sm" onClick={() => setJobFilter('all')}>
-                Clear Job
-              </Button>
-            )}
-            <p className="text-sm text-gray-500">
-              {unbillableCategoryFilter === 'all'
-                ? 'All unbillable categories'
-                : unbillableCategoryFilter === 'uncategorized'
-                  ? 'Focused Category: Uncategorized'
-                  : `Focused Category: ${unbillableCategoriesSorted.find((item) => item.id === unbillableCategoryFilter)?.name ?? 'Unknown'}`}
-            </p>
-            {unbillableCategoryFilter !== 'all' && (
-              <Button variant="ghost" size="sm" onClick={() => setUnbillableCategoryFilter('all')}>
-                Clear Category
-              </Button>
-            )}
-          </div>
-          <div className="flex items-end">
-            <p className="text-sm text-gray-500">Showing {filteredEntries.length} entries</p>
-          </div>
         </div>
+        <p className="mt-3 text-sm text-gray-500">{filteredEntries.length} time {filteredEntries.length === 1 ? 'entry' : 'entries'}</p>
       </Card>
 
-      {(currentUserRole === 'admin' || currentUserRole === 'owner') && (
+      <div className="mb-4 flex border-b border-gray-200" role="tablist" aria-label="Time Tracking views">
+        <button type="button" role="tab" aria-selected={activeTab === 'entries'} onClick={() => setActiveTab('entries')} className={`border-b-2 px-4 py-3 text-sm font-semibold ${activeTab === 'entries' ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>Time Entries</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'corrections'} onClick={() => setActiveTab('corrections')} className={`flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold ${activeTab === 'corrections' ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
+          Correction Requests
+          {pendingCorrectionCount > 0 ? <span className="rounded-full bg-accent-100 px-2 py-0.5 text-xs text-accent-700">{pendingCorrectionCount}</span> : null}
+        </button>
+      </div>
+
+      {activeTab === 'corrections' && (currentUserRole === 'admin' || currentUserRole === 'owner') && (
         <Card className="overflow-hidden mb-6">
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-100 p-4">
             <div>
               <h2 className="font-semibold text-gray-800">Time Correction Requests</h2>
               <p className="text-xs text-gray-500 mt-1">Only approved corrections affect payroll and job costing.</p>
@@ -712,12 +511,12 @@ export default function TimeReportsPage({
               >
                 <option value="pending">Pending</option>
                 <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
+                <option value="rejected">Denied</option>
               </Select>
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="min-w-[900px] w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
                   <th className="px-4 py-2 font-medium">Employee</th>
@@ -775,7 +574,7 @@ export default function TimeReportsPage({
                           </Button>
                         </div>
                       ) : (
-                        <span className="text-xs text-gray-500">{item.status}</span>
+                        <span className="text-xs capitalize text-gray-500">{item.status === 'rejected' ? 'denied' : item.status}</span>
                       )}
                     </td>
                   </tr>
@@ -785,180 +584,25 @@ export default function TimeReportsPage({
           </div>
         </Card>
       )}
+      {activeTab === 'corrections' && currentUserRole !== 'admin' && currentUserRole !== 'owner' ? (
+        <p className="py-4 text-sm text-gray-500">Correction request review is available to Owner and Admin users.</p>
+      ) : null}
 
-      <Card className="overflow-hidden mb-6">
-        <div className="p-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-800">Non-Billable Category Breakdown</h2>
-          <p className="text-xs text-gray-500 mt-1">Hours grouped by unbillable category within current filters.</p>
-        </div>
-        {nonBillableCategoryTotals.length === 0 ? (
-          <p className="text-sm text-gray-400 p-4">No non-billable entries in this range.</p>
-        ) : (
-          <div className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {nonBillableCategoryTotals.map((item) => (
-                <div key={item.label} className="rounded-lg border border-gray-100 bg-white p-3">
-                  <p className="text-sm font-semibold text-gray-800">{item.label}</p>
-                  <p className="text-xs text-gray-500 mt-1">{item.hours.toFixed(2)} hrs</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card className="overflow-hidden mb-6">
-        <div className="p-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-800">Recent Time Entries</h2>
-          <p className="text-xs text-gray-500 mt-1">Latest 20 entries across all employees.</p>
-        </div>
-        {recentEntries.length === 0 ? (
-          <p className="text-sm text-gray-400 p-4">No time entries.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
-                  <th className="px-4 py-2 font-medium">Employee</th>
-                  <th className="py-2 font-medium">Activity / Location</th>
-                  <th className="py-2 font-medium">Clock In</th>
-                  <th className="py-2 font-medium">Clock Out</th>
-                  <th className="py-2 font-medium">Job Notes</th>
-                  <th className="px-4 py-2 font-medium text-right">Duration</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {recentEntries.map((entry) => {
-                  const typeMeta = entryTypeMeta(entry);
-                  const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-                  const presentation = getTimeEntryPresentation(entry, jobs);
-                  return (
-                    <tr key={entry.id} tabIndex={0} role="button" aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`} onClick={() => setSelectedTimeEntryId(entry.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }} className="cursor-pointer hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500">
-                      <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
-                      <td className="py-2 text-gray-600 max-w-xs">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${typeMeta.className}`}>
-                          {typeMeta.label}
-                        </span>
-                        <p className="text-xs text-gray-500 truncate mt-1">{presentation.workLabel}</p>
-                      </td>
-                      <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
-                      <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
-                      <td className="py-2 text-gray-600 max-w-xs truncate">
-                        {entry.notes?.trim() ? entry.notes : '—'}
-                        {attachmentUrls[entry.id] ? (
-                          <div className="mt-1">
-                            <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-xs font-medium text-brand-700 hover:text-brand-800">
-                              View photo
-                            </a>
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card className="overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">Hours by Employee</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-gray-500 text-left text-xs">
-                  <th className="px-4 py-2 font-medium">Employee</th>
-                  <th className="py-2 font-medium text-right">Hours</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {employeeTotals.length === 0 ? (
-                  <tr><td colSpan={2} className="px-4 py-4 text-sm text-gray-400">No entries in this range.</td></tr>
-                ) : employeeTotals.map((item) => (
-                  <tr key={item.employeeId}>
-                    <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedEmployeeId(item.employeeId)}
-                        className={`text-left hover:underline ${selectedEmployeeId === item.employeeId ? 'font-semibold text-brand-700' : ''}`}
-                      >
-                        {item.name}
-                      </button>
-                    </td>
-                    <td className="py-2 text-right font-semibold">{item.hours.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">Hours by Job</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 text-gray-500 text-left text-xs">
-                  <th className="px-4 py-2 font-medium">Job</th>
-                  <th className="py-2 font-medium text-right">Hours</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {jobTotals.length === 0 ? (
-                  <tr><td colSpan={2} className="px-4 py-4 text-sm text-gray-400">No job work in this range.</td></tr>
-                ) : jobTotals.map((item) => (
-                  <tr key={item.jobId}>
-                    <td className="px-4 py-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setJobFilter((current) => (current === item.jobId ? 'all' : item.jobId));
-                          detailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
-                        className={`text-left hover:underline ${jobFilter === item.jobId ? 'font-semibold text-brand-700' : ''}`}
-                      >
-                        {item.title}
-                      </button>
-                    </td>
-                    <td className="py-2 text-right font-semibold">{item.hours.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-
-      <div ref={detailSectionRef}>
-      <Card className="mt-6 overflow-hidden">
+      {activeTab === 'entries' ? <>
+      <Card className="overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
           <div>
-            <h2 className="font-semibold text-gray-800">Time Entry Detail</h2>
-            <p className="text-xs text-gray-500">Job totals split evenly across selected jobs.</p>
+            <h2 className="font-semibold text-gray-800">Time Entries</h2>
+            <p className="mt-1 text-xs text-gray-500">Newest clock-in first. Select an entry to view its details.</p>
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={handleExportSummaryCsv} disabled={filteredEntries.length === 0}>
               Bookkeeper Export
             </Button>
-            {currentUserRole === 'admin' && (
-              <>
-                <p className="text-xs text-gray-500">Legacy entries needing backfill: {legacyEntries.length}</p>
-                <Button onClick={() => void backfillLegacyEntries()} disabled={backfillRunning || legacyEntries.length === 0}>
-                  {backfillRunning ? 'Backfilling...' : 'Backfill Legacy Entries'}
-                </Button>
-              </>
-            )}
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="min-w-[900px] w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
                 <th className="px-4 py-2 font-medium">Employee</th>
@@ -975,7 +619,6 @@ export default function TimeReportsPage({
                 <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
               ) : filteredEntries.map((entry) => {
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-                const isFocusedEmployee = selectedEmployeeId === entry.employeeId;
                 const presentation = getTimeEntryPresentation(entry, jobs);
                 return (
                   <tr
@@ -985,7 +628,7 @@ export default function TimeReportsPage({
                     aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`}
                     onClick={() => setSelectedTimeEntryId(entry.id)}
                     onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }}
-                    className={`cursor-pointer align-top focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${isFocusedEmployee ? 'bg-brand-50/60' : 'hover:bg-gray-50 focus:bg-gray-50'}`}
+                    className="cursor-pointer align-top hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500"
                   >
                     <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
                     <td className="py-2 text-gray-600">{presentation.activityLabel}</td>
@@ -1012,91 +655,23 @@ export default function TimeReportsPage({
           </table>
         </div>
       </Card>
-      </div>
-
-      {(currentUserRole === 'admin' || currentUserRole === 'owner') && (
-        <Card className="mt-6 overflow-hidden">
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-800">Recent Backfill Activity</h2>
-            <p className="text-xs text-gray-500 mt-1">Tracks who ran legacy backfill and how many entries were affected.</p>
+      <section className="mt-5 border-t border-gray-200 pt-4" aria-labelledby="non-billable-breakdown-heading">
+        <h2 id="non-billable-breakdown-heading" className="font-semibold text-gray-800">Non-Billable Category Breakdown</h2>
+        {nonBillableCategoryTotals.length === 0 ? (
+          <p className="mt-2 text-sm text-gray-500">No non-billable time recorded for this period.</p>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {nonBillableCategoryTotals.map((item) => (
+              <div key={item.label} className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                <p className="text-sm font-semibold text-gray-800">{item.label}</p>
+                <p className="mt-1 text-xs text-gray-500">{item.hours.toFixed(2)} hrs</p>
+              </div>
+            ))}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
-                  <th className="px-4 py-2 font-medium">When</th>
-                  <th className="py-2 font-medium">User</th>
-                  <th className="py-2 font-medium">Email</th>
-                  <th className="py-2 font-medium text-right">Entries</th>
-                  <th className="px-4 py-2 font-medium text-right">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {loadingBackfillAudits ? (
-                  <tr><td colSpan={5} className="px-4 py-4 text-sm text-gray-400">Loading backfill activity...</td></tr>
-                ) : backfillAuditEvents.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-4 text-sm text-gray-400">No backfill activity recorded yet.</td></tr>
-                ) : backfillAuditEvents.map((event) => {
-                  const isExpanded = expandedAuditEventId === event.id;
-                  const metadataFilters = event.metadata && typeof event.metadata === 'object' && 'filters' in event.metadata
-                    ? (event.metadata.filters as {
-                      startDate?: string;
-                      endDate?: string;
-                      workTypeFilter?: string;
-                      jobFilter?: string;
-                      employeeSearch?: string;
-                    })
-                    : null;
-                  const metadataJobLabel = metadataFilters?.jobFilter
-                    ? (metadataFilters.jobFilter === 'all' ? 'All Jobs' : getJobTitle(metadataFilters.jobFilter))
-                    : '—';
+        )}
+      </section>
+      </> : null}
 
-                  return (
-                    <Fragment key={event.id}>
-                      <tr>
-                        <td className="px-4 py-2 text-gray-600 text-xs">{formatDateTime(event.createdAt)}</td>
-                        <td className="py-2 text-gray-700">{event.actorName}</td>
-                        <td className="py-2 text-gray-500">{event.actorEmail}</td>
-                        <td className="py-2 text-right font-semibold text-gray-800">{event.affectedEntryCount}</td>
-                        <td className="px-4 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setExpandedAuditEventId(isExpanded ? null : event.id)}
-                          >
-                            {isExpanded ? 'Hide Filters' : 'View Filters'}
-                          </Button>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-3 bg-gray-50 text-xs text-gray-600">
-                            {metadataFilters ? (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                                <p><span className="font-medium text-gray-700">Start:</span> {metadataFilters.startDate ?? '—'}</p>
-                                <p><span className="font-medium text-gray-700">End:</span> {metadataFilters.endDate ?? '—'}</p>
-                                <p><span className="font-medium text-gray-700">Type:</span> {metadataFilters.workTypeFilter ?? '—'}</p>
-                                <p><span className="font-medium text-gray-700">Job:</span> {metadataJobLabel}</p>
-                                <p><span className="font-medium text-gray-700">Employee Search:</span> {metadataFilters.employeeSearch?.trim() ? metadataFilters.employeeSearch : '—'}</p>
-                              </div>
-                            ) : (
-                              <p>No filter metadata recorded for this event.</p>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {currentUserRole !== 'admin' && (
-        <p className="mt-4 text-xs text-gray-500">Backfill tools are restricted to admin users.</p>
-      )}
       <TimeEntryDetailModal
         entry={selectedTimeEntry}
         employeeName={selectedTimeEntry ? getEmployeeName(selectedTimeEntry.employeeId) : ''}

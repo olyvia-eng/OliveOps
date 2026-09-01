@@ -14,7 +14,7 @@ Active entries retain their ID, employee, active status, and active-shift lock. 
 
 ## Shared detail experience
 
-Recent Time Entries and filtered Time Entry rows in Time Reports, Employee Time Entry history, and Job Time Entries all open the shared `TimeEntryDetailModal`. It shows the authoritative entry plus correction status and delegates Owner/Admin edits to the existing `EditTimeEntryModal`. Other roles receive the same read-only detail without an Edit action.
+The authoritative filtered Time Entries table in Time Tracking, Employee Time Entry history, and Job Time Entries all open the shared `TimeEntryDetailModal`. It shows the authoritative entry plus correction status and delegates Owner/Admin edits to the existing `EditTimeEntryModal`. Other roles receive the same read-only detail without an Edit action.
 
 Surfaces select entries by ID from the current effective Time Entry collection. After the store reconciles the server response, the open detail, row, duration totals, Job/employee totals, and newest-first ordering update immediately without a browser refresh.
 

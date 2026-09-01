@@ -4,16 +4,17 @@ import { readFile } from 'node:fs/promises';
 
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('Owner and Admin can open Recent Time Entries through the shared detail view', async () => {
+test('authoritative filtered Time Entries open the shared detail view', async () => {
   const [reports, detail] = await Promise.all([
     source('../src/pages/reports/TimeReportsPage.tsx'),
     source('../src/components/time/TimeEntryDetailModal.tsx'),
   ]);
-  const recent = reports.slice(reports.indexOf('Recent Time Entries'), reports.indexOf('Hours by Employee'));
-  assert.match(recent, /setSelectedTimeEntryId\(entry\.id\)/);
-  assert.match(recent, /role="button"/);
-  assert.match(recent, /tabIndex=\{0\}/);
-  assert.match(recent, /cursor-pointer/);
+  const entries = reports.slice(reports.indexOf('<h2 className="font-semibold text-gray-800">Time Entries</h2>'), reports.indexOf('non-billable-breakdown-heading'));
+  assert.match(entries, /filteredEntries\.map\(\(entry\)/);
+  assert.match(entries, /setSelectedTimeEntryId\(entry\.id\)/);
+  assert.match(entries, /role="button"/);
+  assert.match(entries, /tabIndex=\{0\}/);
+  assert.match(entries, /cursor-pointer/);
   assert.match(reports, /<TimeEntryDetailModal/);
   assert.match(detail, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(detail, /Edit Time Entry/);
@@ -87,17 +88,62 @@ test('web store applies only the authoritative edit response without optimistic 
 test('selected detail and newest-first tables derive from updated store entries by ID', async () => {
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
   assert.match(reports, /selectedTimeEntry = effectiveTimeEntries\.find\(\(entry\) => entry\.id === selectedTimeEntryId\)/);
-  assert.match(reports, /sortTimeEntriesNewestFirst\(effectiveTimeEntries\)\.slice\(0, 20\)/);
-  assert.match(reports, /\[effectiveTimeEntries\]/);
+  assert.match(reports, /sortTimeEntriesNewestFirst\(effectiveTimeEntries\.filter/);
+  assert.doesNotMatch(reports, /sort[^\n]*updatedAt|updatedAt[^\n]*sort/i);
 });
 
-test('reports and Job totals consume updated Time Entry duration and labour snapshots', async () => {
+test('reports and Job calculations consume updated Time Entry duration and labour snapshots', async () => {
   const [reports, jobDetail] = await Promise.all([
     source('../src/pages/reports/TimeReportsPage.tsx'),
     source('../src/pages/jobs/JobDetailPage.tsx'),
   ]);
   assert.match(reports, /durationHours\(entry\.clockIn, entry\.clockOut, entry\.breakMinutes\)/);
-  assert.match(reports, /const employeeTotals = useMemo/);
-  assert.match(reports, /const jobTotals = useMemo/);
+  assert.match(reports, /const employeeSummaryRows = useMemo/);
+  assert.match(reports, /const totalsByType = useMemo/);
   assert.match(jobDetail, /trackedLaborCost/);
+});
+
+test('Time Tracking uses one filtered table with responsive controls and compact empty states', async () => {
+  const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
+  assert.match(reports, /title="Time Tracking"/);
+  assert.match(reports, /sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7/);
+  for (const label of ['Payroll Period', 'Start Date', 'End Date', 'Work Type', 'Job', 'Unbillable Category', 'Employee Search']) {
+    assert.match(reports, new RegExp(`(?:label=|>)["']?${label}`));
+  }
+  assert.equal(reports.match(/filteredEntries\.map\(\(entry\)/g)?.length, 1);
+  assert.doesNotMatch(reports, /Recent Time Entries|Time Entry Detail|No focused employee|No focused job|Showing \{/);
+  assert.match(reports, /No entries match these filters/);
+  assert.match(reports, /No non-billable time recorded for this period/);
+  assert.match(reports, /min-w-\[900px\]/);
+});
+
+test('all report filters drive the authoritative table and Bookkeeper Export', async () => {
+  const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
+  const filtered = reports.slice(reports.indexOf('const filteredEntries'), reports.indexOf('const totalsByType'));
+  for (const value of ['startDate', 'endDate', 'employeeSearchValue', 'jobFilter', 'unbillableCategoryFilter', 'workTypeFilter']) {
+    assert.match(filtered, new RegExp(value));
+  }
+  const exportAction = reports.slice(reports.indexOf('const handleExportSummaryCsv'), reports.indexOf('return (', reports.indexOf('const handleExportSummaryCsv')));
+  assert.match(exportAction, /employeeSummaryRows/);
+  assert.match(exportAction, /filteredEntries\.length/);
+  assert.match(reports, /Bookkeeper Export/);
+});
+
+test('correction requests retain review workflow under a status tab', async () => {
+  const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
+  assert.match(reports, /role="tablist"/);
+  assert.match(reports, />Time Entries</);
+  assert.match(reports, /Correction Requests/);
+  assert.match(reports, /pendingCorrectionCount/);
+  assert.match(reports, /handleApproveCorrection/);
+  assert.match(reports, /handleRejectCorrection/);
+  assert.match(reports, /<option value="pending">Pending<\/option>/);
+  assert.match(reports, /<option value="approved">Approved<\/option>/);
+  assert.match(reports, /<option value="rejected">Denied<\/option>/);
+  assert.match(reports, /item\.status === 'rejected' \? 'denied' : item\.status/);
+});
+
+test('normal Time Tracking UI contains no backfill or migration controls', async () => {
+  const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
+  assert.doesNotMatch(reports, /backfill|migration/i);
 });
