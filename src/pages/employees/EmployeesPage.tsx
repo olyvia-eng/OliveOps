@@ -7,6 +7,7 @@ import { formatCurrency, formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import type { Employee, EmployeeRole } from '../../types';
+import type { PendingClockingWorkflow } from '../../utils/clockingResponse.js';
 import ClockInModal from './ClockInModal';
 import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal';
 
@@ -61,6 +62,7 @@ export default function EmployeesPage() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState('');
   const [clockOutSubmitting, setClockOutSubmitting] = useState(false);
+  const [pendingClockOut, setPendingClockOut] = useState<{ workflow: PendingClockingWorkflow; employeeName: string; workLabel: string } | null>(null);
   const [employeeViewMode, setEmployeeViewMode] = useState<'card' | 'list'>(() => {
     if (typeof window === 'undefined') return 'card';
     return window.localStorage.getItem(EMPLOYEES_VIEW_MODE_STORAGE_KEY) === 'list' ? 'list' : 'card';
@@ -175,6 +177,15 @@ export default function EmployeesPage() {
     void clockOut(clockOutEntry, 0, jobNotes.trim(), nextPhotoAttachmentFileId)
       .then((result) => {
         if (!result.ok) return;
+        if (result.pending && result.workflow) {
+          const entry = timeEntries.find((item) => item.id === clockOutEntry);
+          setPendingClockOut({
+            workflow: result.workflow,
+            employeeName: employees.find((employee) => employee.id === entry?.employeeId)?.name ?? 'Employee',
+            workLabel: getTimeEntryWorkLabel(entry ?? {}, jobs),
+          });
+          return;
+        }
         setClockOutEntry(null);
         setJobNotes('');
         setPhotoAttachmentFileId('');
@@ -321,12 +332,17 @@ export default function EmployeesPage() {
       {/* Clock Out confirm */}
       <Modal open={!!clockOutEntry} onClose={() => {
         setClockOutEntry(null);
+        setPendingClockOut(null);
         setPhotoAttachmentFileId('');
         setPhotoAttachmentFileName('');
         setPhotoUploading(false);
         setPhotoUploadError('');
-      }} title="Clock Out"
-        footer={<>
+      }} title={pendingClockOut ? 'Clock-out pending' : 'Clock Out'}
+        footer={pendingClockOut ? <Button onClick={() => {
+          setClockOutEntry(null);
+          setPendingClockOut(null);
+          setJobNotes('');
+        }}>Done</Button> : <>
           <Button variant="secondary" onClick={() => {
             setClockOutEntry(null);
             setPhotoAttachmentFileId('');
@@ -340,7 +356,11 @@ export default function EmployeesPage() {
           </Button>
         </>}
       >
-        <div className="space-y-4">
+        {pendingClockOut ? <div className="space-y-4">
+          <p className="text-gray-700">{pendingClockOut.employeeName} has {pendingClockOut.workflow.remainingRequiredFormCount} required post-shift {pendingClockOut.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} to complete before clock-out can be finalized.</p>
+          <p className="text-sm font-medium text-gray-900">{pendingClockOut.workLabel}</p>
+          <p className="text-sm text-gray-600">The employee can complete the required {pendingClockOut.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} in the OliveOps mobile app.</p>
+        </div> : <div className="space-y-4">
           <p className="text-gray-600">Add job notes before clocking out.</p>
           <Input label="Job Notes" required value={jobNotes} onChange={(e) => setJobNotes(e.target.value)} placeholder="Required before clocking out" />
           <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -372,7 +392,7 @@ export default function EmployeesPage() {
             {photoUploadError && <p className="text-xs text-accent-700">{photoUploadError}</p>}
           </div>
           {!jobNotes.trim() && <p className="text-xs text-accent-700">Job notes are required before clocking out.</p>}
-        </div>
+        </div>}
       </Modal>
 
       {/* Clock In modal (mobile-friendly) */}

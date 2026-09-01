@@ -389,6 +389,8 @@ test('submission atomically completes requirement, replays idempotently, and fin
   const submitted = await formRequest(context.token, submissionBody);
   assert.equal(submitted.statusCode, 201);
   assert.equal(submitted.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+  assert.equal(submitted.body.clocking.status, 'clock_in_completed');
+  assert.equal(submitted.body.clocking.timeEntry.status, 'clocked_in');
   const workflowRecord = context.store.get(key(`BUSINESS#${context.businessId}`, `CLOCK_IN_WORKFLOW#${initiated.body.workflowOccurrenceId}`));
   assert.equal(workflowRecord.completedRequirementCount, 1);
   assert.equal(new Set(workflowRecord.completedRequirementIds).has(requirement.requirementId), true);
@@ -400,7 +402,7 @@ test('submission atomically completes requirement, replays idempotently, and fin
 
   const finalized = await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
   assert.equal(finalized.statusCode, 200);
-  assert.equal(finalized.body.status, 'clock_in_completed');
+  assert.equal(finalized.body.status, 'clock_in_already_finalized');
   assert.notEqual(finalized.body.timeEntry.clockIn, initiationTimestamp);
   assert.ok(Date.parse(finalized.body.timeEntry.clockIn) > Date.parse(initiationTimestamp));
   assert.equal(finalized.body.timeEntry.status, 'clocked_in');
@@ -413,10 +415,9 @@ test('submission atomically completes requirement, replays idempotently, and fin
 });
 
 test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is missing', async (t) => {
-  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const context = await setup(t, { forms: [{ id: 'first' }, { id: 'second' }] });
   const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
-  const requirement = initiated.body.requiredForms[0];
-  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[0]))).statusCode, 201);
   const activeShiftKey = key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
   context.store.set(activeShiftKey, {
     PK: `BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`,
@@ -427,20 +428,17 @@ test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is missin
     status: 'active',
   });
 
-  const finalized = await clockingRequest(context.token, {
-    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
-  });
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[1]));
 
-  assert.equal(finalized.statusCode, 200);
-  assert.equal(finalized.body.status, 'clock_in_completed');
-  assert.equal(context.store.get(activeShiftKey).activeEntryId, finalized.body.timeEntry.id);
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.clocking.status, 'clock_in_completed');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, submitted.body.clocking.timeEntry.id);
 });
 
 test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is clocked out', async (t) => {
-  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const context = await setup(t, { forms: [{ id: 'first' }, { id: 'second' }] });
   const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
-  const requirement = initiated.body.requiredForms[0];
-  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[0]))).statusCode, 201);
   const businessPk = `BUSINESS#${context.businessId}`;
   const activeShiftKey = key(`${businessPk}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
   context.store.set(key(businessPk, 'TIME#old-entry'), {
@@ -453,21 +451,18 @@ test('finalization replaces an ACTIVE_SHIFT whose referenced TimeEntry is clocke
     employeeId: context.employeeId, activeEntryId: 'old-entry', status: 'active',
   });
 
-  const finalized = await clockingRequest(context.token, {
-    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
-  });
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[1]));
 
-  assert.equal(finalized.statusCode, 200);
-  assert.equal(finalized.body.status, 'clock_in_completed');
-  assert.equal(context.store.get(activeShiftKey).activeEntryId, finalized.body.timeEntry.id);
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.clocking.status, 'clock_in_completed');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, submitted.body.clocking.timeEntry.id);
   assert.equal(context.store.get(key(businessPk, 'TIME#old-entry')).status, 'clocked_out');
 });
 
 test('finalization preserves a valid active shift and rejects a second clocked-in TimeEntry', async (t) => {
-  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const context = await setup(t, { forms: [{ id: 'first' }, { id: 'second' }] });
   const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
-  const requirement = initiated.body.requiredForms[0];
-  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[0]))).statusCode, 201);
   const businessPk = `BUSINESS#${context.businessId}`;
   const activeShiftKey = key(`${businessPk}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
   context.store.set(key(businessPk, 'TIME#existing-entry'), {
@@ -479,20 +474,21 @@ test('finalization preserves a valid active shift and rejects a second clocked-i
     employeeId: context.employeeId, activeEntryId: 'existing-entry', status: 'active',
   });
 
-  const finalized = await clockingRequest(context.token, {
-    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
-  });
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[1]));
+  const finalized = await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
 
+  assert.equal(submitted.statusCode, 201);
+  assert.equal('clocking' in submitted.body, false);
   assert.equal(finalized.statusCode, 409);
   assert.equal(finalized.body.code, 'offline_shift_state_conflict');
   assert.equal(context.store.get(activeShiftKey).activeEntryId, 'existing-entry');
   assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
 });
 
-test('orphan cleanup preserves a concurrently replaced ACTIVE_SHIFT', async (t) => {
+test('orphan cleanup preserves a concurrently replaced ACTIVE_SHIFT and finalizes on retry', async (t) => {
   let activeShiftKey;
   const context = await setup(t, {
-    forms: [{ id: 'required' }],
+    forms: [{ id: 'first' }, { id: 'second' }],
     ddbOptions: {
       beforeTransaction: ({ store, transactionCount }) => {
         if (transactionCount !== 4 || !activeShiftKey) return;
@@ -505,8 +501,7 @@ test('orphan cleanup preserves a concurrently replaced ACTIVE_SHIFT', async (t) 
     },
   });
   const initiated = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
-  const requirement = initiated.body.requiredForms[0];
-  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[0]))).statusCode, 201);
   activeShiftKey = key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT');
   context.store.set(activeShiftKey, {
     PK: `BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`,
@@ -517,14 +512,18 @@ test('orphan cleanup preserves a concurrently replaced ACTIVE_SHIFT', async (t) 
     status: 'active',
   });
 
-  const finalized = await clockingRequest(context.token, {
-    action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
-  });
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, initiated.body.requiredForms[1]));
 
-  assert.equal(finalized.statusCode, 409);
-  assert.equal(finalized.body.code, 'offline_shift_state_conflict');
+  assert.equal(submitted.statusCode, 201);
+  assert.equal('clocking' in submitted.body, false);
   assert.equal(context.store.get(activeShiftKey).activeEntryId, 'concurrent-entry');
   assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 0);
+
+  const finalized = await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.status, 'clock_in_completed');
+  assert.equal(context.store.get(activeShiftKey).activeEntryId, finalized.body.timeEntry.id);
+  assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
 });
 
 test('required before-clock-in Signature claims its artifact before workflow finalization', async (t) => {
@@ -556,7 +555,14 @@ test('mandatory before-clock-in finalization exposes persisted Work Area fields 
     workType: 'job', jobIds: ['job-a'], workAreaId: 'area-excavation', clockingContractVersion: 2,
   }) });
   const requirement = initiated.body.requiredForms[0];
-  assert.equal((await formRequest(context.token, workflowSubmission(initiated.body, requirement))).statusCode, 201);
+  const workArea = context.store.get(key(`BUSINESS#${context.businessId}`, 'JOB#job-a')).operationalWorkAreas[0];
+  workArea.name = 'Renamed after initiation';
+  workArea.status = 'completed';
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, requirement));
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.clocking.status, 'clock_in_completed');
+  assert.equal(submitted.body.clocking.timeEntry.workAreaId, 'area-excavation');
+  assert.equal(submitted.body.clocking.timeEntry.workAreaNameSnapshot, 'Excavation');
   const finalized = await clockingRequest(context.token, { action: 'clock-in-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
   assert.equal(finalized.statusCode, 200);
   assert.equal(finalized.body.timeEntry.workAreaId, 'area-excavation');

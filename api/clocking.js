@@ -5,7 +5,6 @@ import {
   buildClockInTransaction,
   buildClockOutTransaction,
   buildSwitchActivityTransaction,
-  clearOrphanActiveShiftForEmployee,
   getActiveShiftForEmployee,
   validateClockOutPhotoAttachment,
   getClockingErrorResponse,
@@ -34,23 +33,20 @@ import {
 import { authorizeRecordAccess, canClockForEmployee } from './_lib/authorization.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
-  buildWorkflowFinalizationItems,
   clockOutWorkflowStatus,
   createClockOutOccurrenceId,
   createPendingClockOutWorkflow,
-  getClockOutWorkflowForBusiness,
   getPendingClockOutWorkflowForEmployee,
   resolveAfterClockOutForms,
 } from './_lib/mandatoryClockOut.js';
 import {
-  buildClockInWorkflowFinalizationItems,
   clockInWorkflowStatus,
   createClockInOccurrenceId,
   createPendingClockInWorkflow,
-  getClockInWorkflowForBusiness,
   getPendingClockInWorkflowForEmployee,
   resolveBeforeClockInForms,
 } from './_lib/mandatoryClockIn.js';
+import { finalizePendingClockIn, finalizePendingClockOut } from './_lib/mandatoryClockingFinalization.js';
 import { calculateEmployeeLabourCost } from '../src/utils/employeeLabourCost.js';
 import {
   resolveClockingWorkArea,
@@ -76,6 +72,30 @@ function labourCostSnapshot(employee, clockIn, clockOut, breakMinutes = 0) {
 
 function payloadHash(payload) {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+function sendMandatoryFinalizationResult(res, result, workflowOccurrenceId) {
+  if (result.ok) {
+    return res.status(200).json({
+      ok: true,
+      blocked: false,
+      status: result.status,
+      workflowOccurrenceId,
+      timeEntry: result.timeEntry,
+    });
+  }
+  if (result.code === 'required_forms_outstanding') {
+    return res.status(result.status).json({ ok: false, blocked: true, code: result.code, ...result.workflow });
+  }
+  return res.status(result.status).json({
+    ok: false,
+    code: result.code,
+    error: result.error,
+    ...(result.pendingClockOutWorkflow ? {
+      blocked: true,
+      pendingClockOutWorkflow: result.pendingClockOutWorkflow,
+    } : {}),
+  });
 }
 
 function scopedIdempotencyKey(employeeId, idempotencyKey) {
@@ -278,120 +298,8 @@ export default async function handler(req, res) {
     if (!workflowOccurrenceId) {
       return res.status(400).json({ ok: false, code: 'workflow_occurrence_required', error: 'Clock-in workflow occurrence is required.' });
     }
-    const workflow = await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId);
-    if (!workflow) {
-      return res.status(404).json({ ok: false, code: 'clock_in_workflow_not_found', error: 'Clock-in workflow not found.' });
-    }
-    if (!canClockForEmployee(session, workflow.employeeId)) {
-      return res.status(403).json({ ok: false, code: 'clock_in_workflow_forbidden', error: 'Forbidden' });
-    }
-    if (workflow.status === 'finalized') {
-      return res.status(200).json({ ok: true, blocked: false, status: 'clock_in_already_finalized', timeEntry: workflow.timeEntry });
-    }
-    const workflowState = clockInWorkflowStatus(workflow);
-    if (workflowState.remainingRequiredFormCount > 0) {
-      return res.status(409).json({ ok: false, blocked: true, code: 'required_forms_outstanding', ...workflowState });
-    }
-    const pendingClockOut = await getPendingClockOutWorkflowForEmployee(session.businessId, workflow.employeeId);
-    if (pendingClockOut) {
-      return res.status(409).json({
-        ok: false,
-        blocked: true,
-        code: 'pending_clock_out_requires_finalization',
-        error: 'Complete the pending clock-out workflow before clocking in.',
-        pendingClockOutWorkflow: clockOutWorkflowStatus(pendingClockOut),
-      });
-    }
-    const employee = await getEmployeeForBusiness(session.businessId, workflow.employeeId);
-    if (!employee?.active) {
-      return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
-    }
-    const intent = workflow.clockInIntent;
-    if (!VALID_WORK_TYPES.has(intent?.workType)) {
-      return res.status(409).json({ ok: false, code: 'clock_in_intent_invalid', error: 'Saved clock-in work type is invalid.' });
-    }
-    const workAreaValidation = await validateClockingSelection({
-      session,
-      workType: intent.workType,
-      jobIds: intent.jobIds ?? [],
-      workAreaId: intent.workAreaId,
-      contractVersion: intent.clockingContractVersion,
-    });
-    if (!workAreaValidation.ok) {
-      return res.status(workAreaValidation.status).json({ ok: false, code: workAreaValidation.code ?? 'clock_in_intent_invalid', error: workAreaValidation.error });
-    }
-    let unbillableCategory;
-    if (intent.workType === 'non_billable') {
-      const categoryResult = await resolveActiveUnbillableCategoryOrError({ businessId: session.businessId, categoryId: intent.unbillableCategoryId });
-      if (!categoryResult.ok) return res.status(409).json({ ok: false, code: 'clock_in_intent_invalid', error: categoryResult.error });
-      unbillableCategory = categoryResult.category;
-    }
-    const activeEntries = await listTimeEntriesForBusiness(session.businessId, { consistentRead: true });
-    if (activeEntries.some((entry) => entry.employeeId === workflow.employeeId && entry.status === 'clocked_in')) {
-      return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: 'Employee is already clocked in.' });
-    }
-    const activeShiftIntegrity = await clearOrphanActiveShiftForEmployee({
-      businessId: session.businessId,
-      employeeId: workflow.employeeId,
-    });
-    if (!activeShiftIntegrity.ok) {
-      return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: 'Employee clock state changed. Refresh and try again.' });
-    }
-
-    const finalizedAt = nowIso();
-    if (hasClockInTimelineConflict(activeEntries, workflow.employeeId, finalizedAt)) {
-      return res.status(409).json({ ok: false, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' });
-    }
-    const timeEntryId = `${workflow.employeeId}:${finalizedAt}`;
-    const timeEntry = {
-      id: timeEntryId,
-      employeeId: workflow.employeeId,
-      jobId: intent.jobIds?.[0],
-      jobIds: intent.jobIds ?? [],
-      workType: intent.workType,
-      workAreaId: workAreaValidation.workAreaId,
-      workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
-      unbillableCategoryId: unbillableCategory?.id,
-      unbillableCategoryName: unbillableCategory?.name,
-      clockIn: finalizedAt,
-      breakMinutes: 0,
-      notes: '',
-      status: 'clocked_in',
-    };
-    const workflowFinalizationItems = buildClockInWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt, timeEntry });
-    const tx = buildClockInTransaction({
-      businessId: session.businessId,
-      employeeId: workflow.employeeId,
-      userId: session.id,
-      timeEntryId,
-      clockInAt: finalizedAt,
-      serverReceivedAt: finalizedAt,
-      timestampSource: 'server',
-      requestId: workflow.requestId,
-      idempotencyKey: workflow.idempotencyKey,
-      payloadHash: workflow.payloadHash,
-      source: 'mandatory_forms',
-      auditEventId: `${session.id}:${workflow.requestId}:clock-in`,
-      jobIds: intent.jobIds ?? [],
-      workType: intent.workType,
-      workAreaId: workAreaValidation.workAreaId,
-      workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
-      unbillableCategoryId: unbillableCategory?.id,
-      unbillableCategoryName: unbillableCategory?.name,
-      employeeName: employee.name,
-      workflowFinalizationItems,
-    });
-    try {
-      await ddb.send(new TransactWriteCommand(tx));
-      return res.status(200).json({ ok: true, blocked: false, status: 'clock_in_completed', workflowOccurrenceId, timeEntry });
-    } catch (error) {
-      const currentWorkflow = await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId);
-      if (currentWorkflow?.status === 'finalized') {
-        return res.status(200).json({ ok: true, blocked: false, status: 'clock_in_already_finalized', timeEntry: currentWorkflow.timeEntry });
-      }
-      const response = getClockingFailureResponse('clock-in', error);
-      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
-    }
+    const result = await finalizePendingClockIn({ session, workflowOccurrenceId });
+    return sendMandatoryFinalizationResult(res, result, workflowOccurrenceId);
   }
 
   if (clockingAction === 'clock-out-finalize') {
@@ -399,89 +307,8 @@ export default async function handler(req, res) {
     if (!workflowOccurrenceId) {
       return res.status(400).json({ ok: false, code: 'workflow_occurrence_required', error: 'Clock-out workflow occurrence is required.' });
     }
-    const workflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
-    if (!workflow) {
-      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
-    }
-    if (!canClockForEmployee(session, workflow.employeeId)) {
-      return res.status(403).json({ ok: false, code: 'clock_out_workflow_forbidden', error: 'Forbidden' });
-    }
-    if (workflow.status === 'finalized') {
-      return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_already_finalized', timeEntry: workflow.timeEntry });
-    }
-
-    const workflowState = clockOutWorkflowStatus(workflow);
-    if (workflowState.remainingRequiredFormCount > 0) {
-      return res.status(409).json({ ok: false, blocked: true, code: 'required_forms_outstanding', ...workflowState });
-    }
-
-    const activeEntry = await getTimeEntryForBusiness(session.businessId, workflow.timeEntryId);
-    if (!activeEntry || activeEntry.employeeId !== workflow.employeeId) {
-      return res.status(404).json({ ok: false, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' });
-    }
-    const activeShift = await getActiveShiftForEmployee({ businessId: session.businessId, employeeId: workflow.employeeId });
-    const activeShiftState = resolveClockOutActiveShift({ activeShift, requestedEntryId: workflow.timeEntryId });
-    if (!activeShiftState.ok || activeEntry.status !== 'clocked_in') {
-      return res.status(409).json({ ok: false, code: 'offline_shift_state_conflict', error: activeShiftState.error ?? 'No active shift found.' });
-    }
-
-    const employee = await getEmployeeForBusiness(session.businessId, workflow.employeeId);
-    const finalData = workflow.finalizationData;
-    const costSnapshot = labourCostSnapshot(employee, finalData.clockIn, workflow.intendedClockOutAt, finalData.breakMinutes);
-    const timeEntry = {
-      id: workflow.timeEntryId,
-      employeeId: workflow.employeeId,
-      jobId: finalData.jobId,
-      jobIds: finalData.jobIds,
-      workType: finalData.workType,
-      workAreaId: finalData.workAreaId,
-      workAreaNameSnapshot: finalData.workAreaNameSnapshot,
-      clockIn: finalData.clockIn,
-      clockOut: workflow.intendedClockOutAt,
-      breakMinutes: finalData.breakMinutes,
-      notes: finalData.notes,
-      photoAttachmentFileIds: finalData.photoAttachmentFileIds,
-      clockOutPhotoFileIds: finalData.photoAttachmentFileIds,
-      photoAttachmentFileId: finalData.photoAttachmentFileId,
-      clockOutPhotoFileId: finalData.photoAttachmentFileId,
-      photoAttachmentUrl: finalData.photoAttachmentUrl,
-      unbillableCategoryId: finalData.unbillableCategoryId,
-      unbillableCategoryName: finalData.unbillableCategoryName,
-      status: 'clocked_out',
-      ...costSnapshot,
-    };
-    const finalizedAt = nowIso();
-    const workflowFinalizationItems = buildWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt, timeEntry });
-    const tx = buildClockOutTransaction({
-      businessId: session.businessId,
-      employeeId: workflow.employeeId,
-      userId: session.id,
-      timeEntryId: workflow.timeEntryId,
-      clockOutAt: workflow.intendedClockOutAt,
-      serverReceivedAt: workflow.serverReceivedAt,
-      timestampSource: workflow.timestampSource,
-      requestId: workflow.requestId,
-      idempotencyKey: workflow.idempotencyKey,
-      payloadHash: workflow.payloadHash,
-      source: workflow.source,
-      auditEventId: `${session.id}:${workflow.requestId}:clock-out`,
-      ...finalData,
-      ...costSnapshot,
-      employeeName: employee?.name ?? '',
-      workflowFinalizationItems,
-    });
-
-    try {
-      await ddb.send(new TransactWriteCommand(tx));
-      return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_completed', workflowOccurrenceId, timeEntry });
-    } catch (error) {
-      const currentWorkflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
-      if (currentWorkflow?.status === 'finalized') {
-        return res.status(200).json({ ok: true, blocked: false, status: 'clock_out_already_finalized', timeEntry: currentWorkflow.timeEntry });
-      }
-      const response = getClockingFailureResponse('clock-out', error);
-      return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
-    }
+    const result = await finalizePendingClockOut({ session, workflowOccurrenceId });
+    return sendMandatoryFinalizationResult(res, result, workflowOccurrenceId);
   }
 
   if (clockingAction === 'clock-in') {

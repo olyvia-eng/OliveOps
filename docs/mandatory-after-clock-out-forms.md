@@ -68,13 +68,13 @@ POST /api/employee?action=submit
 
 The server derives the employee from the session and the form context from the persisted workflow. Supplied context identifiers must match that workflow. The submission header stores both correlation IDs.
 
-The existing transaction atomically writes the idempotency claim, submission header, responses, and workflow completion update. A successful idempotent replay returns the original submission and still represents the same completed requirement; it does not increment completion again or create duplicate answers.
+The existing transaction atomically writes the idempotency claim, submission header, responses, and workflow completion update. When that submission completes the final requirement, the server immediately finalizes the existing pending clock-out and includes the authoritative Time Entry in `clocking.timeEntry`. A successful idempotent replay returns the original submission and recovers the same finalization; it does not increment completion again, create duplicate answers, or create another Time Entry.
 
 Accepted-response rules are evaluated from the immutable occurrence snapshot. Editing or archiving the source Form after initiation does not change an in-progress requirement. Legacy occurrence records without a form snapshot remain completable using the current Form fields. A valid submission configured for approval is stored as `pending_review` and completes the requirement immediately; office approval never blocks clock-out finalization.
 
 A submission can satisfy exactly one requirement in exactly one occurrence. Previous clock-out submissions, another form's requirement ID, another employee, and another business cannot satisfy it.
 
-## Finalization
+## Finalization recovery
 
 ```http
 POST /api/clocking?action=clock-out-finalize
@@ -83,6 +83,8 @@ POST /api/clocking?action=clock-out-finalize
   "workflowOccurrenceId": "clock-out-..."
 }
 ```
+
+Clients do not need to start a second workflow after the final required form. This endpoint is the authoritative retry and recovery path when a form response was interrupted or a concurrent clock-state change prevented immediate finalization.
 
 If requirements remain, the server returns `409` with `code: "required_forms_outstanding"` and the current workflow counts/lists. Once all requirements are complete, the clock-out transaction atomically:
 

@@ -6,8 +6,9 @@ import { formatDateTime, durationHours } from '../../utils';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import { getTimeEntryWorkLabel } from '../../utils/timeEntryPresentation.js';
 import type { TimeEntryWorkType } from '../../types';
+import type { PendingClockingWorkflow } from '../../utils/clockingResponse.js';
 
-type Step = 'select_employee' | 'select_job' | 'clocked_in';
+type Step = 'select_employee' | 'select_job' | 'clocked_in' | 'pending';
 
 interface Props {
   open: boolean;
@@ -20,6 +21,7 @@ export default function ClockInModal({ open, onClose }: Props) {
   const [foundEmployee, setFoundEmployee] = useState<typeof employees[0] | null>(null);
   const [clockType, setClockType] = useState<TimeEntryWorkType>('job');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [selectedWorkAreaId, setSelectedWorkAreaId] = useState('');
   const [selectedUnbillableCategoryId, setSelectedUnbillableCategoryId] = useState('');
   const [jobNotes, setJobNotes] = useState('');
   const [photoAttachmentFileId, setPhotoAttachmentFileId] = useState('');
@@ -28,6 +30,7 @@ export default function ClockInModal({ open, onClose }: Props) {
   const [photoUploadError, setPhotoUploadError] = useState('');
   const [clockInSubmitting, setClockInSubmitting] = useState(false);
   const [clockOutSubmitting, setClockOutSubmitting] = useState(false);
+  const [pendingWorkflow, setPendingWorkflow] = useState<{ action: 'clock-in' | 'clock-out'; workflow: PendingClockingWorkflow; jobName?: string; workAreaName?: string } | null>(null);
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const reset = () => {
@@ -35,6 +38,7 @@ export default function ClockInModal({ open, onClose }: Props) {
     setFoundEmployee(null);
     setClockType('job');
     setSelectedJobIds([]);
+    setSelectedWorkAreaId('');
     setSelectedUnbillableCategoryId('');
     setJobNotes('');
     setPhotoAttachmentFileId('');
@@ -43,6 +47,7 @@ export default function ClockInModal({ open, onClose }: Props) {
     setPhotoUploadError('');
     setClockInSubmitting(false);
     setClockOutSubmitting(false);
+    setPendingWorkflow(null);
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -60,9 +65,21 @@ export default function ClockInModal({ open, onClose }: Props) {
     void clockIn(foundEmployee.id, {
       workType: clockType,
       jobIds: clockType === 'job' ? selectedJobIds : [],
+      workAreaId: clockType === 'job' ? selectedWorkAreaId || undefined : undefined,
       unbillableCategoryId: clockType === 'non_billable' ? selectedUnbillableCategoryId : undefined,
     }).then((result) => {
       if (!result.ok) return;
+      if (result.pending && result.workflow) {
+        const pendingJobId = result.workflow.clockInIntent?.jobIds?.[0];
+        setPendingWorkflow({
+          action: 'clock-in',
+          workflow: result.workflow,
+          jobName: jobs.find((job) => job.id === pendingJobId)?.title,
+          workAreaName: result.workflow.clockInIntent?.workAreaNameSnapshot ?? undefined,
+        });
+        setStep('pending');
+        return;
+      }
       setStep('clocked_in');
     }).finally(() => {
       setClockInSubmitting(false);
@@ -78,6 +95,16 @@ export default function ClockInModal({ open, onClose }: Props) {
     void clockOut(activeEntry.id, 0, jobNotes.trim(), nextPhotoAttachmentFileId)
       .then((result) => {
         if (!result.ok) return;
+        if (result.pending && result.workflow) {
+          setPendingWorkflow({
+            action: 'clock-out',
+            workflow: result.workflow,
+            jobName: jobs.find((job) => job.id === activeEntry.jobId)?.title,
+            workAreaName: activeEntry.workAreaNameSnapshot,
+          });
+          setStep('pending');
+          return;
+        }
         reset();
         onClose();
       })
@@ -134,14 +161,11 @@ export default function ClockInModal({ open, onClose }: Props) {
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   const activeEmployees = employees.filter((employee) => employee.active);
-
-  const toggleJobSelection = (jobId: string) => {
-    setSelectedJobIds((current) =>
-      current.includes(jobId)
-        ? current.filter((id) => id !== jobId)
-        : [...current, jobId]
-    );
-  };
+  const selectedJob = activeJobs.find((job) => job.id === selectedJobIds[0]);
+  const eligibleWorkAreas = (selectedJob?.operationalWorkAreas ?? [])
+    .filter((area) => area.id && area.name && (area.status === 'not_started' || area.status === 'in_progress'))
+    .slice()
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
 
   return (
     <Modal open={open} onClose={handleClose} title="Employee Clock In / Out">
@@ -264,7 +288,10 @@ export default function ClockInModal({ open, onClose }: Props) {
               onChange={(e) => {
                 const next = e.target.value as TimeEntryWorkType;
                 setClockType(next);
-                if (next !== 'job') setSelectedJobIds([]);
+                if (next !== 'job') {
+                  setSelectedJobIds([]);
+                  setSelectedWorkAreaId('');
+                }
                 if (next !== 'non_billable') setSelectedUnbillableCategoryId('');
               }}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -275,19 +302,40 @@ export default function ClockInModal({ open, onClose }: Props) {
             </select>
 
             {clockType === 'job' && (
-              <div className="space-y-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white p-2">
-                {activeJobs.map((job) => (
-                  <label key={job.id} className="flex items-center gap-2 px-2 py-1 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      checked={selectedJobIds.includes(job.id)}
-                      onChange={() => toggleJobSelection(job.id)}
-                    />
-                    <span>{job.title}</span>
-                  </label>
-                ))}
+              <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+                <label className="block text-sm font-medium text-gray-700" htmlFor="employee-clock-in-job">Job</label>
+                <select
+                  id="employee-clock-in-job"
+                  value={selectedJobIds[0] ?? ''}
+                  onChange={(event) => {
+                    const nextJobId = event.target.value;
+                    const nextJob = activeJobs.find((job) => job.id === nextJobId);
+                    const nextEligibleAreas = (nextJob?.operationalWorkAreas ?? []).filter((area) => area.id && area.name && (area.status === 'not_started' || area.status === 'in_progress'));
+                    setSelectedJobIds(nextJobId ? [nextJobId] : []);
+                    setSelectedWorkAreaId(nextEligibleAreas.length === 1 ? nextEligibleAreas[0].id : '');
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="">Select Job</option>
+                  {activeJobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+                </select>
                 {activeJobs.length === 0 && (
                   <p className="text-gray-400 text-sm text-center py-2">No active or scheduled jobs.</p>
+                )}
+                {selectedJob && (selectedJob.operationalWorkAreas?.length ?? 0) > 0 && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700" htmlFor="employee-clock-in-work-area">Work Area</label>
+                    <select
+                      id="employee-clock-in-work-area"
+                      value={selectedWorkAreaId}
+                      onChange={(event) => setSelectedWorkAreaId(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                      <option value="">Select Work Area</option>
+                      {eligibleWorkAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+                    </select>
+                    {eligibleWorkAreas.length === 0 && <p className="text-xs text-accent-700">This Job has no Work Areas available for clocking.</p>}
+                  </div>
                 )}
               </div>
             )}
@@ -315,6 +363,7 @@ export default function ClockInModal({ open, onClose }: Props) {
             disabled={
               clockInSubmitting
               || (clockType === 'job' && selectedJobIds.length === 0)
+              || (clockType === 'job' && (selectedJob?.operationalWorkAreas?.length ?? 0) > 0 && !selectedWorkAreaId)
               || (clockType === 'non_billable' && !selectedUnbillableCategoryId)
             }
             className="w-full justify-center py-3 text-base"
@@ -336,6 +385,25 @@ export default function ClockInModal({ open, onClose }: Props) {
             <p className="text-xl font-bold text-gray-900">You're clocked in!</p>
             <p className="text-gray-500 mt-1">{foundEmployee.name}</p>
           </div>
+          <Button className="w-full justify-center" onClick={handleClose}>Done</Button>
+        </div>
+      )}
+
+      {step === 'pending' && foundEmployee && pendingWorkflow && (
+        <div className="space-y-5 py-4">
+          <div>
+            <p className="text-xl font-bold text-gray-900">{pendingWorkflow.action === 'clock-in' ? 'Clock-in pending' : 'Clock-out pending'}</p>
+            <p className="mt-2 text-sm text-gray-600">
+              {foundEmployee.name} has {pendingWorkflow.workflow.remainingRequiredFormCount} required {pendingWorkflow.action === 'clock-in' ? 'pre-shift' : 'post-shift'} {pendingWorkflow.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} to complete before {pendingWorkflow.action} can be finalized.
+            </p>
+          </div>
+          {(pendingWorkflow.jobName || pendingWorkflow.workAreaName) && (
+            <dl className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+              {pendingWorkflow.jobName && <div><dt className="text-gray-500">Job</dt><dd className="font-medium text-gray-900">{pendingWorkflow.jobName}</dd></div>}
+              {pendingWorkflow.workAreaName && <div><dt className="text-gray-500">Work Area</dt><dd className="font-medium text-gray-900">{pendingWorkflow.workAreaName}</dd></div>}
+            </dl>
+          )}
+          <p className="text-sm text-gray-600">The employee can complete the required {pendingWorkflow.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} in the OliveOps mobile app.</p>
           <Button className="w-full justify-center" onClick={handleClose}>Done</Button>
         </div>
       )}

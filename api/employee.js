@@ -38,6 +38,7 @@ import {
   findClockInWorkflowRequirement,
   getClockInWorkflowForBusiness,
 } from './_lib/mandatoryClockIn.js';
+import { finalizeCompletedMandatoryWorkflow } from './_lib/mandatoryClockingFinalization.js';
 
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -500,6 +501,21 @@ export default async function handler(req, res) {
       fieldId: response.fieldId,
     }));
     const submissionResponse = { ...submission, responsesCreated: responses.length };
+    const finalizeWorkflow = async () => {
+      if (!requiresMandatoryWorkflow || !workflowRequirement) return null;
+      const result = await finalizeCompletedMandatoryWorkflow({ session, workflowOccurrenceId, trigger });
+      if (!result.ok && result.code !== 'required_forms_outstanding') {
+        console.error('[employee:forms:clocking-finalization]', {
+          businessId: session.businessId,
+          employeeId: data.employee.id,
+          workflowOccurrenceId,
+          trigger,
+          code: result.code,
+          error: result.error,
+        });
+      }
+      return result;
+    };
     try {
       await createEmployeeFormSubmissionForBusiness({
         businessId: session.businessId,
@@ -524,7 +540,10 @@ export default async function handler(req, res) {
     } catch (error) {
       if (error?.name === 'TransactionCanceledException' && clientSubmissionId) {
         const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
-        if (existing?.payloadFingerprint === payloadFingerprint) return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
+        if (existing?.payloadFingerprint === payloadFingerprint) {
+          const clocking = await finalizeWorkflow();
+          return res.status(200).json({ ok: true, replayed: true, submission: existing.submission, ...(clocking?.ok ? { clocking } : {}) });
+        }
         if (existing) return idempotencyConflict(res);
       }
       if (error?.name === 'TransactionCanceledException' && workflowRequirement) {
@@ -538,7 +557,8 @@ export default async function handler(req, res) {
       if (error?.name === 'TransactionCanceledException') return res.status(409).json({ ok: false, error: 'This form was already submitted. Refresh Forms and try again.' });
       throw error;
     }
-    return res.status(201).json({ ok: true, submission: submissionResponse });
+    const clocking = await finalizeWorkflow();
+    return res.status(201).json({ ok: true, submission: submissionResponse, ...(clocking?.ok ? { clocking } : {}) });
   }
 
   res.setHeader('Allow', 'GET, POST');

@@ -8,6 +8,7 @@ import { uploadFileToStorage } from '../../utils/fileUpload';
 import { getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import type { TimeCorrectionRequestType, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
+import type { PendingClockingWorkflow } from '../../utils/clockingResponse.js';
 import CalendarPage from '../calendar/CalendarPage';
 import PersonalHomeDashboard from '../home/PersonalHomeDashboard';
 
@@ -33,6 +34,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
 
   const [clockType, setClockType] = useState<TimeEntryWorkType>('job');
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [selectedWorkAreaId, setSelectedWorkAreaId] = useState('');
   const [selectedUnbillableCategoryId, setSelectedUnbillableCategoryId] = useState('');
   const [jobNotes, setJobNotes] = useState('');
   const [photoAttachmentFileId, setPhotoAttachmentFileId] = useState('');
@@ -41,6 +43,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
   const [photoUploadError, setPhotoUploadError] = useState('');
   const [clockInSubmitting, setClockInSubmitting] = useState(false);
   const [clockOutSubmitting, setClockOutSubmitting] = useState(false);
+  const [pendingWorkflow, setPendingWorkflow] = useState<{ action: 'clock-in' | 'clock-out'; workflow: PendingClockingWorkflow; workLabel: string } | null>(null);
   const photoFileInputRef = useRef<HTMLInputElement | null>(null);
   const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const [requestType, setRequestType] = useState<TimeCorrectionRequestType>('wrong_time');
@@ -84,6 +87,11 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
   const activeJobs = jobs.filter(
     (job) => job.status === 'in_progress' || job.status === 'scheduled'
   );
+  const selectedJob = activeJobs.find((job) => job.id === selectedJobIds[0]);
+  const eligibleWorkAreas = (selectedJob?.operationalWorkAreas ?? [])
+    .filter((area) => area.id && area.name && (area.status === 'not_started' || area.status === 'in_progress'))
+    .slice()
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
   const activeUnbillableCategories = useMemo(
     () => unbillableTimeCategories
       .filter((item) => item.active)
@@ -113,6 +121,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
 
     setClockType('job');
     setSelectedJobIds([]);
+    setSelectedWorkAreaId('');
     setSelectedUnbillableCategoryId('');
     setJobNotes('');
     setPhotoAttachmentFileId('');
@@ -130,7 +139,13 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
     void clockIn(employee.id, {
       workType: clockType,
       jobIds: clockType === 'job' ? selectedJobIds : [],
+      workAreaId: clockType === 'job' ? selectedWorkAreaId || undefined : undefined,
       unbillableCategoryId: clockType === 'non_billable' ? selectedUnbillableCategoryId : undefined,
+    }).then((result) => {
+      if (result.pending && result.workflow) {
+        const pendingJob = jobs.find((job) => job.id === result.workflow?.clockInIntent?.jobIds?.[0]);
+        setPendingWorkflow({ action: 'clock-in', workflow: result.workflow, workLabel: [pendingJob?.title, result.workflow.clockInIntent?.workAreaNameSnapshot].filter(Boolean).join(' · ') });
+      }
     }).finally(() => {
       setClockInSubmitting(false);
     });
@@ -145,6 +160,10 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
     void clockOut(activeEntry.id, 0, jobNotes.trim(), nextPhotoAttachmentFileId)
       .then((result) => {
         if (!result.ok) return;
+        if (result.pending && result.workflow) {
+          setPendingWorkflow({ action: 'clock-out', workflow: result.workflow, workLabel: getTimeEntryWorkLabel(activeEntry, jobs) });
+          return;
+        }
         setJobNotes('');
         setPhotoAttachmentFileId('');
         setPhotoAttachmentFileName('');
@@ -239,14 +258,6 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
     return getTimeEntryWorkLabel(activeEntry, jobs);
   }, [activeEntry, jobs]);
 
-  const toggleJobSelection = (jobId: string) => {
-    setSelectedJobIds((current) =>
-      current.includes(jobId)
-        ? current.filter((id) => id !== jobId)
-        : [...current, jobId]
-    );
-  };
-
   return (
     <div className="min-h-screen bg-cream px-4 py-10">
       <div className={`mx-auto w-full ${portalView === 'clock' ? 'max-w-lg' : portalView === 'calendar' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
@@ -291,7 +302,15 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
                 <p className="text-xs text-gray-500">{employee.email} · {employee.role.replace('_', ' ')}</p>
               </div>
 
-              {activeEntry ? (
+              {pendingWorkflow ? (
+                <div className="space-y-3 rounded-lg border border-brand-200 bg-brand-50 p-4">
+                  <p className="font-semibold text-brand-800">{pendingWorkflow.action === 'clock-in' ? 'Clock-in pending' : 'Clock-out pending'}</p>
+                  <p className="text-sm text-brand-700">You have {pendingWorkflow.workflow.remainingRequiredFormCount} required {pendingWorkflow.action === 'clock-in' ? 'pre-shift' : 'post-shift'} {pendingWorkflow.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} to complete before {pendingWorkflow.action} can be finalized.</p>
+                  {pendingWorkflow.workLabel && <p className="text-sm font-medium text-brand-800">{pendingWorkflow.workLabel}</p>}
+                  <p className="text-sm text-brand-700">Complete the required {pendingWorkflow.workflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} in the OliveOps mobile app.</p>
+                  <Button variant="secondary" className="w-full justify-center" onClick={() => setPendingWorkflow(null)}>Done</Button>
+                </div>
+              ) : activeEntry ? (
                 <div className="space-y-3 rounded-lg border border-brand-200 bg-brand-50 p-4">
                   <p className="font-semibold text-brand-800">You are clocked in.</p>
                   <p className="text-sm text-brand-700">
@@ -356,7 +375,10 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
                     onChange={(event) => {
                       const next = event.target.value as TimeEntryWorkType;
                       setClockType(next);
-                      if (next !== 'job') setSelectedJobIds([]);
+                      if (next !== 'job') {
+                        setSelectedJobIds([]);
+                        setSelectedWorkAreaId('');
+                      }
                       if (next !== 'non_billable') setSelectedUnbillableCategoryId('');
                     }}
                   >
@@ -366,23 +388,25 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
                   </Select>
 
                   {clockType === 'job' && (
-                    <div className="space-y-2">
-                      <p className="text-sm text-brand-800">Select one or more jobs</p>
-                      <div className="max-h-44 overflow-y-auto rounded-lg border border-brand-200 bg-white p-2">
-                        {activeJobs.map((job) => (
-                          <label key={job.id} className="flex items-center gap-2 px-2 py-1 text-sm text-gray-700">
-                            <input
-                              type="checkbox"
-                              checked={selectedJobIds.includes(job.id)}
-                              onChange={() => toggleJobSelection(job.id)}
-                            />
-                            <span>{job.title}</span>
-                          </label>
-                        ))}
+                    <div className="space-y-3">
+                      <Select label="Job" value={selectedJobIds[0] ?? ''} onChange={(event) => {
+                        const nextJobId = event.target.value;
+                        const nextJob = activeJobs.find((job) => job.id === nextJobId);
+                        const nextEligibleAreas = (nextJob?.operationalWorkAreas ?? []).filter((area) => area.id && area.name && (area.status === 'not_started' || area.status === 'in_progress'));
+                        setSelectedJobIds(nextJobId ? [nextJobId] : []);
+                        setSelectedWorkAreaId(nextEligibleAreas.length === 1 ? nextEligibleAreas[0].id : '');
+                      }}>
+                        <option value="">Select Job</option>
+                        {activeJobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+                      </Select>
                         {activeJobs.length === 0 && (
                           <p className="text-sm text-brand-700 px-2 py-1">No active or scheduled jobs are available.</p>
                         )}
-                      </div>
+                      {selectedJob && (selectedJob.operationalWorkAreas?.length ?? 0) > 0 && <Select label="Work Area" value={selectedWorkAreaId} onChange={(event) => setSelectedWorkAreaId(event.target.value)}>
+                        <option value="">Select Work Area</option>
+                        {eligibleWorkAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+                      </Select>}
+                      {selectedJob && (selectedJob.operationalWorkAreas?.length ?? 0) > 0 && eligibleWorkAreas.length === 0 && <p className="text-sm text-accent-700">This Job has no Work Areas available for clocking.</p>}
                     </div>
                   )}
 
@@ -410,6 +434,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
                     disabled={
                       clockInSubmitting
                       || (clockType === 'job' && selectedJobIds.length === 0)
+                      || (clockType === 'job' && (selectedJob?.operationalWorkAreas?.length ?? 0) > 0 && !selectedWorkAreaId)
                       || (clockType === 'non_billable' && !selectedUnbillableCategoryId)
                     }
                     className="w-full justify-center"

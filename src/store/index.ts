@@ -49,6 +49,7 @@ import {
 } from '../utils/clockOutSubmission';
 import { nextEstimateUpdatedAtModel, shouldApplySequencedResponseModel } from '../utils/estimatePersistenceState.js';
 import { shouldApplyBudgetResponseModel } from '../utils/budgetPersistenceState.js';
+import { classifyClockingResponse, type PendingClockingWorkflow } from '../utils/clockingResponse.js';
 
 const estimateMutationSequences = new Map<ID, number>();
 const budgetMutationSequences = new Map<ID, number>();
@@ -83,6 +84,32 @@ function errorMessage(error: unknown, fallback: string) {
     return error.message;
   }
   return fallback;
+}
+
+type ClockingActionResult = {
+  ok: boolean;
+  pending?: boolean;
+  error?: string;
+  timeEntry?: TimeEntry;
+  workflow?: PendingClockingWorkflow;
+};
+
+async function parseClockingResponse(response: Response, action: 'clock-in' | 'clock-out') {
+  const payload = await response.json().catch(() => null);
+  let result = classifyClockingResponse({ action, status: response.status, payload });
+
+  if (result.kind === 'pending' && result.workflow.remainingRequiredFormCount === 0) {
+    const finalizeResponse = await fetch(`/api/clocking?action=${action}-finalize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ workflowOccurrenceId: result.workflow.workflowOccurrenceId }),
+    });
+    const finalizePayload = await finalizeResponse.json().catch(() => null);
+    result = classifyClockingResponse({ action, status: finalizeResponse.status, payload: finalizePayload });
+  }
+
+  return result;
 }
 
 function dataUrl(entity: string, id?: string) {
@@ -194,8 +221,8 @@ interface AppState {
   saveDivision: (division: Omit<Division, 'normalizedName' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; error?: string }>;
 
   // Time Entries
-  clockIn: (employeeId: ID, options: { workType: TimeEntryWorkType; jobIds?: ID[]; unbillableCategoryId?: ID }) => Promise<{ ok: boolean; error?: string; timeEntry?: TimeEntry }>;
-  clockOut: (entryId: ID, breakMinutes?: number, notes?: string, photoAttachmentFileId?: string) => Promise<{ ok: boolean; error?: string }>;
+  clockIn: (employeeId: ID, options: { workType: TimeEntryWorkType; jobIds?: ID[]; workAreaId?: ID; unbillableCategoryId?: ID }) => Promise<ClockingActionResult>;
+  clockOut: (entryId: ID, breakMinutes?: number, notes?: string, photoAttachmentFileId?: string) => Promise<ClockingActionResult>;
   addTimeEntry: (e: Omit<TimeEntry, 'id'>) => void;
   updateTimeEntry: (id: ID, data: Partial<TimeEntry>) => void;
   deleteTimeEntry: (id: ID) => void;
@@ -1234,20 +1261,25 @@ export const useStore = create<AppState>()((set, get) => ({
               employeeId,
               workType,
               jobIds: workType === 'job' ? selectedJobIds : [],
+              workAreaId: workType === 'job' ? options.workAreaId : undefined,
+              clockingContractVersion: 2,
               unbillableCategoryId: workType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
               requestId,
               idempotencyKey,
             }),
           });
 
-          const payload = await response.json().catch(() => null) as { ok?: boolean; error?: string; timeEntry?: TimeEntry } | null;
-          if (!response.ok || !payload?.ok || !payload.timeEntry) {
-            const message = payload?.error ?? `Clock-in failed (HTTP ${response.status}).`;
+          const result = await parseClockingResponse(response, 'clock-in');
+          if (result.kind === 'failed') {
+            const message = result.message;
             emitAppToast({ tone: 'error', message });
             return { ok: false, error: message };
           }
+          if (result.kind === 'pending') {
+            return { ok: true, pending: true, workflow: result.workflow };
+          }
 
-          const incoming = payload.timeEntry;
+          const incoming = result.timeEntry;
           set((state) => ({
             timeEntries: [
               ...state.timeEntries.filter((entry) => (
@@ -1275,32 +1307,14 @@ export const useStore = create<AppState>()((set, get) => ({
           return { ok: false, error: 'Clock-out already in progress.' };
         }
 
-        const previous = get().timeEntries;
-        const clockOutAt = nowISO();
         const normalizedPhotoAttachmentFileId = typeof photoAttachmentFileId === 'string' ? photoAttachmentFileId.trim() : '';
 
         set({ clockOutInFlightEntryIds: begin.nextInFlightEntryIds });
 
-        set((s) => ({
-          timeEntries: s.timeEntries.map((te) =>
-            te.id === entryId
-              ? {
-                  ...te,
-                  clockOut: clockOutAt,
-                  breakMinutes,
-                  notes,
-                  photoAttachmentFileId: normalizedPhotoAttachmentFileId || te.photoAttachmentFileId,
-                  clockOutPhotoFileId: normalizedPhotoAttachmentFileId || te.clockOutPhotoFileId || te.photoAttachmentFileId,
-                  status: 'clocked_out',
-                }
-              : te
-          ),
-        }));
-
         const { requestId, idempotencyKey } = createClockOutRequestMeta(entryId);
 
         try {
-          await ensureOk(fetch('/api/clocking?action=clock-out', {
+          const response = await fetch('/api/clocking?action=clock-out', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1314,10 +1328,17 @@ export const useStore = create<AppState>()((set, get) => ({
               idempotencyKey,
               ...(normalizedPhotoAttachmentFileId ? { photoAttachmentFileId: normalizedPhotoAttachmentFileId } : {}),
             }),
+          });
+          const result = await parseClockingResponse(response, 'clock-out');
+          if (result.kind === 'failed') throw new Error(result.message);
+          if (result.kind === 'pending') {
+            return { ok: true, pending: true, workflow: result.workflow };
+          }
+          set((state) => ({
+            timeEntries: state.timeEntries.map((entry) => entry.id === result.timeEntry.id ? result.timeEntry : entry),
           }));
-          return { ok: true };
+          return { ok: true, timeEntry: result.timeEntry };
         } catch (error) {
-          set({ timeEntries: previous });
           const message = errorMessage(error, 'Clock-out could not be saved.');
           emitAppToast({ tone: 'error', message });
           return { ok: false, error: message };

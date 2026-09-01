@@ -352,17 +352,19 @@ test('canonical submission completes one requirement and finalization preserves 
   const submitted = await formRequest(context.token, submissionBody);
   assert.equal(submitted.statusCode, 201);
   assert.equal(submitted.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+  assert.equal(submitted.body.clocking.status, 'clock_out_completed');
+  assert.equal(submitted.body.clocking.timeEntry.clockOut, intendedClockOutAt);
   const replayed = await formRequest(context.token, submissionBody);
   assert.equal(replayed.statusCode, 200);
   assert.equal(replayed.body.replayed, true);
 
   const recovered = await clockingRequest(context.token, { method: 'GET', action: 'pending-clock-out' });
-  assert.equal(recovered.body.completedRequiredFormCount, 1);
-  assert.equal(recovered.body.remainingRequiredFormCount, 0);
+  assert.equal(recovered.body.status, 'no_pending_clock_out');
+  assert.equal(recovered.body.workflow, null);
 
   const finalized = await clockingRequest(context.token, { action: 'clock-out-finalize', body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId } });
   assert.equal(finalized.statusCode, 200);
-  assert.equal(finalized.body.status, 'clock_out_completed');
+  assert.equal(finalized.body.status, 'clock_out_already_finalized');
   assert.equal(finalized.body.timeEntry.clockOut, intendedClockOutAt);
   assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${context.entryId}`)).clockOut, intendedClockOutAt);
 
