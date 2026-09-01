@@ -10,8 +10,7 @@ import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } 
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
-import EditTimeEntryModal from '../../components/time/EditTimeEntryModal';
-import { Pencil } from 'lucide-react';
+import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -80,7 +79,6 @@ export default function TimeReportsPage({
     employees,
     unbillableTimeCategories,
     updateTimeEntry,
-    editTimeEntry,
     approveTimeCorrectionRequest,
     rejectTimeCorrectionRequest,
   } = useStore();
@@ -99,7 +97,7 @@ export default function TimeReportsPage({
   const [reviewingCorrectionId, setReviewingCorrectionId] = useState<string | null>(null);
   const [correctionStatusFilter, setCorrectionStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
-  const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null);
+  const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const detailSectionRef = useRef<HTMLDivElement | null>(null);
 
   const correctionHighlightId = useMemo(() => {
@@ -125,6 +123,7 @@ export default function TimeReportsPage({
     () => buildEffectiveTimeEntries(timeEntries, timeCorrections),
     [timeEntries, timeCorrections]
   );
+  const selectedTimeEntry = effectiveTimeEntries.find((entry) => entry.id === selectedTimeEntryId) ?? null;
 
   const employeeSearchValue = employeeSearch.trim().toLowerCase();
   const jobsSorted = useMemo(() => [...jobs].sort((a, b) => a.title.localeCompare(b.title)), [jobs]);
@@ -834,7 +833,7 @@ export default function TimeReportsPage({
                   const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                   const presentation = getTimeEntryPresentation(entry, jobs);
                   return (
-                    <tr key={entry.id} className="hover:bg-gray-50">
+                    <tr key={entry.id} tabIndex={0} role="button" aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`} onClick={() => setSelectedTimeEntryId(entry.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }} className="cursor-pointer hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500">
                       <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
                       <td className="py-2 text-gray-600 max-w-xs">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${typeMeta.className}`}>
@@ -848,7 +847,7 @@ export default function TimeReportsPage({
                         {entry.notes?.trim() ? entry.notes : '—'}
                         {attachmentUrls[entry.id] ? (
                           <div className="mt-1">
-                            <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand-700 hover:text-brand-800">
+                            <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-xs font-medium text-brand-700 hover:text-brand-800">
                               View photo
                             </a>
                           </div>
@@ -968,13 +967,12 @@ export default function TimeReportsPage({
                 <th className="py-2 font-medium">Clock In</th>
                 <th className="py-2 font-medium">Clock Out</th>
                 <th className="py-2 font-medium">Notes</th>
-                <th className="py-2 font-medium text-right">Duration</th>
-                <th className="px-4 py-2 font-medium text-right">Actions</th>
+                <th className="px-4 py-2 font-medium text-right">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredEntries.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
               ) : filteredEntries.map((entry) => {
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const isFocusedEmployee = selectedEmployeeId === entry.employeeId;
@@ -982,7 +980,12 @@ export default function TimeReportsPage({
                 return (
                   <tr
                     key={entry.id}
-                    className={`align-top ${isFocusedEmployee ? 'bg-brand-50/60' : 'hover:bg-gray-50'}`}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`}
+                    onClick={() => setSelectedTimeEntryId(entry.id)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }}
+                    className={`cursor-pointer align-top focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${isFocusedEmployee ? 'bg-brand-50/60' : 'hover:bg-gray-50 focus:bg-gray-50'}`}
                   >
                     <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
                     <td className="py-2 text-gray-600">{presentation.activityLabel}</td>
@@ -995,16 +998,13 @@ export default function TimeReportsPage({
                       {entry.notes?.trim() ? entry.notes : '—'}
                       {attachmentUrls[entry.id] ? (
                         <div className="mt-1">
-                          <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" className="text-xs font-medium text-brand-700 hover:text-brand-800">
+                          <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-xs font-medium text-brand-700 hover:text-brand-800">
                             View photo
                           </a>
                         </div>
                       ) : null}
                     </td>
-                    <td className="py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
-                    <td className="px-4 py-2 text-right">
-                      {(currentUserRole === 'owner' || currentUserRole === 'admin') ? <Button variant="ghost" size="sm" onClick={() => setEditingTimeEntry(entry)}><Pencil size={14} /> Edit</Button> : null}
-                    </td>
+                    <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
                   </tr>
                 );
               })}
@@ -1097,13 +1097,11 @@ export default function TimeReportsPage({
       {currentUserRole !== 'admin' && (
         <p className="mt-4 text-xs text-gray-500">Backfill tools are restricted to admin users.</p>
       )}
-      <EditTimeEntryModal
-        entry={editingTimeEntry}
-        employeeName={editingTimeEntry ? getEmployeeName(editingTimeEntry.employeeId) : ''}
-        jobs={jobs}
-        unbillableCategories={unbillableTimeCategories}
-        onClose={() => setEditingTimeEntry(null)}
-        onSave={editTimeEntry}
+      <TimeEntryDetailModal
+        entry={selectedTimeEntry}
+        employeeName={selectedTimeEntry ? getEmployeeName(selectedTimeEntry.employeeId) : ''}
+        currentUserRole={currentUserRole}
+        onClose={() => setSelectedTimeEntryId(null)}
       />
     </div>
   );

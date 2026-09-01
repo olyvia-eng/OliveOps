@@ -16,6 +16,7 @@ import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewes
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
 import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
+import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -81,6 +82,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [labourSummary, setLabourSummary] = useState<JobLabourSummary | null>(null);
   const [labourSummaryLoading, setLabourSummaryLoading] = useState(false);
   const [labourSummaryError, setLabourSummaryError] = useState('');
+  const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -157,6 +159,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
 
     return sortTimeEntriesNewestFirst(effectiveTimeEntries.filter((entry) => normalizeEntryJobIds(entry).includes(id)));
   }, [effectiveTimeEntries, job, id]);
+  const selectedTimeEntry = jobTimeEntries.find((entry) => entry.id === selectedTimeEntryId) ?? null;
 
   useEffect(() => {
     if (!id || !canViewAnalysis || activeTab !== 'analysis') return;
@@ -678,7 +681,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const typeMeta = timeEntryTypeMeta(entry);
                 const presentation = getTimeEntryPresentation(entry, jobs);
-                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></p><p className="mt-1 text-sm text-gray-700">{presentation.workLabel}</p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
+                return <li key={entry.id} className="flex items-center gap-2 px-2 py-1 text-sm"><button type="button" onClick={() => setSelectedTimeEntryId(entry.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></span><span className="mt-1 block text-sm text-gray-700">{presentation.workLabel}</span><span className="block text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</span></span><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span></button><button type="button" onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="p-2 text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></li>;
               })}</ul>
             )}
           </Card>
@@ -762,6 +765,12 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         initialJobId={job.id}
         onClose={() => setScheduleModalOpen(false)}
         onSave={(payload) => updateJob(payload.jobId, payload)}
+      />
+      <TimeEntryDetailModal
+        entry={selectedTimeEntry}
+        employeeName={selectedTimeEntry ? employees.find((item) => item.id === selectedTimeEntry.employeeId)?.name ?? 'Employee' : ''}
+        currentUserRole={currentUserRole}
+        onClose={() => setSelectedTimeEntryId(null)}
       />
     </div>
   );

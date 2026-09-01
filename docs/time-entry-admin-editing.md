@@ -12,6 +12,12 @@ The service accepts Clock In, Clock Out for completed entries, Job, operational 
 
 Active entries retain their ID, employee, active status, and active-shift lock. Clock Out cannot be set through editing. An active entry with a pending mandatory clock-out workflow cannot be edited until that workflow finishes.
 
+## Shared detail experience
+
+Recent Time Entries and filtered Time Entry rows in Time Reports, Employee Time Entry history, and Job Time Entries all open the shared `TimeEntryDetailModal`. It shows the authoritative entry plus correction status and delegates Owner/Admin edits to the existing `EditTimeEntryModal`. Other roles receive the same read-only detail without an Edit action.
+
+Surfaces select entries by ID from the current effective Time Entry collection. After the store reconciles the server response, the open detail, row, duration totals, Job/employee totals, and newest-first ordering update immediately without a browser refresh.
+
 ## Validation
 
 The server validates employee and Job tenancy, activity type, completed-entry duration, supported date bounds, employee overlap, Non-Billable category, and Work Area membership in the selected Job's `operationalWorkAreas`. Historical edits may select completed operational Work Areas. Estimate Work Areas and Budget Division IDs are never accepted. Null Work Areas remain valid for legacy entries.
