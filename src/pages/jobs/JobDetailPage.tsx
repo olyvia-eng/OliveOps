@@ -12,7 +12,7 @@ import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, Time
 import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
-import { getTimeEntryWorkAreaLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
+import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
 import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
@@ -639,7 +639,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                 {job.notes?.trim() ? <div className="rounded-lg bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Job Note</p><p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{job.notes}</p></div> : null}
                 {employeeTimeEntryNotes.map((entry) => {
                   const employee = employees.find((item) => item.id === entry.employeeId);
-                  return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
+                  const presentation = getTimeEntryPresentation(entry, jobs);
+                  return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p>{presentation.workAreaLabel ? <p className="text-xs text-gray-500">{presentation.workAreaLabel}</p> : null}</div><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
                 })}
                 {!job.notes?.trim() && employeeTimeEntryNotes.length === 0 ? <p className="text-sm text-gray-400">No job or employee notes yet.</p> : null}
               </div>
@@ -676,8 +677,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                 const employee = employees.find((item) => item.id === entry.employeeId);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const typeMeta = timeEntryTypeMeta(entry);
-                const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
-                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{typeMeta.label}</span></p>{workAreaLabel ? <p className="mt-1 text-xs font-medium text-gray-600">Work Area: {workAreaLabel}</p> : null}<p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{hours.toFixed(2)}h</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
+                const presentation = getTimeEntryPresentation(entry, jobs);
+                return <li key={entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm"><div><p className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></p><p className="mt-1 text-sm text-gray-700">{presentation.workLabel}</p><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</p></div><div className="flex items-center gap-2"><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span><button onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></div></li>;
               })}</ul>
             )}
           </Card>

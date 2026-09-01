@@ -85,9 +85,12 @@ export default function Dashboard({ businessId = '', businessName = '' }: Dashbo
 
     const timeEntryEvents: ActivityEvent[] = timeEntries.map((entry) => {
       const employee = employees.find((value) => value.id === entry.employeeId);
+      const workLabel = getTimeEntryWorkLabel(entry, jobs);
       return {
         id: `time-${entry.id}`,
-        label: `${employee?.name ?? 'Employee'} ${entry.clockOut ? 'clocked out from' : 'clocked in to'} ${getTimeEntryWorkLabel(entry, jobs)}`,
+        label: entry.status === 'clocked_in'
+          ? `${employee?.name ?? 'Employee'} — ${workLabel}`
+          : `${employee?.name ?? 'Employee'} · ${workLabel}`,
         timestamp: entry.clockOut ?? entry.clockIn,
         sortAt: parseTimestamp(entry.clockIn),
         activeTimeEntry: entry.status === 'clocked_in',

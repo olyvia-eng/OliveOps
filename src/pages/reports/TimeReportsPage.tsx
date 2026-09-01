@@ -9,7 +9,7 @@ import type { BusinessUserRole } from '../../auth/types';
 import type { AuditEvent, TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
-import { getTimeEntryJobLabel, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
+import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -36,10 +36,6 @@ function normalizeJobIds(entry: Partial<TimeEntry>): string[] {
     return [entry.jobId];
   }
   return [];
-}
-
-function entryLabel(entry: Partial<TimeEntry>, jobs: Array<{ id: string; title: string }>) {
-  return getTimeEntryWorkLabel(entry, jobs);
 }
 
 function entryTypeMeta(entry: Partial<TimeEntry>) {
@@ -821,17 +817,18 @@ export default function TimeReportsPage({
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
                   <th className="px-4 py-2 font-medium">Employee</th>
-                  <th className="py-2 font-medium">Work Type</th>
+                  <th className="py-2 font-medium">Activity / Location</th>
                   <th className="py-2 font-medium">Clock In</th>
                   <th className="py-2 font-medium">Clock Out</th>
                   <th className="py-2 font-medium">Job Notes</th>
-                  <th className="px-4 py-2 font-medium text-right">Hours</th>
+                  <th className="px-4 py-2 font-medium text-right">Duration</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {recentEntries.map((entry) => {
                   const typeMeta = entryTypeMeta(entry);
                   const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+                  const presentation = getTimeEntryPresentation(entry, jobs);
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
@@ -839,7 +836,7 @@ export default function TimeReportsPage({
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${typeMeta.className}`}>
                           {typeMeta.label}
                         </span>
-                        <p className="text-xs text-gray-500 truncate mt-1">{entryLabel(entry, jobs)}</p>
+                        <p className="text-xs text-gray-500 truncate mt-1">{presentation.workLabel}</p>
                       </td>
                       <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
                       <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
@@ -853,7 +850,7 @@ export default function TimeReportsPage({
                           </div>
                         ) : null}
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-brand-600">{hours.toFixed(2)}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
                     </tr>
                   );
                 })}
@@ -962,32 +959,30 @@ export default function TimeReportsPage({
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100 text-gray-500 text-left text-xs">
                 <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="py-2 font-medium">Type</th>
-                <th className="py-2 font-medium">Work</th>
+                <th className="py-2 font-medium">Activity</th>
+                <th className="py-2 font-medium">Job / Work Area</th>
                 <th className="py-2 font-medium">Clock In</th>
                 <th className="py-2 font-medium">Clock Out</th>
                 <th className="py-2 font-medium">Notes</th>
-                <th className="py-2 font-medium text-right">Hours</th>
+                <th className="py-2 font-medium text-right">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {filteredEntries.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
               ) : filteredEntries.map((entry) => {
-                const workType = normalizeWorkType(entry);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const isFocusedEmployee = selectedEmployeeId === entry.employeeId;
-                const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
+                const presentation = getTimeEntryPresentation(entry, jobs);
                 return (
                   <tr
                     key={entry.id}
                     className={`align-top ${isFocusedEmployee ? 'bg-brand-50/60' : 'hover:bg-gray-50'}`}
                   >
                     <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
-                    <td className="py-2 capitalize text-gray-600">{workType.replace('_', ' ')}</td>
+                    <td className="py-2 text-gray-600">{presentation.activityLabel}</td>
                     <td className="py-2 text-gray-600 max-w-xs">
-                      <p className="truncate">{workType === 'job' ? getTimeEntryJobLabel(entry, jobs) : entryLabel(entry, jobs)}</p>
-                      {workAreaLabel ? <p className="truncate text-xs text-gray-500">Work Area: {workAreaLabel}</p> : null}
+                      <p className="truncate">{presentation.workLabel}</p>
                     </td>
                     <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
                     <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
@@ -1001,7 +996,7 @@ export default function TimeReportsPage({
                         </div>
                       ) : null}
                     </td>
-                    <td className="py-2 text-right font-semibold text-brand-600">{hours.toFixed(2)}</td>
+                    <td className="py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
                   </tr>
                 );
               })}

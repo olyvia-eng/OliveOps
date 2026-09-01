@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { getTimeEntryJobLabel, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel } from '../src/utils/timeEntryPresentation.js';
+import { formatTimeEntryDuration, getTimeEntryJobLabel, getTimeEntryPresentation, getTimeEntryWorkAreaLabel, getTimeEntryWorkLabel } from '../src/utils/timeEntryPresentation.js';
 
 const jobs = [{ id: 'job-a', title: 'Smith Residence' }];
 
@@ -30,4 +30,22 @@ test('switched segments retain their independent Work Area identity and snapshot
   assert.equal(getTimeEntryWorkLabel(previous, jobs), 'Smith Residence · Excavation');
   assert.equal(getTimeEntryWorkLabel(active, jobs), 'Smith Residence · Base Prep');
   assert.equal(active.workAreaId, 'area-b');
+});
+
+test('shared presentation keeps identity and activity consistent across views', () => {
+  assert.deepEqual(getTimeEntryPresentation({ workType: 'job', jobId: 'job-a', workAreaId: 'area-a', workAreaNameSnapshot: 'Excavation' }, jobs), {
+    activityLabel: 'Job Work',
+    jobLabel: 'Smith Residence',
+    workAreaId: 'area-a',
+    workAreaLabel: 'Excavation',
+    workLabel: 'Smith Residence · Excavation',
+  });
+  assert.equal(getTimeEntryPresentation({ workType: 'drive_time' }, jobs).activityLabel, 'Drive Time');
+  assert.equal(getTimeEntryPresentation({ workType: 'non_billable', unbillableCategoryName: 'Shop Cleanup' }, jobs).activityLabel, 'Non-Billable · Shop Cleanup');
+});
+
+test('duration presentation formats already-calculated hours without changing calculation inputs', () => {
+  assert.equal(formatTimeEntryDuration(8.65), '8h 39m');
+  assert.equal(formatTimeEntryDuration(0.5), '30m');
+  assert.equal(formatTimeEntryDuration(2), '2h');
 });

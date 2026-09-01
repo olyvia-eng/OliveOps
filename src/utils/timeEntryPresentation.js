@@ -46,3 +46,34 @@ export function getTimeEntryWorkLabel(entry, jobs) {
   const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
   return workAreaLabel ? `${jobLabel} · ${workAreaLabel}` : jobLabel;
 }
+
+export function getTimeEntryActivityLabel(entry) {
+  if (entry?.workType === 'drive_time') return 'Drive Time';
+  if (entry?.workType === 'non_billable') {
+    const category = typeof entry.unbillableCategoryName === 'string' ? entry.unbillableCategoryName.trim() : '';
+    return category ? `Non-Billable · ${category}` : 'Non-Billable';
+  }
+  return 'Job Work';
+}
+
+export function getTimeEntryPresentation(entry, jobs) {
+  const jobLabel = entry?.workType === 'job' ? getTimeEntryJobLabel(entry, jobs) : null;
+  const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
+  return {
+    activityLabel: getTimeEntryActivityLabel(entry),
+    jobLabel,
+    workAreaId: entry?.workAreaId ?? null,
+    workAreaLabel,
+    workLabel: getTimeEntryWorkLabel(entry, jobs),
+  };
+}
+
+export function formatTimeEntryDuration(hours) {
+  if (!Number.isFinite(hours) || hours <= 0) return '0m';
+  const totalMinutes = Math.round(hours * 60);
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (wholeHours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${wholeHours}h`;
+  return `${wholeHours}h ${minutes}m`;
+}

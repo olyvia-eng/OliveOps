@@ -28,9 +28,23 @@ test('active, employee history, report, dashboard, and Job surfaces use snapshot
     source('../src/pages/department-dashboards/DataCenterDashboardPage.tsx'),
   ]);
   for (const contents of files) assert.match(contents, /timeEntryPresentation\.js/);
-  assert.match(files[3], /clocked in to[^]*getTimeEntryWorkLabel/);
-  assert.match(files[4], /Work Area: \{workAreaLabel\}/);
-  assert.match(files[5], /Work Area: \{workAreaLabel\}/);
+  assert.match(files[1], /formatTimeEntryDuration\(durationHours/);
+  assert.match(files[3], /workLabel = getTimeEntryWorkLabel/);
+  assert.match(files[4], /getTimeEntryPresentation[^]*presentation\.workLabel/);
+  assert.match(files[5], /getTimeEntryPresentation[^]*presentation\.workLabel/);
+  for (const contents of files) assert.doesNotMatch(contents, /Unknown Work Area|null ·|· null/);
+});
+
+test('employee and Job histories use the same snapshot-backed work label', async () => {
+  const [employeeProfile, jobDetail, presentation] = await Promise.all([
+    source('../src/pages/employees/EmployeeProfilePage.tsx'),
+    source('../src/pages/jobs/JobDetailPage.tsx'),
+    source('../src/utils/timeEntryPresentation.js'),
+  ]);
+  assert.match(employeeProfile, /getTimeEntryWorkLabel/);
+  assert.match(jobDetail, /getTimeEntryPresentation[^]*presentation\.workLabel/);
+  assert.match(presentation, /workAreaNameSnapshot/);
+  assert.doesNotMatch(presentation, /operationalWorkAreas|workAreas\.find/);
 });
 
 test('correction review displays persisted original and requested Work Area snapshots', async () => {

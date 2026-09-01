@@ -17,7 +17,7 @@ import {
 import { Card, Input, PageHeader, Select, StatCard } from '../../components/ui';
 import { useStore } from '../../store';
 import { formatCurrency } from '../../utils';
-import { getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
+import { formatTimeEntryDuration, getTimeEntryWorkLabel, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import { customerStatusLabel } from '../../config/customer.js';
 import {
   filterDataCenterRecords,
@@ -179,7 +179,7 @@ function DashboardContent({ activeTab, records, range }: { activeTab: DashboardT
       ]} />
       <div className="grid gap-4 xl:grid-cols-2">
         <Breakdown title="Hours by employee" subtitle="Who contributed time in this period" items={hoursByEmployee.map((item) => ({ ...item, display: formatHours(item.value) }))} emptyText="No labour hours in this period." />
-        <RecordList title="Recent time activity" subtitle={`${records.employees.length} employees active in this view`} emptyText="No time entries in this period." rows={sortTimeEntriesNewestFirst(records.timeEntries).map((entry) => ({ id: entry.id, title: employeeById.get(entry.employeeId)?.name ?? 'Employee', meta: `${getTimeEntryWorkLabel(entry, records.jobs)} · ${new Date(entry.clockIn).toLocaleDateString('en-CA')}`, value: formatHours(getTimeEntryHours(entry, range)) }))} />
+        <RecordList title="Recent time activity" subtitle={`${records.employees.length} employees active in this view`} emptyText="No time entries in this period." rows={sortTimeEntriesNewestFirst(records.timeEntries).map((entry) => ({ id: entry.id, title: employeeById.get(entry.employeeId)?.name ?? 'Employee', meta: `${getTimeEntryWorkLabel(entry, records.jobs)} · ${new Date(entry.clockIn).toLocaleDateString('en-CA')}`, value: formatTimeEntryDuration(getTimeEntryHours(entry, range)) }))} />
       </div>
     </>;
   }

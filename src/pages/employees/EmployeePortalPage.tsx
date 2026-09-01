@@ -485,7 +485,7 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
             <option value="">No existing entry selected</option>
             {myHistoricalEntries.map((entry) => (
               <option key={entry.id} value={entry.id}>
-                {formatDateTime(entry.clockIn)} - {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}
+                {getTimeEntryWorkLabel(entry, jobs)} · {formatDateTime(entry.clockIn)} - {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}
               </option>
             ))}
           </Select>

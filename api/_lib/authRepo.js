@@ -5173,6 +5173,8 @@ function mapTimeCorrectionRecordFromItem(item) {
     requestedClockOutAt: item.requestedClockOutAt,
     requestedJobId: item.requestedJobId,
     requestedActivityType: item.requestedActivityType,
+    requestedWorkAreaId: item.requestedWorkAreaId,
+    requestedWorkAreaNameSnapshot: item.requestedWorkAreaNameSnapshot,
     requestedUnbillableCategoryId: item.requestedUnbillableCategoryId,
     requestedUnbillableCategoryName: item.requestedUnbillableCategoryName,
     requestedSegments: Array.isArray(item.requestedSegments) ? item.requestedSegments : undefined,
@@ -5189,6 +5191,8 @@ function mapTimeCorrectionRecordFromItem(item) {
     originalJobId: item.originalJobId,
     originalJobIds: Array.isArray(item.originalJobIds) ? item.originalJobIds : undefined,
     originalActivityType: item.originalActivityType,
+    originalWorkAreaId: item.originalWorkAreaId,
+    originalWorkAreaNameSnapshot: item.originalWorkAreaNameSnapshot,
     originalUnbillableCategoryId: item.originalUnbillableCategoryId,
     originalUnbillableCategoryName: item.originalUnbillableCategoryName,
   };
