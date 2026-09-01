@@ -8,6 +8,7 @@ const budgetWorkspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage
 const budgetDetailSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
+const estimatePanelSource = readFileSync('src/pages/estimates/EstimateDetailPanel.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
@@ -37,6 +38,31 @@ test('estimate list title and action open URL-backed details with a dedicated wo
   assert.match(estimatesSource, /onClick=\{\(\) => selectEstimate\(estimate\.id\)\}/);
   assert.match(estimatesSource, /title="Open Details"/);
   assert.match(appSource, /path="estimates\/:id"/);
+});
+
+test('Estimate navigation has only Quick View and the full Estimate workspace', () => {
+  assert.match(estimatesSource, /expanded=\{false\}/);
+  assert.doesNotMatch(estimatesSource, /setDetailWorkspaceMode|setWorkspaceMode|workspace\.mode === 'expanded'/);
+  assert.doesNotMatch(estimatePanelSource, /onExpand|onCollapse|Full Workspace|DetailWorkspaceTabs/);
+  assert.match(estimatePanelSource, /to=\{`\/estimates\/\$\{estimate\.id\}`\}/);
+  assert.match(estimatePanelSource, />Open Estimate <ArrowRight/);
+  assert.match(estimateWorkspaceSource, /onClick=\{\(\) => navigate\('\/estimates'\)\}/);
+});
+
+test('Estimate Quick View is concise and does not duplicate workspace editing', () => {
+  for (const label of ['Work Areas', 'Line Items', 'Subtotal', 'Total', 'Customer', 'Proposal Number', 'Property', 'Valid Until', 'Scope']) {
+    assert.match(estimatePanelSource, new RegExp(`>${label}<`));
+  }
+  assert.match(estimatePanelSource, /onCreateProposal/);
+  assert.doesNotMatch(estimatePanelSource, /Edit Work Area|Open Scope Builder|Convert to Job|Estimate Notes|activeTab/);
+});
+
+test('converted Estimate Quick View prioritizes proposal and canonical linked Job routes', () => {
+  assert.match(estimatePanelSource, /isConverted \? 'View Proposal' : 'Proposal'/);
+  assert.match(estimatePanelSource, /to=\{`\/jobs\/\$\{estimate\.convertedToJobId\}`\}/);
+  assert.match(estimatePanelSource, />Open Linked Job <ArrowRight/);
+  assert.match(estimatePanelSource, />View historical Estimate<\/Link>/);
+  assert.match(estimatesSource, /to=\{`\/jobs\/\$\{estimate\.convertedToJobId\}`\}/);
 });
 
 test('estimate editing uses a URL-backed tab workspace with restricted analysis', () => {

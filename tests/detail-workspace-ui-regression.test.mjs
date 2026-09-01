@@ -22,8 +22,10 @@ test('clients, jobs, and estimates use distinct URL-owned workspace state', () =
   for (const source of [crmSource, jobsSource, estimatesSource]) {
     assert.match(source, /<DetailWorkspace/);
     assert.match(source, /aria-selected=/);
-    assert.match(source, /setDetailWorkspaceMode/);
   }
+  assert.match(crmSource, /setDetailWorkspaceMode/);
+  assert.match(jobsSource, /setDetailWorkspaceMode/);
+  assert.doesNotMatch(estimatesSource, /setDetailWorkspaceMode|workspace\.mode === 'expanded'/);
 });
 
 test('job and estimate financial values remain role gated', () => {
@@ -36,5 +38,6 @@ test('job and estimate financial values remain role gated', () => {
 test('dense job and estimate editors remain available on dedicated routes', () => {
   assert.match(jobPanelSource, /to=\{`\/jobs\/\$\{job\.id\}`\}/);
   assert.match(estimatePanelSource, /to=\{`\/estimates\/\$\{estimate\.id\}`\}/);
-  assert.match(estimatePanelSource, /work-areas\/\$\{area\.id\}/);
+  assert.match(estimatePanelSource, />Open Estimate <ArrowRight/);
+  assert.doesNotMatch(estimatePanelSource, /Edit Work Area|Open Scope Builder/);
 });

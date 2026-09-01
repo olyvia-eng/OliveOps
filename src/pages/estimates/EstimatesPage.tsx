@@ -22,15 +22,12 @@ import {
   closeDetailWorkspace,
   openDetailWorkspace,
   readDetailWorkspaceQuery,
-  setDetailWorkspaceMode,
-  setDetailWorkspaceTab,
 } from '../../components/detail-workspace/detailWorkspaceQuery';
-import EstimateDetailPanel, { type EstimateDetailTab } from './EstimateDetailPanel';
+import EstimateDetailPanel from './EstimateDetailPanel';
 import { activeDivisionsForBudget, resolveEstimateDivisionId } from './estimateSetupModel.js';
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
 const ESTIMATE_WORKSPACE_QUERY = { recordParam: 'estimate', tabParam: 'estimateTab', defaultTab: 'overview' } as const;
-const ESTIMATE_DETAIL_TABS: EstimateDetailTab[] = ['overview', 'scope', 'proposal', 'notes'];
 
 const isEstimateStatusFilter = (value: string | null): value is EstimateStatus | 'all' => {
   return value === 'all' || STATUSES.includes(value as EstimateStatus);
@@ -224,14 +221,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const workspace = readDetailWorkspaceQuery(searchParams, ESTIMATE_WORKSPACE_QUERY);
   const selectedEstimate = estimates.find((estimate) => estimate.id === workspace.recordId) ?? null;
   const selectedEstimateCustomer = customers.find((customer) => customer.id === selectedEstimate?.customerId) ?? null;
-  const estimateDetailTab = ESTIMATE_DETAIL_TABS.includes(workspace.tab as EstimateDetailTab)
-    ? workspace.tab as EstimateDetailTab
-    : 'overview';
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const selectEstimate = (estimateId: string) => setSearchParams(openDetailWorkspace(searchParams, ESTIMATE_WORKSPACE_QUERY, estimateId));
   const closeEstimate = () => setSearchParams(closeDetailWorkspace(searchParams, ESTIMATE_WORKSPACE_QUERY));
-  const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, ESTIMATE_WORKSPACE_QUERY, mode));
-  const setEstimateTab = (tab: EstimateDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, ESTIMATE_WORKSPACE_QUERY, tab));
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -442,7 +434,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     <div>
       <DetailWorkspace
         open={Boolean(workspace.recordId)}
-        expanded={workspace.mode === 'expanded'}
+        expanded={false}
         detailKey={workspace.recordId}
         list={(
           <div>
@@ -558,7 +550,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
                           <FileDown size={13} />
                         </Button>
                         {estimate.status === 'converted' && estimate.convertedToJobId && (
-                          <Link to={`/jobs?job=${encodeURIComponent(estimate.convertedToJobId)}&workspace=panel`} onClick={(event) => event.stopPropagation()}>
+                          <Link to={`/jobs/${estimate.convertedToJobId}`} onClick={(event) => event.stopPropagation()}>
                             <Button variant="ghost" size="sm" title="Open Job">
                               <ChevronRight size={13} />
                             </Button>
@@ -569,9 +561,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
                             <RefreshCw size={13} />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(estimate.id); }} title="Delete">
+                        {estimate.status !== 'converted' ? <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(estimate.id); }} title="Delete">
                           <Trash2 size={13} className="text-accent-700" />
-                        </Button>
+                        </Button> : null}
                       </div>
                     </td>
                   </tr>
@@ -588,14 +580,8 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
           <EstimateDetailPanel
             estimate={selectedEstimate}
             customer={selectedEstimateCustomer}
-            activeTab={estimateDetailTab}
-            expanded={workspace.mode === 'expanded'}
             canViewFinancials={canViewFinancials}
-            onTabChange={setEstimateTab}
             onCreateProposal={() => setProposalEstimateId(selectedEstimate.id)}
-            onConvert={() => openConvertModal(selectedEstimate)}
-            onExpand={() => setWorkspaceMode('expanded')}
-            onCollapse={() => setWorkspaceMode('panel')}
             onClose={closeEstimate}
           />
         ) : (

@@ -7,9 +7,9 @@ interface DetailWorkspaceHeaderProps {
   subtitle?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
-  expanded: boolean;
-  onExpand: () => void;
-  onCollapse: () => void;
+  expanded?: boolean;
+  onExpand?: () => void;
+  onCollapse?: () => void;
   onClose: () => void;
 }
 
@@ -35,7 +35,7 @@ export default function DetailWorkspaceHeader({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {actions}
-          <Button
+          {onExpand && onCollapse ? <Button
             type="button"
             variant="ghost"
             size="sm"
@@ -44,7 +44,7 @@ export default function DetailWorkspaceHeader({
             aria-label={expanded ? 'Collapse to panel' : 'Expand details'}
           >
             {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </Button>
+          </Button> : null}
           <Button type="button" variant="ghost" size="sm" onClick={onClose} title="Close details" aria-label="Close details">
             <X size={17} />
           </Button>
