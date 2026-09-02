@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { AlertTriangle } from 'lucide-react';
 import { Badge, Button, Input, Modal, Select, TextArea } from '../ui';
-import type { Crew, Customer, Division, Employee, EquipmentAsset, Job, ID } from '../../types';
+import type { BudgetDivision, Crew, Customer, Division, Employee, EquipmentAsset, Job, JobScheduleUpdate, ID } from '../../types';
 import { formatTimeOffType, getEmployeeTimeOffConflicts, type ScheduleTimeOff } from '../../utils/employeeAvailability.js';
 import {
   formatCustomerPropertyLabel,
@@ -25,17 +25,13 @@ type ScheduleFormState = {
   notes: string;
 };
 
-type SchedulePayload = {
+export type SchedulePayload = JobScheduleUpdate & {
   jobId: string;
   startDate: string;
-  endDate?: string;
-  scheduledStartAt?: string;
-  scheduledEndAt?: string;
   scheduleAllDay: boolean;
   scheduleConfirmed: boolean;
   scheduleNotes: string;
   crewId: ID | null;
-  divisionId: ID | null;
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
 };
@@ -49,6 +45,7 @@ interface Props {
   equipmentAssets: EquipmentAsset[];
   crews: Crew[];
   divisions: Division[];
+  budgetDivisions: BudgetDivision[];
   initialJobId?: string;
   approvedTimeOff?: ScheduleTimeOff[];
   onClose: () => void;
@@ -103,6 +100,7 @@ export default function ScheduleJobModal({
   equipmentAssets,
   crews,
   divisions,
+  budgetDivisions,
   initialJobId,
   approvedTimeOff = [],
   onClose,
@@ -143,6 +141,10 @@ export default function ScheduleJobModal({
   const selectedCustomer = useMemo(
     () => customers.find((customer) => customer.id === selectedJob?.customerId) ?? null,
     [customers, selectedJob?.customerId]
+  );
+  const convertedDivision = useMemo(
+    () => selectedJob?.sourceEstimateId ? budgetDivisions.find((division) => division.id === selectedJob.divisionId) ?? null : null,
+    [budgetDivisions, selectedJob]
   );
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const equipmentById = useMemo(() => new Map(equipmentAssets.map((asset) => [asset.id, asset])), [equipmentAssets]);
@@ -246,7 +248,7 @@ export default function ScheduleJobModal({
   const performSave = async () => {
     if (!selectedJob || !form.startDate) return;
     setSaving(true);
-    const saved = await onSave({
+    const payload: SchedulePayload = {
       jobId: selectedJob.id,
       startDate: form.startDate,
       endDate: form.endDate || undefined,
@@ -256,10 +258,11 @@ export default function ScheduleJobModal({
       scheduleConfirmed: true,
       scheduleNotes: form.notes.trim(),
       crewId: form.crewId || null,
-      divisionId: form.divisionId || null,
       assignedEmployeeIds: [...new Set(form.assignedEmployeeIds)],
       assignedEquipmentIds: [...new Set(form.assignedEquipmentIds)],
-    });
+    };
+    if (!selectedJob.sourceEstimateId) payload.divisionId = form.divisionId || null;
+    const saved = await onSave(payload);
     setSaving(false);
     if (saved) onClose();
   };
@@ -305,10 +308,17 @@ export default function ScheduleJobModal({
               <option value="">No primary crew</option>
               {crews.filter((crew) => crew.active || crew.id === form.crewId).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
             </Select>
-            <Select label="Division" value={form.divisionId} onChange={(event) => setForm((current) => ({ ...current, divisionId: event.target.value }))}>
-              <option value="">No division</option>
-              {divisions.filter((division) => division.active).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
-            </Select>
+            {selectedJob?.sourceEstimateId ? (
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-brand-200">Division</p>
+                <p className="mt-1 flex h-10 items-center rounded-xl border border-brand-100 bg-brand-50 px-3 text-sm text-brand-700 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100">{convertedDivision?.name ?? 'Planning division unavailable'}</p>
+              </div>
+            ) : (
+              <Select label="Division" value={form.divisionId} onChange={(event) => setForm((current) => ({ ...current, divisionId: event.target.value }))}>
+                <option value="">No division</option>
+                {divisions.filter((division) => division.active || division.id === form.divisionId).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+              </Select>
+            )}
             <Input label="Start Date *" type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
             <Input label="End Date *" type="date" value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} />
             <label className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100 sm:col-span-2">

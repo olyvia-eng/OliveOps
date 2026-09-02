@@ -66,7 +66,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, crews, divisions, budgetDivisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, updateJobSchedule, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -762,9 +762,10 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         equipmentAssets={equipmentAssets}
         crews={crews}
         divisions={divisions}
+        budgetDivisions={budgetDivisions}
         initialJobId={job.id}
         onClose={() => setScheduleModalOpen(false)}
-        onSave={(payload) => updateJob(payload.jobId, payload)}
+        onSave={({ jobId, ...schedule }) => updateJobSchedule(jobId, schedule)}
       />
       <TimeEntryDetailModal
         entry={selectedTimeEntry}

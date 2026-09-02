@@ -18,6 +18,7 @@ import type {
   Invoice,
   Job,
   JobPlanMutation,
+  JobScheduleUpdate,
   JobTaskHeading,
   Employee,
   UnbillableTimeCategory,
@@ -199,6 +200,7 @@ interface AppState {
   // Jobs
   addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
   updateJob: (id: ID, data: Partial<Job>) => Promise<boolean>;
+  updateJobSchedule: (id: ID, data: JobScheduleUpdate) => Promise<boolean>;
   initializeJobPlan: (id: ID) => Promise<{ ok: boolean; error?: string }>;
   mutateJobPlan: (id: ID, mutation: JobPlanMutation) => Promise<{ ok: boolean; error?: string }>;
   deleteJob: (id: ID) => void;
@@ -990,6 +992,26 @@ export const useStore = create<AppState>()((set, get) => ({
         } catch (error: unknown) {
           set({ jobs: previous });
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Job changes could not be saved.') });
+          return false;
+        }
+      },
+      updateJobSchedule: async (id, data) => {
+        const previous = get().jobs;
+        set((state) => ({ jobs: state.jobs.map((job) => job.id === id ? { ...job, ...data } : job) }));
+        try {
+          const response = await ensureOk(fetch(`/api/job-schedule?jobId=${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(data),
+          }));
+          const payload = await response.json() as { ok?: boolean; job?: Job };
+          if (!payload.ok || !payload.job) throw new Error('Job schedule could not be confirmed.');
+          set((state) => ({ jobs: state.jobs.map((job) => job.id === id ? payload.job as Job : job) }));
+          return true;
+        } catch (error: unknown) {
+          set({ jobs: previous });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Job schedule could not be saved.') });
           return false;
         }
       },

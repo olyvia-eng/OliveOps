@@ -60,7 +60,7 @@ const getWeekRange = (value: Date) => {
 
 export default function CalendarPage({ currentUserRole }: Props) {
   const navigate = useNavigate();
-  const { jobs, customers, employees, budgets, crews, divisions, equipmentAssets, updateJob } = useStore();
+  const { jobs, customers, employees, budgets, budgetDivisions, crews, divisions, equipmentAssets, updateJobSchedule } = useStore();
   const calendarRef = useRef<any>(null);
   const [preferences, setPreferences] = useState<CalendarPreferences>(DEFAULT_CALENDAR_PREFERENCES);
   const [divisionFilter, setDivisionFilter] = useState('all');
@@ -366,10 +366,10 @@ export default function CalendarPage({ currentUserRole }: Props) {
     };
     const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
     if (conflicts.length > 0) {
-      setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void updateJob(jobId, payload); }, cancel: () => setPendingTimeOffOverride(null) });
+      setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void updateJobSchedule(jobId, payload); }, cancel: () => setPendingTimeOffOverride(null) });
       return;
     }
-    await updateJob(jobId, payload);
+    await updateJobSchedule(jobId, payload);
   };
 
   const handleEventDrop = async (eventDrop: any) => {
@@ -402,7 +402,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
     const entry = allScheduledJobs.find((item) => item.job.id === eventDrop.event.id);
     if (!entry) { eventDrop.revert(); return; }
     const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
-    const save = async () => { const saved = await updateJob(eventDrop.event.id, payload); if (!saved) eventDrop.revert(); };
+    const save = async () => { const saved = await updateJobSchedule(eventDrop.event.id, payload); if (!saved) eventDrop.revert(); };
     if (conflicts.length > 0) {
       setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void save(); }, cancel: () => { setPendingTimeOffOverride(null); eventDrop.revert(); } });
       return;
@@ -431,11 +431,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
     scheduleConfirmed: boolean;
     scheduleNotes: string;
     crewId: string | null;
-    divisionId: string | null;
+    divisionId?: string | null;
     assignedEmployeeIds: string[];
     assignedEquipmentIds: string[];
   }) => {
-    return updateJob(payload.jobId, payload);
+    const { jobId, ...schedule } = payload;
+    return updateJobSchedule(jobId, schedule);
   };
 
   return (
@@ -524,6 +525,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         equipmentAssets={equipmentAssets}
         crews={crews}
         divisions={divisions}
+        budgetDivisions={budgetDivisions}
         initialJobId={scheduleJobId}
         approvedTimeOff={approvedTimeOff}
         onClose={() => setScheduleOpen(false)}

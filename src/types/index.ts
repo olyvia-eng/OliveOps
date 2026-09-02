@@ -608,6 +608,20 @@ export interface Job {
   updatedAt: string;
 }
 
+export interface JobScheduleUpdate {
+  startDate?: string;
+  endDate?: string;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  scheduleAllDay?: boolean;
+  scheduleConfirmed?: boolean;
+  scheduleNotes?: string;
+  crewId?: ID | null;
+  divisionId?: ID | null;
+  assignedEmployeeIds?: ID[];
+  assignedEquipmentIds?: ID[];
+}
+
 export type JobPlanMutation =
   | { action: 'add-work-area'; name?: string }
   | { action: 'update-work-area'; workAreaId: ID; name?: string; description?: string; status?: JobWorkAreaStatus }

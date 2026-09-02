@@ -11,6 +11,8 @@ const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8')
 const scheduleUtilsSource = readFileSync('src/utils/jobSchedule.ts', 'utf8');
 const scheduleModalSource = readFileSync('src/components/calendar/ScheduleJobModal.tsx', 'utf8');
 const estimateConversionSource = readFileSync('api/estimates.js', 'utf8');
+const storeSource = readFileSync('src/store/index.ts', 'utf8');
+const scheduleApiSource = readFileSync('api/job-schedule.js', 'utf8');
 
 const semverFamily = (versionRange) => {
   const match = String(versionRange).match(/(\d+)\.(\d+)/);
@@ -96,6 +98,20 @@ test('job detail page exposes the same schedule workflow and equipment context',
   assert.match(scheduleModalSource, /Assigned Equipment/);
   assert.match(scheduleModalSource, /Employee overlap warning/);
   assert.match(scheduleModalSource, /Equipment conflict warning/);
+});
+
+test('Schedule preserves converted planning division through a dedicated mutation contract', () => {
+  assert.match(scheduleModalSource, /budgetDivisions\.find\(\(division\) => division\.id === selectedJob\.divisionId\)/);
+  assert.match(scheduleModalSource, /selectedJob\?\.sourceEstimateId/);
+  assert.match(scheduleModalSource, /convertedDivision\?\.name \?\? 'Planning division unavailable'/);
+  assert.match(scheduleModalSource, /if \(!selectedJob\.sourceEstimateId\) payload\.divisionId = form\.divisionId \|\| null;/);
+  assert.doesNotMatch(scheduleModalSource, /divisionId: form\.divisionId \|\| null,/);
+  assert.match(calendarSource, /updateJobSchedule/);
+  assert.match(jobDetailSource, /updateJobSchedule/);
+  assert.match(storeSource, /\/api\/job-schedule\?jobId=/);
+  assert.match(scheduleApiSource, /SCHEDULE_FIELDS/);
+  assert.match(scheduleApiSource, /Converted Job divisionId must be changed through the Job planning workflow\./);
+  assert.match(scheduleApiSource, /getCrewForBusiness|getEmployeeForBusiness|getEquipmentAssetForBusiness/);
 });
 
 test('estimate conversion marks only explicit conversion schedules as confirmed', () => {
