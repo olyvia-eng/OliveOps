@@ -779,6 +779,11 @@ export type EmployeeRole = 'admin' | 'foreman' | 'crew_member';
 export type EmployeeCompensationType = 'hourly' | 'salary';
 export type EmployeeLabourType = 'field_producing' | 'overhead';
 
+export interface MobileTimePermissions {
+  adjustClockInTime: boolean;
+  editShiftWorkAreas: boolean;
+}
+
 export interface LabourClass {
   id: ID;
   businessId?: ID;
@@ -800,6 +805,7 @@ export interface Employee {
   compensationType?: EmployeeCompensationType;
   labourType?: EmployeeLabourType;
   labourClassId?: ID | null;
+  mobileTimePermissions?: MobileTimePermissions;
   payrollBurdenPct?: number;
   benefitsExtraCost?: number;
   bonus?: number;

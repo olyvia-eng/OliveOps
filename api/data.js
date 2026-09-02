@@ -147,6 +147,7 @@ import {
 import { getHomeDashboardPreferencesForUser } from './_lib/homeDashboardPreferences.js';
 import { deleteBudgetCascadeForBusiness } from './_lib/budgetDeletion.js';
 import { validateGenericJobPatch } from './_lib/jobPlanSecurity.js';
+import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -535,6 +536,10 @@ function sanitizePatchData(entity, id, rawData) {
     if (PATCH_BLOCKED_FIELDS.has(key)) {
       delete data[key];
     }
+  }
+
+  if (entity === 'employees' && Object.prototype.hasOwnProperty.call(data, 'mobileTimePermissions')) {
+    data.mobileTimePermissions = normalizeMobileTimePermissions(data.mobileTimePermissions);
   }
 
   return { ok: true, data };
@@ -1688,6 +1693,13 @@ export default async function handler(req, res) {
     }
     if (entity === 'equipment-assets' && changesEquipmentPricing(record) && session.role !== 'owner' && session.role !== 'admin') {
       return res.status(403).json({ ok: false, error: 'Only owner/admin can set equipment pricing.' });
+    }
+
+    if (entity === 'employees') {
+      record = {
+        ...record,
+        mobileTimePermissions: normalizeMobileTimePermissions(record.mobileTimePermissions),
+      };
     }
 
     if (entity === 'budget') {

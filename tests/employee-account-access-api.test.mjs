@@ -572,6 +572,60 @@ test('employee cost inputs persist for hourly and salaried compensation while fo
   assert.equal((await getEmployeeForBusiness('biz-foreign', 'foreign-employee')).hourlyRate, 99);
 });
 
+test('mobile time permissions default false and remain owner/admin controlled and tenant scoped', async (t) => {
+  installDdbMock(t);
+  const owner = await createUserEmployeePair({
+    businessId: 'biz-mobile-permissions', name: 'Permission Owner', email: 'owner@permissions.test', password: 'ownerpass123', role: 'owner',
+  });
+  const admin = await createUserEmployeePair({
+    businessId: 'biz-mobile-permissions', name: 'Permission Admin', email: 'admin@permissions.test', password: 'adminpass123', role: 'admin',
+  });
+  const crew = await createUserEmployeePair({
+    businessId: 'biz-mobile-permissions', name: 'Permission Crew', email: 'crew@permissions.test', password: 'crewpass123', role: 'crew_member',
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-mobile-permissions',
+    employee: { id: 'permission-target', name: 'Target Employee', email: '', phone: '', role: 'crew_member', hourlyRate: 25, active: true },
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-other-permissions',
+    employee: { id: 'foreign-permission-target', name: 'Foreign Target', email: '', phone: '', role: 'crew_member', hourlyRate: 25, active: true },
+  });
+  await createBearerTokenForUser({ businessId: 'biz-mobile-permissions', userId: owner.user.id, role: 'owner', email: owner.user.email, token: 'token-permission-owner' });
+  await createBearerTokenForUser({ businessId: 'biz-mobile-permissions', userId: admin.user.id, role: 'admin', email: admin.user.email, token: 'token-permission-admin' });
+  await createBearerTokenForUser({ businessId: 'biz-mobile-permissions', userId: crew.user.id, role: 'crew_member', email: crew.user.email, employeeId: crew.employee.id, token: 'token-permission-crew' });
+
+  assert.deepEqual((await getEmployeeForBusiness('biz-mobile-permissions', 'permission-target')).mobileTimePermissions, {
+    adjustClockInTime: false,
+    editShiftWorkAreas: false,
+  });
+
+  const patch = async (token, id, mobileTimePermissions) => {
+    const res = createMockRes();
+    await dataHandler({
+      method: 'PATCH', query: { entity: 'employees', id }, headers: { authorization: `Bearer ${token}` }, body: { data: { mobileTimePermissions } },
+    }, res);
+    return res;
+  };
+
+  const ownerUpdate = await patch('token-permission-owner', 'permission-target', { adjustClockInTime: true, editShiftWorkAreas: false, forged: true });
+  assert.equal(ownerUpdate.statusCode, 200);
+  assert.deepEqual(ownerUpdate.body.employee.mobileTimePermissions, { adjustClockInTime: true, editShiftWorkAreas: false });
+  assert.deepEqual((await getEmployeeForBusiness('biz-mobile-permissions', 'permission-target')).mobileTimePermissions, { adjustClockInTime: true, editShiftWorkAreas: false });
+
+  const adminUpdate = await patch('token-permission-admin', 'permission-target', { adjustClockInTime: false, editShiftWorkAreas: true });
+  assert.equal(adminUpdate.statusCode, 200);
+  assert.deepEqual(adminUpdate.body.employee.mobileTimePermissions, { adjustClockInTime: false, editShiftWorkAreas: true });
+
+  const selfGrant = await patch('token-permission-crew', crew.employee.id, { adjustClockInTime: true, editShiftWorkAreas: true });
+  assert.equal(selfGrant.statusCode, 403);
+  assert.deepEqual((await getEmployeeForBusiness('biz-mobile-permissions', crew.employee.id)).mobileTimePermissions, { adjustClockInTime: false, editShiftWorkAreas: false });
+
+  const foreignUpdate = await patch('token-permission-owner', 'foreign-permission-target', { adjustClockInTime: true, editShiftWorkAreas: true });
+  assert.equal(foreignUpdate.statusCode, 404);
+  assert.deepEqual((await getEmployeeForBusiness('biz-other-permissions', 'foreign-permission-target')).mobileTimePermissions, { adjustClockInTime: false, editShiftWorkAreas: false });
+});
+
 test('Labour Classes are tenant-scoped, soft archived, and assigned independently from employee role', async (t) => {
   installDdbMock(t);
   const ownerA = await createUserEmployeePair({ businessId: 'biz-labour-a', name: 'Owner A', email: 'owner-a@labour.test', password: 'password123', role: 'owner' });

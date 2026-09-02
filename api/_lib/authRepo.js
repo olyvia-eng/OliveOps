@@ -12,6 +12,7 @@ import { ddb, tableName } from './db.js';
 import { DEFAULT_BUSINESS_TIME_ZONE, normalizeBusinessTimeZone } from './businessTime.js';
 import { approvedTimeOffOverlapping } from './timeOff.js';
 import { normalizePersistedCustomerStatus } from '../../src/config/customer.js';
+import { normalizeMobileTimePermissions } from './mobileTimePermissions.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -274,6 +275,7 @@ function normalizeEmployeeAccountRecord(employee) {
     payrollBurdenPct: employee.payrollBurdenPct,
     benefitsExtraCost: employee.benefitsExtraCost,
     bonus: employee.bonus,
+    mobileTimePermissions: normalizeMobileTimePermissions(employee.mobileTimePermissions),
     userId: typeof employee.userId === 'string' && employee.userId.trim() ? employee.userId.trim() : null,
     active: employee.active,
     createdAt: employee.createdAt,
@@ -298,6 +300,7 @@ function normalizeEmployeeForWrite(employee) {
     payrollBurdenPct: Number.isFinite(employee.payrollBurdenPct) && employee.payrollBurdenPct >= 0 ? employee.payrollBurdenPct : undefined,
     benefitsExtraCost: Number.isFinite(employee.benefitsExtraCost) && employee.benefitsExtraCost >= 0 ? employee.benefitsExtraCost : undefined,
     bonus: Number.isFinite(employee.bonus) && employee.bonus >= 0 ? employee.bonus : undefined,
+    mobileTimePermissions: normalizeMobileTimePermissions(employee.mobileTimePermissions),
     userId: normalizedUserId,
     active: employee.active !== false,
     createdAt: typeof employee.createdAt === 'string' && employee.createdAt ? employee.createdAt : nowIso(),
@@ -4707,6 +4710,7 @@ export async function listEmployeesForBusiness(businessId) {
     payrollBurdenPct: item.payrollBurdenPct,
     benefitsExtraCost: item.benefitsExtraCost,
     bonus: item.bonus,
+    mobileTimePermissions: normalizeMobileTimePermissions(item.mobileTimePermissions),
     userId: typeof item.userId === 'string' && item.userId.trim() ? item.userId.trim() : null,
     active: item.active,
     createdAt: item.createdAt,
@@ -4779,6 +4783,7 @@ export async function getEmployeeForBusiness(businessId, employeeId) {
         payrollBurdenPct: result.Item.payrollBurdenPct,
         benefitsExtraCost: result.Item.benefitsExtraCost,
         bonus: result.Item.bonus,
+        mobileTimePermissions: normalizeMobileTimePermissions(result.Item.mobileTimePermissions),
         userId: typeof result.Item.userId === 'string' && result.Item.userId.trim() ? result.Item.userId.trim() : null,
         active: result.Item.active,
         createdAt: result.Item.createdAt,

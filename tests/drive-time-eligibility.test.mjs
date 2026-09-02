@@ -363,6 +363,7 @@ async function setupSwitchContext({
   role = 'crew_member',
   email,
   paidDriveTimeEnabled,
+  mobileTimePermissions,
   activeEntryId,
   activeWorkType,
   activeJobIds = [],
@@ -394,6 +395,7 @@ async function setupSwitchContext({
       active: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       paidDriveTimeEnabled,
+      mobileTimePermissions,
     },
   });
 
@@ -1541,6 +1543,40 @@ test('bootstrap returns authoritative currentActiveEntryId for session employee'
   assert.equal(res.body.currentActiveEntryId, 'entry-bootstrap-active');
 });
 
+test('bootstrap returns only the authenticated employee effective mobile time permissions', async (t) => {
+  await setupSwitchContext({
+    t,
+    businessId: 'biz-bootstrap-permissions',
+    userId: 'user-bootstrap-permissions',
+    employeeId: 'emp-bootstrap-permissions',
+    email: 'bootstrap-permissions@example.com',
+    paidDriveTimeEnabled: true,
+    mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false },
+    activeEntryId: 'entry-bootstrap-permissions',
+    activeWorkType: 'job',
+    activeJobIds: [],
+    token: 'token-bootstrap-permissions',
+  });
+  await createEmployeeForBusiness({
+    businessId: 'biz-bootstrap-permissions',
+    employee: {
+      id: 'emp-bootstrap-coworker',
+      name: 'Coworker',
+      email: 'coworker@example.com',
+      role: 'crew_member',
+      active: true,
+      mobileTimePermissions: { adjustClockInTime: false, editShiftWorkAreas: true },
+    },
+  });
+
+  const res = createMockRes();
+  await bootstrapHandler({ method: 'GET', headers: { authorization: 'Bearer token-bootstrap-permissions' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.capabilities.adjustClockInTime, true);
+  assert.equal(res.body.capabilities.editShiftWorkAreas, false);
+});
+
 test('bootstrap returns null currentActiveEntryId when no active shift lock exists', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, {
@@ -1601,6 +1637,10 @@ test('employee bootstrap excludes coworker-private and cross-tenant records', as
     PK: 'BUSINESS#biz-bootstrap-a', SK: 'TIME#entry-b', entityType: 'TIME_ENTRY', businessId: 'biz-bootstrap-a',
     entryId: 'entry-b', employeeId: 'emp-b', clockIn: '2026-08-01T08:00:00.000Z', status: 'clocked_out',
   });
+  store.set(mapKey('BUSINESS#biz-bootstrap-a', 'TIME#entry-a-history'), {
+    PK: 'BUSINESS#biz-bootstrap-a', SK: 'TIME#entry-a-history', entityType: 'TIME_ENTRY', businessId: 'biz-bootstrap-a',
+    entryId: 'entry-a-history', employeeId: 'emp-a', clockIn: '2025-01-15T08:00:00.000Z', clockOut: '2025-01-15T16:00:00.000Z', status: 'clocked_out',
+  });
   store.set(mapKey('BUSINESS#biz-bootstrap-b', 'TIME#entry-foreign'), {
     PK: 'BUSINESS#biz-bootstrap-b', SK: 'TIME#entry-foreign', entityType: 'TIME_ENTRY', businessId: 'biz-bootstrap-b',
     entryId: 'entry-foreign', employeeId: 'emp-a', clockIn: '2026-08-01T08:00:00.000Z', status: 'clocked_out',
@@ -1612,7 +1652,7 @@ test('employee bootstrap excludes coworker-private and cross-tenant records', as
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.employees.map((item) => item.id), ['emp-a']);
   assert.deepEqual(res.body.jobs.map((item) => item.id), ['job-a']);
-  assert.deepEqual(res.body.timeEntries.map((item) => item.id), ['entry-a']);
+  assert.deepEqual(res.body.timeEntries.map((item) => item.id).sort(), ['entry-a', 'entry-a-history']);
   assert.equal(JSON.stringify(res.body).includes('biz-bootstrap-b'), false);
 });
 
