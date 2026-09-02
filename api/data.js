@@ -122,7 +122,9 @@ import {
   updateFormResponseForBusiness,
   updateFormSubmissionForBusiness,
   updateInvoiceForBusiness,
+  issueInvoiceForBusiness,
   reserveNextInvoiceNumberForBusiness,
+  voidInvoiceForBusiness,
   updateJobForBusiness,
   updateRevenueSalesGoalForBusiness,
   updateLabourHoursSalesGoalForBusiness,
@@ -135,6 +137,7 @@ import {
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import {
   calculateJobInvoicePosition,
+  getCustomerBillingAddressSnapshot,
   getInvoiceContractAmount,
   isValidInvoiceStatusTransition,
   normalizeInvoiceFinancials,
@@ -706,13 +709,6 @@ function validateInvoiceRecord(record) {
   return null;
 }
 
-function invoiceAddressSnapshot(customer, job) {
-  const address = job?.propertyAddressSnapshot ?? customer?.address;
-  if (typeof address === 'string') return address;
-  if (!address || typeof address !== 'object') return '';
-  return [address.street, address.city, address.province, address.postalCode].filter(Boolean).join(', ');
-}
-
 function invoiceSourceIds(job) {
   const workAreas = [
     ...(Array.isArray(job?.originalEstimateSnapshot?.workAreas) ? job.originalEstimateSnapshot.workAreas : []),
@@ -762,7 +758,7 @@ async function authorizeInvoiceRecord({ businessId, record, existing }) {
     estimateId: authoritativeEstimateId,
     sourceEstimateSnapshotId: authoritativeEstimateId,
     customerNameSnapshot: customerName || '',
-    billingAddressSnapshot: invoiceAddressSnapshot(customer, job),
+    billingAddressSnapshot: getCustomerBillingAddressSnapshot(customer),
     jobTitleSnapshot: job.title,
     jobAddressSnapshot: job.propertyAddressSnapshot || '',
     contractAmountSnapshot: position.contractAmount,
@@ -2090,6 +2086,8 @@ export default async function handler(req, res) {
       }
 
       let next = { ...baseRecord, ...sanitizedData };
+      let invoiceTransition = null;
+      let invoiceIdempotentUpdate = false;
       if (entity === 'customers') {
         const validationError = validateCustomerRecord(next);
         if (validationError) return res.status(400).json({ ok: false, error: validationError });
@@ -2124,23 +2122,45 @@ export default async function handler(req, res) {
         if (changesFinancialData && (existing.status !== 'draft' || quickBooksMapping)) {
           return res.status(409).json({ ok: false, error: quickBooksMapping ? 'QuickBooks-linked invoices are read-only.' : 'Issued invoices are financially read-only.' });
         }
+        if (data.status !== undefined && data.status !== existing.status && ['partially_paid', 'paid'].includes(data.status)) {
+          return res.status(409).json({ ok: false, error: 'Payment statuses can only be changed by the payment workflow.' });
+        }
+        if (data.status === 'overdue' && data.status !== existing.status) {
+          return res.status(409).json({ ok: false, error: 'Overdue is derived from the due date and is not set manually.' });
+        }
+        if (existing.status !== 'draft') {
+          const lifecycleFields = new Set(['status', 'voidReason', 'updatedAt']);
+          if (Object.keys(data).some((field) => !lifecycleFields.has(field))) {
+            return res.status(409).json({ ok: false, error: 'Issued invoices only allow lifecycle changes.' });
+          }
+        }
         if (data.status && !isValidInvoiceStatusTransition(existing.status, data.status)) {
           return res.status(409).json({ ok: false, error: `Invoice cannot move from ${existing.status} to ${data.status}.` });
         }
-        if (data.status === 'void') {
+        if (data.status === existing.status) {
+          next = existing;
+          invoiceIdempotentUpdate = true;
+        } else if (data.status === 'void') {
           if (!isNonEmptyString(data.voidReason)) return res.status(400).json({ ok: false, error: 'A void reason is required.' });
           next = { ...next, voidReason: data.voidReason.trim(), voidedAt: new Date().toISOString() };
+          invoiceTransition = 'void';
         }
-        if (existing.status === 'draft' && data.status === 'sent') next.sentAt = new Date().toISOString();
-        if (next.lineItems !== undefined) next = normalizeInvoiceFinancials(next);
+        if (existing.status === 'draft' && data.status === 'sent') {
+          next.sentAt = new Date().toISOString();
+          invoiceTransition = 'issue';
+        }
+        if (existing.status === 'draft' && next.lineItems !== undefined) next = normalizeInvoiceFinancials(next);
         const validationError = validateInvoiceRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
 
-        const authorization = await authorizeInvoiceRecord({ businessId: session.businessId, record: next, existing });
-        if (!authorization.ok) return res.status(400).json({ ok: false, error: authorization.error });
-        next = authorization.record;
+        if (existing.status === 'draft') {
+          const authorization = await authorizeInvoiceRecord({ businessId: session.businessId, record: next, existing });
+          if (!authorization.ok) return res.status(400).json({ ok: false, error: authorization.error });
+          next = authorization.record;
+          if (invoiceTransition === 'issue') next.contractReservationAmount = getInvoiceContractAmount(next);
+        }
       }
 
       if (entity === 'estimates') {
@@ -2293,11 +2313,30 @@ export default async function handler(req, res) {
         return res.status(409).json({ ok: false, error: 'Use clocking actions for active shift changes.' });
       }
 
-      const updateResult = await config.update({
-        businessId: session.businessId,
-        [config.updateArgKey]: next,
-        ...(entity === 'estimates' ? { expectedUpdatedAt: req.body?.baseUpdatedAt } : {}),
-      });
+      let updateResult;
+      if (entity === 'invoices' && invoiceTransition === 'issue') {
+        updateResult = await issueInvoiceForBusiness({
+          businessId: session.businessId,
+          invoice: next,
+          contractAmount: next.contractAmountSnapshot,
+          baselineIssuedAmount: next.previouslyInvoicedSnapshot,
+          allowOverContract: next.invoiceType === 'custom' && next.overContract === true,
+        });
+      } else if (entity === 'invoices' && invoiceTransition === 'void') {
+        updateResult = await voidInvoiceForBusiness({
+          businessId: session.businessId,
+          invoice: next,
+          actor: { id: session.id, name: session.name, email: session.email },
+        });
+      } else if (entity === 'invoices' && invoiceIdempotentUpdate) {
+        updateResult = { ok: true, idempotent: true };
+      } else {
+        updateResult = await config.update({
+          businessId: session.businessId,
+          [config.updateArgKey]: next,
+          ...(entity === 'estimates' ? { expectedUpdatedAt: req.body?.baseUpdatedAt } : {}),
+        });
+      }
       if (updateResult && updateResult.ok === false) {
         return res.status(409).json({ ok: false, error: updateResult.error ?? `Could not update ${entity}` });
       }
@@ -2338,13 +2377,6 @@ export default async function handler(req, res) {
       }
       if (entity === 'invoices') {
         const persistedInvoice = await config.get(session.businessId, id);
-        if (persistedInvoice?.status === 'void' && existing.status !== 'void') {
-          await createAuditEventForBusiness({ businessId: session.businessId, auditEvent: {
-            id: generateId(), action: 'invoice_voided', actorUserId: session.id,
-            actorName: session.name, actorEmail: session.email, affectedEntryCount: 1,
-            createdAt: new Date().toISOString(), metadata: { invoiceId: id, reason: persistedInvoice.voidReason },
-          } });
-        }
         return res.status(200).json({ ok: true, invoice: persistedInvoice });
       }
       if (entity === 'budgets') {

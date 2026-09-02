@@ -34,7 +34,9 @@ test('invoice numbers use one tenant-and-year scoped atomic ADD counter', async 
 test('invoice status transitions are forward-only and void is terminal', () => {
   assert.equal(isValidInvoiceStatusTransition('draft', 'sent'), true);
   assert.equal(isValidInvoiceStatusTransition('draft', 'paid'), false);
-  assert.equal(isValidInvoiceStatusTransition('sent', 'partially_paid'), true);
+  assert.equal(isValidInvoiceStatusTransition('sent', 'partially_paid'), false);
+  assert.equal(isValidInvoiceStatusTransition('sent', 'paid'), false);
+  assert.equal(isValidInvoiceStatusTransition('sent', 'partially_paid', 'payment'), true);
   assert.equal(isValidInvoiceStatusTransition('sent', 'void'), true);
   assert.equal(isValidInvoiceStatusTransition('paid', 'void'), false);
   assert.equal(isValidInvoiceStatusTransition('void', 'sent'), false);
@@ -55,9 +57,15 @@ test('invoice API owns numbers, totals, snapshots, lifecycle timestamps, and des
   assert.match(source, /customerNameSnapshot/);
   assert.match(source, /Invoice lifecycle timestamps are server-controlled/);
   assert.match(source, /Invoice exceeds the remaining contract amount/);
+  assert.match(source, /Payment statuses can only be changed by the payment workflow/);
+  assert.match(source, /Overdue is derived from the due date and is not set manually/);
+  assert.match(source, /existing\.status === 'draft'/);
+  assert.match(source, /issueInvoiceForBusiness/);
+  assert.match(source, /voidInvoiceForBusiness/);
   assert.match(source, /QuickBooks-linked invoices are read-only/);
   assert.match(source, /Only draft invoices can be deleted/);
-  assert.match(source, /action: 'invoice_voided'/);
+  const repository = readFileSync('api/_lib/authRepo.js', 'utf8');
+  assert.match(repository, /action: 'invoice_voided'/);
 });
 
 test('invoice drawer awaits persistence, keeps errors visible, and does not expose manual numbers', () => {
@@ -78,4 +86,21 @@ test('QuickBooks refuses draft invoice creation and supports both tax modes', ()
   const projection = readFileSync('api/_lib/quickBooksSync.js', 'utf8');
   assert.match(endpoint, /invoice\.status === 'draft'/);
   assert.match(projection, /'TaxExcluded' : 'TaxInclusive'/);
+});
+
+test('issued snapshot fields are not refreshed during lifecycle-only updates', () => {
+  const source = readFileSync('api/data.js', 'utf8');
+  assert.match(source, /if \(existing\.status !== 'draft'\)/);
+  assert.match(source, /Issued invoices only allow lifecycle changes/);
+  assert.match(source, /if \(existing\.status === 'draft'\) \{\s*const authorization = await authorizeInvoiceRecord/);
+  assert.match(source, /billingAddressSnapshot: getCustomerBillingAddressSnapshot\(customer\)/);
+  assert.match(source, /jobAddressSnapshot: job\.propertyAddressSnapshot \|\| ''/);
+});
+
+test('historical payment statuses remain readable while generic transitions stay closed', () => {
+  assert.equal(getInvoiceBalance({ status: 'paid', amount: 113 }), 0);
+  assert.equal(getInvoiceBalance({ status: 'partially_paid', amount: 113 }), 113);
+  assert.equal(isValidInvoiceStatusTransition('paid', 'paid'), true);
+  assert.equal(isValidInvoiceStatusTransition('partially_paid', 'partially_paid'), true);
+  assert.equal(isValidInvoiceStatusTransition('sent', 'paid'), false);
 });

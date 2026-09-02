@@ -15,7 +15,7 @@ New invoices use `schemaVersion: 2` and `pricingMode: tax_exclusive`:
 - `previouslyInvoicedSnapshot` is the sum of issued, non-void pre-tax invoice subtotals for the Job.
 - `remainingContractAmountSnapshot` is contract amount less previously invoiced, never below zero.
 - `paymentTermsDays` records the terms used to derive the initial due date. The due date remains independently editable.
-- `sentAt`, `voidedAt`, and `voidReason` are server-controlled lifecycle audit fields.
+- `sentAt`, `voidedAt`, and `voidReason` are server-controlled lifecycle audit fields. Billing and job addresses are separate: billing uses only the Customer billing, mailing, or legacy `address` field, while job address uses only `Job.propertyAddressSnapshot`.
 - `overContract` records a confirmed custom invoice that exceeds the remaining contract amount.
 - `quickBooksLinked` is a read projection indicating a persisted provider mapping; it is not stored on the invoice itself.
 
@@ -25,13 +25,19 @@ Source lines snapshot `sourceWorkAreaId`, `sourceLineItemId`, category, descript
 
 ## Contract authority
 
-Contract value uses the first available non-negative value in this order: `Job.currentContractRevenue`, `Job.originalContractRevenue`, `Job.contractValue`, then `Job.originalEstimateSnapshot.subtotal`. Draft and void invoices do not reduce availability. Issued legacy invoices use their stored subtotal when available, otherwise their historical amount.
+Contract value uses the first available non-negative value in this order: `Job.currentContractRevenue`, `Job.originalContractRevenue`, `Job.contractValue`, then `Job.originalEstimateSnapshot.subtotal`. Draft and void invoices do not reduce availability. Issued invoices consume their pre-tax accounting revenue using the same fallback rules as Budget P&L.
+
+Invoice `amount` is the customer-facing tax-inclusive total. Balance is also tax-inclusive. Accounting revenue and contract consumption exclude HST: they use a valid stored subtotal, then amount less stored tax, then derived legacy line calculations, and only fall back to amount when no tax detail exists.
 
 ## Numbering and lifecycle
 
 The backend reserves `INV-YYYY-NNN` from a DynamoDB item keyed by `BUSINESS#<businessId>` and `INVOICE_COUNTER#<year>`. One atomic `UpdateItem` expression uses `ADD sequence :increment` and `ReturnValues: UPDATED_NEW`. Failed creates may leave gaps. Existing invoice numbers are immutable.
 
-New invoices are always Draft. Allowed transitions are Draft to Sent; Sent to Partially Paid, Paid, Overdue, or Void; Partially Paid or Overdue to each other, Paid, or Void. Paid and Void are terminal. Voiding requires a reason and creates an audit event. Payment recording remains deferred, so the status model is ready for the Phase 2 payment workflow without changing stored invoices.
+New invoices are always Draft. Generic Phase 1 updates allow Draft to Sent, Sent to Void, persisted legacy Overdue to Void, and safe same-status retries. Overdue is normally derived for display from an unpaid issued invoice's due date and is not manually persisted. Generic PATCH cannot set Partially Paid or Paid; those historical statuses remain readable and are reserved for the future canonical payment workflow. Paid and Void are terminal. Voiding requires a reason and creates an audit event.
+
+Drafts do not reserve contract availability. Sending uses one DynamoDB transaction to conditionally update the invoice and the `JOB_INVOICE_LEDGER#<jobId>` aggregate under the business partition. The ledger stores pre-tax `issuedAmount` plus invoice-specific reservation and release markers. This prevents concurrent sends from consuming the same remaining balance and makes Send and Void retries idempotent. Confirmed Custom invoices may exceed the contract limit but still reserve their full pre-tax amount.
+
+When a Job ledger is first created, it is seeded from the current issued, non-void historical invoice total. Historical invoices remain the reconciliation source before that point. Voiding a historical invoice conditionally releases it when a ledger exists; when no ledger exists, the transaction verifies that absence while voiding so a concurrent initialization cannot create a stale balance. A future maintenance reconciliation may rebuild `issuedAmount` from issued, non-void invoices and their reservation markers without altering invoice records.
 
 Only unlinked Drafts can be hard-deleted. Issued or QuickBooks-linked invoices are read-only for financial fields. QuickBooks-linked records remain locked even when the integration is disconnected.
 

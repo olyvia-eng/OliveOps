@@ -76,6 +76,10 @@ function invoiceCounterSk(year) {
   return `INVOICE_COUNTER#${year}`;
 }
 
+function jobInvoiceLedgerSk(jobId) {
+  return `JOB_INVOICE_LEDGER#${jobId}`;
+}
+
 function expenseSk(expenseId) {
   return `EXPENSE#${expenseId}`;
 }
@@ -1866,6 +1870,126 @@ export async function updateInvoiceForBusiness({ businessId, invoice }) {
   );
 
   return { ok: true };
+}
+
+function invoicePersistenceItem(businessId, invoice) {
+  return {
+    PK: businessPk(businessId),
+    SK: invoiceSk(invoice.id),
+    entityType: 'INVOICE',
+    businessId,
+    invoiceId: invoice.id,
+    ...invoice,
+  };
+}
+
+export async function issueInvoiceForBusiness({
+  businessId,
+  invoice,
+  contractAmount,
+  baselineIssuedAmount,
+  allowOverContract = false,
+}) {
+  const reservationAmount = Number(invoice.contractReservationAmount);
+  const maximumBefore = Number(contractAmount) - reservationAmount;
+  const reservationField = `reserved#${invoice.id}`;
+  const ledgerKey = { PK: businessPk(businessId), SK: jobInvoiceLedgerSk(invoice.jobId) };
+  const limitCondition = allowOverContract
+    ? 'attribute_not_exists(#reservation)'
+    : 'attribute_not_exists(#reservation) AND ((attribute_exists(#issuedAmount) AND #issuedAmount <= :maximumBefore) OR (attribute_not_exists(#issuedAmount) AND :baseline <= :maximumBefore))';
+
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        { Update: {
+          TableName: tableName,
+          Key: ledgerKey,
+          UpdateExpression: 'SET #entityType = :entityType, #businessId = :businessId, #jobId = :jobId, #contractAmount = :contractAmount, #updatedAt = :updatedAt, #issuedAmount = if_not_exists(#issuedAmount, :baseline) + :amount, #reservation = :amount',
+          ConditionExpression: limitCondition,
+          ExpressionAttributeNames: {
+            '#entityType': 'entityType', '#businessId': 'businessId', '#jobId': 'jobId',
+            '#contractAmount': 'contractAmount', '#updatedAt': 'updatedAt', '#issuedAmount': 'issuedAmount',
+            '#reservation': reservationField,
+          },
+          ExpressionAttributeValues: {
+            ':entityType': 'JOB_INVOICE_LEDGER', ':businessId': businessId, ':jobId': invoice.jobId,
+            ':contractAmount': contractAmount, ':updatedAt': invoice.updatedAt,
+            ':baseline': baselineIssuedAmount, ':amount': reservationAmount, ':maximumBefore': maximumBefore,
+          },
+        } },
+        { Put: {
+          TableName: tableName,
+          Item: invoicePersistenceItem(businessId, invoice),
+          ConditionExpression: '#status = :draft AND attribute_not_exists(#sentAt)',
+          ExpressionAttributeNames: { '#status': 'status', '#sentAt': 'sentAt' },
+          ExpressionAttributeValues: { ':draft': 'draft' },
+        } },
+      ],
+    }));
+    return { ok: true, idempotent: false };
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    const current = await getInvoiceForBusiness(businessId, invoice.id);
+    if (current?.status === 'sent' && Number(current.contractReservationAmount) === reservationAmount) {
+      return { ok: true, idempotent: true };
+    }
+    return { ok: false, error: 'Invoice exceeds the remaining contract amount or is no longer Draft.' };
+  }
+}
+
+export async function voidInvoiceForBusiness({ businessId, invoice, actor }) {
+  const reservationAmount = Number(invoice.contractReservationAmount ?? invoice.subtotal ?? invoice.amount);
+  const ledgerKey = { PK: businessPk(businessId), SK: jobInvoiceLedgerSk(invoice.jobId) };
+  const releasedField = `released#${invoice.id}`;
+  const invoicePut = {
+    TableName: tableName,
+    Item: invoicePersistenceItem(businessId, invoice),
+    ConditionExpression: '#status = :sent OR #status = :overdue',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: { ':sent': 'sent', ':overdue': 'overdue' },
+  };
+  const auditEventId = `invoice-void-${invoice.id}`;
+  const auditPut = {
+    TableName: tableName,
+    Item: {
+      PK: businessPk(businessId), SK: auditEventSk(auditEventId), entityType: 'AUDIT_EVENT',
+      businessId, eventId: auditEventId, id: auditEventId, action: 'invoice_voided',
+      actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email,
+      affectedEntryCount: 1, createdAt: invoice.voidedAt,
+      metadata: { invoiceId: invoice.id, reason: invoice.voidReason },
+    },
+    ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+  };
+  const ledger = await ddb.send(new GetCommand({ TableName: tableName, Key: ledgerKey }));
+
+  try {
+    if (ledger.Item) {
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        { Update: {
+          TableName: tableName,
+          Key: ledgerKey,
+          UpdateExpression: 'SET #updatedAt = :updatedAt, #released = :amount ADD #issuedAmount :negativeAmount',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_not_exists(#released) AND #issuedAmount >= :amount',
+          ExpressionAttributeNames: { '#updatedAt': 'updatedAt', '#released': releasedField, '#issuedAmount': 'issuedAmount' },
+          ExpressionAttributeValues: { ':updatedAt': invoice.updatedAt, ':amount': reservationAmount, ':negativeAmount': -reservationAmount },
+        } },
+        { Put: invoicePut },
+        { Put: auditPut },
+      ] }));
+    } else {
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        { ConditionCheck: { TableName: tableName, Key: ledgerKey, ConditionExpression: 'attribute_not_exists(PK)' } },
+        { Put: invoicePut },
+        { Put: auditPut },
+      ] }));
+    }
+    return { ok: true, idempotent: false };
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    const current = await getInvoiceForBusiness(businessId, invoice.id);
+    if (current?.status === 'void') return { ok: true, idempotent: true };
+    return { ok: false, error: 'Invoice could not be voided because its issuance reservation changed.' };
+  }
 }
 
 export async function deleteInvoiceForBusiness(businessId, invoiceId) {

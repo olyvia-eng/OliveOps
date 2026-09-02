@@ -120,7 +120,31 @@ export function isIssuedInvoice(invoice) {
 }
 
 export function getInvoiceContractAmount(invoice) {
-  return roundCurrency(Number.isFinite(invoice?.subtotal) ? invoice.subtotal : invoice?.amount ?? 0);
+  return getInvoiceRevenueAmount(invoice);
+}
+
+export function getInvoiceRevenueAmount(invoice) {
+  if (Number.isFinite(invoice?.subtotal) && invoice.subtotal > 0) {
+    return roundCurrency(invoice.subtotal);
+  }
+  if (Number.isFinite(invoice?.amount) && Number.isFinite(invoice?.taxAmount) && invoice.taxAmount >= 0) {
+    return roundCurrency(Math.max(0, invoice.amount - invoice.taxAmount));
+  }
+  if (Array.isArray(invoice?.lineItems) && invoice.lineItems.length > 0) {
+    const summary = calculateInvoiceSummary(invoice.lineItems, invoice.taxRate, invoice.schemaVersion);
+    if (Number.isFinite(summary.subtotal) && summary.subtotal > 0) return summary.subtotal;
+  }
+  return roundCurrency(Number.isFinite(invoice?.amount) ? invoice.amount : 0);
+}
+
+export function getCustomerBillingAddressSnapshot(customer) {
+  const address = customer?.billingAddress ?? customer?.mailingAddress ?? customer?.address;
+  if (typeof address === 'string') return address.trim();
+  if (!address || typeof address !== 'object') return '';
+  return [address.street, address.city, address.province, address.postalCode, address.country]
+    .filter((part) => typeof part === 'string' && part.trim())
+    .map((part) => part.trim())
+    .join(', ');
 }
 
 export function calculateJobInvoicePosition(job, invoices) {
@@ -145,15 +169,22 @@ export function getInvoiceBalance(invoice) {
   return roundCurrency(invoice?.amount ?? 0);
 }
 
-const STATUS_TRANSITIONS = Object.freeze({
+const PHASE_ONE_STATUS_TRANSITIONS = Object.freeze({
   draft: new Set(['draft', 'sent']),
-  sent: new Set(['sent', 'partially_paid', 'paid', 'overdue', 'void']),
-  partially_paid: new Set(['partially_paid', 'paid', 'overdue', 'void']),
-  overdue: new Set(['overdue', 'partially_paid', 'paid', 'void']),
+  sent: new Set(['sent', 'void']),
+  partially_paid: new Set(['partially_paid']),
+  overdue: new Set(['overdue', 'void']),
   paid: new Set(['paid']),
   void: new Set(['void']),
 });
 
-export function isValidInvoiceStatusTransition(fromStatus, toStatus) {
-  return STATUS_TRANSITIONS[fromStatus]?.has(toStatus) ?? false;
+const PAYMENT_STATUS_TRANSITIONS = Object.freeze({
+  sent: new Set(['partially_paid', 'paid']),
+  partially_paid: new Set(['paid']),
+  overdue: new Set(['partially_paid', 'paid']),
+});
+
+export function isValidInvoiceStatusTransition(fromStatus, toStatus, context = 'generic') {
+  if (PHASE_ONE_STATUS_TRANSITIONS[fromStatus]?.has(toStatus)) return true;
+  return context === 'payment' && (PAYMENT_STATUS_TRANSITIONS[fromStatus]?.has(toStatus) ?? false);
 }

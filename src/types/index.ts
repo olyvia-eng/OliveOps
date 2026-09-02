@@ -280,6 +280,7 @@ export interface Invoice {
   voidedAt?: string;
   voidReason?: string;
   overContract?: boolean;
+  contractReservationAmount?: number;
   quickBooksLinked?: boolean;
   notes: string;
   createdAt: string;

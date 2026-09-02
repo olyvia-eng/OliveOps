@@ -24,6 +24,8 @@ export function validateInvoiceLineItems(lineItems: InvoiceLineItem[] | unknown,
 export function getAuthoritativeContractValue(job: import('../types').Job | undefined): number;
 export function isIssuedInvoice(invoice: Partial<import('../types').Invoice>): boolean;
 export function getInvoiceContractAmount(invoice: Partial<import('../types').Invoice>): number;
+export function getInvoiceRevenueAmount(invoice: Partial<import('../types').Invoice>): number;
+export function getCustomerBillingAddressSnapshot(customer: Partial<import('../types').Customer> & { billingAddress?: import('../types').Address | string; mailingAddress?: import('../types').Address | string } | undefined): string;
 export function calculateJobInvoicePosition(job: import('../types').Job | undefined, invoices: import('../types').Invoice[]): {
   contractAmount: number;
   previouslyInvoiced: number;
@@ -31,4 +33,4 @@ export function calculateJobInvoicePosition(job: import('../types').Job | undefi
   remainingAmount: number;
 };
 export function getInvoiceBalance(invoice: Partial<import('../types').Invoice>): number;
-export function isValidInvoiceStatusTransition(fromStatus: import('../types').InvoiceStatus, toStatus: import('../types').InvoiceStatus): boolean;
+export function isValidInvoiceStatusTransition(fromStatus: import('../types').InvoiceStatus, toStatus: import('../types').InvoiceStatus, context?: 'generic' | 'payment'): boolean;

@@ -23,7 +23,7 @@ const jobs = [
 ];
 const invoices = [
   { jobId: 'job-hardscape', status: 'paid', issueDate: '2027-05-20', amount: 78000 },
-  { jobId: 'job-hardscape', status: 'sent', issueDate: '2027-06-20', amount: 92000 },
+  { jobId: 'job-hardscape', status: 'sent', issueDate: '2027-06-20', subtotal: 92000, taxAmount: 11960, amount: 103960, schemaVersion: 2 },
   { jobId: 'job-hardscape', status: 'draft', issueDate: '2027-06-21', amount: 50000 },
   { jobId: 'job-hardscape', status: 'void', issueDate: '2027-06-22', amount: 60000 },
   { jobId: 'job-snow', status: 'paid', issueDate: '2027-06-20', amount: 77777 },
@@ -120,4 +120,15 @@ test('changing Division produces an isolated monthly series', () => {
 
 test('draft and void invoices are excluded from recognized Budget revenue', () => {
   assert.equal(june.revenue, 92000);
+});
+
+test('schema version 2 HST is excluded from Budget P&L revenue', () => {
+  const taxExample = calculateDivisionMonthlyFinancials({
+    budget,
+    divisionId: 'hardscape',
+    jobs,
+    invoices: [{ jobId: 'job-hardscape', status: 'sent', issueDate: '2027-06-20', subtotal: 100, taxAmount: 13, amount: 113, schemaVersion: 2 }],
+    timeEntries: [], employees, expenses: [],
+  });
+  assert.equal(taxExample.months.find((month) => month.key === '2027-06').revenue, 100);
 });

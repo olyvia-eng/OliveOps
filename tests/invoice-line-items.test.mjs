@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   calculateInvoiceLineFinancials,
   calculateJobInvoicePosition,
+  getCustomerBillingAddressSnapshot,
+  getInvoiceRevenueAmount,
   calculateIncludedTax,
   calculateInvoiceLineAmount,
   calculateInvoiceSummary,
@@ -114,4 +116,19 @@ test('job invoice position excludes draft and void invoices from billed amount',
     draftAmount: 100,
     remainingAmount: 800,
   });
+});
+
+test('billing address never falls back to the job site address', () => {
+  const customer = { address: { street: '10 Billing St', city: 'Ottawa', province: 'ON', postalCode: 'K1A 0B1', country: 'CA' } };
+  const job = { propertyAddressSnapshot: '99 Job Site Rd, Ottawa, ON' };
+  assert.equal(getCustomerBillingAddressSnapshot(customer), '10 Billing St, Ottawa, ON, K1A 0B1, CA');
+  assert.notEqual(getCustomerBillingAddressSnapshot(customer), job.propertyAddressSnapshot);
+  assert.equal(getCustomerBillingAddressSnapshot({}), '');
+});
+
+test('invoice revenue excludes HST and preserves legacy fallbacks', () => {
+  assert.equal(getInvoiceRevenueAmount({ schemaVersion: 2, subtotal: 100, taxAmount: 13, amount: 113 }), 100);
+  assert.equal(getInvoiceRevenueAmount({ amount: 113, taxAmount: 13 }), 100);
+  assert.equal(getInvoiceRevenueAmount({ amount: 113, taxRate: 13, lineItems: [line()] }), 100);
+  assert.equal(getInvoiceRevenueAmount({ amount: 75 }), 75);
 });
