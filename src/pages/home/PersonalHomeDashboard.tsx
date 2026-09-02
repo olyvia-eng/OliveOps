@@ -9,7 +9,7 @@ import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import type { Task, TaskPriority } from '../../types';
 import { formatCurrency } from '../../utils';
-import JobDetailPanel, { type JobDetailTab } from '../jobs/JobDetailPanel';
+import JobDetailPanel from '../jobs/JobDetailPanel';
 import {
   buildRecentActivity,
   buildUpcomingItems,
@@ -43,7 +43,6 @@ interface PersonalHomeDashboardProps {
 }
 
 const taskFilters: HomeTaskFilter[] = ['all', 'today', 'overdue', 'week', 'completed'];
-const jobTabs: JobDetailTab[] = ['overview', 'scope', 'team', 'invoices', 'notes'];
 
 export default function PersonalHomeDashboard({ currentUserId, currentUserName, currentUserEmail, currentUserRole, onOpenSchedule, onOpenTimeClock }: PersonalHomeDashboardProps) {
   const navigate = useNavigate();
@@ -84,10 +83,6 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const selectedCrew = crews.find((crew) => crew.id === selectedJob?.crewId);
   const selectedEmployeeIds = new Set([...(selectedJob?.assignedEmployeeIds ?? []), ...(selectedCrew?.memberIds ?? []), ...(selectedCrew?.leadEmployeeId ? [selectedCrew.leadEmployeeId] : [])]);
   const selectedEmployees = employees.filter((item) => selectedEmployeeIds.has(item.id));
-  const selectedInvoices = invoices.filter((invoice) => invoice.jobId === selectedJob?.id);
-  const tabValue = searchParams.get('homeJobTab');
-  const selectedTab: JobDetailTab = jobTabs.includes(tabValue as JobDetailTab) ? tabValue as JobDetailTab : 'overview';
-  const expandedJob = searchParams.get('homeJobMode') === 'expanded';
   const updateQuery = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams);
     Object.entries(changes).forEach(([key, value]) => value === null ? next.delete(key) : next.set(key, value));
@@ -175,10 +170,10 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   return (
     <DetailWorkspace
       open={Boolean(selectedJob)}
-      expanded={expandedJob}
+      expanded={false}
       detailKey={selectedJob?.id}
       list={dashboard}
-      detail={selectedJob ? <JobDetailPanel job={selectedJob} customer={selectedCustomer} assignedEmployees={selectedEmployees} invoices={selectedInvoices} activeTab={selectedTab} expanded={expandedJob} canViewFinancials={canViewFinancials} canEdit={false} canOpenFullRecord={!isFieldPortal} onTabChange={(tab) => updateQuery({ homeJobTab: tab })} onEdit={() => undefined} onExpand={() => updateQuery({ homeJobMode: 'expanded' })} onCollapse={() => updateQuery({ homeJobMode: null })} onClose={closeJob} /> : null}
+      detail={selectedJob ? <JobDetailPanel job={selectedJob} customer={selectedCustomer} assignedEmployees={selectedEmployees} canViewFinancials={canViewFinancials} canOpenJob={!isFieldPortal} onClose={closeJob} /> : null}
     />
   );
 }

@@ -10,6 +10,8 @@ const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'u
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const estimatePanelSource = readFileSync('src/pages/estimates/EstimateDetailPanel.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
+const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
+const jobPanelSource = readFileSync('src/pages/jobs/JobDetailPanel.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarItemSource = readFileSync('src/components/layout/SidebarItem.tsx', 'utf8');
@@ -161,6 +163,41 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
   assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
   assert.match(jobWorkspaceSource, /No invoices yet/);
+});
+
+test('Job navigation has only Quick View and the full Job workspace', () => {
+  assert.match(jobsSource, /const selectJob = \(jobId: string\) => setSearchParams\(openDetailWorkspace/);
+  assert.match(jobsSource, /onClick=\{\(\) => selectJob\(job\.id\)\}/);
+  assert.match(jobsSource, /expanded=\{false\}/);
+  assert.doesNotMatch(jobsSource, /setDetailWorkspaceMode|setWorkspaceMode|workspace\.mode === 'expanded'/);
+  assert.doesNotMatch(jobPanelSource, /onExpand|onCollapse|Full Record|DetailWorkspaceTabs|activeTab/);
+  assert.match(jobPanelSource, /to=\{`\/jobs\/\$\{job\.id\}`\}/);
+  assert.match(jobPanelSource, />Open Job <ArrowRight/);
+  assert.match(jobWorkspaceSource, /onClick=\{\(\) => navigate\('\/jobs'\)\}/);
+});
+
+test('Job Quick View remains concise and preserves operational context', () => {
+  for (const label of ['Hours Used / Planned', 'Schedule', 'Contract Value', 'Recorded Margin', 'Customer', 'Property', 'Schedule Status', 'Assigned Team', 'Work Areas']) {
+    assert.match(jobPanelSource, new RegExp(`>${label}<`));
+  }
+  assert.match(jobPanelSource, /risk\?\.atRisk/);
+  assert.match(jobPanelSource, /risk\.warningBadges/);
+  assert.match(jobPanelSource, /job\.jobNumber/);
+  assert.match(jobPanelSource, /job\.operationalWorkAreas/);
+  assert.match(jobPanelSource, /to=\{`\/estimates\/\$\{job\.sourceEstimateId\}`\}/);
+  assert.match(jobPanelSource, />View Source Estimate <ArrowRight/);
+  assert.doesNotMatch(jobPanelSource, /onEdit|>Edit<|Job Notes|Schedule Notes|Total Invoiced/);
+});
+
+test('full Job workspace retains management tabs and role gates', () => {
+  for (const tab of ['info', 'work-areas', 'proposal', 'project-management', 'analysis', 'invoices']) {
+    assert.match(jobWorkspaceSource, new RegExp(`key: '${tab}'`));
+  }
+  assert.match(jobWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
+  assert.match(jobWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin' \|\| currentUserRole === 'foreman'/);
+  assert.match(jobWorkspaceSource, /Source Estimate/);
+  assert.match(jobWorkspaceSource, /Assigned Employees/);
+  assert.match(jobWorkspaceSource, /Related Invoices/);
 });
 
 test('company setup sidebar keeps existing routes and account terminology', () => {

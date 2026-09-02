@@ -24,7 +24,7 @@ test('clients, jobs, and estimates use distinct URL-owned workspace state', () =
     assert.match(source, /aria-selected=/);
   }
   assert.match(crmSource, /setDetailWorkspaceMode/);
-  assert.match(jobsSource, /setDetailWorkspaceMode/);
+  assert.doesNotMatch(jobsSource, /setDetailWorkspaceMode|workspace\.mode === 'expanded'/);
   assert.doesNotMatch(estimatesSource, /setDetailWorkspaceMode|workspace\.mode === 'expanded'/);
 });
 

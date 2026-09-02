@@ -12,15 +12,12 @@ import {
   closeDetailWorkspace,
   openDetailWorkspace,
   readDetailWorkspaceQuery,
-  setDetailWorkspaceMode,
-  setDetailWorkspaceTab,
 } from '../../components/detail-workspace/detailWorkspaceQuery';
-import JobDetailPanel, { type JobDetailTab } from './JobDetailPanel';
+import JobDetailPanel from './JobDetailPanel';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
 type RiskFilter = 'all' | 'at_risk' | 'over_hours' | 'low_margin' | 'labor_variance';
 const JOB_WORKSPACE_QUERY = { recordParam: 'job', tabParam: 'jobTab', defaultTab: 'overview' } as const;
-const JOB_DETAIL_TABS: JobDetailTab[] = ['overview', 'scope', 'team', 'invoices', 'notes'];
 
 const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'updatedAt'> => ({
   customerId: customers[0]?.id ?? '',
@@ -45,7 +42,7 @@ interface JobsPageProps {
 }
 
 export default function JobsPage({ currentUserRole }: JobsPageProps) {
-  const { jobs, customers, employees, estimates, invoices, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
+  const { jobs, customers, employees, estimates, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -60,13 +57,9 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   const selectedJob = jobs.find((job) => job.id === workspace.recordId) ?? null;
   const selectedCustomer = customers.find((customer) => customer.id === selectedJob?.customerId) ?? null;
   const selectedEmployees = employees.filter((employee) => selectedJob?.assignedEmployeeIds.includes(employee.id));
-  const selectedInvoices = invoices.filter((invoice) => invoice.jobId === selectedJob?.id);
-  const jobDetailTab = JOB_DETAIL_TABS.includes(workspace.tab as JobDetailTab) ? workspace.tab as JobDetailTab : 'overview';
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const selectJob = (jobId: string) => setSearchParams(openDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY, jobId));
   const closeJob = () => setSearchParams(closeDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY));
-  const setWorkspaceMode = (mode: 'panel' | 'expanded') => setSearchParams(setDetailWorkspaceMode(searchParams, JOB_WORKSPACE_QUERY, mode));
-  const setJobTab = (tab: JobDetailTab) => setSearchParams(setDetailWorkspaceTab(searchParams, JOB_WORKSPACE_QUERY, tab));
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all' || riskFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
@@ -236,7 +229,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     <div>
       <DetailWorkspace
         open={Boolean(workspace.recordId)}
-        expanded={workspace.mode === 'expanded'}
+        expanded={false}
         detailKey={workspace.recordId}
         list={(
           <div>
@@ -387,15 +380,8 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
             job={selectedJob}
             customer={selectedCustomer}
             assignedEmployees={selectedEmployees}
-            invoices={selectedInvoices}
             risk={jobRiskById.get(selectedJob.id)}
-            activeTab={jobDetailTab}
-            expanded={workspace.mode === 'expanded'}
             canViewFinancials={canViewFinancials}
-            onTabChange={setJobTab}
-            onEdit={() => openEdit(selectedJob)}
-            onExpand={() => setWorkspaceMode('expanded')}
-            onCollapse={() => setWorkspaceMode('panel')}
             onClose={closeJob}
           />
         ) : (
