@@ -766,7 +766,7 @@ export function buildSwitchActivityTransaction({
   };
 }
 
-export async function getActiveShiftForEmployee({ businessId, employeeId }) {
+export async function getActiveShiftForEmployee({ businessId, employeeId, consistentRead = false }) {
   const result = await ddb.send(
     new GetCommand({
       TableName: tableName,
@@ -774,6 +774,7 @@ export async function getActiveShiftForEmployee({ businessId, employeeId }) {
         PK: activeShiftPk(businessId, employeeId),
         SK: activeShiftSk(),
       },
+      ConsistentRead: consistentRead,
     })
   );
 
@@ -783,9 +784,11 @@ export async function getActiveShiftForEmployee({ businessId, employeeId }) {
 
   return {
     businessId,
-    employeeId,
+    employeeId: result.Item.employeeId,
     activeEntryId: result.Item.activeEntryId,
+    activeEntryStartedAt: result.Item.activeEntryStartedAt,
     status: result.Item.status,
+    timelineRevision: result.Item.timelineRevision,
     createdAt: result.Item.createdAt,
     updatedAt: result.Item.updatedAt,
   };

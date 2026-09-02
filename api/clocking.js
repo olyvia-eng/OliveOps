@@ -55,6 +55,12 @@ import {
   resolveClockingWorkArea,
   WORK_AREA_CLOCKING_CONTRACT_VERSION,
 } from './_lib/jobWorkAreas.js';
+import {
+  buildCurrentShiftWorkAreaTransaction,
+  currentShiftTimelineResponse,
+  reconstructCurrentShiftTimeline,
+  validateCurrentShiftWorkAreaSegments,
+} from './_lib/currentShiftWorkAreas.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -291,6 +297,27 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, blocked: true, ...clockInWorkflowStatus(workflow) });
   }
 
+  if (req.method === 'GET' && action === 'current-shift-work-area-timeline') {
+    const employeeId = typeof session.employeeId === 'string' ? session.employeeId.trim() : '';
+    if (!employeeId) {
+      return res.status(403).json({ ok: false, code: 'current_shift_self_service_forbidden', error: 'An authenticated Employee is required.' });
+    }
+    const [employee, activeShift, entries] = await Promise.all([
+      getEmployeeForBusiness(session.businessId, employeeId),
+      getActiveShiftForEmployee({ businessId: session.businessId, employeeId, consistentRead: true }),
+      listTimeEntriesForBusiness(session.businessId, { consistentRead: true }),
+    ]);
+    if (!employee?.active) {
+      return res.status(403).json({ ok: false, code: 'current_shift_self_service_forbidden', error: 'An active Employee is required.' });
+    }
+    const snapshot = reconstructCurrentShiftTimeline({ entries, activeShift, employeeId });
+    if (!snapshot.ok) return clockingError(res, snapshot);
+    return res.status(200).json({
+      ok: true,
+      ...currentShiftTimelineResponse(snapshot, employee.mobileTimePermissions?.editShiftWorkAreas === true),
+    });
+  }
+
   if (req.method === 'PATCH' && action === 'edit-time-entry') {
     if (!canDirectlyEditTimeEntries(session)) {
       return res.status(403).json({ ok: false, code: 'time_entry_edit_forbidden', error: 'Forbidden' });
@@ -344,6 +371,94 @@ export default async function handler(req, res) {
     }
     const result = await finalizePendingClockOut({ session, workflowOccurrenceId });
     return sendMandatoryFinalizationResult(res, result, workflowOccurrenceId);
+  }
+
+  if (clockingAction === 'reconcile-current-shift-work-areas') {
+    const employeeId = typeof session.employeeId === 'string' ? session.employeeId.trim() : '';
+    if (!employeeId) {
+      return res.status(403).json({ ok: false, code: 'current_shift_self_service_forbidden', error: 'An authenticated Employee is required.' });
+    }
+    const employee = await getEmployeeForBusiness(session.businessId, employeeId);
+    if (!employee?.active || employee.mobileTimePermissions?.editShiftWorkAreas !== true) {
+      return res.status(403).json({ ok: false, code: 'shift_work_area_edit_not_allowed', error: 'You do not have permission to edit current-shift Work Areas.' });
+    }
+    const clientRequestId = typeof req.body?.clientRequestId === 'string' ? req.body.clientRequestId.trim() : '';
+    if (!clientRequestId || clientRequestId.length > 200) {
+      return res.status(400).json({ ok: false, code: 'client_request_id_required', error: 'A client request ID is required.' });
+    }
+    const requestedRevision = typeof req.body?.timelineRevision === 'string' ? req.body.timelineRevision.trim() : '';
+    if (!requestedRevision) {
+      return res.status(400).json({ ok: false, code: 'shift_timeline_revision_required', error: 'The current shift timeline revision is required.' });
+    }
+    const payload = {
+      action: 'reconcile-current-shift-work-areas',
+      employeeId,
+      clientRequestId,
+      timelineRevision: requestedRevision,
+      segments: req.body?.segments,
+    };
+    const hashedPayload = payloadHash(payload);
+    const idempotencyKey = scopedIdempotencyKey(employeeId, clientRequestId);
+    const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+    if (existing) {
+      if (existing.payloadHash !== hashedPayload || existing.action !== 'reconcile_current_shift_work_areas') {
+        return res.status(409).json({ ok: false, code: 'clock_idempotency_conflict', error: 'Clocking idempotency key was reused with a different request.' });
+      }
+      return res.status(200).json({ ok: true, ...existing.response });
+    }
+
+    const [activeShift, entries] = await Promise.all([
+      getActiveShiftForEmployee({ businessId: session.businessId, employeeId, consistentRead: true }),
+      listTimeEntriesForBusiness(session.businessId, { consistentRead: true }),
+    ]);
+    const snapshot = reconstructCurrentShiftTimeline({ entries, activeShift, employeeId });
+    if (!snapshot.ok) return clockingError(res, snapshot);
+    if (snapshot.timelineRevision !== requestedRevision) {
+      return res.status(409).json({ ok: false, code: 'shift_timeline_changed', error: 'The current shift changed. Reload and try again.' });
+    }
+
+    const requestedJobIds = [...new Set((Array.isArray(req.body?.segments) ? req.body.segments : [])
+      .map((segment) => typeof segment?.jobId === 'string' ? segment.jobId.trim() : '')
+      .filter(Boolean))];
+    const jobValidation = await validateClockingJobs({ session, jobIds: requestedJobIds });
+    if (!jobValidation.ok) {
+      return res.status(jobValidation.status).json({ ok: false, code: jobValidation.code ?? 'job_work_area_invalid', error: jobValidation.error });
+    }
+    const editedAt = nowIso();
+    const segmentValidation = validateCurrentShiftWorkAreaSegments({
+      timeline: snapshot.timeline,
+      segments: req.body?.segments,
+      jobsById: new Map(jobValidation.jobs.map((job) => [job.id, job])),
+      serverNow: editedAt,
+    });
+    if (!segmentValidation.ok) return clockingError(res, segmentValidation);
+    const transaction = buildCurrentShiftWorkAreaTransaction({
+      businessId: session.businessId,
+      employee,
+      userId: session.id,
+      activeShift,
+      sourceTimeline: snapshot.timeline,
+      segments: segmentValidation.segments,
+      clientRequestId,
+      idempotencyKey,
+      payloadHash: hashedPayload,
+      editedAt,
+    });
+    if (!transaction.ok) return clockingError(res, transaction);
+
+    try {
+      await ddb.send(new TransactWriteCommand(transaction.transaction));
+      return res.status(200).json({ ok: true, ...transaction.response });
+    } catch (error) {
+      const replay = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
+      if (replay?.payloadHash === hashedPayload && replay.action === 'reconcile_current_shift_work_areas') {
+        return res.status(200).json({ ok: true, ...replay.response });
+      }
+      if (error?.name === 'TransactionCanceledException') {
+        return res.status(409).json({ ok: false, code: 'shift_timeline_changed', error: 'The current shift changed. Reload and try again.' });
+      }
+      throw error;
+    }
   }
 
   if (clockingAction === 'clock-in') {

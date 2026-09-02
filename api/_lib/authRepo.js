@@ -5049,6 +5049,8 @@ export async function listTimeEntriesForBusiness(businessId, { consistentRead = 
     clockOut: item.clockOut,
     clockInServerReceivedAt: item.clockInServerReceivedAt,
     clockInTimestampSource: item.clockInTimestampSource,
+    clockInTimeSource: item.clockInTimeSource,
+    requestedClockInAt: item.requestedClockInAt,
     clockOutServerReceivedAt: item.clockOutServerReceivedAt,
     clockOutTimestampSource: item.clockOutTimestampSource,
     breakMinutes: item.breakMinutes ?? 0,
@@ -5062,6 +5064,8 @@ export async function listTimeEntriesForBusiness(businessId, { consistentRead = 
     status: item.status,
     labourCostRateSnapshot: item.labourCostRateSnapshot,
     labourCostTotalSnapshot: item.labourCostTotalSnapshot,
+    adjustmentSource: item.adjustmentSource,
+    adjustmentRequestId: item.adjustmentRequestId,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
