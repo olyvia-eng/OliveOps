@@ -43,7 +43,7 @@ export function resolveRequestedClockInTime({ requestedClockInAt, serverReceived
   }
   if (getBusinessPeriodKeys(new Date(requestedMs), businessTimeZone).daily
     !== getBusinessPeriodKeys(new Date(serverReceivedMs), businessTimeZone).daily) {
-    return { ok: false, status: 409, code: 'clock_in_time_wrong_business_date', error: 'Requested clock-in time must be on the current business date.' };
+    return { ok: false, status: 409, code: 'clock_in_time_too_old', error: 'Requested clock-in time must be on the current business date and within the last 4 hours.' };
   }
   return {
     ok: true,

@@ -366,11 +366,18 @@ export default async function handler(req, res) {
     const business = req.body?.requestedClockInAt === undefined
       ? null
       : await getBusinessProfile(session.businessId);
+    const authenticatedEmployee = req.body?.requestedClockInAt === undefined
+      ? null
+      : session.employeeId === employeeId
+        ? employee
+        : session.employeeId
+          ? await getEmployeeForBusiness(session.businessId, session.employeeId)
+          : null;
     const requestedClockInTime = resolveRequestedClockInTime({
       requestedClockInAt: req.body?.requestedClockInAt,
       serverReceivedAt,
       businessTimeZone: business?.timezone,
-      permitted: employee.mobileTimePermissions?.adjustClockInTime === true,
+      permitted: authenticatedEmployee?.mobileTimePermissions?.adjustClockInTime === true,
     });
     if (!requestedClockInTime.ok) return clockingError(res, requestedClockInTime);
 
@@ -448,7 +455,7 @@ export default async function handler(req, res) {
       : resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
     if (!eventTime.ok) return clockingError(res, eventTime);
 
-    const activeEntries = await listTimeEntriesForBusiness(session.businessId);
+    const activeEntries = await listTimeEntriesForBusiness(session.businessId, { consistentRead: true });
     const activeEntry = activeEntries.find((entry) => entry.employeeId === employeeId && entry.status === 'clocked_in');
     if (activeEntry) {
       const response = getClockingErrorResponse({ statusCode: 409, code: 'ALREADY_CLOCKED_IN' });

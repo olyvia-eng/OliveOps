@@ -101,12 +101,12 @@ function installDdb(t, options = {}) {
   return store;
 }
 
-async function seedEmployee(store, { businessId, employeeId, userId, token, active = true, mobileTimePermissions }) {
+async function seedEmployee(store, { businessId, employeeId, userId, token, active = true, role = 'crew_member', mobileTimePermissions }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, 'PROFILE'), { PK: pk, SK: 'PROFILE', entityType: 'BUSINESS', businessId, name: businessId, timezone: 'America/Toronto' });
-  store.set(key(pk, `USER#${userId}`), { PK: pk, SK: `USER#${userId}`, entityType: 'USER', businessId, userId, name: userId, email: `${userId}@example.com`, role: 'crew_member', active: true, sessionVersion: 0 });
-  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role: 'crew_member', active, mobileTimePermissions });
-  await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role: 'crew_member', employeeId }, accessToken: token, expiresInSeconds: 3600 });
+  store.set(key(pk, `USER#${userId}`), { PK: pk, SK: `USER#${userId}`, entityType: 'USER', businessId, userId, name: userId, email: `${userId}@example.com`, role, active: true, sessionVersion: 0 });
+  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role, active, mobileTimePermissions });
+  await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role, employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
 function seedForm(store, { businessId, id, trigger = ['before_clock_in'], completionRequirement = 'required', assignedTo = 'everyone', assignmentValue, signature = false }) {
@@ -156,9 +156,9 @@ async function formRequest(token, body) {
   return res;
 }
 
-async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true, mobileTimePermissions, ddbOptions } = {}) {
+async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true, role = 'crew_member', mobileTimePermissions, ddbOptions } = {}) {
   const store = installDdb(t, ddbOptions);
-  await seedEmployee(store, { businessId, employeeId, userId, token, active, mobileTimePermissions });
+  await seedEmployee(store, { businessId, employeeId, userId, token, active, role, mobileTimePermissions });
   for (const form of forms) seedForm(store, { businessId, ...form });
   return { store, businessId, employeeId, token };
 }
@@ -241,6 +241,88 @@ test('employee-adjusted clock-in is denied without the authenticated employee pe
   assert.equal([...context.store.values()].some((item) => item.entityType === 'TIME_ENTRY'), false);
 });
 
+test('delegated clock-in uses the authenticated employee permission rather than the target permission', async (t) => {
+  const context = await setup(t, { role: 'admin' });
+  const targetEmployeeId = 'employee-target';
+  const pk = `BUSINESS#${context.businessId}`;
+  context.store.set(key(pk, `EMPLOYEE#${targetEmployeeId}`), {
+    PK: pk, SK: `EMPLOYEE#${targetEmployeeId}`, entityType: 'EMPLOYEE', businessId: context.businessId,
+    employeeId: targetEmployeeId, id: targetEmployeeId, name: targetEmployeeId, role: 'crew_member', active: true,
+    mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false },
+  });
+  const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
+
+  const denied = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(targetEmployeeId, { clientOccurredAt: undefined, requestedClockInAt }),
+  });
+
+  assert.equal(denied.statusCode, 403);
+  assert.equal(denied.body.code, 'clock_in_time_not_allowed');
+  assert.equal([...context.store.values()].some((item) => item.entityType === 'TIME_ENTRY'), false);
+
+  context.store.get(key(pk, `EMPLOYEE#${context.employeeId}`)).mobileTimePermissions = {
+    adjustClockInTime: true,
+    editShiftWorkAreas: false,
+  };
+  context.store.get(key(pk, `EMPLOYEE#${targetEmployeeId}`)).mobileTimePermissions.adjustClockInTime = false;
+  const accepted = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(targetEmployeeId, {
+      clientOccurredAt: undefined,
+      requestedClockInAt,
+      requestId: 'request-delegated-clock-in',
+      idempotencyKey: 'delegated-clock-in-key',
+    }),
+  });
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(accepted.body.timeEntry.employeeId, targetEmployeeId);
+  assert.equal(accepted.body.timeEntry.clockIn, requestedClockInAt);
+});
+
+test('employee-adjusted clock-in rejects server-side age and future bounds', async (t) => {
+  const context = await setup(t, { mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false } });
+  const tooOld = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, {
+      clientOccurredAt: undefined,
+      requestedClockInAt: new Date(Date.now() - 4 * 60 * 60_000 - 1_000).toISOString(),
+    }),
+  });
+  assert.equal(tooOld.statusCode, 409);
+  assert.equal(tooOld.body.code, 'clock_in_time_too_old');
+
+  const inFuture = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, {
+      clientOccurredAt: undefined,
+      requestedClockInAt: new Date(Date.now() + 6 * 60_000).toISOString(),
+    }),
+  });
+  assert.equal(inFuture.statusCode, 409);
+  assert.equal(inFuture.body.code, 'clock_in_time_in_future');
+  assert.equal([...context.store.values()].some((item) => item.entityType === 'TIME_ENTRY'), false);
+});
+
+test('normal online clock-in remains server-authoritative when no adjusted time is requested', async (t) => {
+  const context = await setup(t);
+  const before = Date.now();
+  const result = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, { clientOccurredAt: undefined }),
+  });
+  const after = Date.now();
+
+  assert.equal(result.statusCode, 200);
+  assert.ok(Date.parse(result.body.timeEntry.clockIn) >= before);
+  assert.ok(Date.parse(result.body.timeEntry.clockIn) <= after);
+  const stored = context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${result.body.timeEntry.id}`));
+  assert.equal(stored.clockIn, result.body.timeEntry.clockIn);
+  assert.equal(stored.clockInTimestampSource, 'server');
+  assert.equal(stored.clockInTimeSource, 'server_now');
+  assert.equal(stored.requestedClockInAt, undefined);
+});
+
 test('permitted employee-adjusted clock-in creates and replays the authoritative requested start', async (t) => {
   const context = await setup(t, { mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false } });
   const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
@@ -303,6 +385,13 @@ test('mandatory workflow persists approved adjusted start and finalization canno
   });
   assert.equal(finalized.statusCode, 200);
   assert.equal(finalized.body.timeEntry.clockIn, requestedClockInAt);
+  const stored = context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${finalized.body.timeEntry.id}`));
+  assert.equal(stored.clockIn, requestedClockInAt);
+  assert.equal(stored.clockInTimeSource, 'employee_adjusted');
+  assert.equal(stored.requestedClockInAt, requestedClockInAt);
+  const audit = [...context.store.values()].find((item) => item.entityType === 'AUDIT_EVENT' && item.action === 'clock_in');
+  assert.equal(audit.metadata.clockInTimeSource, 'employee_adjusted');
+  assert.equal(audit.metadata.effectiveClockInAt, requestedClockInAt);
 
   const replay = await clockingRequest(context.token, {
     action: 'clock-in-finalize',

@@ -30,7 +30,7 @@ test('adjusted clock-in validation uses the business date rather than UTC date',
     businessTimeZone: 'America/Toronto',
     permitted: true,
   });
-  assert.equal(result.code, 'clock_in_time_wrong_business_date');
+  assert.equal(result.code, 'clock_in_time_too_old');
 
   const valid = resolveRequestedClockInTime({
     serverReceivedAt: '2026-09-02T04:30:00.000Z',
