@@ -34,6 +34,8 @@ const isEstimateStatusFilter = (value: string | null): value is EstimateStatus |
 };
 
 interface CreateEstimateFormState {
+  startMode: 'blank' | 'template';
+  templateId: string;
   customerId: string;
   pricingBudgetId: string;
   divisionId: string;
@@ -41,6 +43,8 @@ interface CreateEstimateFormState {
 }
 
 const defaultCreateForm = (): CreateEstimateFormState => ({
+  startMode: 'blank',
+  templateId: '',
   customerId: '',
   pricingBudgetId: '',
   divisionId: '',
@@ -196,7 +200,9 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     customers,
     budgets,
     budgetDivisions,
+    templates,
     addEstimate,
+    createEstimateFromTemplate,
     deleteEstimate,
     convertEstimateToJob,
   } = useStore();
@@ -276,7 +282,12 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     [budgetDivisions, createForm.pricingBudgetId],
   );
   const selectedDivisionIsValid = pricingDivisions.some((division) => division.id === createForm.divisionId);
-  const canCreateEstimate = Boolean(createForm.customerId && createForm.pricingBudgetId && selectedDivisionIsValid);
+  const canCreateEstimate = Boolean(
+    createForm.customerId
+    && createForm.pricingBudgetId
+    && selectedDivisionIsValid
+    && (createForm.startMode === 'blank' || createForm.templateId),
+  );
 
   useEffect(() => {
     setCreateForm((current) => {
@@ -329,23 +340,35 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
 
     const generalWorkArea = { ...createDefaultEstimateWorkArea(), divisionId: createForm.divisionId };
     setCreatingEstimate(true);
-    const estimateId = await addEstimate({
-      customerId: createForm.customerId,
-      pricingBudgetId: createForm.pricingBudgetId,
-      divisionId: createForm.divisionId,
-      propertyLabel: selectedProperty?.nickname?.trim() || '',
-      propertyAddressSnapshot: selectedProperty ? formatPropertyAddress(selectedProperty) : '',
-      proposalNumber,
-      title: draftTitle,
-      description: '',
-      workAreas: [generalWorkArea],
-      lineItems: [],
-      status: 'draft',
-      taxRate: 13,
-      notes: '',
-      validUntil: defaultValidUntil(),
-      templateId: undefined,
-    });
+    const estimateId = createForm.startMode === 'template'
+      ? await createEstimateFromTemplate({
+        templateId: createForm.templateId,
+        customerId: createForm.customerId,
+        pricingBudgetId: createForm.pricingBudgetId,
+        divisionId: createForm.divisionId,
+        propertyLabel: selectedProperty?.nickname?.trim() || '',
+        propertyAddressSnapshot: selectedProperty ? formatPropertyAddress(selectedProperty) : '',
+        proposalNumber,
+        title: draftTitle,
+        validUntil: defaultValidUntil(),
+      })
+      : await addEstimate({
+        customerId: createForm.customerId,
+        pricingBudgetId: createForm.pricingBudgetId,
+        divisionId: createForm.divisionId,
+        propertyLabel: selectedProperty?.nickname?.trim() || '',
+        propertyAddressSnapshot: selectedProperty ? formatPropertyAddress(selectedProperty) : '',
+        proposalNumber,
+        title: draftTitle,
+        description: '',
+        workAreas: [generalWorkArea],
+        lineItems: [],
+        status: 'draft',
+        taxRate: 13,
+        notes: '',
+        validUntil: defaultValidUntil(),
+        templateId: undefined,
+      });
     setCreatingEstimate(false);
 
     if (!estimateId) return;
@@ -602,6 +625,42 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">Start with the essentials. You will complete scope, pricing, and proposal details in the estimate workspace.</p>
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-700">Starting Point</p>
+            <div className="grid grid-cols-2 rounded-xl border border-gray-200 bg-gray-50 p-1" role="radiogroup" aria-label="Estimate starting point">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={createForm.startMode === 'blank'}
+                onClick={() => setCreateForm((current) => ({ ...current, startMode: 'blank', templateId: '' }))}
+                className={`rounded-lg px-3 py-2 text-sm font-medium ${createForm.startMode === 'blank' ? 'bg-white text-brand-800 shadow-sm' : 'text-gray-500'}`}
+              >
+                Start Blank
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={createForm.startMode === 'template'}
+                disabled={templates.length === 0}
+                onClick={() => setCreateForm((current) => ({ ...current, startMode: 'template' }))}
+                className={`rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 ${createForm.startMode === 'template' ? 'bg-white text-brand-800 shadow-sm' : 'text-gray-500'}`}
+              >
+                Use Template
+              </button>
+            </div>
+            {templates.length === 0 ? <p className="mt-2 text-xs text-gray-500">Create an Estimate Template to reuse scope here.</p> : null}
+          </div>
+          {createForm.startMode === 'template' ? (
+            <Select
+              label="Estimate Template"
+              required
+              value={createForm.templateId}
+              onChange={(event) => setCreateForm((current) => ({ ...current, templateId: event.target.value }))}
+            >
+              <option value="">Select template</option>
+              {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+            </Select>
+          ) : null}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
               label="Customer"

@@ -4224,13 +4224,16 @@ function mapJobRecordFromItem(item) {
 function mapTemplateRecordFromItem(item) {
   return {
     id: item.templateId,
+    schemaVersion: item.schemaVersion,
     name: item.name,
     description: item.description,
+    proposalNotes: item.proposalNotes,
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : undefined,
     lineItems: item.lineItems ?? [],
     taxRate: item.taxRate,
     notes: item.notes,
     createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
   };
 }
 

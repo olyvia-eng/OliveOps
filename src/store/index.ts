@@ -169,9 +169,20 @@ interface AppState {
   convertEstimateToJob: (estimateId: ID, options?: { title?: string; startDate?: string; endDate?: string }) => Promise<{ ok: boolean; jobId?: ID; error?: string }>;
 
   // Templates
-  addTemplate: (t: Omit<EstimateTemplate, 'id' | 'createdAt'>) => void;
-  updateTemplate: (id: ID, data: Partial<EstimateTemplate>) => void;
+  addTemplate: (t: Pick<EstimateTemplate, 'name' | 'description'>) => Promise<ID | null>;
+  updateTemplate: (id: ID, data: Partial<EstimateTemplate>) => Promise<EstimateTemplate | null>;
   deleteTemplate: (id: ID) => void;
+  createEstimateFromTemplate: (input: {
+    templateId: ID;
+    customerId: ID;
+    pricingBudgetId: ID;
+    divisionId: ID;
+    propertyLabel?: string;
+    propertyAddressSnapshot?: string;
+    proposalNumber: string;
+    title: string;
+    validUntil: string;
+  }) => Promise<ID | null>;
 
   // Invoices
   addInvoice: (i: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt'>) => void;
@@ -575,56 +586,66 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Templates ─────────────────────────────────────────────────────────
-      addTemplate: (t) => {
-        const previous = get().templates;
-        const template = { ...t, id: generateId(), createdAt: nowISO() };
-        set((s) => ({
-          templates: [...s.templates, template],
-        }));
-
-        void ensureOk(fetch(dataUrl('templates'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: template }),
-        })).catch(() => {
-          set({ templates: previous });
-          emitAppToast({ tone: 'error', message: 'Template could not be saved.' });
-        });
+      addTemplate: async (template) => {
+        try {
+          const response = await ensureOk(fetch('/api/estimate-templates', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(template),
+          }));
+          const payload = await response.json() as { ok?: boolean; template?: EstimateTemplate };
+          if (!payload.ok || !payload.template) throw new Error('Template could not be confirmed.');
+          set((state) => ({ templates: [...state.templates, payload.template as EstimateTemplate] }));
+          return payload.template.id;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Template could not be saved.') });
+          return null;
+        }
       },
-      updateTemplate: (id, data) => {
+      updateTemplate: async (id, data) => {
         const previous = get().templates;
         set((s) => ({
           templates: s.templates.map((t) =>
             t.id === id ? { ...t, ...data } : t
           ),
         }));
-
-        void ensureOk(fetch(dataUrl('templates', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data }),
-        })).catch(() => {
+        try {
+          const response = await ensureOk(fetch(`/api/estimate-templates?templateId=${encodeURIComponent(id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(data),
+          }));
+          const payload = await response.json() as { ok?: boolean; template?: EstimateTemplate };
+          if (!payload.ok || !payload.template) throw new Error('Template changes could not be confirmed.');
+          set((state) => ({ templates: state.templates.map((template) => template.id === id ? payload.template as EstimateTemplate : template) }));
+          return payload.template;
+        } catch (error: unknown) {
           set({ templates: previous });
-          emitAppToast({ tone: 'error', message: 'Template changes could not be saved.' });
-        });
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Template changes could not be saved.') });
+          return null;
+        }
       },
       deleteTemplate: (id) => {
         const previous = get().templates;
         set((s) => ({ templates: s.templates.filter((t) => t.id !== id) }));
 
-        void ensureOk(fetch(dataUrl('templates', id), {
+        void ensureOk(fetch(`/api/estimate-templates?templateId=${encodeURIComponent(id)}`, {
           method: 'DELETE',
           credentials: 'include',
         })).catch(() => {
           set({ templates: previous });
           emitAppToast({ tone: 'error', message: 'Template could not be deleted.' });
         });
+      },
+      createEstimateFromTemplate: async (input) => {
+        try {
+          const response = await ensureOk(fetch('/api/estimate-templates?action=create-estimate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(input),
+          }));
+          const payload = await response.json() as { ok?: boolean; estimate?: Estimate };
+          if (!payload.ok || !payload.estimate) throw new Error('Estimate could not be created from Template.');
+          set((state) => ({ estimates: [...state.estimates, payload.estimate as Estimate] }));
+          return payload.estimate.id;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Estimate could not be created from Template.') });
+          return null;
+        }
       },
 
       // ── Invoices ─────────────────────────────────────────────────────────

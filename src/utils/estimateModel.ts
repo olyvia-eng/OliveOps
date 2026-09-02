@@ -382,7 +382,7 @@ export function computeEstimateTotal(subtotal: number, tax: number): number {
 
 export function normalizeTemplateWorkAreas(template: Pick<EstimateTemplate, 'workAreas' | 'lineItems'>): EstimateWorkArea[] {
   if (Array.isArray(template.workAreas) && template.workAreas.length > 0) {
-    return normalizeEstimateWorkAreas({ workAreas: template.workAreas, lineItems: [] });
+    return normalizeEstimateWorkAreas({ workAreas: template.workAreas as EstimateWorkArea[], lineItems: [] });
   }
 
   const lineItems = Array.isArray(template.lineItems)

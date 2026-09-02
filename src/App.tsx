@@ -16,6 +16,8 @@ const EstimatesPage = lazy(() => import('./pages/estimates/EstimatesPage'));
 const EstimateWorkspacePage = lazy(() => import('./pages/estimates/EstimateWorkspacePage'));
 const EstimateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/EstimateWorkAreaBuilderPage'));
 const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
+const TemplateWorkspacePage = lazy(() => import('./pages/estimates/TemplateWorkspacePage'));
+const TemplateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/TemplateWorkAreaBuilderPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
 const JobWorkAreaBuilderPage = lazy(() => import('./pages/jobs/JobWorkAreaBuilderPage'));
@@ -640,7 +642,9 @@ export default function App() {
                 path="estimates/:id/work-areas/:workAreaId"
                 element={<EstimateWorkAreaBuilderPage currentUserRole={sessionUser.role} />}
               />
-              <Route path="estimates/templates" element={<TemplatesPage />} />
+              <Route path="estimates/templates" element={<TemplatesPage currentUserRole={sessionUser.role} />} />
+              <Route path="estimates/templates/:templateId" element={<TemplateWorkspacePage currentUserRole={sessionUser.role} />} />
+              <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
               <Route path="jobs/:id/work-areas/:workAreaId" element={<JobWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />

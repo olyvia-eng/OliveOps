@@ -1649,6 +1649,12 @@ export default async function handler(req, res) {
     return res.status(409).json({ ok: false, code: 'canonical_form_submission_required', error: 'Use the employee Forms submission API to create submissions and responses.' });
   }
 
+  if (req.method !== 'GET' && entity === 'templates') {
+    const session = await requireSession(req, res, config.writeRoles ?? undefined, entity);
+    if (!session) return;
+    return res.status(409).json({ ok: false, error: 'Use the Estimate Templates API to change Templates.' });
+  }
+
   if (req.method === 'GET') {
     const session = await requireSession(req, res, config.readRoles ?? undefined, entity);
     if (!session) return;

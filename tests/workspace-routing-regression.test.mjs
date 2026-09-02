@@ -28,7 +28,8 @@ test('estimate and job workspaces are wired with the current user context', () =
 
 test('lightweight estimate creation returns an id and opens the workspace', () => {
   assert.match(storeSource, /addEstimate: \(e: Omit<Estimate,[^\n]+\) => Promise<ID \| null>;/);
-  assert.match(estimatesSource, /const estimateId = await addEstimate\(\{/);
+  assert.match(estimatesSource, /: await addEstimate\(\{/);
+  assert.match(estimatesSource, /\? await createEstimateFromTemplate\(\{/);
   assert.match(estimatesSource, /workAreas: \[generalWorkArea\]/);
   assert.match(estimatesSource, /if \(!estimateId\) return;/);
   assert.match(estimatesSource, /navigate\(`\/estimates\/\$\{estimateId\}`\);/);

@@ -55,6 +55,7 @@ export interface LineItem {
 
 export interface EstimateLineItem {
   id: ID;
+  sourceTemplateLineItemId?: ID;
   category: LineItemCategory;
   labourClassId?: ID;
   labourClassName?: string;
@@ -157,6 +158,7 @@ export interface EstimatePricingCatalog {
 
 export interface EstimateWorkArea {
   id: ID;
+  sourceTemplateWorkAreaId?: ID;
   divisionId?: ID;
   name: string;
   description: string;
@@ -190,14 +192,38 @@ export interface Estimate {
   templateId?: ID;
 }
 
-export interface EstimateTemplate {
+export interface EstimateTemplateLineItem {
+  id: ID;
+  category: LineItemCategory;
+  sourceEntityId?: ID;
+  itemName: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  sortOrder: number;
+  pricingReadiness?: 'ready' | 'needs_review';
+}
+
+export interface EstimateTemplateWorkArea {
   id: ID;
   name: string;
   description: string;
-  workAreas?: EstimateWorkArea[];
-  lineItems: Omit<LineItem, 'id'>[] | Omit<EstimateLineItem, 'id'>[];
-  taxRate: number;
-  notes: string;
+  sortOrder: number;
+  lineItems: EstimateTemplateLineItem[];
+}
+
+export interface EstimateTemplate {
+  id: ID;
+  schemaVersion?: 2;
+  name: string;
+  description: string;
+  proposalNotes?: string;
+  workAreas?: EstimateTemplateWorkArea[] | EstimateWorkArea[];
+  updatedAt?: string;
+  // Legacy compatibility fields remain readable but are not pricing authority.
+  lineItems?: Omit<LineItem, 'id'>[] | Omit<EstimateLineItem, 'id'>[];
+  taxRate?: number;
+  notes?: string;
   createdAt: string;
 }
 

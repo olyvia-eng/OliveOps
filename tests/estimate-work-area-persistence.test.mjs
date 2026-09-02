@@ -165,7 +165,7 @@ test('creation, navigation, add, and delete flows use persisted embedded IDs', (
   assert.match(estimatesPageSource, /pricingBudgetId: createForm\.pricingBudgetId,\s*divisionId: createForm\.divisionId,/);
   assert.match(estimatesPageSource, /label="Division"[\s\S]*pricingDivisions\.map/);
   assert.match(estimatesPageSource, /pricingBudgetId: event\.target\.value, divisionId: ''/);
-  assert.match(estimatesPageSource, /const estimateId = await addEstimate\(\{/);
+  assert.match(estimatesPageSource, /: await addEstimate\(\{/);
   assert.match(estimatesPageSource, /workAreas: \[generalWorkArea\]/);
   assert.match(estimatesPageSource, /if \(!estimateId\) return;\s*setCreateModalOpen\(false\);\s*navigate\(`\/estimates\/\$\{estimateId\}`\)/);
   assert.match(storeSource, /addEstimate: async \(e\) =>/);
