@@ -1,5 +1,6 @@
 import { DeleteCommand, GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { getBusinessPeriodKeys } from './businessTime.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -9,8 +10,48 @@ export const DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS = 12;
 export const MAX_CLOCK_OUT_PHOTO_ATTACHMENTS = 5;
 export const OFFLINE_EVENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const OFFLINE_EVENT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+export const ADJUSTED_CLOCK_IN_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 const ABSOLUTE_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export function resolveRequestedClockInTime({ requestedClockInAt, serverReceivedAt = nowIso(), businessTimeZone, permitted }) {
+  const serverReceivedMs = Date.parse(serverReceivedAt);
+  if (Number.isNaN(serverReceivedMs)) throw new TypeError('serverReceivedAt must be a valid timestamp.');
+  if (requestedClockInAt === undefined) {
+    return {
+      ok: true,
+      effectiveClockInAt: new Date(serverReceivedMs).toISOString(),
+      requestedClockInAt: undefined,
+      clockInTimeSource: 'server_now',
+    };
+  }
+  if (!permitted) {
+    return { ok: false, status: 403, code: 'clock_in_time_not_allowed', error: 'You do not have permission to adjust clock-in time.' };
+  }
+  if (typeof requestedClockInAt !== 'string' || !ABSOLUTE_ISO_TIMESTAMP.test(requestedClockInAt.trim())) {
+    return { ok: false, status: 400, code: 'clock_in_time_invalid', error: 'Requested clock-in time is invalid.' };
+  }
+  const requestedMs = Date.parse(requestedClockInAt.trim());
+  if (Number.isNaN(requestedMs)) {
+    return { ok: false, status: 400, code: 'clock_in_time_invalid', error: 'Requested clock-in time is invalid.' };
+  }
+  if (requestedMs > serverReceivedMs + OFFLINE_EVENT_MAX_FUTURE_SKEW_MS) {
+    return { ok: false, status: 409, code: 'clock_in_time_in_future', error: 'Requested clock-in time cannot be in the future.' };
+  }
+  if (requestedMs < serverReceivedMs - ADJUSTED_CLOCK_IN_MAX_AGE_MS) {
+    return { ok: false, status: 409, code: 'clock_in_time_too_old', error: 'Requested clock-in time must be within the last 4 hours.' };
+  }
+  if (getBusinessPeriodKeys(new Date(requestedMs), businessTimeZone).daily
+    !== getBusinessPeriodKeys(new Date(serverReceivedMs), businessTimeZone).daily) {
+    return { ok: false, status: 409, code: 'clock_in_time_wrong_business_date', error: 'Requested clock-in time must be on the current business date.' };
+  }
+  return {
+    ok: true,
+    effectiveClockInAt: new Date(requestedMs).toISOString(),
+    requestedClockInAt: new Date(requestedMs).toISOString(),
+    clockInTimeSource: 'employee_adjusted',
+  };
+}
 
 export function normalizeClientOccurredAt(clientOccurredAt) {
   if (clientOccurredAt === undefined) return { ok: true, clientOccurredAt: undefined };
@@ -107,6 +148,8 @@ export function buildClockInTransaction({
   clockInAt,
   serverReceivedAt,
   timestampSource = 'server',
+  clockInTimeSource = 'server_now',
+  requestedClockInAt,
   requestId,
   idempotencyKey,
   payloadHash,
@@ -141,6 +184,8 @@ export function buildClockInTransaction({
     clockIn: eventOccurredAt,
     clockInServerReceivedAt: receivedAt,
     clockInTimestampSource: timestampSource,
+    clockInTimeSource,
+    requestedClockInAt,
     status: 'clocked_in',
     breakMinutes: 0,
     notes: '',
@@ -181,6 +226,9 @@ export function buildClockInTransaction({
       eventOccurredAt,
       serverReceivedAt: receivedAt,
       timestampSource,
+      clockInTimeSource,
+      requestedClockInAt,
+      effectiveClockInAt: eventOccurredAt,
     },
   };
 

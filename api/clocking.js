@@ -12,12 +12,14 @@ import {
   getExistingClockingIdempotency,
   normalizeClientOccurredAt,
   resolveClockingEventTime,
+  resolveRequestedClockInTime,
   resolveClockOutActiveShift,
 } from './_lib/clocking.js';
 import { ddb } from './_lib/db.js';
 import { TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import {
   getEmployeeForBusiness,
+  getBusinessProfile,
   listCustomersForBusiness,
   getFileForBusiness,
   getJobForBusiness,
@@ -358,6 +360,19 @@ export default async function handler(req, res) {
     if (!employee || !employee.active) {
       return res.status(400).json({ ok: false, error: 'Employee is invalid.' });
     }
+    if (req.body?.requestedClockInAt !== undefined && req.body?.clientOccurredAt !== undefined) {
+      return res.status(400).json({ ok: false, code: 'clock_in_time_invalid', error: 'Requested clock-in time cannot be combined with an offline event time.' });
+    }
+    const business = req.body?.requestedClockInAt === undefined
+      ? null
+      : await getBusinessProfile(session.businessId);
+    const requestedClockInTime = resolveRequestedClockInTime({
+      requestedClockInAt: req.body?.requestedClockInAt,
+      serverReceivedAt,
+      businessTimeZone: business?.timezone,
+      permitted: employee.mobileTimePermissions?.adjustClockInTime === true,
+    });
+    if (!requestedClockInTime.ok) return clockingError(res, requestedClockInTime);
 
     const requestedWorkType = req.body?.workType ?? 'job';
     if (!VALID_WORK_TYPES.has(requestedWorkType)) {
@@ -413,6 +428,7 @@ export default async function handler(req, res) {
       requestId,
       idempotencyKey: clientIdempotencyKey,
       clientOccurredAt: normalizedClientOccurredAt,
+      requestedClockInAt: requestedClockInTime.requestedClockInAt,
     };
     const hashedPayload = payloadHash(payload);
 
@@ -422,7 +438,14 @@ export default async function handler(req, res) {
       return replayClockingRequest(res, existing, hashedPayload);
     }
 
-    const eventTime = resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
+    const eventTime = requestedClockInTime.clockInTimeSource === 'employee_adjusted'
+      ? {
+          ok: true,
+          eventOccurredAt: requestedClockInTime.effectiveClockInAt,
+          serverReceivedAt,
+          timestampSource: 'server',
+        }
+      : resolveClockingEventTime({ clientOccurredAt: normalizedClientOccurredAt, serverReceivedAt });
     if (!eventTime.ok) return clockingError(res, eventTime);
 
     const activeEntries = await listTimeEntriesForBusiness(session.businessId);
@@ -432,7 +455,9 @@ export default async function handler(req, res) {
       return res.status(response.status).json({ ok: false, code: 'offline_shift_state_conflict', error: response.error });
     }
     if (hasClockInTimelineConflict(activeEntries, employeeId, eventTime.eventOccurredAt)) {
-      return clockingError(res, { status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' });
+      return clockingError(res, requestedClockInTime.clockInTimeSource === 'employee_adjusted'
+        ? { status: 409, code: 'clock_in_time_overlap', error: 'Requested clock-in time overlaps or conflicts with an existing time entry.' }
+        : { status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' });
     }
 
     const pendingClockOut = await getPendingClockOutWorkflowForEmployee(session.businessId, employeeId);
@@ -491,6 +516,12 @@ export default async function handler(req, res) {
             workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
             unbillableCategoryId: requestedUnbillableCategory?.id,
             unbillableCategoryName: requestedUnbillableCategory?.name,
+            requestedClockInAt: requestedClockInTime.requestedClockInAt,
+            effectiveClockInAt: requestedClockInTime.clockInTimeSource === 'employee_adjusted'
+              ? eventTime.eventOccurredAt
+              : undefined,
+            clockInTimeSource: requestedClockInTime.clockInTimeSource,
+            serverReceivedAt: eventTime.serverReceivedAt,
           },
           createdAt: eventTime.serverReceivedAt,
         };
@@ -516,6 +547,8 @@ export default async function handler(req, res) {
       clockInAt,
       serverReceivedAt: eventTime.serverReceivedAt,
       timestampSource: eventTime.timestampSource,
+      clockInTimeSource: requestedClockInTime.clockInTimeSource,
+      requestedClockInAt: requestedClockInTime.requestedClockInAt,
       requestId,
       idempotencyKey,
       payloadHash: hashedPayload,

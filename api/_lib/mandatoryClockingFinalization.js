@@ -121,13 +121,16 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
   if (!activeShiftIntegrity.ok) return { ok: false, status: 409, code: 'offline_shift_state_conflict', error: 'Employee clock state changed. Refresh and try again.' };
 
   const finalizedAt = nowIso();
-  if (hasClockInTimelineConflict(activeEntries, workflow.employeeId, finalizedAt)) {
-    return { ok: false, status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' };
+  const clockInAt = workflow.clockInIntent.effectiveClockInAt ?? finalizedAt;
+  if (hasClockInTimelineConflict(activeEntries, workflow.employeeId, clockInAt)) {
+    return workflow.clockInIntent.clockInTimeSource === 'employee_adjusted'
+      ? { ok: false, status: 409, code: 'clock_in_time_overlap', error: 'Requested clock-in time overlaps or conflicts with an existing time entry.' }
+      : { ok: false, status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' };
   }
 
   const intent = workflow.clockInIntent;
   const timeEntry = {
-    id: `${workflow.employeeId}:${finalizedAt}`,
+    id: `${workflow.employeeId}:${clockInAt}`,
     employeeId: workflow.employeeId,
     jobId: intent.jobIds?.[0],
     jobIds: intent.jobIds ?? [],
@@ -136,7 +139,7 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
     workAreaNameSnapshot: intentResult.workArea.workAreaNameSnapshot,
     unbillableCategoryId: intentResult.unbillableCategory?.id,
     unbillableCategoryName: intentResult.unbillableCategory?.name,
-    clockIn: finalizedAt,
+    clockIn: clockInAt,
     breakMinutes: 0,
     notes: '',
     status: 'clocked_in',
@@ -146,9 +149,11 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
     employeeId: workflow.employeeId,
     userId: session.id,
     timeEntryId: timeEntry.id,
-    clockInAt: finalizedAt,
-    serverReceivedAt: finalizedAt,
+    clockInAt,
+    serverReceivedAt: intent.serverReceivedAt ?? workflow.createdAt ?? finalizedAt,
     timestampSource: 'server',
+    clockInTimeSource: intent.clockInTimeSource ?? 'server_now',
+    requestedClockInAt: intent.requestedClockInAt,
     requestId: workflow.requestId,
     idempotencyKey: workflow.idempotencyKey,
     payloadHash: workflow.payloadHash,

@@ -101,11 +101,11 @@ function installDdb(t, options = {}) {
   return store;
 }
 
-async function seedEmployee(store, { businessId, employeeId, userId, token, active = true }) {
+async function seedEmployee(store, { businessId, employeeId, userId, token, active = true, mobileTimePermissions }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, 'PROFILE'), { PK: pk, SK: 'PROFILE', entityType: 'BUSINESS', businessId, name: businessId, timezone: 'America/Toronto' });
   store.set(key(pk, `USER#${userId}`), { PK: pk, SK: `USER#${userId}`, entityType: 'USER', businessId, userId, name: userId, email: `${userId}@example.com`, role: 'crew_member', active: true, sessionVersion: 0 });
-  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role: 'crew_member', active });
+  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role: 'crew_member', active, mobileTimePermissions });
   await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role: 'crew_member', employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
@@ -156,9 +156,9 @@ async function formRequest(token, body) {
   return res;
 }
 
-async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true, ddbOptions } = {}) {
+async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [], active = true, mobileTimePermissions, ddbOptions } = {}) {
   const store = installDdb(t, ddbOptions);
-  await seedEmployee(store, { businessId, employeeId, userId, token, active });
+  await seedEmployee(store, { businessId, employeeId, userId, token, active, mobileTimePermissions });
   for (const form of forms) seedForm(store, { businessId, ...form });
   return { store, businessId, employeeId, token };
 }
@@ -227,6 +227,89 @@ test('no applicable forms preserves normal clock-in and no-pending recovery cont
   assert.equal(result.body.timeEntry.status, 'clocked_in');
   assert.ok(context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${result.body.timeEntry.id}`)));
   assert.equal(context.store.get(key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT')).activeEntryId, result.body.timeEntry.id);
+});
+
+test('employee-adjusted clock-in is denied without the authenticated employee permission', async (t) => {
+  const context = await setup(t);
+  const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
+  const result = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, { clientOccurredAt: undefined, requestedClockInAt }),
+  });
+  assert.equal(result.statusCode, 403);
+  assert.equal(result.body.code, 'clock_in_time_not_allowed');
+  assert.equal([...context.store.values()].some((item) => item.entityType === 'TIME_ENTRY'), false);
+});
+
+test('permitted employee-adjusted clock-in creates and replays the authoritative requested start', async (t) => {
+  const context = await setup(t, { mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false } });
+  const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
+  const body = clockInBody(context.employeeId, { clientOccurredAt: undefined, requestedClockInAt });
+  const result = await clockingRequest(context.token, { action: 'clock-in', body });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.timeEntry.clockIn, requestedClockInAt);
+  const stored = context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${result.body.timeEntry.id}`));
+  assert.equal(stored.clockIn, requestedClockInAt);
+  assert.equal(stored.clockInTimeSource, 'employee_adjusted');
+  assert.equal(stored.requestedClockInAt, requestedClockInAt);
+  const audit = [...context.store.values()].find((item) => item.entityType === 'AUDIT_EVENT' && item.action === 'clock_in');
+  assert.equal(audit.metadata.clockInTimeSource, 'employee_adjusted');
+  assert.equal(audit.metadata.requestedClockInAt, requestedClockInAt);
+  assert.equal(audit.metadata.effectiveClockInAt, requestedClockInAt);
+
+  const replay = await clockingRequest(context.token, { action: 'clock-in', body });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.timeEntry.clockIn, requestedClockInAt);
+  assert.equal([...context.store.values()].filter((item) => item.entityType === 'TIME_ENTRY').length, 1);
+});
+
+test('employee-adjusted clock-in rejects overlap with an existing employee timeline', async (t) => {
+  const context = await setup(t, { mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false } });
+  const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
+  const priorClockIn = new Date(Date.parse(requestedClockInAt) - 60 * 60_000).toISOString();
+  const priorClockOut = new Date(Date.parse(requestedClockInAt) + 15 * 60_000).toISOString();
+  const pk = `BUSINESS#${context.businessId}`;
+  context.store.set(key(pk, 'TIME#prior-entry'), {
+    PK: pk, SK: 'TIME#prior-entry', entityType: 'TIME_ENTRY', businessId: context.businessId,
+    entryId: 'prior-entry', employeeId: context.employeeId, clockIn: priorClockIn, clockOut: priorClockOut, status: 'clocked_out',
+  });
+  const result = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, { clientOccurredAt: undefined, requestedClockInAt }),
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.body.code, 'clock_in_time_overlap');
+});
+
+test('mandatory workflow persists approved adjusted start and finalization cannot overwrite it', async (t) => {
+  const context = await setup(t, {
+    forms: [{ id: 'required' }],
+    mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false },
+  });
+  const requestedClockInAt = new Date(Date.now() - 30 * 60_000).toISOString();
+  const body = clockInBody(context.employeeId, { clientOccurredAt: undefined, requestedClockInAt });
+  const initiated = await clockingRequest(context.token, { action: 'clock-in', body });
+  assert.equal(initiated.statusCode, 202);
+  assert.equal(initiated.body.clockInIntent.requestedClockInAt, requestedClockInAt);
+  assert.equal(initiated.body.clockInIntent.effectiveClockInAt, requestedClockInAt);
+  assert.equal(initiated.body.clockInIntent.clockInTimeSource, 'employee_adjusted');
+
+  const requirement = initiated.body.requiredForms[0];
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, requirement));
+  assert.equal(submitted.statusCode, 201);
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize',
+    body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId, requestedClockInAt: new Date().toISOString() },
+  });
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.timeEntry.clockIn, requestedClockInAt);
+
+  const replay = await clockingRequest(context.token, {
+    action: 'clock-in-finalize',
+    body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId, requestedClockInAt: new Date(Date.now() - 60_000).toISOString() },
+  });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.timeEntry.clockIn, requestedClockInAt);
 });
 
 test('Reminder Only and before-starting-job Required forms remain non-blocking', async (t) => {
@@ -650,7 +733,22 @@ test('cross-tenant and wrong-employee workflow access fail closed', async (t) =>
   seedForm(store, { businessId: 'biz-a', id: 'required' });
   await seedEmployee(store, { businessId: 'biz-b', employeeId: 'employee-b', userId: 'user-b', token: 'token-b' });
   seedForm(store, { businessId: 'biz-b', id: 'required' });
-  await seedEmployee(store, { businessId: 'biz-a', employeeId: 'employee-c', userId: 'user-c', token: 'token-c' });
+  await seedEmployee(store, {
+    businessId: 'biz-a', employeeId: 'employee-c', userId: 'user-c', token: 'token-c',
+    mobileTimePermissions: { adjustClockInTime: true, editShiftWorkAreas: false },
+  });
+
+  const customTime = new Date(Date.now() - 30 * 60_000).toISOString();
+  const borrowedPermission = await clockingRequest('token-a', {
+    action: 'clock-in',
+    body: clockInBody('employee-c', { clientOccurredAt: undefined, requestedClockInAt: customTime }),
+  });
+  assert.equal(borrowedPermission.statusCode, 403);
+  const crossTenantPermission = await clockingRequest('token-b', {
+    action: 'clock-in',
+    body: clockInBody('employee-c', { clientOccurredAt: undefined, requestedClockInAt: customTime }),
+  });
+  assert.equal(crossTenantPermission.statusCode, 403);
 
   const initiated = await clockingRequest('token-a', { action: 'clock-in', body: clockInBody('employee-a') });
   const requirement = initiated.body.requiredForms[0];
