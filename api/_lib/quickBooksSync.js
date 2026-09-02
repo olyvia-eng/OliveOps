@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { calculateInvoiceLineAmount, validateInvoiceLineItems } from '../../src/utils/invoiceModel.js';
+import { calculateInvoiceLineFinancials, validateInvoiceLineItems } from '../../src/utils/invoiceModel.js';
 
 const CATEGORY_SET = new Set(['material', 'equipment', 'labour', 'subcontractor']);
 
@@ -45,7 +45,7 @@ export function buildQuickBooksCustomerPayload(customer) {
 }
 
 export function buildQuickBooksInvoicePayload({ invoice, customerMapping, configuration }) {
-  const lineError = validateInvoiceLineItems(invoice.lineItems, invoice.taxRate);
+  const lineError = validateInvoiceLineItems(invoice.lineItems, invoice.taxRate, invoice.schemaVersion);
   if (lineError) throw new Error(lineError);
   if (!customerMapping?.quickBooksCustomerId) throw new Error('Map the OliveOps customer to QuickBooks first.');
   const categoryMappings = configuration?.categoryMappings ?? {};
@@ -57,14 +57,16 @@ export function buildQuickBooksInvoicePayload({ invoice, customerMapping, config
     if (!item?.id) throw new Error(`Map the ${lineItem.category} category to a QuickBooks Product/Service first.`);
     const taxCode = lineItem.taxable ? taxableTaxCode : nonTaxableTaxCode;
     if (!taxCode?.id) throw new Error(`Configure a QuickBooks ${lineItem.taxable ? 'taxable' : 'non-taxable'} tax code first.`);
+    const financials = calculateInvoiceLineFinancials(lineItem, invoice.taxRate, invoice.schemaVersion);
+    const unitPrice = invoice.schemaVersion === 2 ? lineItem.unitPriceBeforeTax : lineItem.unitPrice;
     return {
-      Amount: calculateInvoiceLineAmount(lineItem),
+      Amount: invoice.schemaVersion === 2 ? financials.subtotal : financials.total,
       Description: lineItem.description,
       DetailType: 'SalesItemLineDetail',
       SalesItemLineDetail: {
         ItemRef: { value: item.id, name: item.name },
         Qty: lineItem.quantity,
-        UnitPrice: lineItem.unitPrice,
+        UnitPrice: unitPrice,
         TaxCodeRef: { value: taxCode.id },
       },
     };
@@ -76,7 +78,7 @@ export function buildQuickBooksInvoicePayload({ invoice, customerMapping, config
     TxnDate: invoice.issueDate,
     DueDate: invoice.dueDate,
     PrivateNote: invoice.notes || undefined,
-    GlobalTaxCalculation: 'TaxInclusive',
+    GlobalTaxCalculation: invoice.schemaVersion === 2 ? 'TaxExcluded' : 'TaxInclusive',
     CurrencyRef: { value: 'CAD' },
     Line: lines,
   };

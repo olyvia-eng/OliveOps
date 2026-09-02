@@ -89,3 +89,27 @@ test('QuickBooks customer payload uses reviewed OliveOps identity and address fi
   assert.equal(payload.PrimaryEmailAddr.Address, 'alex@example.com');
   assert.equal(payload.BillAddr.CountrySubDivisionCode, 'ON');
 });
+
+test('QuickBooks invoice projection sends schema version 2 prices as tax-exclusive', () => {
+  const payload = buildQuickBooksInvoicePayload({
+    invoice: {
+      ...invoice,
+      schemaVersion: 2,
+      pricingMode: 'tax_exclusive',
+      lineItems: invoice.lineItems.map((lineItem) => ({
+        ...lineItem,
+        unitPriceBeforeTax: lineItem.id === 'line-1' ? 50 : 50,
+        subtotal: lineItem.id === 'line-1' ? 100 : 50,
+        taxAmount: lineItem.id === 'line-1' ? 13 : 0,
+        total: lineItem.id === 'line-1' ? 113 : 50,
+      })),
+    },
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration,
+  });
+  assert.equal(payload.GlobalTaxCalculation, 'TaxExcluded');
+  assert.deepEqual(payload.Line.map((line) => ({ amount: line.Amount, unitPrice: line.SalesItemLineDetail.UnitPrice })), [
+    { amount: 100, unitPrice: 50 },
+    { amount: 50, unitPrice: 50 },
+  ]);
+});

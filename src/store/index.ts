@@ -185,9 +185,9 @@ interface AppState {
   }) => Promise<ID | null>;
 
   // Invoices
-  addInvoice: (i: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateInvoice: (id: ID, data: Partial<Invoice>) => void;
-  deleteInvoice: (id: ID) => void;
+  addInvoice: (i: Omit<Invoice, 'id' | 'number' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; invoice?: Invoice; error?: string }>;
+  updateInvoice: (id: ID, data: Partial<Invoice>) => Promise<{ ok: boolean; invoice?: Invoice; error?: string }>;
+  deleteInvoice: (id: ID) => Promise<{ ok: boolean; error?: string }>;
 
   // Expenses
   addExpense: (e: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; expense?: Expense; error?: string }>;
@@ -649,55 +649,50 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Invoices ─────────────────────────────────────────────────────────
-      addInvoice: (i) => {
-        const previous = get().invoices;
+      addInvoice: async (i) => {
         const invoice = { ...i, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
-        set((s) => ({ invoices: [invoice, ...s.invoices] }));
-
-        void ensureOk(fetch(dataUrl('invoices'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: invoice }),
-        })).catch((error: unknown) => {
-          set({ invoices: previous });
-          emitAppToast({ tone: 'error', message: errorMessage(error, 'Invoice could not be saved.') });
-        });
+        try {
+          const response = await ensureOk(fetch(dataUrl('invoices'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ data: invoice }),
+          }));
+          const payload = await response.json() as { ok?: boolean; invoice?: Invoice };
+          if (!payload.ok || !payload.invoice) throw new Error('Invoice creation response was incomplete.');
+          set((state) => ({ invoices: [payload.invoice as Invoice, ...state.invoices] }));
+          return { ok: true, invoice: payload.invoice };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Invoice could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
       },
-      updateInvoice: (id, data) => {
-        const previous = get().invoices;
+      updateInvoice: async (id, data) => {
         const updatedAt = nowISO();
-        set((s) => ({
-          invoices: s.invoices.map((invoice) =>
-            invoice.id === id ? { ...invoice, ...data, updatedAt } : invoice
-          ),
-        }));
-
-        void ensureOk(fetch(dataUrl('invoices', id), {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: { ...data, updatedAt } }),
-        })).catch((error: unknown) => {
-          set({ invoices: previous });
-          emitAppToast({ tone: 'error', message: errorMessage(error, 'Invoice changes could not be saved.') });
-        });
+        try {
+          const response = await ensureOk(fetch(dataUrl('invoices', id), {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ data: { ...data, updatedAt } }),
+          }));
+          const payload = await response.json() as { ok?: boolean; invoice?: Invoice };
+          if (!payload.ok || !payload.invoice) throw new Error('Invoice update response was incomplete.');
+          set((state) => ({ invoices: state.invoices.map((invoice) => invoice.id === id ? payload.invoice as Invoice : invoice) }));
+          return { ok: true, invoice: payload.invoice };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Invoice changes could not be saved.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
       },
-      deleteInvoice: (id) => {
-        const previous = get().invoices;
-        set((s) => ({ invoices: s.invoices.filter((invoice) => invoice.id !== id) }));
-
-        void ensureOk(fetch(dataUrl('invoices', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).catch((error: unknown) => {
-          set({ invoices: previous });
-          emitAppToast({ tone: 'error', message: errorMessage(error, 'Invoice could not be deleted.') });
-        });
+      deleteInvoice: async (id) => {
+        try {
+          await ensureOk(fetch(dataUrl('invoices', id), { method: 'DELETE', credentials: 'include' }));
+          set((state) => ({ invoices: state.invoices.filter((invoice) => invoice.id !== id) }));
+          return { ok: true };
+        } catch (error: unknown) {
+          const message = errorMessage(error, 'Invoice could not be deleted.');
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
       },
 
       // ── Expenses ─────────────────────────────────────────────────────────

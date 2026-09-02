@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  calculateInvoiceLineFinancials,
+  calculateJobInvoicePosition,
   calculateIncludedTax,
   calculateInvoiceLineAmount,
   calculateInvoiceSummary,
@@ -73,4 +75,43 @@ test('invoice normalization overwrites client-derived financial values', () => {
   assert.equal(normalized.subtotal, 100);
   assert.equal(normalized.taxAmount, 13);
   assert.equal(normalized.amount, 113);
+});
+
+test('schema version 2 uses tax-exclusive prices and rounded line financials', () => {
+  const taxable = { ...line(), unitPriceBeforeTax: 10.005, unitPrice: undefined, amount: 999 };
+  const nonTaxable = { ...line({ id: 'line-2', taxable: false }), unitPriceBeforeTax: 5.555, unitPrice: undefined };
+  assert.deepEqual(calculateInvoiceLineFinancials(taxable, 13, 2), {
+    subtotal: 10.01,
+    taxAmount: 1.3,
+    total: 11.31,
+  });
+
+  const normalized = normalizeInvoiceFinancials({
+    schemaVersion: 2,
+    taxRate: 13,
+    lineItems: [taxable, nonTaxable],
+  });
+  assert.deepEqual(
+    { subtotal: normalized.subtotal, taxAmount: normalized.taxAmount, amount: normalized.amount },
+    { subtotal: 15.57, taxAmount: 1.3, amount: 16.87 }
+  );
+  assert.deepEqual(
+    { subtotal: normalized.lineItems[0].subtotal, taxAmount: normalized.lineItems[0].taxAmount, total: normalized.lineItems[0].total },
+    { subtotal: 10.01, taxAmount: 1.3, total: 11.31 }
+  );
+});
+
+test('job invoice position excludes draft and void invoices from billed amount', () => {
+  const job = { id: 'job-1', currentContractRevenue: 1000, originalContractRevenue: 900, contractValue: 800 };
+  const position = calculateJobInvoicePosition(job, [
+    { jobId: 'job-1', status: 'draft', subtotal: 100, amount: 113 },
+    { jobId: 'job-1', status: 'sent', subtotal: 200, amount: 226 },
+    { jobId: 'job-1', status: 'void', subtotal: 300, amount: 339 },
+  ]);
+  assert.deepEqual(position, {
+    contractAmount: 1000,
+    previouslyInvoiced: 200,
+    draftAmount: 100,
+    remainingAmount: 800,
+  });
 });

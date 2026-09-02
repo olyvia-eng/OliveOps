@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { DeleteCommand, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 
 const nowIso = () => new Date().toISOString();
@@ -236,4 +236,18 @@ export async function putQuickBooksInvoiceMapping({ businessId, realmId, invoice
     ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
   }));
   return item;
+}
+
+export async function findQuickBooksInvoiceMapping({ businessId, invoiceId }) {
+  const result = await ddb.send(new QueryCommand({
+    TableName: tableName,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+    FilterExpression: 'invoiceId = :invoiceId',
+    ExpressionAttributeValues: {
+      ':pk': quickBooksBusinessPk(businessId),
+      ':prefix': 'QBO_INVOICE_MAP#',
+      ':invoiceId': invoiceId,
+    },
+  }));
+  return (result.Items ?? []).find((item) => item.businessId === businessId && item.invoiceId === invoiceId) ?? null;
 }

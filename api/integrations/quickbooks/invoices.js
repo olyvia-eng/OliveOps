@@ -66,6 +66,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, invoice: safeMapping(existing, invoice, providerInvoice) });
     }
     if (req.method === 'GET') return res.status(200).json({ ok: true, invoice: null });
+    if (invoice.status === 'draft') {
+      return res.status(409).json({ ok: false, error: 'Send the OliveOps invoice before creating it in QuickBooks.' });
+    }
     if (connection.currency && connection.currency !== 'CAD') {
       return res.status(409).json({ ok: false, error: 'QuickBooks company currency must be CAD. OliveOps does not convert currencies.' });
     }

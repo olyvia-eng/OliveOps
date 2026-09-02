@@ -72,6 +72,10 @@ function invoiceSk(invoiceId) {
   return `INVOICE#${invoiceId}`;
 }
 
+function invoiceCounterSk(year) {
+  return `INVOICE_COUNTER#${year}`;
+}
+
 function expenseSk(expenseId) {
   return `EXPENSE#${expenseId}`;
 }
@@ -1782,23 +1786,34 @@ export async function listInvoicesForBusiness(businessId) {
     })
   );
 
-  return (result.Items ?? []).map((item) => ({
-    id: item.invoiceId,
-    jobId: item.jobId,
-    customerId: item.customerId,
-    number: item.number,
-    issueDate: item.issueDate,
-    dueDate: item.dueDate,
-    status: item.status,
-    amount: item.amount,
-    lineItems: item.lineItems,
-    taxRate: item.taxRate,
-    subtotal: item.subtotal,
-    taxAmount: item.taxAmount,
-    notes: item.notes,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
+  return (result.Items ?? []).map(invoiceFromItem);
+}
+
+function invoiceFromItem(item) {
+  if (!item) return null;
+  const invoice = { ...item, id: item.invoiceId };
+  for (const field of ['PK', 'SK', 'entityType', 'businessId', 'invoiceId']) delete invoice[field];
+  return invoice;
+}
+
+export async function reserveNextInvoiceNumberForBusiness({ businessId, year }) {
+  const result = await ddb.send(new UpdateCommand({
+    TableName: tableName,
+    Key: { PK: businessPk(businessId), SK: invoiceCounterSk(year) },
+    UpdateExpression: 'SET #entityType = :entityType, #businessId = :businessId, #year = :year, #updatedAt = :updatedAt ADD #sequence :increment',
+    ExpressionAttributeNames: {
+      '#entityType': 'entityType', '#businessId': 'businessId', '#year': 'year',
+      '#updatedAt': 'updatedAt', '#sequence': 'sequence',
+    },
+    ExpressionAttributeValues: {
+      ':entityType': 'INVOICE_COUNTER', ':businessId': businessId, ':year': year,
+      ':updatedAt': nowIso(), ':increment': 1,
+    },
+    ReturnValues: 'UPDATED_NEW',
   }));
+  const sequence = Number(result?.Attributes?.sequence ?? 0);
+  if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error('Invoice number reservation failed.');
+  return `INV-${year}-${String(sequence).padStart(3, '0')}`;
 }
 
 export async function createInvoiceForBusiness({ businessId, invoice }) {
@@ -1831,25 +1846,7 @@ export async function getInvoiceForBusiness(businessId, invoiceId) {
     })
   );
 
-  return result.Item
-    ? {
-        id: result.Item.invoiceId,
-        jobId: result.Item.jobId,
-        customerId: result.Item.customerId,
-        number: result.Item.number,
-        issueDate: result.Item.issueDate,
-        dueDate: result.Item.dueDate,
-        status: result.Item.status,
-        amount: result.Item.amount,
-        lineItems: result.Item.lineItems,
-        taxRate: result.Item.taxRate,
-        subtotal: result.Item.subtotal,
-        taxAmount: result.Item.taxAmount,
-        notes: result.Item.notes,
-        createdAt: result.Item.createdAt,
-        updatedAt: result.Item.updatedAt,
-      }
-    : null;
+  return invoiceFromItem(result.Item);
 }
 
 export async function updateInvoiceForBusiness({ businessId, invoice }) {

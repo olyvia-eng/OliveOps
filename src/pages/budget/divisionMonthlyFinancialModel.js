@@ -87,7 +87,7 @@ export function calculateDivisionMonthlyFinancials({ budget, divisionId, jobs, i
   };
 
   const months = periods.map((period) => {
-    const revenue = invoices.filter((invoice) => jobIds.has(invoice.jobId) && invoice.status !== 'draft' && inPeriod(invoice.issueDate, period)).reduce((sum, invoice) => sum + number(invoice.amount), 0);
+    const revenue = invoices.filter((invoice) => jobIds.has(invoice.jobId) && !['draft', 'void'].includes(invoice.status) && inPeriod(invoice.issueDate, period)).reduce((sum, invoice) => sum + number(invoice.amount), 0);
     const labourCost = divisionJobs.reduce((sum, job) => {
       const recorded = recordedJobCost(job, 'labour', period);
       return sum + (recorded > 0 ? recorded : trackedLabourCost({ job, period, timeEntries, employeeRates }));

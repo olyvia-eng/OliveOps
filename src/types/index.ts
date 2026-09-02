@@ -229,7 +229,8 @@ export interface EstimateTemplate {
 
 // ─── Invoices ───────────────────────────────────────────────────────────────
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
+export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'void';
+export type InvoiceType = 'deposit' | 'progress' | 'final' | 'custom';
 
 export interface InvoiceLineItem {
   id: ID;
@@ -240,12 +241,23 @@ export interface InvoiceLineItem {
   unitPrice: number;
   amount: number;
   taxable: boolean;
+  /** Schema v2 pre-tax unit price. Legacy unitPrice remains tax-inclusive. */
+  unitPriceBeforeTax?: number;
+  subtotal?: number;
+  taxAmount?: number;
+  total?: number;
+  sourceWorkAreaId?: ID;
+  sourceLineItemId?: ID;
 }
 
 export interface Invoice {
   id: ID;
+  schemaVersion?: 2;
+  invoiceType?: InvoiceType;
   jobId: ID;
   customerId: ID;
+  estimateId?: ID;
+  sourceEstimateSnapshotId?: ID;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -255,6 +267,20 @@ export interface Invoice {
   taxRate?: number;
   subtotal?: number;
   taxAmount?: number;
+  customerNameSnapshot?: string;
+  billingAddressSnapshot?: string;
+  jobTitleSnapshot?: string;
+  jobAddressSnapshot?: string;
+  contractAmountSnapshot?: number;
+  previouslyInvoicedSnapshot?: number;
+  remainingContractAmountSnapshot?: number;
+  pricingMode?: 'tax_exclusive';
+  paymentTermsDays?: number;
+  sentAt?: string;
+  voidedAt?: string;
+  voidReason?: string;
+  overContract?: boolean;
+  quickBooksLinked?: boolean;
   notes: string;
   createdAt: string;
   updatedAt: string;

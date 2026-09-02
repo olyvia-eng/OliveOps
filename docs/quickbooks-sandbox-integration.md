@@ -48,8 +48,9 @@ OliveOps never guesses Product/Service Items, income accounts, tax codes, custom
 
 ## Invoice behavior
 
-- New OliveOps invoices use explicit provider-neutral lines with category, description, quantity, unit, tax-inclusive unit price, and taxable status.
-- The invoice amount is derived from rounded line totals. Included tax is derived from taxable gross lines and the explicit invoice tax-rate snapshot.
+- Legacy OliveOps invoices retain tax-inclusive `unitPrice` calculations and are sent to QuickBooks with `TaxInclusive` semantics.
+- Schema version 2 invoices use explicit pre-tax `unitPriceBeforeTax` values. OliveOps rounds each line subtotal and tax independently, and sends these invoices to QuickBooks with `TaxExcluded` semantics.
+- Draft invoices cannot be created in QuickBooks. A user must explicitly mark the OliveOps invoice Sent first.
 - Historical flat invoices remain readable but cannot be created in QuickBooks until a user adds line details.
 - Each local invoice creates at most one QuickBooks invoice per QuickBooks realm.
 - Intuit receives a deterministic request ID, so retrying the same logical creation does not intentionally issue a different create request.

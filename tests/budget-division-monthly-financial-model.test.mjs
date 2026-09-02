@@ -25,6 +25,7 @@ const invoices = [
   { jobId: 'job-hardscape', status: 'paid', issueDate: '2027-05-20', amount: 78000 },
   { jobId: 'job-hardscape', status: 'sent', issueDate: '2027-06-20', amount: 92000 },
   { jobId: 'job-hardscape', status: 'draft', issueDate: '2027-06-21', amount: 50000 },
+  { jobId: 'job-hardscape', status: 'void', issueDate: '2027-06-22', amount: 60000 },
   { jobId: 'job-snow', status: 'paid', issueDate: '2027-06-20', amount: 77777 },
 ];
 const timeEntries = [
@@ -115,4 +116,8 @@ test('changing Division produces an isolated monthly series', () => {
   assert.equal(snowJune.materialCost, 99999);
   assert.equal(snowJune.overhead, 99999);
   assert.notEqual(snowJune.revenue, june.revenue);
+});
+
+test('draft and void invoices are excluded from recognized Budget revenue', () => {
+  assert.equal(june.revenue, 92000);
 });

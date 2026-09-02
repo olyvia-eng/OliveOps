@@ -122,6 +122,7 @@ import {
   updateFormResponseForBusiness,
   updateFormSubmissionForBusiness,
   updateInvoiceForBusiness,
+  reserveNextInvoiceNumberForBusiness,
   updateJobForBusiness,
   updateRevenueSalesGoalForBusiness,
   updateLabourHoursSalesGoalForBusiness,
@@ -132,7 +133,14 @@ import {
   updateTaskForBusiness,
 } from './_lib/authRepo.js';
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
-import { normalizeInvoiceFinancials, validateInvoiceLineItems } from '../src/utils/invoiceModel.js';
+import {
+  calculateJobInvoicePosition,
+  getInvoiceContractAmount,
+  isValidInvoiceStatusTransition,
+  normalizeInvoiceFinancials,
+  validateInvoiceLineItems,
+} from '../src/utils/invoiceModel.js';
+import { findQuickBooksInvoiceMapping } from './_lib/quickBooksRepo.js';
 import { isCanonicalCustomerStatus, isCustomerLeadSource, normalizeCustomerAcquisition } from '../src/config/customer.js';
 import { enforceEstimateWorkAreaDivisionModel, ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
 import { requireSession } from './_lib/session.js';
@@ -545,7 +553,13 @@ function sanitizePatchData(entity, id, rawData) {
   return { ok: true, data };
 }
 
-const INVOICE_STATUSES = new Set(['draft', 'sent', 'paid', 'overdue']);
+const INVOICE_STATUSES = new Set(['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'void']);
+const INVOICE_TYPES = new Set(['deposit', 'progress', 'final', 'custom']);
+const INVOICE_FINANCIAL_FIELDS = new Set([
+  'jobId', 'customerId', 'estimateId', 'sourceEstimateSnapshotId', 'invoiceType', 'issueDate',
+  'dueDate', 'lineItems', 'taxRate', 'subtotal', 'taxAmount', 'amount', 'pricingMode',
+  'contractAmountSnapshot', 'previouslyInvoicedSnapshot', 'remainingContractAmountSnapshot',
+]);
 const EXPENSE_STATUSES = new Set(['pending', 'approved', 'paid']);
 const EXPENSE_CATEGORIES = new Set(['materials', 'equipment', 'subcontractor', 'travel', 'permits', 'overhead', 'other']);
 const JOB_STATUSES = new Set(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled']);
@@ -677,14 +691,87 @@ function validateInvoiceRecord(record) {
   if (!isNonEmptyString(record.number)) return 'Invoice number is required.';
   if (!isValidDateOnly(record.issueDate)) return 'Invoice issue date must use YYYY-MM-DD format.';
   if (!isValidDateOnly(record.dueDate)) return 'Invoice due date must use YYYY-MM-DD format.';
+  if (record.dueDate < record.issueDate) return 'Invoice due date cannot be before its issue date.';
   if (!INVOICE_STATUSES.has(record.status)) return 'Invoice status is invalid.';
+  if (record.schemaVersion === 2 && !INVOICE_TYPES.has(record.invoiceType)) return 'Invoice type is invalid.';
+  if (record.schemaVersion === 2 && record.pricingMode !== 'tax_exclusive') return 'Schema version 2 invoices must use tax-exclusive pricing.';
+  if (record.taxRate !== undefined && (!isFiniteNumber(record.taxRate) || record.taxRate < 0 || record.taxRate > 100)) return 'Invoice tax rate is invalid.';
+  if (record.paymentTermsDays !== undefined && (!Number.isSafeInteger(record.paymentTermsDays) || record.paymentTermsDays < 0 || record.paymentTermsDays > 365)) return 'Invoice payment terms are invalid.';
   if (typeof record.amount !== 'number' || Number.isNaN(record.amount) || record.amount <= 0) {
     return 'Invoice amount must be greater than 0.';
   }
   if (record.lineItems !== undefined) {
-    return validateInvoiceLineItems(record.lineItems, record.taxRate);
+    return validateInvoiceLineItems(record.lineItems, record.taxRate, record.schemaVersion);
   }
   return null;
+}
+
+function invoiceAddressSnapshot(customer, job) {
+  const address = job?.propertyAddressSnapshot ?? customer?.address;
+  if (typeof address === 'string') return address;
+  if (!address || typeof address !== 'object') return '';
+  return [address.street, address.city, address.province, address.postalCode].filter(Boolean).join(', ');
+}
+
+function invoiceSourceIds(job) {
+  const workAreas = [
+    ...(Array.isArray(job?.originalEstimateSnapshot?.workAreas) ? job.originalEstimateSnapshot.workAreas : []),
+    ...(Array.isArray(job?.operationalWorkAreas) ? job.operationalWorkAreas : []),
+  ];
+  const workAreaIds = new Set(workAreas.flatMap((workArea) => [workArea.id, workArea.sourceEstimateWorkAreaId].filter(Boolean)));
+  const lineIds = new Set(workAreas.flatMap((workArea) => (workArea.lineItems ?? [])
+    .flatMap((lineItem) => [lineItem.id, lineItem.sourceEstimateLineItemId].filter(Boolean))));
+  return { workAreaIds, lineIds };
+}
+
+async function authorizeInvoiceRecord({ businessId, record, existing }) {
+  const job = await getJobForBusiness(businessId, record.jobId);
+  if (!job) return { ok: false, error: 'Invoice job must belong to this business.' };
+  if (record.customerId !== job.customerId) return { ok: false, error: 'Invoice customer must match the selected job.' };
+  const customer = await getCustomerForBusiness(businessId, job.customerId);
+  if (!customer) return { ok: false, error: 'Invoice customer must belong to this business.' };
+  const authoritativeEstimateId = job.originalEstimateSnapshot?.estimateId ?? job.estimateId ?? job.sourceEstimateId;
+  if (record.estimateId && record.estimateId !== authoritativeEstimateId) {
+    return { ok: false, error: 'Invoice estimate must belong to the selected job.' };
+  }
+  const { workAreaIds, lineIds } = invoiceSourceIds(job);
+  for (const lineItem of record.lineItems ?? []) {
+    if (lineItem.sourceWorkAreaId && !workAreaIds.has(lineItem.sourceWorkAreaId)) {
+      return { ok: false, error: 'Invoice source work area must belong to the selected job.' };
+    }
+    if (lineItem.sourceLineItemId && !lineIds.has(lineItem.sourceLineItemId)) {
+      return { ok: false, error: 'Invoice source line must belong to the selected job.' };
+    }
+  }
+
+  const otherInvoices = (await listInvoicesForBusiness(businessId)).filter((invoice) => invoice.id !== existing?.id);
+  const position = calculateJobInvoicePosition(job, otherInvoices);
+  const invoiceContractAmount = getInvoiceContractAmount(record);
+  const exceedsContract = record.schemaVersion === 2 && invoiceContractAmount > position.remainingAmount;
+  if (exceedsContract && record.invoiceType !== 'custom') {
+    return { ok: false, error: 'Invoice exceeds the remaining contract amount.' };
+  }
+  if (exceedsContract && record.invoiceType === 'custom' && record.overContractConfirmed !== true && existing?.overContract !== true) {
+    return { ok: false, error: 'Confirm this custom invoice exceeds the remaining contract amount.' };
+  }
+
+  const customerName = customer.company || customer.name || [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+  const normalized = {
+    ...record,
+    customerId: job.customerId,
+    estimateId: authoritativeEstimateId,
+    sourceEstimateSnapshotId: authoritativeEstimateId,
+    customerNameSnapshot: customerName || '',
+    billingAddressSnapshot: invoiceAddressSnapshot(customer, job),
+    jobTitleSnapshot: job.title,
+    jobAddressSnapshot: job.propertyAddressSnapshot || '',
+    contractAmountSnapshot: position.contractAmount,
+    previouslyInvoicedSnapshot: position.previouslyInvoiced,
+    remainingContractAmountSnapshot: position.remainingAmount,
+    overContract: exceedsContract,
+  };
+  delete normalized.overContractConfirmed;
+  return { ok: true, record: normalized };
 }
 
 function validateExpenseRecord(record) {
@@ -1619,17 +1706,6 @@ async function validateTaskRelationships({ businessId, record, session }) {
   return null;
 }
 
-async function findInvoiceNumberConflict({ businessId, invoiceNumber, excludeInvoiceId }) {
-  if (!isNonEmptyString(invoiceNumber)) return null;
-
-  const normalizedNumber = invoiceNumber.trim().toLowerCase();
-  const invoices = await listInvoicesForBusiness(businessId);
-  return invoices.find((invoice) => {
-    if (excludeInvoiceId && invoice.id === excludeInvoiceId) return false;
-    return typeof invoice.number === 'string' && invoice.number.trim().toLowerCase() === normalizedNumber;
-  }) ?? null;
-}
-
 async function findProposalNumberConflict({ businessId, proposalNumber, excludeEstimateId }) {
   if (!isNonEmptyString(proposalNumber)) return null;
 
@@ -1665,7 +1741,13 @@ export default async function handler(req, res) {
     if (!session) return;
 
     try {
-      const items = await config.list(session.businessId);
+      let items = await config.list(session.businessId);
+      if (entity === 'invoices') {
+        items = await Promise.all(items.map(async (invoice) => ({
+          ...invoice,
+          quickBooksLinked: Boolean(await findQuickBooksInvoiceMapping({ businessId: session.businessId, invoiceId: invoice.id })),
+        })));
+      }
       const context = entity === 'jobs'
         ? { crews: await listCrewsForBusiness(session.businessId) }
         : {};
@@ -1715,20 +1797,26 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'invoices') {
+      if (record.number !== undefined && String(record.number).trim()) {
+        return res.status(400).json({ ok: false, error: 'Invoice number is assigned by the server.' });
+      }
+      record = { ...record, schemaVersion: 2, pricingMode: 'tax_exclusive', status: 'draft' };
+      if (record.sentAt !== undefined || record.voidedAt !== undefined) {
+        return res.status(400).json({ ok: false, error: 'Invoice lifecycle timestamps are server-controlled.' });
+      }
+      if (!isValidDateOnly(record.issueDate)) {
+        return res.status(400).json({ ok: false, error: 'Invoice issue date must use YYYY-MM-DD format.' });
+      }
       if (record.lineItems !== undefined) record = normalizeInvoiceFinancials(record);
+      record.number = await reserveNextInvoiceNumberForBusiness({ businessId: session.businessId, year: record.issueDate?.slice(0, 4) });
       const validationError = validateInvoiceRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
 
-      const conflict = await findInvoiceNumberConflict({
-        businessId: session.businessId,
-        invoiceNumber: record.number,
-      });
-
-      if (conflict) {
-        return res.status(409).json({ ok: false, error: 'Invoice number already exists.' });
-      }
+      const authorization = await authorizeInvoiceRecord({ businessId: session.businessId, record });
+      if (!authorization.ok) return res.status(400).json({ ok: false, error: authorization.error });
+      record = authorization.record;
     }
 
     if (entity === 'estimates') {
@@ -1928,6 +2016,7 @@ export default async function handler(req, res) {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: record });
       }
       if (entity === 'estimates') return res.status(200).json({ ok: true, estimate: record });
+      if (entity === 'invoices') return res.status(200).json({ ok: true, invoice: record });
       if (entity === 'budgets') {
         const persistedBudget = await config.get(session.businessId, record.id);
         return res.status(200).json({ ok: true, budget: persistedBudget });
@@ -2021,21 +2110,37 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'invoices') {
+        if (Object.prototype.hasOwnProperty.call(data, 'number') && data.number !== existing.number) {
+          return res.status(409).json({ ok: false, error: 'Invoice number cannot be changed.' });
+        }
+        if (Object.prototype.hasOwnProperty.call(data, 'sentAt') || Object.prototype.hasOwnProperty.call(data, 'voidedAt')) {
+          return res.status(400).json({ ok: false, error: 'Invoice lifecycle timestamps are server-controlled.' });
+        }
+        if (Object.prototype.hasOwnProperty.call(data, 'voidReason') && data.status !== 'void') {
+          return res.status(400).json({ ok: false, error: 'A void reason can only be set while voiding an invoice.' });
+        }
+        const quickBooksMapping = await findQuickBooksInvoiceMapping({ businessId: session.businessId, invoiceId: id });
+        const changesFinancialData = Object.keys(data).some((field) => INVOICE_FINANCIAL_FIELDS.has(field));
+        if (changesFinancialData && (existing.status !== 'draft' || quickBooksMapping)) {
+          return res.status(409).json({ ok: false, error: quickBooksMapping ? 'QuickBooks-linked invoices are read-only.' : 'Issued invoices are financially read-only.' });
+        }
+        if (data.status && !isValidInvoiceStatusTransition(existing.status, data.status)) {
+          return res.status(409).json({ ok: false, error: `Invoice cannot move from ${existing.status} to ${data.status}.` });
+        }
+        if (data.status === 'void') {
+          if (!isNonEmptyString(data.voidReason)) return res.status(400).json({ ok: false, error: 'A void reason is required.' });
+          next = { ...next, voidReason: data.voidReason.trim(), voidedAt: new Date().toISOString() };
+        }
+        if (existing.status === 'draft' && data.status === 'sent') next.sentAt = new Date().toISOString();
         if (next.lineItems !== undefined) next = normalizeInvoiceFinancials(next);
         const validationError = validateInvoiceRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
 
-        const conflict = await findInvoiceNumberConflict({
-          businessId: session.businessId,
-          invoiceNumber: next.number,
-          excludeInvoiceId: id,
-        });
-
-        if (conflict) {
-          return res.status(409).json({ ok: false, error: 'Invoice number already exists.' });
-        }
+        const authorization = await authorizeInvoiceRecord({ businessId: session.businessId, record: next, existing });
+        if (!authorization.ok) return res.status(400).json({ ok: false, error: authorization.error });
+        next = authorization.record;
       }
 
       if (entity === 'estimates') {
@@ -2062,7 +2167,6 @@ export default async function handler(req, res) {
           return res.status(409).json({ ok: false, error: 'Proposal number already exists.' });
         }
       }
-
       if (entity === 'expenses') {
         const validationError = validateExpenseRecord(next);
         if (validationError) {
@@ -2232,6 +2336,17 @@ export default async function handler(req, res) {
         const persistedEstimate = await config.get(session.businessId, id);
         return res.status(200).json({ ok: true, estimate: persistedEstimate });
       }
+      if (entity === 'invoices') {
+        const persistedInvoice = await config.get(session.businessId, id);
+        if (persistedInvoice?.status === 'void' && existing.status !== 'void') {
+          await createAuditEventForBusiness({ businessId: session.businessId, auditEvent: {
+            id: generateId(), action: 'invoice_voided', actorUserId: session.id,
+            actorName: session.name, actorEmail: session.email, affectedEntryCount: 1,
+            createdAt: new Date().toISOString(), metadata: { invoiceId: id, reason: persistedInvoice.voidReason },
+          } });
+        }
+        return res.status(200).json({ ok: true, invoice: persistedInvoice });
+      }
       if (entity === 'budgets') {
         const persistedBudget = await config.get(session.businessId, id);
         return res.status(200).json({ ok: true, budget: persistedBudget });
@@ -2275,6 +2390,15 @@ export default async function handler(req, res) {
 
       if (entity === 'jobs' && existing.sourceEstimateId) {
         return res.status(409).json({ ok: false, error: 'Jobs created from sold estimates cannot be deleted.' });
+      }
+
+      if (entity === 'invoices') {
+        const quickBooksMapping = await findQuickBooksInvoiceMapping({ businessId: session.businessId, invoiceId: id });
+        if (existing.status !== 'draft' || quickBooksMapping) {
+          return res.status(409).json({ ok: false, error: quickBooksMapping
+            ? 'QuickBooks-linked invoices cannot be deleted.'
+            : 'Only draft invoices can be deleted. Void issued invoices instead.' });
+        }
       }
 
       if (entity === 'forms') {

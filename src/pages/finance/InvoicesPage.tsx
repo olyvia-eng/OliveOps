@@ -1,515 +1,109 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpenCheck, FilePlus2, Mail, Pencil, Plus, ReceiptText, RefreshCw, Trash2, Wallet } from 'lucide-react';
-import { Button, Card, EmptyState, Input, Modal, PageHeader, Select, StatCard } from '../../components/ui';
+import { Ban, BookOpenCheck, Ellipsis, FilePlus2, Mail, Plus, ReceiptText, Search, Send, Trash2, Wallet, X } from 'lucide-react';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, StatCard, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, generateId } from '../../utils';
-import {
-  calculateInvoiceLineAmount,
-  calculateInvoiceSummary,
-  normalizeInvoiceFinancials,
-  validateInvoiceLineItems,
-} from '../../utils/invoiceModel.js';
-import type { ID, Invoice, InvoiceLineItem, InvoiceStatus, LineItemCategory, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
+import { calculateInvoiceLineFinancials, calculateInvoiceSummary, calculateJobInvoicePosition, getInvoiceBalance, getInvoiceContractAmount, normalizeInvoiceFinancials, validateInvoiceLineItems } from '../../utils/invoiceModel.js';
+import type { ID, Invoice, InvoiceLineItem, InvoiceStatus, InvoiceType, JobWorkAreaLineItem, LineItemCategory, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
 
-type StatusFilter = 'all' | InvoiceStatus;
-
-const statusBadgeClass: Record<InvoiceStatus, string> = {
-  draft: 'bg-brand-100 text-brand-700',
-  sent: 'bg-accent-50 text-accent-600',
-  paid: 'bg-brand-200 text-brand-800',
-  overdue: 'bg-accent-100 text-accent-700',
-};
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
-const defaultDueDate = () => {
-  const date = new Date();
-  date.setDate(date.getDate() + 30);
-  return date.toISOString().slice(0, 10);
-};
-
-const createEmptyLineItem = (): InvoiceLineItem => ({
-  id: generateId(),
-  category: 'labour',
-  description: '',
-  quantity: 1,
-  unit: 'job',
-  unitPrice: 0,
-  amount: 0,
-  taxable: true,
-});
-
-const emptyInvoiceForm = () => ({
-  jobId: '',
-  number: '',
-  issueDate: todayIso(),
-  dueDate: defaultDueDate(),
-  status: 'draft' as InvoiceStatus,
-  amount: 0,
-  lineMode: true,
-  lineItems: [createEmptyLineItem()],
-  taxRate: 0,
-  notes: '',
-});
-
-function normalizeStatus(invoice: Invoice): InvoiceStatus {
-  if (invoice.status === 'paid') return 'paid';
-  if (invoice.status === 'draft') return 'draft';
-
-  const due = new Date(invoice.dueDate);
-  const now = new Date();
-  if (invoice.status === 'sent' && due < now) return 'overdue';
-  return invoice.status;
-}
+type Filter = 'all' | InvoiceStatus;
+type Form = { jobId: ID; invoiceType: InvoiceType; issueDate: string; dueDate: string; paymentTermsDays: number; taxRate: number; notes: string; lineItems: InvoiceLineItem[]; amountMode: 'fixed' | 'percent' | 'work_areas'; billingAmount: number; billingPercent: number; overContractConfirmed: boolean };
+const today = () => new Date().toISOString().slice(0, 10);
+const plusDays = (value: string, days: number) => { const date = new Date(`${value}T12:00:00`); date.setDate(date.getDate() + days); return date.toISOString().slice(0, 10); };
+const emptyLine = (): InvoiceLineItem => ({ id: generateId(), category: 'labour', description: '', quantity: 1, unit: 'job', unitPrice: 0, unitPriceBeforeTax: 0, amount: 0, taxable: true });
+const emptyForm = (): Form => ({ jobId: '', invoiceType: 'progress', issueDate: today(), dueDate: plusDays(today(), 30), paymentTermsDays: 30, taxRate: 13, notes: '', lineItems: [], amountMode: 'fixed', billingAmount: 0, billingPercent: 0, overContractConfirmed: false });
+const filters: Array<{ value: Filter; label: string }> = [{ value: 'all', label: 'All' }, { value: 'draft', label: 'Drafts' }, { value: 'sent', label: 'Sent' }, { value: 'partially_paid', label: 'Partially paid' }, { value: 'overdue', label: 'Overdue' }, { value: 'paid', label: 'Paid' }, { value: 'void', label: 'Void' }];
+const badge: Record<InvoiceStatus, string> = { draft: 'bg-brand-100 text-brand-700', sent: 'bg-blue-100 text-blue-800', partially_paid: 'bg-amber-100 text-amber-800', overdue: 'bg-red-100 text-red-800', paid: 'bg-emerald-100 text-emerald-800', void: 'bg-gray-200 text-gray-700' };
+const displayStatus = (invoice: Invoice): InvoiceStatus => invoice.status === 'sent' && invoice.dueDate < today() ? 'overdue' : invoice.status;
+const clientName = (customer?: { name?: string; company?: string }) => customer?.company || customer?.name || 'Unknown client';
+const linePrice = (line: JobWorkAreaLineItem) => Number(line.sellPrice ?? line.contractRevenue ?? line.total ?? 0);
+const sourceLine = (line: JobWorkAreaLineItem, workAreaId: ID): InvoiceLineItem => ({ id: generateId(), sourceWorkAreaId: workAreaId, sourceLineItemId: line.id, category: line.category, description: line.description || line.itemName, quantity: line.quantity, unit: line.unit, unitPrice: linePrice(line), unitPriceBeforeTax: linePrice(line), amount: 0, taxable: true });
 
 export default function InvoicesPage() {
   const { jobs, customers, invoices, addInvoice, updateInvoice, deleteInvoice } = useStore();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Invoice | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [form, setForm] = useState(emptyInvoiceForm());
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Invoice | null>(null);
+  const [form, setForm] = useState<Form>(emptyForm());
+  const [filter, setFilter] = useState<Filter>('all');
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [voidReason, setVoidReason] = useState('');
+  const [menu, setMenu] = useState<ID | null>(null);
   const [quickBooks, setQuickBooks] = useState<QuickBooksIntegration>({ connected: false, environment: 'sandbox' });
-  const [quickBooksInvoices, setQuickBooksInvoices] = useState<Record<ID, QuickBooksInvoiceStatus | null>>({});
-  const [quickBooksInFlight, setQuickBooksInFlight] = useState<ID[]>([]);
+  const [qbo, setQbo] = useState<Record<ID, QuickBooksInvoiceStatus | null>>({});
+  const jobMap = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
+  const customerMap = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
+  const job = jobMap.get(form.jobId);
+  const position = useMemo(() => calculateJobInvoicePosition(job, invoices.filter((invoice) => invoice.id !== selected?.id)), [job, invoices, selected]);
+  const normalized = useMemo(() => normalizeInvoiceFinancials({ schemaVersion: 2, taxRate: form.taxRate, lineItems: form.lineItems }), [form.lineItems, form.taxRate]);
+  const summary = calculateInvoiceSummary(normalized.lineItems, form.taxRate, 2);
+  const exceeds = summary.subtotal > position.remainingAmount;
+  const editable = !selected || (selected.schemaVersion === 2 && selected.status === 'draft' && !selected.quickBooksLinked && !qbo[selected.id]);
 
-  const jobLookup = useMemo(() => new Map(jobs.map((job) => [job.id, job])), [jobs]);
-  const customerLookup = useMemo(() => new Map(customers.map((customer) => [customer.id, customer])), [customers]);
-  const invoiceSummary = useMemo(
-    () => calculateInvoiceSummary(form.lineItems, form.taxRate),
-    [form.lineItems, form.taxRate]
-  );
-
+  useEffect(() => { void fetch('/api/integrations/quickbooks/status', { credentials: 'include' }).then((response) => response.json()).then((payload: { ok?: boolean; integration?: QuickBooksIntegration }) => { if (payload.ok && payload.integration) setQuickBooks(payload.integration); }).catch(() => undefined); }, []);
   useEffect(() => {
-    const loadQuickBooksStatus = async () => {
-      try {
-        const response = await fetch('/api/integrations/quickbooks/status', { credentials: 'include' });
-        const payload = await response.json() as { ok: boolean; integration?: QuickBooksIntegration };
-        if (response.ok && payload.ok && payload.integration) setQuickBooks(payload.integration);
-      } catch {
-        setQuickBooks({ connected: false, environment: 'sandbox' });
-      }
-    };
-    void loadQuickBooksStatus();
-  }, []);
+    if (!quickBooks.connected) return;
+    void Promise.all(invoices.map(async (invoice) => { const response = await fetch(`/api/integrations/quickbooks/invoices?invoiceId=${encodeURIComponent(invoice.id)}`, { credentials: 'include' }); const payload = await response.json() as { ok?: boolean; invoice?: QuickBooksInvoiceStatus | null }; return [invoice.id, response.ok && payload.ok ? payload.invoice ?? null : null] as const; })).then((entries) => setQbo(Object.fromEntries(entries))).catch(() => undefined);
+  }, [quickBooks.connected, invoices]);
 
-  const invoicesWithComputedStatus = useMemo(() => {
-    return invoices.map((invoice) => ({
-      ...invoice,
-      status: normalizeStatus(invoice),
-    }));
-  }, [invoices]);
+  const metrics = useMemo(() => {
+    const issued = invoices.filter((invoice) => !['draft', 'void'].includes(displayStatus(invoice)));
+    return { ready: jobs.filter((item) => item.status !== 'cancelled').reduce((sum, item) => sum + calculateJobInvoicePosition(item, invoices).remainingAmount, 0), outstanding: issued.filter((invoice) => ['sent', 'partially_paid', 'overdue'].includes(displayStatus(invoice))).reduce((sum, invoice) => sum + getInvoiceBalance(invoice), 0), overdue: issued.filter((invoice) => displayStatus(invoice) === 'overdue').reduce((sum, invoice) => sum + getInvoiceBalance(invoice), 0), billed: issued.reduce((sum, invoice) => sum + invoice.amount, 0), drafts: invoices.filter((invoice) => invoice.status === 'draft').reduce((sum, invoice) => sum + invoice.amount, 0) };
+  }, [invoices, jobs]);
+  const rows = useMemo(() => invoices.map((invoice) => ({ ...invoice, status: displayStatus(invoice) })).filter((invoice) => filter === 'all' || invoice.status === filter).filter((invoice) => { const query = search.trim().toLowerCase(); return !query || [invoice.number, invoice.customerNameSnapshot, clientName(customerMap.get(invoice.customerId)), invoice.jobTitleSnapshot, jobMap.get(invoice.jobId)?.title].some((value) => value?.toLowerCase().includes(query)); }).sort((left, right) => right.issueDate.localeCompare(left.issueDate) || right.createdAt.localeCompare(left.createdAt)), [invoices, filter, search, customerMap, jobMap]);
 
-  const filteredInvoices = useMemo(() => {
-    if (statusFilter === 'all') return invoicesWithComputedStatus;
-    return invoicesWithComputedStatus.filter((invoice) => invoice.status === statusFilter);
-  }, [invoicesWithComputedStatus, statusFilter]);
-
-  const totals = useMemo(() => {
-    const totalBilled = invoicesWithComputedStatus.reduce((sum, invoice) => sum + invoice.amount, 0);
-    const outstanding = invoicesWithComputedStatus
-      .filter((invoice) => invoice.status === 'sent' || invoice.status === 'overdue')
-      .reduce((sum, invoice) => sum + invoice.amount, 0);
-    const overdue = invoicesWithComputedStatus
-      .filter((invoice) => invoice.status === 'overdue')
-      .reduce((sum, invoice) => sum + invoice.amount, 0);
-
-    const invoicedByJob = new Map<ID, number>();
-    for (const invoice of invoicesWithComputedStatus) {
-      invoicedByJob.set(invoice.jobId, (invoicedByJob.get(invoice.jobId) ?? 0) + invoice.amount);
-    }
-
-    const completedJobs = jobs.filter((job) => job.status === 'completed');
-    const readyToInvoice = completedJobs.reduce((sum, job) => {
-      const alreadyInvoiced = invoicedByJob.get(job.id) ?? 0;
-      const remaining = Math.max(0, job.contractValue - alreadyInvoiced);
-      return sum + remaining;
-    }, 0);
-
-    return {
-      totalBilled,
-      outstanding,
-      overdue,
-      readyToInvoice,
-    };
-  }, [invoicesWithComputedStatus, jobs]);
-
-  const openNew = () => {
-    setEditing(null);
-    setForm(emptyInvoiceForm());
-    setModalOpen(true);
+  const applyAmount = (next: Form, nextPosition = position) => {
+    if (next.invoiceType === 'custom' || next.amountMode === 'work_areas') return next;
+    const amount = next.invoiceType === 'final' ? nextPosition.remainingAmount : next.amountMode === 'percent' ? nextPosition.contractAmount * next.billingPercent / 100 : next.billingAmount;
+    const description = next.invoiceType === 'deposit' ? 'Contract deposit' : next.invoiceType === 'final' ? 'Final contract billing' : 'Progress billing';
+    return { ...next, lineItems: [{ ...emptyLine(), description, unitPrice: amount, unitPriceBeforeTax: amount }] };
   };
+  const start = () => { setSelected(null); setForm(emptyForm()); setError(''); setOpen(true); };
+  const view = (invoice: Invoice) => { setSelected(invoice); setError(''); setVoidReason(''); setForm({ jobId: invoice.jobId, invoiceType: invoice.invoiceType ?? 'custom', issueDate: invoice.issueDate, dueDate: invoice.dueDate, paymentTermsDays: invoice.paymentTermsDays ?? 30, taxRate: invoice.taxRate ?? 0, notes: invoice.notes, lineItems: invoice.lineItems?.map((line) => ({ ...line })) ?? [], amountMode: 'work_areas', billingAmount: invoice.subtotal ?? invoice.amount, billingPercent: 0, overContractConfirmed: Boolean(invoice.overContract) }); setOpen(true); };
+  const chooseJob = (jobId: ID) => { const selectedJob = jobMap.get(jobId); const next = { ...form, jobId, taxRate: selectedJob?.originalEstimateSnapshot?.taxRate ?? 13, lineItems: [] }; setForm(applyAmount(next, calculateJobInvoicePosition(selectedJob, invoices))); };
+  const chooseType = (invoiceType: InvoiceType) => { const next = { ...form, invoiceType, amountMode: invoiceType === 'final' ? 'fixed' as const : form.amountMode, lineItems: invoiceType === 'custom' ? [emptyLine()] : [] }; setForm(applyAmount(next)); };
+  const updateLine = <K extends keyof InvoiceLineItem>(id: ID, key: K, value: InvoiceLineItem[K]) => setForm((current) => ({ ...current, lineItems: current.lineItems.map((line) => line.id === id ? { ...line, [key]: value } : line) }));
+  const toggleSource = (line: JobWorkAreaLineItem, workAreaId: ID) => setForm((current) => ({ ...current, amountMode: 'work_areas', lineItems: current.lineItems.some((item) => item.sourceLineItemId === line.id) ? current.lineItems.filter((item) => item.sourceLineItemId !== line.id) : [...current.lineItems, sourceLine(line, workAreaId)] }));
 
-  const openEdit = (invoice: Invoice) => {
-    setEditing(invoice);
-    setForm({
-      jobId: invoice.jobId,
-      number: invoice.number,
-      issueDate: invoice.issueDate,
-      dueDate: invoice.dueDate,
-      status: invoice.status,
-      amount: invoice.amount,
-      lineMode: Array.isArray(invoice.lineItems) && invoice.lineItems.length > 0,
-      lineItems: invoice.lineItems?.map((lineItem) => ({ ...lineItem })) ?? [],
-      taxRate: invoice.taxRate ?? 0,
-      notes: invoice.notes,
-    });
-    setModalOpen(true);
+  const save = async () => {
+    setError('');
+    if (!job) return setError('Select a job.');
+    const lineError = validateInvoiceLineItems(normalized.lineItems, form.taxRate, 2);
+    if (lineError) return setError(lineError);
+    if (exceeds && form.invoiceType !== 'custom') return setError('This invoice exceeds the remaining contract amount.');
+    if (exceeds && !form.overContractConfirmed) return setError('Confirm intentional over-contract billing.');
+    setSaving(true);
+    const data = { schemaVersion: 2 as const, invoiceType: form.invoiceType, jobId: job.id, customerId: job.customerId, estimateId: job.originalEstimateSnapshot?.estimateId ?? job.estimateId, issueDate: form.issueDate, dueDate: form.dueDate, status: 'draft' as const, pricingMode: 'tax_exclusive' as const, paymentTermsDays: form.paymentTermsDays, taxRate: form.taxRate, lineItems: normalized.lineItems, subtotal: summary.subtotal, taxAmount: summary.taxAmount, amount: summary.amount, notes: form.notes.trim(), overContractConfirmed: form.overContractConfirmed };
+    const result = selected ? await updateInvoice(selected.id, data) : await addInvoice(data);
+    setSaving(false);
+    if (!result.ok) return setError(result.error ?? 'Invoice could not be saved.');
+    setOpen(false); emitAppToast({ tone: 'success', message: `Invoice ${result.invoice?.number ?? ''} saved as Draft.` });
   };
+  const status = async (invoice: Invoice, nextStatus: 'sent' | 'void') => { if (nextStatus === 'void' && !voidReason.trim()) return setError('A void reason is required.'); setSaving(true); const result = await updateInvoice(invoice.id, nextStatus === 'void' ? { status: nextStatus, voidReason: voidReason.trim() } : { status: nextStatus }); setSaving(false); if (!result.ok) return setError(result.error ?? 'Status could not be updated.'); if (result.invoice) view(result.invoice); };
+  const remove = async (invoice: Invoice) => { if (!window.confirm(`Delete draft ${invoice.number}?`)) return; const result = await deleteInvoice(invoice.id); if (result.ok) setOpen(false); };
+  const createInQbo = async (invoice: Invoice) => { try { const response = await fetch('/api/integrations/quickbooks/invoices', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoiceId: invoice.id }) }); const payload = await response.json() as { ok?: boolean; invoice?: QuickBooksInvoiceStatus; error?: string }; if (!response.ok || !payload.ok) throw new Error(payload.error || 'QuickBooks request failed.'); setQbo((current) => ({ ...current, [invoice.id]: payload.invoice ?? null })); } catch (cause) { emitAppToast({ tone: 'error', message: cause instanceof Error ? cause.message : 'QuickBooks request failed.' }); } };
 
-  const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
-  };
+  return <div>
+    <PageHeader title="Invoices" subtitle="OliveOps is the invoice record. QuickBooks is an optional accounting destination." action={<Button onClick={start}><FilePlus2 /> New Invoice</Button>} />
+    <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-5"><StatCard label="Ready to Invoice" value={formatCurrency(metrics.ready)} sub="Drafts do not reserve availability" icon={<ReceiptText />} /><StatCard label="Outstanding" value={formatCurrency(metrics.outstanding)} sub="Issued unpaid balance" icon={<Mail />} /><StatCard label="Overdue" value={formatCurrency(metrics.overdue)} sub="Past due unpaid balance" icon={<Wallet />} color="text-red-700" /><StatCard label="Total Billed" value={formatCurrency(metrics.billed)} sub="Issued, non-void invoices" icon={<BookOpenCheck />} /><StatCard label="Drafts" value={formatCurrency(metrics.drafts)} sub="Not recognized as billed" icon={<FilePlus2 />} /></div>
+    <Card className="overflow-visible"><div className="border-b border-brand-100 p-4 dark:border-brand-600"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative lg:w-96"><Search className="absolute left-3 top-3 h-4 w-4 text-brand-400" /><input aria-label="Search invoices" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, client or job" className="h-10 w-full rounded-xl border border-brand-100 bg-white pl-9 pr-3 text-sm dark:border-brand-600 dark:bg-brand-700" /></div><div className="flex gap-1 overflow-x-auto">{filters.map((item) => <button key={item.value} onClick={() => setFilter(item.value)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${filter === item.value ? 'bg-brand-800 text-white dark:bg-brand-100 dark:text-brand-900' : 'text-brand-500 hover:bg-brand-50'}`}>{item.label}</button>)}</div></div></div>
+      {rows.length === 0 ? <EmptyState title="No matching invoices" description="Create a draft from a job or adjust the current filters." action={<Button onClick={start}><FilePlus2 /> New Invoice</Button>} /> : <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead><tr className="border-b border-brand-100 bg-brand-50 text-left text-brand-500 dark:bg-brand-800"><th className="px-4 py-3">Invoice</th><th>Client</th><th>Job</th><th>Issued</th><th>Due</th><th className="text-right">Total</th><th className="text-right">Balance</th><th className="pl-4">Status</th><th>QuickBooks</th><th className="px-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-brand-100">{rows.map((invoice) => { const linked = invoice.quickBooksLinked || Boolean(qbo[invoice.id]); return <tr key={invoice.id} onClick={() => view(invoice)} className="cursor-pointer hover:bg-brand-50"><td className="px-4 py-3 font-semibold">{invoice.number}</td><td>{invoice.customerNameSnapshot || clientName(customerMap.get(invoice.customerId))}</td><td>{invoice.jobTitleSnapshot || jobMap.get(invoice.jobId)?.title || 'Unknown job'}</td><td>{invoice.issueDate}</td><td>{invoice.dueDate}</td><td className="text-right font-medium">{formatCurrency(invoice.amount)}</td><td className="text-right">{formatCurrency(getInvoiceBalance(invoice))}</td><td className="pl-4"><Badge label={invoice.status} className={badge[invoice.status]} /></td><td className="text-xs">{qbo[invoice.id]?.documentNumber || (linked ? 'Linked' : 'Not linked')}</td><td className="relative px-4 text-right" onClick={(event) => event.stopPropagation()}><button aria-label={`Actions for ${invoice.number}`} className="h-9 w-9 rounded-lg hover:bg-brand-100" onClick={() => setMenu(menu === invoice.id ? null : invoice.id)}><Ellipsis className="mx-auto" /></button>{menu === invoice.id ? <div className="absolute right-4 top-10 z-20 w-40 rounded-lg border bg-white p-1 text-left shadow-xl"><button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => view(invoice)}>Open invoice</button>{invoice.status === 'draft' && !linked ? <button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => void status(invoice, 'sent')}>Mark sent</button> : null}{invoice.status === 'draft' && !linked ? <button className="w-full px-3 py-2 text-sm text-red-700 hover:bg-red-50" onClick={() => void remove(invoice)}>Delete draft</button> : null}</div> : null}</td></tr>; })}</tbody></table></div>}
+    </Card>
+    {open ? <div className="fixed inset-0 z-50"><button aria-label="Close invoice drawer" className="absolute inset-0 bg-black/40" onClick={() => !saving && setOpen(false)} /><aside className="absolute inset-y-0 right-0 flex w-full max-w-7xl flex-col border-l border-brand-100 bg-brand-50 shadow-2xl dark:border-brand-600 dark:bg-brand-800"><header className="flex h-16 items-center justify-between border-b border-brand-100 bg-white px-5 dark:border-brand-600 dark:bg-brand-700"><div><p className="text-xs font-semibold uppercase text-brand-400">{selected ? 'Invoice detail' : 'New draft invoice'}</p><h2 className="text-lg font-semibold">{selected?.number ?? 'Assigned when saved'}</h2></div><button aria-label="Close" className="h-10 w-10 rounded-lg hover:bg-brand-100" onClick={() => setOpen(false)}><X className="mx-auto" /></button></header><div className="flex-1 overflow-y-auto"><div className="grid min-h-full xl:grid-cols-[minmax(0,1fr)_340px]"><main className="space-y-6 p-5 lg:p-7">
+        {selected && !editable ? <div className="rounded-lg border border-brand-200 bg-white p-4 text-sm dark:bg-brand-700"><strong>Read-only invoice.</strong> {selected.quickBooksLinked || qbo[selected.id] ? 'This invoice is linked to QuickBooks.' : selected.schemaVersion !== 2 ? 'Legacy calculations are preserved.' : 'Financial details lock when issued.'}</div> : null}
+        <section><h3 className="mb-3 text-sm font-semibold">1. Job and contract</h3><Select label="Job" required disabled={Boolean(selected) || !editable} value={form.jobId} onChange={(event) => chooseJob(event.target.value)}><option value="">Select a job</option>{jobs.filter((item) => item.status !== 'cancelled').map((item) => <option key={item.id} value={item.id}>{item.jobNumber ? `${item.jobNumber} · ` : ''}{item.title}</option>)}</Select>{job ? <div className="mt-3 grid grid-cols-2 gap-3 rounded-lg border border-brand-100 bg-white p-4 text-sm dark:bg-brand-700 lg:grid-cols-4"><Info label="Client" value={clientName(customerMap.get(job.customerId))} /><Info label="Job" value={job.title} /><Info label="Address" value={job.propertyAddressSnapshot || 'Not recorded'} /><Info label="Proposal" value={job.originalEstimateSnapshot?.proposalNumber || 'Not recorded'} /></div> : null}</section>
+        <section><h3 className="mb-3 text-sm font-semibold">2. Invoice type</h3><div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{(['deposit', 'progress', 'final', 'custom'] as InvoiceType[]).map((type) => <button disabled={!editable || !job} key={type} onClick={() => chooseType(type)} className={`rounded-lg border p-3 text-left capitalize ${form.invoiceType === type ? 'border-accent-500 bg-accent-50' : 'border-brand-100 bg-white dark:bg-brand-700'}`}>{type}</button>)}</div>{job && editable && !['custom', 'final'].includes(form.invoiceType) ? <div className="mt-3 grid gap-3 rounded-lg border border-brand-100 bg-white p-4 dark:bg-brand-700 md:grid-cols-3"><Select label="Billing method" value={form.amountMode} onChange={(event) => { const next = { ...form, amountMode: event.target.value as Form['amountMode'], lineItems: event.target.value === 'work_areas' ? [] : form.lineItems }; setForm(applyAmount(next)); }}><option value="fixed">Fixed pre-tax amount</option><option value="percent">Percent of contract</option>{form.invoiceType === 'progress' ? <option value="work_areas">Select work-area lines</option> : null}</Select>{form.amountMode === 'fixed' ? <Input label="Pre-tax amount" type="number" min={0.01} value={form.billingAmount} onChange={(event) => { const next = { ...form, billingAmount: Number(event.target.value) }; setForm(applyAmount(next)); }} /> : form.amountMode === 'percent' ? <Input label="Contract percent" type="number" min={0.01} max={100} value={form.billingPercent} onChange={(event) => { const next = { ...form, billingPercent: Number(event.target.value) }; setForm(applyAmount(next)); }} /> : null}</div> : null}{job && editable && form.amountMode === 'work_areas' ? <div className="mt-3 space-y-2">{(job.originalEstimateSnapshot?.workAreas ?? job.operationalWorkAreas ?? []).map((area) => <div key={area.id} className="rounded-lg border bg-white dark:bg-brand-700"><p className="border-b px-4 py-2 text-sm font-semibold">{area.name}</p>{area.lineItems.map((line) => <label key={line.id} className="flex cursor-pointer items-center gap-3 px-4 py-2 text-sm"><input type="checkbox" checked={form.lineItems.some((item) => item.sourceLineItemId === line.id)} onChange={() => toggleSource(line, area.id)} /><span className="flex-1">{line.description || line.itemName}</span><span>{line.quantity} {line.unit}</span><strong>{formatCurrency(linePrice(line) * line.quantity)}</strong></label>)}</div>)}</div> : null}</section>
+        <section><h3 className="mb-3 text-sm font-semibold">3. Invoice details</h3><div className="grid gap-3 md:grid-cols-4"><Input label="Issue date" type="date" disabled={!editable} value={form.issueDate} onChange={(event) => setForm((current) => ({ ...current, issueDate: event.target.value, dueDate: plusDays(event.target.value, current.paymentTermsDays) }))} /><Input label="Payment terms (days)" type="number" disabled={!editable} value={form.paymentTermsDays} onChange={(event) => { const days = Number(event.target.value); setForm((current) => ({ ...current, paymentTermsDays: days, dueDate: plusDays(current.issueDate, days) })); }} /><Input label="Due date" type="date" disabled={!editable} value={form.dueDate} onChange={(event) => setForm((current) => ({ ...current, dueDate: event.target.value }))} /><Input label="HST / tax rate (%)" type="number" disabled={!editable} value={form.taxRate} onChange={(event) => setForm((current) => ({ ...current, taxRate: Number(event.target.value) }))} /></div><TextArea label="Notes" disabled={!editable} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></section>
+        <section><div className="mb-3 flex justify-between"><h3 className="text-sm font-semibold">Invoice lines</h3>{editable && form.invoiceType === 'custom' ? <Button size="sm" variant="secondary" onClick={() => setForm((current) => ({ ...current, lineItems: [...current.lineItems, emptyLine()] }))}><Plus /> Add line</Button> : null}</div><div className="space-y-3">{form.lineItems.map((line, index) => <InvoiceLine key={line.id} line={line} index={index} taxRate={form.taxRate} legacy={Boolean(selected && selected.schemaVersion !== 2)} editable={editable && !line.sourceLineItemId} onChange={updateLine} onRemove={() => setForm((current) => ({ ...current, lineItems: current.lineItems.filter((item) => item.id !== line.id) }))} />)}{!form.lineItems.length ? <p className="rounded-lg border border-dashed p-6 text-center text-sm text-brand-400">Choose a billing amount or select work-area lines.</p> : null}</div></section>
+      </main><aside className="border-t bg-white p-5 dark:bg-brand-700 xl:border-l xl:border-t-0"><div className="sticky top-5"><h3 className="text-sm font-semibold">Financial summary</h3><dl className="mt-4 space-y-3 text-sm"><Money label="Contract total" value={selected?.contractAmountSnapshot ?? position.contractAmount} /><Money label="Previously invoiced" value={selected?.previouslyInvoicedSnapshot ?? position.previouslyInvoiced} /><Money label="This invoice subtotal" value={selected ? getInvoiceContractAmount(selected) : summary.subtotal} border /><Money label="HST" value={selected?.taxAmount ?? summary.taxAmount} /><Money label="This invoice total" value={selected?.amount ?? summary.amount} strong /><Money label="Remaining after" value={Math.max(0, position.remainingAmount - summary.subtotal)} border /></dl>{exceeds ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">Exceeds remaining contract by {formatCurrency(summary.subtotal - position.remainingAmount)}.{form.invoiceType === 'custom' && editable ? <label className="mt-3 flex gap-2 font-medium"><input type="checkbox" checked={form.overContractConfirmed} onChange={(event) => setForm((current) => ({ ...current, overContractConfirmed: event.target.checked }))} /> Confirm intentional over-contract billing</label> : null}</div> : null}{error ? <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}<div className="mt-6 space-y-2">{editable ? <Button className="w-full" disabled={saving} onClick={() => void save()}>{saving ? 'Saving...' : 'Save draft invoice'}</Button> : null}{selected?.status === 'draft' && !selected.quickBooksLinked && !qbo[selected.id] ? <><Button className="w-full" variant="secondary" disabled={saving} onClick={() => void status(selected, 'sent')}><Send /> Mark sent</Button><Button className="w-full" variant="ghost" onClick={() => void remove(selected)}><Trash2 /> Delete draft</Button></> : null}{selected && !selected.quickBooksLinked && !qbo[selected.id] && ['sent', 'partially_paid', 'overdue'].includes(selected.status) ? <><Input label="Void reason" value={voidReason} onChange={(event) => setVoidReason(event.target.value)} /><Button className="w-full" variant="danger" disabled={saving} onClick={() => void status(selected, 'void')}><Ban /> Void invoice</Button></> : null}{selected && !selected.quickBooksLinked && selected.status !== 'draft' && selected.status !== 'void' && !qbo[selected.id] ? <Button className="w-full" variant="secondary" disabled={!quickBooks.connected} onClick={() => void createInQbo(selected)}><BookOpenCheck /> Create in QuickBooks</Button> : null}</div></div></aside></div></div></aside></div> : null}
+  </div>;
+}
 
-  const setLineItem = <K extends keyof InvoiceLineItem>(lineItemId: ID, key: K, value: InvoiceLineItem[K]) => {
-    setForm((current) => ({
-      ...current,
-      lineItems: current.lineItems.map((lineItem) => {
-        if (lineItem.id !== lineItemId) return lineItem;
-        const next = { ...lineItem, [key]: value };
-        return { ...next, amount: calculateInvoiceLineAmount(next) };
-      }),
-    }));
-  };
-
-  const selectJob = (jobId: ID) => {
-    const selectedJob = jobLookup.get(jobId);
-    setForm((current) => ({
-      ...current,
-      jobId,
-      taxRate: current.taxRate > 0 ? current.taxRate : (selectedJob?.originalEstimateSnapshot?.taxRate ?? 0),
-    }));
-  };
-
-  const saveInvoice = () => {
-    if (!form.jobId || !form.number.trim()) return;
-    if (form.lineMode) {
-      const lineError = validateInvoiceLineItems(form.lineItems, form.taxRate);
-      if (lineError) {
-        emitAppToast({ tone: 'error', message: lineError });
-        return;
-      }
-    } else if (form.amount <= 0) {
-      return;
-    }
-    const normalizedNumber = form.number.trim().toLowerCase();
-    const duplicate = invoices.some((invoice) => {
-      if (editing && invoice.id === editing.id) return false;
-      return invoice.number.trim().toLowerCase() === normalizedNumber;
-    });
-    if (duplicate) {
-      emitAppToast({ tone: 'error', message: 'Invoice number already exists.' });
-      return;
-    }
-
-    const selectedJob = jobLookup.get(form.jobId);
-    if (!selectedJob) return;
-
-    const financials = form.lineMode
-      ? normalizeInvoiceFinancials({ lineItems: form.lineItems, taxRate: form.taxRate })
-      : { amount: Number(form.amount) };
-
-    if (editing) {
-      updateInvoice(editing.id, {
-        jobId: form.jobId,
-        customerId: selectedJob.customerId,
-        number: form.number.trim(),
-        issueDate: form.issueDate,
-        dueDate: form.dueDate,
-        status: form.status,
-        ...financials,
-        notes: form.notes.trim(),
-      });
-    } else {
-      addInvoice({
-        jobId: form.jobId,
-        customerId: selectedJob.customerId,
-        number: form.number.trim(),
-        issueDate: form.issueDate,
-        dueDate: form.dueDate,
-        status: form.status,
-        ...financials,
-        notes: form.notes.trim(),
-      });
-    }
-
-    setModalOpen(false);
-  };
-
-  const syncQuickBooksInvoice = async (invoice: Invoice, create: boolean) => {
-    setQuickBooksInFlight((current) => [...current, invoice.id]);
-    try {
-      const response = await fetch(create
-        ? '/api/integrations/quickbooks/invoices'
-        : `/api/integrations/quickbooks/invoices?invoiceId=${encodeURIComponent(invoice.id)}`, {
-        method: create ? 'POST' : 'GET',
-        credentials: 'include',
-        ...(create ? {
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId: invoice.id }),
-        } : {}),
-      });
-      const payload = await response.json() as { ok: boolean; invoice?: QuickBooksInvoiceStatus | null; error?: string };
-      if (!response.ok || !payload.ok) {
-        emitAppToast({ tone: 'error', message: payload.error ?? 'QuickBooks invoice synchronization failed.' });
-        return;
-      }
-      setQuickBooksInvoices((current) => ({ ...current, [invoice.id]: payload.invoice ?? null }));
-      emitAppToast({
-        tone: 'success',
-        message: payload.invoice
-          ? (create ? 'Invoice created in QuickBooks.' : 'QuickBooks invoice status refreshed.')
-          : 'This invoice has not been created in QuickBooks.',
-      });
-    } catch {
-      emitAppToast({ tone: 'error', message: 'QuickBooks invoice synchronization failed.' });
-    } finally {
-      setQuickBooksInFlight((current) => current.filter((invoiceId) => invoiceId !== invoice.id));
-    }
-  };
-
-  return (
-    <div>
-      <PageHeader
-        title="Invoices"
-        subtitle="Track what has been billed, what is outstanding, and what should be invoiced next."
-        action={<Button onClick={openNew}><FilePlus2 size={16} /> New Invoice</Button>}
-      />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Ready to Invoice" value={formatCurrency(totals.readyToInvoice)} icon={<ReceiptText size={28} />} color="text-brand-700" sub="Completed jobs not fully billed" />
-        <StatCard label="Outstanding" value={formatCurrency(totals.outstanding)} icon={<Mail size={28} />} color="text-accent-600" sub="Sent or overdue" />
-        <StatCard label="Overdue" value={formatCurrency(totals.overdue)} icon={<Wallet size={28} />} color="text-accent-700" sub="Past due date" />
-        <StatCard label="Total Billed" value={formatCurrency(totals.totalBilled)} icon={<ReceiptText size={28} />} color="text-brand-700" sub={`${invoices.length} invoices`} />
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="font-semibold text-gray-900">Invoice Register</h2>
-            <p className="text-sm text-gray-500 mt-1">Create, edit, and track invoice status from one place.</p>
-          </div>
-          <div className="w-full sm:w-56">
-            <Select label="Status Filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-              <option value="all">All</option>
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="overdue">Overdue</option>
-              <option value="paid">Paid</option>
-            </Select>
-          </div>
-        </div>
-
-        {filteredInvoices.length === 0 ? (
-          <EmptyState
-            title="No invoices yet"
-            description="Create your first invoice to start tracking cash collection."
-            action={<Button onClick={openNew}><FilePlus2 size={16} /> New Invoice</Button>}
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[1160px]">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-left">
-                  <th className="px-4 py-3 font-medium">Invoice #</th>
-                  <th className="px-4 py-3 font-medium">Job</th>
-                  <th className="px-4 py-3 font-medium">Customer</th>
-                  <th className="px-4 py-3 font-medium">Issue</th>
-                  <th className="px-4 py-3 font-medium">Due</th>
-                  <th className="px-4 py-3 font-medium text-right">Amount</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">QuickBooks</th>
-                  <th className="px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredInvoices.map((invoice) => {
-                  const job = jobLookup.get(invoice.jobId);
-                  const customer = customerLookup.get(invoice.customerId);
-                  const quickBooksInvoice = quickBooksInvoices[invoice.id];
-                  const quickBooksBusy = quickBooksInFlight.includes(invoice.id);
-                  const hasLineDetails = Array.isArray(invoice.lineItems) && invoice.lineItems.length > 0;
-                  return (
-                    <tr key={invoice.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-medium text-gray-900">{invoice.number}</td>
-                      <td className="px-4 py-2 text-gray-700">{job?.title ?? 'Unknown Job'}</td>
-                      <td className="px-4 py-2 text-gray-700">{customer?.name ?? 'Unknown Customer'}</td>
-                      <td className="px-4 py-2 text-gray-700">{invoice.issueDate}</td>
-                      <td className="px-4 py-2 text-gray-700">{invoice.dueDate}</td>
-                      <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(invoice.amount)}</td>
-                      <td className="px-4 py-2">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusBadgeClass[invoice.status]}`}>
-                          {invoice.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2">
-                        {quickBooksInvoice ? (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-brand-900 dark:text-brand-50">{quickBooksInvoice.documentNumber || 'QuickBooks Invoice'}</span>
-                              <span className="text-xs capitalize text-brand-500 dark:text-brand-200">{quickBooksInvoice.status}</span>
-                            </div>
-                            <div className="text-xs text-brand-500 dark:text-brand-200">Balance {formatCurrency(quickBooksInvoice.balance)}</div>
-                            {quickBooksInvoice.localChangesNotSynced ? <div className="text-xs font-medium text-amber-700">Local changes not synced</div> : null}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-brand-500 dark:text-brand-200">
-                            {!hasLineDetails ? 'Line details required' : quickBooks.connected ? 'Not checked' : 'Sandbox not connected'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">
-                        <div className="flex flex-wrap gap-1">
-                          {quickBooksInvoice ? (
-                            <Button variant="ghost" size="sm" disabled={quickBooksBusy} title="Refresh QuickBooks status" onClick={() => void syncQuickBooksInvoice(invoice, false)}><RefreshCw size={13} /></Button>
-                          ) : (
-                            <Button variant="secondary" size="sm" disabled={!quickBooks.connected || !hasLineDetails || quickBooksBusy} onClick={() => void syncQuickBooksInvoice(invoice, true)}><BookOpenCheck size={13} /> Create in QBO</Button>
-                          )}
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(invoice)}><Pencil size={13} /></Button>
-                          <Button variant="ghost" size="sm" onClick={() => deleteInvoice(invoice.id as ID)}>Delete</Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Invoice' : 'New Invoice'}
-        footer={(
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-            <Button onClick={saveInvoice}>{editing ? 'Save Changes' : 'Create Invoice'}</Button>
-          </>
-        )}
-      >
-        <div className="space-y-3">
-          <Select
-            label="Job"
-            required
-            value={form.jobId}
-            onChange={(event) => selectJob(event.target.value)}
-          >
-            <option value="">Select a job</option>
-            {jobs.map((job) => (
-              <option key={job.id} value={job.id}>{job.title}</option>
-            ))}
-          </Select>
-          <Input label="Invoice Number" required value={form.number} onChange={(event) => setField('number', event.target.value)} placeholder="e.g. INV-2026-001" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Issue Date" type="date" required value={form.issueDate} onChange={(event) => setField('issueDate', event.target.value)} />
-            <Input label="Due Date" type="date" required value={form.dueDate} onChange={(event) => setField('dueDate', event.target.value)} />
-          </div>
-          {form.lineMode ? (
-            <section className="space-y-3 border-y border-brand-100 py-4 dark:border-brand-600">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Invoice lines</h3>
-                  <p className="mt-1 text-xs text-brand-500 dark:text-brand-200">Enter tax-inclusive prices. Tax is extracted from taxable lines.</p>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setForm((current) => ({ ...current, lineItems: [...current.lineItems, createEmptyLineItem()] }))}
-                >
-                  <Plus size={14} /> Add Line
-                </Button>
-              </div>
-
-              {form.lineItems.map((lineItem, index) => (
-                <div key={lineItem.id} className="space-y-3 rounded-lg border border-brand-100 p-3 dark:border-brand-600">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase text-brand-500 dark:text-brand-200">Line {index + 1}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Remove line ${index + 1}`}
-                      disabled={form.lineItems.length === 1}
-                      onClick={() => setForm((current) => ({ ...current, lineItems: current.lineItems.filter((item) => item.id !== lineItem.id) }))}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </div>
-                  <Input
-                    label="Description"
-                    required
-                    value={lineItem.description}
-                    onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)}
-                    placeholder="Work completed"
-                  />
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <Select
-                      label="Category"
-                      value={lineItem.category}
-                      onChange={(event) => setLineItem(lineItem.id, 'category', event.target.value as LineItemCategory)}
-                    >
-                      <option value="labour">Labour</option>
-                      <option value="material">Material</option>
-                      <option value="equipment">Equipment</option>
-                      <option value="subcontractor">Subcontractor</option>
-                    </Select>
-                    <Input label="Quantity" type="number" min={0.01} step="any" required value={lineItem.quantity} onChange={(event) => setLineItem(lineItem.id, 'quantity', Number(event.target.value))} />
-                    <Input label="Unit" required value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} />
-                    <Input label="Price incl. tax" type="number" min={0} step="0.01" required value={lineItem.unitPrice} onChange={(event) => setLineItem(lineItem.id, 'unitPrice', Number(event.target.value))} />
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <label className="flex items-center gap-2 text-sm font-medium text-brand-800 dark:text-brand-100">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-brand-700"
-                        checked={lineItem.taxable}
-                        onChange={(event) => setLineItem(lineItem.id, 'taxable', event.target.checked)}
-                      />
-                      Taxable
-                    </label>
-                    <span className="text-sm font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(calculateInvoiceLineAmount(lineItem))}</span>
-                  </div>
-                </div>
-              ))}
-
-              {form.lineItems.some((lineItem) => lineItem.taxable) ? (
-                <Input label="Tax Rate (%)" type="number" min={0.01} max={100} step="0.01" required value={form.taxRate} onChange={(event) => setField('taxRate', Number(event.target.value))} />
-              ) : null}
-
-              <dl className="grid grid-cols-3 gap-3 rounded-lg bg-brand-50 p-3 text-sm dark:bg-brand-800">
-                <div><dt className="text-brand-500 dark:text-brand-200">Net subtotal</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.subtotal)}</dd></div>
-                <div><dt className="text-brand-500 dark:text-brand-200">Included tax</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.taxAmount)}</dd></div>
-                <div><dt className="text-brand-500 dark:text-brand-200">Invoice total</dt><dd className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(invoiceSummary.amount)}</dd></div>
-              </dl>
-            </section>
-          ) : (
-            <section className="space-y-3 border-y border-brand-100 py-4 dark:border-brand-600">
-              <Input label="Legacy Invoice Amount" type="number" min={0} required value={form.amount} onChange={(event) => setField('amount', Number(event.target.value))} />
-              <div className="flex items-center justify-between gap-4">
-                <p className="text-xs text-brand-500 dark:text-brand-200">This historical invoice has no line or tax details and cannot be sent to QuickBooks.</p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setForm((current) => ({ ...current, lineMode: true, lineItems: [createEmptyLineItem()] }))}
-                >
-                  <Plus size={14} /> Add Line Details
-                </Button>
-              </div>
-            </section>
-          )}
-          <Select label="Status" required value={form.status} onChange={(event) => setField('status', event.target.value as InvoiceStatus)}>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-          </Select>
-          <Input label="Notes" value={form.notes} onChange={(event) => setField('notes', event.target.value)} placeholder="Optional notes" />
-        </div>
-      </Modal>
-    </div>
-  );
+function Info({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-brand-400">{label}</p><p className="mt-1 font-medium">{value}</p></div>; }
+function Money({ label, value, border, strong }: { label: string; value: number; border?: boolean; strong?: boolean }) { return <div className={`flex justify-between ${border ? 'border-t border-brand-100 pt-3' : ''} ${strong ? 'text-base font-semibold' : ''}`}><dt>{label}</dt><dd>{formatCurrency(value)}</dd></div>; }
+function InvoiceLine({ line, index, taxRate, legacy, editable, onChange, onRemove }: { line: InvoiceLineItem; index: number; taxRate: number; legacy: boolean; editable: boolean; onChange: <K extends keyof InvoiceLineItem>(id: ID, key: K, value: InvoiceLineItem[K]) => void; onRemove: () => void }) {
+  const financials = calculateInvoiceLineFinancials(line, taxRate, legacy ? undefined : 2);
+  return <div className="rounded-lg border border-brand-100 bg-white p-4 dark:bg-brand-700"><div className="mb-3 flex justify-between"><span className="text-xs font-semibold text-brand-400">LINE {index + 1}</span>{editable ? <button aria-label={`Remove line ${index + 1}`} onClick={onRemove}><Trash2 className="h-4 w-4 text-red-600" /></button> : null}</div><div className="grid grid-cols-2 gap-3 lg:grid-cols-6"><div className="col-span-2"><Input label="Description" disabled={!editable} value={line.description} onChange={(event) => onChange(line.id, 'description', event.target.value)} /></div><Input label="Quantity" type="number" disabled={!editable} value={line.quantity} onChange={(event) => onChange(line.id, 'quantity', Number(event.target.value))} /><Input label="Unit" disabled={!editable} value={line.unit} onChange={(event) => onChange(line.id, 'unit', event.target.value)} /><Input label={legacy ? 'Legacy price incl. tax' : 'Unit Price'} type="number" disabled={!editable} value={legacy ? line.unitPrice : line.unitPriceBeforeTax ?? 0} onChange={(event) => onChange(line.id, 'unitPriceBeforeTax', Number(event.target.value))} /><Select label="Category" disabled={!editable} value={line.category} onChange={(event) => onChange(line.id, 'category', event.target.value as LineItemCategory)}><option value="labour">Labour</option><option value="material">Material</option><option value="equipment">Equipment</option><option value="subcontractor">Subcontractor</option></Select></div><div className="mt-3 flex flex-wrap justify-between gap-3 text-sm"><label className="flex gap-2"><input type="checkbox" disabled={!editable} checked={line.taxable} onChange={(event) => onChange(line.id, 'taxable', event.target.checked)} /> Taxable</label><div className="flex gap-5"><span>Subtotal <strong>{formatCurrency(financials.subtotal)}</strong></span><span>Tax <strong>{formatCurrency(financials.taxAmount)}</strong></span><span>Total <strong>{formatCurrency(financials.total)}</strong></span></div></div></div>;
 }
