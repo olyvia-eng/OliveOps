@@ -7,35 +7,39 @@ const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8')
 const estimateDetailSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 
 test('Jobs index uses the compact Estimates-style table instead of record cards', () => {
-  assert.match(jobsSource, /<div className="overflow-x-auto">\s*<table className="w-full min-w-\[1120px\] text-sm">/);
-  for (const column of ['Job', 'Customer', 'Work Areas', 'Status', 'Progress', 'Contract Value', 'Risk', 'Actions']) {
+  assert.match(jobsSource, /<div className="overflow-x-auto">\s*<table className="w-full min-w-\[980px\] table-fixed text-sm">/);
+  for (const column of ['Job', 'Customer', 'Work Areas', 'Status', 'Progress', 'Contract Value', 'Actions']) {
     assert.match(jobsSource, new RegExp(`>${column}<`));
   }
+  assert.doesNotMatch(jobsSource, />Risk<\/th>/);
   assert.match(jobsSource, /<tbody className="divide-y divide-gray-100 dark:divide-brand-700">/);
   assert.doesNotMatch(jobsSource, /<Card\s+key=\{job\.id\}/);
 });
 
-test('Jobs search, status, and risk filters retain their existing state and predicates', () => {
+test('Jobs search and status filter remain while risk filtering is absent from the list', () => {
   assert.match(jobsSource, /placeholder="Search jobs…"/);
   assert.match(jobsSource, /j\.title\.toLowerCase\(\)\.includes\(search\.toLowerCase\(\)\)/);
   assert.match(jobsSource, /statusFilter === 'all' \|\| j\.status === statusFilter/);
-  assert.match(jobsSource, /riskFilter === 'at_risk'/);
-  assert.match(jobsSource, /riskFilter === 'over_hours'/);
-  assert.match(jobsSource, /riskFilter === 'low_margin'/);
-  assert.match(jobsSource, /riskFilter === 'labor_variance'/);
+  assert.doesNotMatch(jobsSource, /riskFilter|All Risk Levels|At Risk Jobs/);
 });
 
-test('Jobs rows preserve customer, work-area, progress, contract, and risk presentation', () => {
+test('Jobs rows preserve customer, work-area, progress, and contract presentation', () => {
   assert.match(jobsSource, /customer\?\.name \?\? '—'/);
   assert.match(jobsSource, /job\.operationalWorkAreas\?\.map\(\(area\) => area\.name\) \?\? job\.workAreas \?\? \[\]/);
   assert.match(jobsSource, /title=\{workAreaLabel\}/);
   assert.match(jobsSource, /job\.estimatedHours > 0 \? Math\.min\(100, \(job\.actualHours \/ job\.estimatedHours\) \* 100\) : 0/);
   assert.match(jobsSource, /job\.actualHours\.toFixed\(1\).*job\.estimatedHours.*hrs/);
   assert.match(jobsSource, /formatCurrency\(job\.contractValue\)/);
-  assert.match(jobsSource, /label="At Risk"/);
-  assert.match(jobsSource, /risk\.warningBadges\.map/);
-  assert.match(jobsSource, /label="On Track"/);
+  assert.doesNotMatch(jobsSource, /label="At Risk"|label="On Track"/);
+  assert.match(jobsSource, /label="From Estimate" className="shrink-0 whitespace-nowrap/);
   assert.doesNotMatch(jobsSource, /formatCurrency\(profit\).*margin/);
+});
+
+test('Jobs risk calculations remain available to the detail panel but not table rows', () => {
+  assert.match(jobsSource, /const jobRiskById = useMemo/);
+  assert.match(jobsSource, /const lowMargin = projectedMarginFromTracking < LOW_MARGIN_THRESHOLD_PCT/);
+  assert.match(jobsSource, /const laborVarianceHigh = Math\.abs\(laborVariancePct\) > HIGH_LABOR_VARIANCE_THRESHOLD_PCT/);
+  assert.match(jobsSource, /risk=\{jobRiskById\.get\(selectedJob\.id\)\}/);
 });
 
 test('Jobs rows retain URL-backed open and edit actions without duplicate row activation', () => {
@@ -51,7 +55,8 @@ test('Jobs toolbar and table retain responsive and dark-mode treatments', () => 
   assert.match(jobsSource, /flex flex-col sm:flex-row gap-3 mb-6/);
   assert.match(jobsSource, /dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50/);
   assert.match(jobsSource, /dark:hover:bg-brand-600\/60/);
-  assert.match(jobsSource, /min-w-\[1120px\]/);
+  assert.match(jobsSource, /min-w-\[980px\] table-fixed/);
+  assert.match(jobsSource, /whitespace-nowrap pb-2 text-right font-medium">Contract Value/);
 });
 
 test('dedicated Job and Estimate detail pages remain available and separate from list markup', () => {

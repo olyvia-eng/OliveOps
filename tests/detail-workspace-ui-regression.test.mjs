@@ -29,8 +29,8 @@ test('clients, jobs, and estimates use distinct URL-owned workspace state', () =
 });
 
 test('job and estimate financial values remain role gated', () => {
-  assert.match(jobsSource, /canViewFinancials \? <th className="pb-2 text-right font-medium">Contract Value<\/th>/);
-  assert.match(jobsSource, /canViewFinancials \? <td className="py-3 pr-4 text-right font-semibold/);
+  assert.match(jobsSource, /canViewFinancials \? <th className="whitespace-nowrap pb-2 text-right font-medium">Contract Value<\/th>/);
+  assert.match(jobsSource, /canViewFinancials \? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold/);
   assert.match(estimatesSource, /canViewFinancials \? <th/);
   assert.match(jobPanelSource, /canViewFinancials \? <Card/);
   assert.match(estimatePanelSource, /canViewFinancials \? <Card/);

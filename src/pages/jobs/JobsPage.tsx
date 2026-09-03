@@ -16,7 +16,6 @@ import {
 import JobDetailPanel from './JobDetailPanel';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
-type RiskFilter = 'all' | 'at_risk' | 'over_hours' | 'low_margin' | 'labor_variance';
 const JOB_WORKSPACE_QUERY = { recordParam: 'job', tabParam: 'jobTab', defaultTab: 'overview' } as const;
 
 const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'updatedAt'> => ({
@@ -48,7 +47,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all');
-  const [riskFilter, setRiskFilter] = useState<RiskFilter>('all');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Job | null>(null);
   const [form, setForm] = useState(empty(customers));
@@ -60,7 +58,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const selectJob = (jobId: string) => setSearchParams(openDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY, jobId));
   const closeJob = () => setSearchParams(closeDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY));
-  const hasFilters = search.trim().length > 0 || statusFilter !== 'all' || riskFilter !== 'all';
+  const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
     return estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
@@ -138,14 +136,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
       j.title.toLowerCase().includes(search.toLowerCase()) ||
       (c?.name ?? '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === 'all' || j.status === statusFilter;
-    const risk = jobRiskById.get(j.id);
-    const matchRisk =
-      riskFilter === 'all' ||
-      (riskFilter === 'at_risk' && Boolean(risk?.atRisk)) ||
-      (riskFilter === 'over_hours' && Boolean(risk?.overHours)) ||
-      (riskFilter === 'low_margin' && Boolean(risk?.lowMargin)) ||
-      (riskFilter === 'labor_variance' && Boolean(risk?.laborVarianceHigh));
-    return matchSearch && matchStatus && matchRisk;
+    return matchSearch && matchStatus;
   });
 
   const openNew = () => {
@@ -265,17 +256,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
           <option value="all">All Statuses</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
         </select>
-        <select
-          value={riskFilter}
-          onChange={(e) => setRiskFilter(e.target.value as RiskFilter)}
-          className="h-10 border border-gray-300 rounded-xl px-3 text-sm bg-white shadow-sm dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
-        >
-          <option value="all">All Risk Levels</option>
-          <option value="at_risk">At Risk Jobs</option>
-          <option value="over_hours">Over Hours</option>
-          <option value="low_margin">Low Margin</option>
-          <option value="labor_variance">Labor Variance High</option>
-        </select>
       </div>
 
       {filtered.length === 0 ? (
@@ -302,13 +282,22 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
             icon={<FilterX aria-hidden="true" />}
             title="No jobs found"
             description="Adjust your search or filters, or create a new Job."
-            action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); setRiskFilter('all'); }}>Clear Filters</Button> : undefined}
+            action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); }}>Clear Filters</Button> : undefined}
             secondaryAction={<Button onClick={openNew}><Plus size={16} /> New Job</Button>}
           />
         )
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] text-sm">
+          <table className="w-full min-w-[980px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-[23%]" />
+              <col className="w-[20%]" />
+              <col className="w-[18%]" />
+              <col className="w-[12%]" />
+              <col className="w-[14%]" />
+              {canViewFinancials ? <col className="w-[9rem]" /> : null}
+              <col className="w-[7rem]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-brand-600 dark:text-brand-300">
                 <th className="pb-2 font-medium">Job</th>
@@ -316,16 +305,14 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                 <th className="pb-2 font-medium">Work Areas</th>
                 <th className="pb-2 font-medium">Status</th>
                 <th className="pb-2 font-medium">Progress</th>
-                {canViewFinancials ? <th className="pb-2 text-right font-medium">Contract Value</th> : null}
-                <th className="pb-2 font-medium">Risk</th>
-                <th className="pb-2 font-medium">Actions</th>
+                {canViewFinancials ? <th className="whitespace-nowrap pb-2 text-right font-medium">Contract Value</th> : null}
+                <th className="pb-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-brand-700">
               {filtered.map((job) => {
                 const customer = customers.find((item) => item.id === job.customerId);
                 const progress = job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
-                const risk = jobRiskById.get(job.id);
                 const workAreaNames = job.operationalWorkAreas?.map((area) => area.name) ?? job.workAreas ?? [];
                 const workAreaLabel = workAreaNames.length ? workAreaNames.join(', ') : '—';
 
@@ -338,14 +325,14 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                     tabIndex={0}
                     aria-selected={workspace.recordId === job.id}
                   >
-                    <td className="py-3 pr-4">
-                      <button type="button" className="font-semibold text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
+                    <td className="py-3 pr-6">
+                      <button type="button" className="block truncate font-semibold text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
+                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
                         <span>{job.jobNumber ? `Job #${job.jobNumber}` : 'No job number'}</span>
-                        {job.sourceEstimateId ? <Badge label="From Estimate" className="bg-brand-100 text-brand-700" /> : null}
+                        {job.sourceEstimateId ? <Badge label="From Estimate" className="shrink-0 whitespace-nowrap bg-gray-100 text-gray-600 dark:bg-brand-700 dark:text-brand-200" /> : null}
                       </div>
                     </td>
-                    <td className="py-3 pr-4 text-gray-600 dark:text-brand-100">
+                    <td className="py-3 pr-6 text-gray-600 dark:text-brand-100">
                       <p>{customer?.name ?? '—'}</p>
                       <p className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Started {formatDate(job.startDate)}</p>
                     </td>
@@ -355,11 +342,8 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                       <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-brand-700"><div className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div>
                       <p className="mt-1 text-xs tabular-nums text-gray-500 dark:text-brand-300">{job.actualHours.toFixed(1)} / {job.estimatedHours} hrs</p>
                     </td>
-                    {canViewFinancials ? <td className="py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(job.contractValue)}</td> : null}
-                    <td className="py-3 pr-4">
-                      {risk?.atRisk ? <div className="flex max-w-56 flex-wrap gap-1"><Badge label="At Risk" className="bg-accent-100 text-accent-700" />{risk.warningBadges.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div> : <Badge label="On Track" className="bg-gray-100 text-gray-700 dark:bg-brand-700 dark:text-brand-100" />}
-                    </td>
-                    <td className="py-3">
+                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(job.contractValue)}</td> : null}
+                    <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }} title="Open Details"><ChevronRight size={13} /></Button>
                         <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }} title="Edit Job"><Pencil size={13} /></Button>
