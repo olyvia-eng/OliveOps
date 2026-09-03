@@ -300,6 +300,7 @@ export interface QuickBooksItemReference extends QuickBooksResourceReference {
 
 export interface QuickBooksTaxCodeReference extends QuickBooksResourceReference {
   taxable: boolean;
+  rate?: number;
 }
 
 export interface QuickBooksConfiguration {

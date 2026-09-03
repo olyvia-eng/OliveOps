@@ -11,6 +11,7 @@ import {
   createQuickBooksInvoice,
   fetchQuickBooksInvoice,
   getValidQuickBooksAccessToken,
+  listQuickBooksTaxCodes,
 } from '../../_lib/quickBooksService.js';
 import {
   buildQuickBooksInvoicePayload,
@@ -77,7 +78,14 @@ export default async function handler(req, res) {
       realmId: connection.realmId,
       customerId: invoice.customerId,
     });
-    const payload = buildQuickBooksInvoicePayload({ invoice, customerMapping, configuration: connection.configuration });
+    const taxCodes = await listQuickBooksTaxCodes({ accessToken, realmId: connection.realmId });
+    const taxCodeById = new Map(taxCodes.map((taxCode) => [taxCode.id, taxCode]));
+    const configuration = {
+      ...connection.configuration,
+      taxableTaxCode: taxCodeById.get(String(connection.configuration?.taxableTaxCode?.id ?? '')),
+      nonTaxableTaxCode: taxCodeById.get(String(connection.configuration?.nonTaxableTaxCode?.id ?? '')),
+    };
+    const payload = buildQuickBooksInvoicePayload({ invoice, customerMapping, configuration });
     const providerInvoice = await createQuickBooksInvoice({
       accessToken,
       realmId: connection.realmId,

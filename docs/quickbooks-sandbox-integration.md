@@ -1,6 +1,6 @@
 # QuickBooks Online Sandbox Integration
 
-Phase 1 connects one QuickBooks Online sandbox company to one OliveOps business. OliveOps remains the contractor operations system. QuickBooks remains the accounting system of record for balances, payments, tax reporting, reconciliation, payroll, and the general ledger.
+Phase 1 connects one QuickBooks Online sandbox company to one OliveOps business. OliveOps remains the invoice record. QuickBooks is an optional accounting destination.
 
 ## Intuit sandbox setup
 
@@ -40,8 +40,8 @@ Changing or losing this key makes stored QuickBooks credentials undecryptable. U
 After connecting, an owner or admin must explicitly:
 
 1. Map each OliveOps invoice category in use to an active QuickBooks Product/Service Item.
-2. Select an active taxable QuickBooks sales tax code.
-3. Confirm that QuickBooks supplies one unambiguous active non-taxable tax code.
+2. Select an active taxable QuickBooks sales tax code when taxable invoices will be synchronized.
+3. Select an active non-taxable QuickBooks sales tax code. A single valid option may be preselected; multiple options require an explicit choice.
 4. Map each OliveOps customer to an existing QuickBooks customer or explicitly create it in QuickBooks.
 
 OliveOps never guesses Product/Service Items, income accounts, tax codes, customer matches, or currency conversion.
@@ -50,6 +50,7 @@ OliveOps never guesses Product/Service Items, income accounts, tax codes, custom
 
 - Legacy OliveOps invoices retain tax-inclusive `unitPrice` calculations and are sent to QuickBooks with `TaxInclusive` semantics.
 - Schema version 2 invoices use explicit pre-tax `unitPriceBeforeTax` values. OliveOps rounds each line subtotal and tax independently, and sends these invoices to QuickBooks with `TaxExcluded` semantics.
+- Before creation, OliveOps verifies that the current QuickBooks taxable code rate is compatible with the authoritative OliveOps invoice tax rate. Unknown or materially different treatment blocks only QuickBooks synchronization and leaves the OliveOps invoice unchanged.
 - Draft invoices cannot be created in QuickBooks. A user must explicitly mark the OliveOps invoice Sent first.
 - Historical flat invoices remain readable but cannot be created in QuickBooks until a user adds line details.
 - Each local invoice creates at most one QuickBooks invoice per QuickBooks realm.

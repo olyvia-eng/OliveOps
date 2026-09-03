@@ -158,7 +158,30 @@ test('QuickBooks settings expose and accept an invoice-only Contract Services ma
   const types = readFileSync('src/types/index.ts', 'utf8');
   assert.match(types, /InvoiceLineCategory = 'contract_service' \| LineItemCategory/);
   assert.match(page, /value: 'contract_service', label: 'Contract Services'/);
-  assert.match(endpoint, /\['contract_service', 'material', 'equipment', 'labour', 'subcontractor'\]/);
+  assert.match(endpoint, /buildQuickBooksConfigurationSelection/);
+});
+
+test('QuickBooks settings keep OliveOps authoritative and expose explicit tax-code setup', () => {
+  const page = readFileSync('src/pages/settings/IntegrationsPage.tsx', 'utf8');
+  const endpoint = readFileSync('api/integrations/quickbooks/settings.js', 'utf8');
+  assert.match(page, /Sandbox connection\. OliveOps remains the invoice record\. QuickBooks is an optional accounting destination\./);
+  assert.match(page, /Non-taxable Sales Tax Code/);
+  assert.match(page, /validNonTaxableCodes\.length === 1 \? validNonTaxableCodes\[0\]\.id : ''/);
+  assert.match(page, /nonTaxableId: configured\?\.nonTaxableTaxCode\?\.id \?\? ''/);
+  assert.match(page, /This QuickBooks company is not configured for Canada\. Ontario HST invoices cannot be fully validated in this sandbox\./);
+  assert.match(page, /This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available\./);
+  assert.match(endpoint, /nonTaxableTaxCodeId/);
+  assert.doesNotMatch(endpoint, /one unambiguous non-taxable tax code/);
+});
+
+test('QuickBooks-only mapping failures do not alter local invoice creation or sending', () => {
+  const invoicePage = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  const projection = readFileSync('api/_lib/quickBooksSync.js', 'utf8');
+  const syncEndpoint = readFileSync('api/integrations/quickbooks/invoices.js', 'utf8');
+  assert.match(projection, /Map Contract Services to a QuickBooks Product\/Service before syncing this invoice\./);
+  assert.match(invoicePage, /selected \? await updateInvoice\(selected\.id, data\) : await addInvoice\(data\)/);
+  assert.match(invoicePage, /await updateInvoice\(invoice\.id, nextStatus === 'void'.*\{ status: nextStatus \}/);
+  assert.match(syncEndpoint, /const payload = buildQuickBooksInvoicePayload[\s\S]*createQuickBooksInvoice/);
 });
 
 test('QuickBooks refuses draft invoice creation and supports both tax modes', () => {

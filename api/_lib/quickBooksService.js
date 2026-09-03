@@ -224,18 +224,36 @@ export async function listQuickBooksItems({ accessToken, realmId, fetchImpl = fe
 }
 
 export async function listQuickBooksTaxCodes({ accessToken, realmId, fetchImpl = fetch }) {
-  const payload = await queryQuickBooks({
-    accessToken,
-    realmId,
-    statement: 'select * from TaxCode where Active = true maxresults 1000',
-    fetchImpl,
+  const [payload, taxRatePayload] = await Promise.all([
+    queryQuickBooks({
+      accessToken,
+      realmId,
+      statement: 'select * from TaxCode where Active = true maxresults 1000',
+      fetchImpl,
+    }),
+    queryQuickBooks({
+      accessToken,
+      realmId,
+      statement: 'select * from TaxRate where Active = true maxresults 1000',
+      fetchImpl,
+    }),
+  ]);
+  const taxRateById = new Map((taxRatePayload.QueryResponse?.TaxRate ?? []).map((taxRate) => [String(taxRate.Id), taxRate]));
+  return (payload.QueryResponse?.TaxCode ?? []).map((taxCode) => {
+    const details = taxCode.SalesTaxRateList?.TaxRateDetail ?? [];
+    const resolvedRates = details.map((detail) => taxRateById.get(String(detail.TaxRateRef?.value ?? '')))
+      .filter((taxRate) => taxRate?.Active !== false)
+      .map((taxRate) => Number(taxRate?.RateValue));
+    return {
+      id: String(taxCode.Id),
+      name: taxCode.Name ?? '',
+      taxable: taxCode.Taxable === true,
+      active: taxCode.Active !== false,
+      rate: taxCode.Taxable === true && resolvedRates.length === details.length && resolvedRates.every(Number.isFinite)
+        ? resolvedRates.reduce((total, rate) => total + rate, 0)
+        : (taxCode.Taxable === true ? undefined : 0),
+    };
   });
-  return (payload.QueryResponse?.TaxCode ?? []).map((taxCode) => ({
-    id: String(taxCode.Id),
-    name: taxCode.Name ?? '',
-    taxable: taxCode.Taxable === true,
-    active: taxCode.Active !== false,
-  }));
 }
 
 export async function listQuickBooksCustomers({ accessToken, realmId, displayName, fetchImpl = fetch }) {

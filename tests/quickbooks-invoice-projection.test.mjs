@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildQuickBooksConfigurationSelection,
   buildQuickBooksCustomerPayload,
   buildQuickBooksInvoicePayload,
   hashInvoiceSource,
@@ -28,7 +29,7 @@ const configuration = {
     labour: { id: 'item-1', name: 'Labour' },
     material: { id: 'item-2', name: 'Materials' },
   },
-  taxableTaxCode: { id: 'tax-hst', name: 'HST', taxable: true },
+  taxableTaxCode: { id: 'tax-hst', name: 'HST', taxable: true, rate: 13 },
   nonTaxableTaxCode: { id: 'NON', name: 'Non-taxable', taxable: false },
 };
 
@@ -64,6 +65,49 @@ test('QuickBooks invoice projection fails closed on missing mappings', () => {
     }),
     /Map the material category/
   );
+});
+
+test('multiple non-taxable codes require an explicit selection without arbitrary inference', () => {
+  const taxCodes = [
+    { ...configuration.taxableTaxCode, active: true },
+    { id: 'NON-1', name: 'Zero rated', taxable: false, active: true, rate: 0 },
+    { id: 'NON-2', name: 'Exempt', taxable: false, active: true, rate: 0 },
+  ];
+  assert.throws(() => buildQuickBooksConfigurationSelection({
+    requestedMappings: {}, taxableTaxCodeId: 'tax-hst', nonTaxableTaxCodeId: '', items: [], taxCodes,
+  }), /Select an active non-taxable/);
+  const selected = buildQuickBooksConfigurationSelection({
+    requestedMappings: {}, taxableTaxCodeId: 'tax-hst', nonTaxableTaxCodeId: 'NON-2', items: [], taxCodes,
+  });
+  assert.equal(selected.nonTaxableTaxCode.id, 'NON-2');
+});
+
+test('existing mapping IDs remain compatible when provider resources are refreshed', () => {
+  const selected = buildQuickBooksConfigurationSelection({
+    requestedMappings: { labour: 'item-1' },
+    taxableTaxCodeId: 'tax-hst',
+    nonTaxableTaxCodeId: 'NON',
+    items: [{ ...configuration.categoryMappings.labour, active: true, type: 'Service' }],
+    taxCodes: [
+      { ...configuration.taxableTaxCode, active: true },
+      { ...configuration.nonTaxableTaxCode, active: true },
+    ],
+  });
+  assert.equal(selected.categoryMappings.labour.id, 'item-1');
+  assert.equal(selected.taxableTaxCode.rate, 13);
+});
+
+test('tax rate mismatch fails before a QuickBooks invoice can be projected', () => {
+  assert.throws(() => buildQuickBooksInvoicePayload({
+    invoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { ...configuration, taxableTaxCode: { ...configuration.taxableTaxCode, rate: 7.25 } },
+  }), /does not match the OliveOps invoice tax rate.*invoice was not changed/);
+  assert.throws(() => buildQuickBooksInvoicePayload({
+    invoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { ...configuration, taxableTaxCode: { ...configuration.taxableTaxCode, rate: undefined } },
+  }), /did not provide a verifiable rate.*invoice was not changed/);
 });
 
 test('QuickBooks request IDs and invoice source hashes are deterministic', () => {
@@ -122,7 +166,7 @@ test('Contract Services requires its own QuickBooks Product/Service mapping', ()
   };
   assert.throws(
     () => buildQuickBooksInvoicePayload({ invoice: contractInvoice, customerMapping: { quickBooksCustomerId: 'qbo-customer-1' }, configuration }),
-    /Map the Contract Services category/
+    /Map Contract Services to a QuickBooks Product\/Service before syncing this invoice\./
   );
   const payload = buildQuickBooksInvoicePayload({
     invoice: contractInvoice,

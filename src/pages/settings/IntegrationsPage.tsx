@@ -69,6 +69,8 @@ export default function IntegrationsPage() {
   const [quickBooksTaxCodes, setQuickBooksTaxCodes] = useState<QuickBooksTaxCodeReference[]>([]);
   const [quickBooksMappings, setQuickBooksMappings] = useState<Partial<Record<InvoiceLineCategory, string>>>({});
   const [taxableTaxCodeId, setTaxableTaxCodeId] = useState('');
+  const [nonTaxableTaxCodeId, setNonTaxableTaxCodeId] = useState('');
+  const [savedQuickBooksConfiguration, setSavedQuickBooksConfiguration] = useState('');
   const [quickBooksSaving, setQuickBooksSaving] = useState(false);
   const [syncCustomerId, setSyncCustomerId] = useState('');
   const [customerCandidates, setCustomerCandidates] = useState<QuickBooksCustomerCandidate[]>([]);
@@ -105,10 +107,16 @@ export default function IntegrationsPage() {
     setQuickBooks(settingsPayload.integration ?? statusPayload.integration);
     setQuickBooksItems(settingsPayload.items ?? []);
     setQuickBooksTaxCodes(settingsPayload.taxCodes ?? []);
-    setQuickBooksMappings(Object.fromEntries(
+    const mappings = Object.fromEntries(
       quickBooksCategories.map(({ value }) => [value, configured?.categoryMappings[value]?.id ?? ''])
-    ));
-    setTaxableTaxCodeId(configured?.taxableTaxCode?.id ?? '');
+    );
+    const taxableId = configured?.taxableTaxCode?.id ?? '';
+    const validNonTaxableCodes = (settingsPayload.taxCodes ?? []).filter((taxCode) => taxCode.active && !taxCode.taxable);
+    const nonTaxableId = configured?.nonTaxableTaxCode?.id ?? (validNonTaxableCodes.length === 1 ? validNonTaxableCodes[0].id : '');
+    setQuickBooksMappings(mappings);
+    setTaxableTaxCodeId(taxableId);
+    setNonTaxableTaxCodeId(nonTaxableId);
+    setSavedQuickBooksConfiguration(JSON.stringify({ mappings, taxableId, nonTaxableId: configured?.nonTaxableTaxCode?.id ?? '' }));
   };
 
   const loadMicrosoft = async () => {
@@ -340,7 +348,7 @@ export default function IntegrationsPage() {
     try {
       const response = await fetch('/api/integrations/quickbooks/settings', {
         method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ categoryMappings: quickBooksMappings, taxableTaxCodeId }),
+        body: JSON.stringify({ categoryMappings: quickBooksMappings, taxableTaxCodeId, nonTaxableTaxCodeId }),
       });
       const payload = await readJson<{ ok: boolean; error?: string }>(response);
       if (!response.ok || !payload?.ok) {
@@ -353,6 +361,23 @@ export default function IntegrationsPage() {
       setQuickBooksSaving(false);
     }
   };
+
+  const activeQuickBooksItemIds = new Set(quickBooksItems.filter((item) => item.active).map((item) => item.id));
+  const activeTaxableCodeIds = new Set(quickBooksTaxCodes.filter((taxCode) => taxCode.active && taxCode.taxable).map((taxCode) => taxCode.id));
+  const activeNonTaxableCodeIds = new Set(quickBooksTaxCodes.filter((taxCode) => taxCode.active && !taxCode.taxable).map((taxCode) => taxCode.id));
+  const currentQuickBooksConfiguration = JSON.stringify({ mappings: quickBooksMappings, taxableId: taxableTaxCodeId, nonTaxableId: nonTaxableTaxCodeId });
+  const quickBooksConfigurationDirty = currentQuickBooksConfiguration !== savedQuickBooksConfiguration;
+  const mappingErrors = Object.fromEntries(quickBooksCategories.map(({ value }) => {
+    const selectedId = quickBooksMappings[value];
+    return [value, selectedId && !activeQuickBooksItemIds.has(selectedId) ? 'Select an active QuickBooks Product/Service.' : ''];
+  })) as Partial<Record<InvoiceLineCategory, string>>;
+  const taxableTaxCodeError = taxableTaxCodeId && !activeTaxableCodeIds.has(taxableTaxCodeId) ? 'Select an active taxable QuickBooks sales tax code.' : '';
+  const nonTaxableTaxCodeError = !nonTaxableTaxCodeId
+    ? (activeNonTaxableCodeIds.size === 0 ? 'QuickBooks did not return an active non-taxable sales tax code.' : 'Select a non-taxable QuickBooks sales tax code.')
+    : (!activeNonTaxableCodeIds.has(nonTaxableTaxCodeId) ? 'Select an active non-taxable QuickBooks sales tax code.' : '');
+  const quickBooksConfigurationValid = !Object.values(mappingErrors).some(Boolean)
+    && (!taxableTaxCodeId || activeTaxableCodeIds.has(taxableTaxCodeId))
+    && !nonTaxableTaxCodeError;
 
   const findQuickBooksCustomer = async () => {
     if (!syncCustomerId) return;
@@ -545,6 +570,7 @@ export default function IntegrationsPage() {
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Badge label={quickBooks.connected ? 'Connected' : 'Not Connected'} className={quickBooks.connected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} />
                 {quickBooks.companyName ? <span className="text-sm text-brand-500 dark:text-brand-200">{quickBooks.companyName}</span> : null}
+                {quickBooks.country ? <span className="text-xs text-brand-500 dark:text-brand-200">{quickBooks.country}</span> : null}
                 {quickBooks.currency ? <span className="text-xs text-brand-500 dark:text-brand-200">{quickBooks.currency}</span> : null}
               </div>
             </div>
@@ -556,28 +582,42 @@ export default function IntegrationsPage() {
           )}
         </div>
 
+        {quickBooks.connected && quickBooks.country && quickBooks.country.toUpperCase() !== 'CA' && quickBooks.country.toUpperCase() !== 'CANADA' ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+            This QuickBooks company is not configured for Canada. Ontario HST invoices cannot be fully validated in this sandbox. This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available.
+          </div>
+        ) : null}
+
         <div className="grid gap-8 p-5 lg:grid-cols-2">
           <section>
             <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Invoice accounting mappings</h3>
             <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">Choose the QuickBooks Product/Service used for each OliveOps invoice category.</p>
             <div className="mt-4 space-y-3">
               {quickBooksCategories.map((category) => (
-                <Select
-                  key={category.value}
-                  label={category.label}
-                  disabled={!quickBooks.connected || quickBooksSaving}
-                  value={quickBooksMappings[category.value] ?? ''}
-                  onChange={(event) => setQuickBooksMappings((current) => ({ ...current, [category.value]: event.target.value }))}
-                >
-                  <option value="">Not mapped</option>
-                  {quickBooksItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.type})</option>)}
-                </Select>
+                <div key={category.value}>
+                  <Select
+                    label={category.label}
+                    disabled={!quickBooks.connected || quickBooksSaving}
+                    value={quickBooksMappings[category.value] ?? ''}
+                    onChange={(event) => setQuickBooksMappings((current) => ({ ...current, [category.value]: event.target.value }))}
+                  >
+                    <option value="">Not mapped</option>
+                    {quickBooksItems.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.type})</option>)}
+                  </Select>
+                  {mappingErrors[category.value] ? <p className="mt-1 text-xs text-red-600">{mappingErrors[category.value]}</p> : null}
+                </div>
               ))}
               <Select label="Taxable Sales Tax Code" disabled={!quickBooks.connected || quickBooksSaving} value={taxableTaxCodeId} onChange={(event) => setTaxableTaxCodeId(event.target.value)}>
                 <option value="">Select a tax code</option>
                 {quickBooksTaxCodes.filter((taxCode) => taxCode.taxable).map((taxCode) => <option key={taxCode.id} value={taxCode.id}>{taxCode.name}</option>)}
               </Select>
-              <Button disabled={!quickBooks.connected || quickBooksSaving || !taxableTaxCodeId} onClick={() => void saveQuickBooksConfiguration()}>Save Mappings</Button>
+              {taxableTaxCodeError ? <p className="-mt-2 text-xs text-red-600">{taxableTaxCodeError}</p> : null}
+              <Select label="Non-taxable Sales Tax Code" disabled={!quickBooks.connected || quickBooksSaving || activeNonTaxableCodeIds.size === 0} value={nonTaxableTaxCodeId} onChange={(event) => setNonTaxableTaxCodeId(event.target.value)}>
+                <option value="">Select a tax code</option>
+                {quickBooksTaxCodes.filter((taxCode) => !taxCode.taxable).map((taxCode) => <option key={taxCode.id} value={taxCode.id}>{taxCode.name}</option>)}
+              </Select>
+              {nonTaxableTaxCodeError ? <p className="-mt-2 text-xs text-red-600">{nonTaxableTaxCodeError}</p> : null}
+              <Button disabled={!quickBooks.connected || quickBooksSaving || !quickBooksConfigurationDirty || !quickBooksConfigurationValid} onClick={() => void saveQuickBooksConfiguration()}>Save Mappings</Button>
             </div>
           </section>
 
@@ -605,7 +645,7 @@ export default function IntegrationsPage() {
         </div>
 
         <div className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900">
-          Sandbox only. QuickBooks remains the accounting system of record for balances, payments, and tax reporting.
+          Sandbox connection. OliveOps remains the invoice record. QuickBooks is an optional accounting destination.
         </div>
       </Card>
     </div>

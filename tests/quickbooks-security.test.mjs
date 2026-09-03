@@ -15,6 +15,7 @@ import {
   buildQuickBooksAuthorizationUrl,
   fetchQuickBooksCompanyInfo,
   getValidQuickBooksAccessToken,
+  listQuickBooksTaxCodes,
   validateQuickBooksOAuthCallbackState,
 } from '../api/_lib/quickBooksService.js';
 import { completeQuickBooksConnection } from '../api/integrations/quickbooks/callback.js';
@@ -207,4 +208,19 @@ test('QuickBooks handlers require owner/admin sessions and never expose provider
   const statusSource = files[2];
   assert.match(statusSource, /toSafeQuickBooksConnection/);
   assert.doesNotMatch(statusSource, /encryptedAccessToken|encryptedRefreshToken/);
+});
+
+test('QuickBooks tax codes include resolved active sales-tax rates', async () => {
+  const responses = [
+    { QueryResponse: { TaxCode: [
+      { Id: 'TAX', Name: 'Taxable', Taxable: true, Active: true, SalesTaxRateList: { TaxRateDetail: [{ TaxRateRef: { value: 'RATE-1' } }] } },
+      { Id: 'NON', Name: 'Non-taxable', Taxable: false, Active: true },
+    ] } },
+    { QueryResponse: { TaxRate: [{ Id: 'RATE-1', RateValue: 13, Active: true }] } },
+  ];
+  const taxCodes = await listQuickBooksTaxCodes({
+    accessToken: 'access-token', realmId: 'realm-1',
+    fetchImpl: async () => jsonResponse(responses.shift()),
+  });
+  assert.deepEqual(taxCodes.map(({ id, rate }) => ({ id, rate })), [{ id: 'TAX', rate: 13 }, { id: 'NON', rate: 0 }]);
 });
