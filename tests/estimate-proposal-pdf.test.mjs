@@ -35,15 +35,21 @@ function estimate(areaCount = 1, descriptionsPerArea = 3) {
 }
 
 const pdfText = (doc) => Buffer.from(doc.output('arraybuffer')).toString('latin1');
+const pdfRenderedText = (output) => (output.match(/\((?:\\.|[^)])*\) Tj/g) ?? [])
+  .map((token) => token.slice(1, -4).replace(/\\([()\\])/g, '$1'))
+  .join(' ');
 
 test('proposal PDF renders customer-safe scope, branding, exact projected totals, and acceptance', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
   const pdf = createEstimateProposalDocument(projection);
   const output = pdfText(pdf);
+  const renderedText = pdfRenderedText(output);
 
-  for (const visible of ['PROPOSAL', 'Scope of Work', 'Work Area Total', 'Proposal Total', 'Acceptance of Proposal', 'Green Earth Contracting', 'PROP-2026-0042', '10 Billing Street', '20 Project Road']) {
+  for (const visible of ['PROPOSAL', 'Scope of Work', 'Proposal Total', 'Acceptance of Proposal', 'Green Earth Contracting', 'PROP-2026-0042', '10 Billing Street', '20 Project Road']) {
     assert.match(output, new RegExp(visible));
   }
+  assert.doesNotMatch(output, /Work Area Total/);
+  assert.match(renderedText, /This proposal is accepted, and the contractor is authorized to perform the work described above, subject to the stated terms and conditions\./);
   for (const hidden of ['unitCost', 'sellPrice', 'overheadRecovery', 'estimatedProfit', 'margin', 'John Smith', 'Mike White', 'Bobcat e50', 'HPB Aggregate', 'Trade Partner Inc.', 'Equipment catalog record', 'Employee record', 'Generated:']) {
     assert.doesNotMatch(output, new RegExp(hidden, 'i'));
   }
@@ -55,6 +61,28 @@ test('proposal PDF renders customer-safe scope, branding, exact projected totals
   assert.match(output, /\$39\.39/);
   assert.match(output, /\$342\.39/);
   assert.equal(pdf.getNumberOfPages(), 1);
+});
+
+test('multiple Work Areas render every Work Area total without changing proposal totals', () => {
+  const projection = buildEstimateProposalProjection({ estimate: estimate(2, 2), customer, business });
+  const output = pdfText(createEstimateProposalDocument(projection));
+
+  assert.equal((output.match(/Work Area Total/g) ?? []).length, 2);
+  assert.match(output, /\$201\.00/);
+  assert.match(output, /\$203\.00/);
+  assert.match(output, /\$404\.00/);
+  assert.match(output, /\$52\.52/);
+  assert.match(output, /\$456\.52/);
+});
+
+test('acceptance omits terms wording when no Terms and Conditions are displayed', () => {
+  const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business: { ...business, proposalTerms: '' } });
+  const output = pdfText(createEstimateProposalDocument(projection));
+  const renderedText = pdfRenderedText(output);
+
+  assert.doesNotMatch(output, /\(Terms and Conditions\)/);
+  assert.match(renderedText, /This proposal is accepted, and the contractor is authorized to perform the work described above\./);
+  assert.doesNotMatch(renderedText, /subject to the stated terms and conditions\./);
 });
 
 test('long proposal paginates without clipping and prints proposal/page footers on every page', () => {

@@ -100,6 +100,7 @@ export function createEstimateProposalDocument(projection: EstimateProposalProje
   doc.text('Scope of Work', MARGIN, cursorY);
   cursorY += 22;
 
+  const showWorkAreaTotals = projection.workAreas.length > 1;
   for (const area of projection.workAreas) {
     const scopeLines = area.scopeLines.length ? area.scopeLines : ['Scope details to be confirmed.'];
     const firstLines = lines(scopeLines[0], CONTENT_WIDTH - 28);
@@ -118,13 +119,17 @@ export function createEstimateProposalDocument(projection: EstimateProposalProje
       cursorY += wrapped.length * 12 + 7;
     }
 
-    ensureSpace(31);
-    divider(cursorY);
-    cursorY += 17;
-    setText(9.5, NAVY, 'bold');
-    doc.text('Work Area Total', PAGE_WIDTH - MARGIN - 118, cursorY);
-    doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-    cursorY += 25;
+    if (showWorkAreaTotals) {
+      ensureSpace(31);
+      divider(cursorY);
+      cursorY += 17;
+      setText(9.5, NAVY, 'bold');
+      doc.text('Work Area Total', PAGE_WIDTH - MARGIN - 118, cursorY);
+      doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+      cursorY += 25;
+    } else {
+      cursorY += 6;
+    }
   }
 
   ensureSpace(104);
@@ -171,7 +176,10 @@ export function createEstimateProposalDocument(projection: EstimateProposalProje
   doc.text('Acceptance of Proposal', MARGIN, cursorY);
   cursorY += 19;
   setText(9.5, MUTED);
-  const acceptance = lines('This proposal is accepted, and the contractor is authorized to perform the work described above, subject to the stated terms and conditions.', CONTENT_WIDTH);
+  const acceptanceText = clean(projection.proposal.terms)
+    ? 'This proposal is accepted, and the contractor is authorized to perform the work described above, subject to the stated terms and conditions.'
+    : 'This proposal is accepted, and the contractor is authorized to perform the work described above.';
+  const acceptance = lines(acceptanceText, CONTENT_WIDTH);
   doc.text(acceptance, MARGIN, cursorY);
   cursorY += acceptance.length * 12 + 28;
   setText(8.5, MUTED);
