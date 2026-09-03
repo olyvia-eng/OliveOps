@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { PageHeader, Button, Card, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
+import { PageHeader, Button, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
 import { statusColor, formatCurrency, formatDate, durationHours } from '../../utils';
 import type { Job, JobStatus } from '../../types';
@@ -254,13 +254,13 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search jobs…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            className="w-full h-10 pl-9 pr-3 text-sm border border-gray-300 rounded-xl shadow-sm bg-white dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as JobStatus | 'all')}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+          className="h-10 border border-gray-300 rounded-xl px-3 text-sm bg-white shadow-sm dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
         >
           <option value="all">All Statuses</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
@@ -268,7 +268,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
         <select
           value={riskFilter}
           onChange={(e) => setRiskFilter(e.target.value as RiskFilter)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+          className="h-10 border border-gray-300 rounded-xl px-3 text-sm bg-white shadow-sm dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
         >
           <option value="all">All Risk Levels</option>
           <option value="at_risk">At Risk Jobs</option>
@@ -300,76 +300,77 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
         ) : (
           <EmptyState
             icon={<FilterX aria-hidden="true" />}
-            title="No jobs match your filters"
-            description="Try a different search or clear your current filters."
+            title="No jobs found"
+            description="Adjust your search or filters, or create a new Job."
             action={hasFilters ? <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('all'); setRiskFilter('all'); }}>Clear Filters</Button> : undefined}
+            secondaryAction={<Button onClick={openNew}><Plus size={16} /> New Job</Button>}
           />
         )
       ) : (
-        <div className="space-y-3">
-          {filtered.map((job) => {
-            const customer = customers.find((c) => c.id === job.customerId);
-            const actualCostTotal = job.actualCosts.reduce((s, c) => s + c.total, 0);
-            const pct = job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
-            const profit = job.contractValue - actualCostTotal;
-            const risk = jobRiskById.get(job.id);
-            return (
-              <Card
-                key={job.id}
-                className={`cursor-pointer p-4 transition-colors ${workspace.recordId === job.id ? 'border-brand-400 bg-brand-50 ring-1 ring-brand-300 dark:border-brand-400 dark:bg-brand-600' : ''}`}
-                onClick={() => selectJob(job.id)}
-                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectJob(job.id); }}
-                role="button"
-                tabIndex={0}
-                aria-selected={workspace.recordId === job.id}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge label={job.status} className={statusColor[job.status]} />
-                      {risk?.atRisk && <Badge label="At Risk" className="bg-accent-100 text-accent-700" />}
-                      {job.sourceEstimateId ? <Badge label="From Estimate" className="bg-brand-100 text-brand-700" /> : null}
-                      <button type="button" className="truncate font-semibold text-gray-900 hover:text-brand-600 dark:text-brand-50">
-                        {job.title}
-                      </button>
-                    </div>
-                    {job.jobNumber ? (
-                      <p className="text-xs text-gray-500 mb-1">Job #{job.jobNumber}</p>
-                    ) : null}
-                    {risk && risk.warningBadges.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {risk.warningBadges.map((warning) => (
-                          <Badge key={warning.label} label={warning.label} className={warning.className} />
-                        ))}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-brand-600 dark:text-brand-300">
+                <th className="pb-2 font-medium">Job</th>
+                <th className="pb-2 font-medium">Customer</th>
+                <th className="pb-2 font-medium">Work Areas</th>
+                <th className="pb-2 font-medium">Status</th>
+                <th className="pb-2 font-medium">Progress</th>
+                {canViewFinancials ? <th className="pb-2 text-right font-medium">Contract Value</th> : null}
+                <th className="pb-2 font-medium">Risk</th>
+                <th className="pb-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-brand-700">
+              {filtered.map((job) => {
+                const customer = customers.find((item) => item.id === job.customerId);
+                const progress = job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
+                const risk = jobRiskById.get(job.id);
+                const workAreaNames = job.operationalWorkAreas?.map((area) => area.name) ?? job.workAreas ?? [];
+                const workAreaLabel = workAreaNames.length ? workAreaNames.join(', ') : '—';
+
+                return (
+                  <tr
+                    key={job.id}
+                    className={`cursor-pointer transition-colors ${workspace.recordId === job.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`}
+                    onClick={() => selectJob(job.id)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectJob(job.id); }}
+                    tabIndex={0}
+                    aria-selected={workspace.recordId === job.id}
+                  >
+                    <td className="py-3 pr-4">
+                      <button type="button" className="font-semibold text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
+                        <span>{job.jobNumber ? `Job #${job.jobNumber}` : 'No job number'}</span>
+                        {job.sourceEstimateId ? <Badge label="From Estimate" className="bg-brand-100 text-brand-700" /> : null}
                       </div>
-                    )}
-                    <p className="text-sm text-gray-500">{customer?.name ?? '—'} · Started {formatDate(job.startDate)}</p>
-                    {job.workAreas?.length ? (
-                      <p className="text-xs text-gray-500 mt-1">Work Areas: {job.workAreas.join(', ')}</p>
-                    ) : null}
-                    {/* Hours bar */}
-                    <div className="flex items-center gap-2 mt-2">
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 max-w-xs">
-                        <div className={`h-1.5 rounded-full ${pct >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
+                    </td>
+                    <td className="py-3 pr-4 text-gray-600 dark:text-brand-100">
+                      <p>{customer?.name ?? '—'}</p>
+                      <p className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Started {formatDate(job.startDate)}</p>
+                    </td>
+                    <td className="max-w-56 py-3 pr-4 text-gray-600 dark:text-brand-100"><p className="truncate" title={workAreaLabel}>{workAreaLabel}</p></td>
+                    <td className="py-3 pr-4"><Badge label={job.status} className={statusColor[job.status]} /></td>
+                    <td className="w-44 py-3 pr-4">
+                      <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-brand-700"><div className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div>
+                      <p className="mt-1 text-xs tabular-nums text-gray-500 dark:text-brand-300">{job.actualHours.toFixed(1)} / {job.estimatedHours} hrs</p>
+                    </td>
+                    {canViewFinancials ? <td className="py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(job.contractValue)}</td> : null}
+                    <td className="py-3 pr-4">
+                      {risk?.atRisk ? <div className="flex max-w-56 flex-wrap gap-1"><Badge label="At Risk" className="bg-accent-100 text-accent-700" />{risk.warningBadges.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div> : <Badge label="On Track" className="bg-gray-100 text-gray-700 dark:bg-brand-700 dark:text-brand-100" />}
+                    </td>
+                    <td className="py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }} title="Open Details"><ChevronRight size={13} /></Button>
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }} title="Edit Job"><Pencil size={13} /></Button>
+                        {!job.sourceEstimateId ? <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }} title="Delete Job"><Trash2 size={13} className="text-accent-600" /></Button> : null}
                       </div>
-                      <span className="text-xs text-gray-500">{job.actualHours.toFixed(1)}/{job.estimatedHours}h</span>
-                    </div>
-                  </div>
-                  {canViewFinancials ? <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold">{formatCurrency(job.contractValue)}</p>
-                    <p className={`text-xs ${profit >= 0 ? 'text-brand-700' : 'text-accent-600'}`}>
-                      {profit >= 0 ? '+' : ''}{formatCurrency(profit)} margin
-                    </p>
-                  </div> : null}
-                </div>
-                <div className="flex gap-2 mt-3 pt-3 border-t border-gray-100">
-                  <Button variant="secondary" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }}><ChevronRight size={13} /> Details</Button>
-                  <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }}><Pencil size={13} /></Button>
-                  {!job.sourceEstimateId ? <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }}><Trash2 size={13} className="text-accent-600" /></Button> : null}
-                </div>
-              </Card>
-            );
-          })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
