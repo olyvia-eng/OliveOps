@@ -7,7 +7,7 @@ import { useStore } from '../../store';
 import type {
   GoogleCalendarIntegration,
   GoogleCalendarListItem,
-  LineItemCategory,
+  InvoiceLineCategory,
   MicrosoftCalendarIntegration,
   MicrosoftCalendarListItem,
   QuickBooksCustomerCandidate,
@@ -38,7 +38,8 @@ const emptyMicrosoftIntegration: MicrosoftCalendarIntegration = {
     divisionIds: [],
   },
 };
-const quickBooksCategories: { value: LineItemCategory; label: string }[] = [
+const quickBooksCategories: { value: InvoiceLineCategory; label: string }[] = [
+  { value: 'contract_service', label: 'Contract Services' },
   { value: 'labour', label: 'Labour' },
   { value: 'material', label: 'Material' },
   { value: 'equipment', label: 'Equipment' },
@@ -66,7 +67,7 @@ export default function IntegrationsPage() {
   const [quickBooks, setQuickBooks] = useState<QuickBooksIntegration>(emptyQuickBooksIntegration);
   const [quickBooksItems, setQuickBooksItems] = useState<QuickBooksItemReference[]>([]);
   const [quickBooksTaxCodes, setQuickBooksTaxCodes] = useState<QuickBooksTaxCodeReference[]>([]);
-  const [quickBooksMappings, setQuickBooksMappings] = useState<Partial<Record<LineItemCategory, string>>>({});
+  const [quickBooksMappings, setQuickBooksMappings] = useState<Partial<Record<InvoiceLineCategory, string>>>({});
   const [taxableTaxCodeId, setTaxableTaxCodeId] = useState('');
   const [quickBooksSaving, setQuickBooksSaving] = useState(false);
   const [syncCustomerId, setSyncCustomerId] = useState('');

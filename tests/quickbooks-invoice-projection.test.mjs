@@ -72,6 +72,7 @@ test('QuickBooks request IDs and invoice source hashes are deterministic', () =>
     quickBooksRequestId('invoice', 'business-1', 'realm-1', 'invoice-1')
   );
   assert.notEqual(hashInvoiceSource(invoice), hashInvoiceSource({ ...invoice, notes: 'Changed' }));
+  assert.notEqual(hashInvoiceSource(invoice), hashInvoiceSource({ ...invoice, lineItems: invoice.lineItems.map((line, index) => index === 0 ? { ...line, category: 'contract_service' } : line) }));
 });
 
 test('QuickBooks invoice status is derived read-only from balance and due date', () => {
@@ -112,4 +113,21 @@ test('QuickBooks invoice projection sends schema version 2 prices as tax-exclusi
     { amount: 100, unitPrice: 50 },
     { amount: 50, unitPrice: 50 },
   ]);
+});
+
+test('Contract Services requires its own QuickBooks Product/Service mapping', () => {
+  const contractInvoice = {
+    ...invoice,
+    lineItems: [{ ...invoice.lineItems[0], category: 'contract_service', description: 'Contract deposit' }],
+  };
+  assert.throws(
+    () => buildQuickBooksInvoicePayload({ invoice: contractInvoice, customerMapping: { quickBooksCustomerId: 'qbo-customer-1' }, configuration }),
+    /Map the Contract Services category/
+  );
+  const payload = buildQuickBooksInvoicePayload({
+    invoice: contractInvoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { ...configuration, categoryMappings: { ...configuration.categoryMappings, contract_service: { id: 'item-contract', name: 'Contract Services' } } },
+  });
+  assert.equal(payload.Line[0].SalesItemLineDetail.ItemRef.value, 'item-contract');
 });

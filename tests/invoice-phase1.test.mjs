@@ -93,7 +93,7 @@ test('invoice builder presents the requested compact section order and helper co
   ].map((label) => page.indexOf(label));
   assert.ok(sections.every((position) => position >= 0));
   assert.deepEqual(sections, sections.slice().sort((left, right) => left - right));
-  for (const copy of ['Collect an upfront payment', 'Bill part of the contract', 'Bill the remaining balance', 'Build an invoice manually', 'Percentage of contract.', 'Pre-tax amount.', 'Full selected lines will be added']) {
+  for (const copy of ['Collect an upfront payment', 'Bill part of the contract', 'Bill the remaining balance', 'Build an invoice manually', 'Percentage of contract', 'Full selected lines will be added']) {
     assert.match(page, new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.match(page, /label="HST rate \(%\)"/);
@@ -104,20 +104,61 @@ test('invoice builder presents the requested compact section order and helper co
 test('generated invoice lines preserve edited descriptions and calculated amounts', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /const description = next\.lineItems\[0\]\?\.description\.trim\(\) \|\| defaultDescription/);
+  assert.match(page, /line\.description === generatedDescription\(form\.invoiceType\) \? \{ \.\.\.line, description: '' \} : line/);
   assert.match(page, /unitPrice: amount, unitPriceBeforeTax: amount/);
+  assert.match(page, /category: 'contract_service'/);
   assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
   assert.match(page, /label="Description" disabled=\{!editable\}/);
   assert.match(page, /label="Quantity" type="number" disabled=\{!financialEditable\}/);
+  assert.match(page, /label=\{legacy \? 'Legacy price incl\. tax' : 'Unit Price'\} type="number" disabled=\{!financialEditable\}/);
+  assert.match(page, /form\.invoiceType === 'custom'/);
 });
 
 test('invoice due date remains independently editable and save availability mirrors server rules', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /label="Due date"[^>]+onChange=\{\(event\) => setForm\(\(current\) => \(\{ \.\.\.current, dueDate: event\.target\.value \}\)\)\}/);
   assert.match(page, /const lineValidationError = validateInvoiceLineItems/);
-  assert.match(page, /disabled=\{saving \|\| Boolean\(saveDisabledReason\)\}/);
-  assert.match(page, /title=\{saveDisabledReason \|\| undefined\}/);
+  assert.match(page, /disabled=\{saving \|\| Boolean\(saveDisabledReason\) \|\| Boolean\(selected && !draftDirty\)\}/);
+  assert.match(page, /title=\{selected && !draftDirty \? 'No unsaved changes\.' : saveDisabledReason \|\| undefined\}/);
   assert.match(page, /Add a billable amount to save this draft\./);
   assert.match(page, /Confirm intentional over-contract billing to save this draft\./);
+});
+
+test('work-area selection is exclusive to Progress Work Areas and Final has one generated line', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /form\.invoiceType === 'progress' && form\.amountMode === 'work_areas'/);
+  assert.match(page, /invoiceType === 'progress' && hasSourceLines \? 'work_areas' : 'fixed'/);
+  assert.match(page, /lineItems: nextMode === 'work_areas' \|\| form\.amountMode === 'work_areas' \? \[\] : form\.lineItems/);
+  assert.match(page, /invoiceType === 'final'.*amountMode.*generatedLines/s);
+  assert.match(page, /return \{ \.\.\.next, lineItems: \[\{ \.\.\.emptyLine\(\), description, unitPrice: amount, unitPriceBeforeTax: amount \}\] \}/);
+  assert.match(page, /Remaining pre-tax balance:/);
+  assert.match(page, /window\.confirm\('Discard the current custom invoice lines\?'\)/);
+});
+
+test('source lines retain Job categories and custom lines expose Contract Services', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /category: line\.category/);
+  assert.match(page, /<option value="contract_service">Contract Services<\/option>/);
+  assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
+});
+
+test('saved Draft and issued headers are explicit and dirty Drafts cannot be sent', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /!selected \? 'New draft invoice' : selected\.status === 'draft' \? 'Draft invoice' : 'Invoice'/);
+  assert.match(page, /selected \? <Badge label=\{displayStatus\(selected\)\}/);
+  assert.match(page, /const draftDirty = Boolean\(selected\?\.status === 'draft'/);
+  assert.match(page, /disabled=\{saving \|\| draftDirty\}/);
+  assert.match(page, /Save draft changes before marking this invoice sent\./);
+  assert.match(page, /selected && !draftDirty/);
+});
+
+test('QuickBooks settings expose and accept an invoice-only Contract Services mapping', () => {
+  const page = readFileSync('src/pages/settings/IntegrationsPage.tsx', 'utf8');
+  const endpoint = readFileSync('api/integrations/quickbooks/settings.js', 'utf8');
+  const types = readFileSync('src/types/index.ts', 'utf8');
+  assert.match(types, /InvoiceLineCategory = 'contract_service' \| LineItemCategory/);
+  assert.match(page, /value: 'contract_service', label: 'Contract Services'/);
+  assert.match(endpoint, /\['contract_service', 'material', 'equipment', 'labour', 'subcontractor'\]/);
 });
 
 test('QuickBooks refuses draft invoice creation and supports both tax modes', () => {

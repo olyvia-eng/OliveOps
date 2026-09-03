@@ -3,7 +3,7 @@ import { getQuickBooksConnection, toSafeQuickBooksConnection, updateQuickBooksCo
 import { getValidQuickBooksAccessToken, listQuickBooksItems, listQuickBooksTaxCodes } from '../../_lib/quickBooksService.js';
 import { methodNotAllowed } from './_http.js';
 
-const CATEGORIES = ['material', 'equipment', 'labour', 'subcontractor'];
+const CATEGORIES = ['contract_service', 'material', 'equipment', 'labour', 'subcontractor'];
 
 export default async function handler(req, res) {
   if (!['GET', 'PATCH'].includes(req.method)) return methodNotAllowed(res, ['GET', 'PATCH']);

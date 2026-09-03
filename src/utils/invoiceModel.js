@@ -1,4 +1,5 @@
 export const INVOICE_LINE_CATEGORIES = Object.freeze([
+  'contract_service',
   'material',
   'equipment',
   'labour',

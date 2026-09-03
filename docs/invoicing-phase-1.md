@@ -21,7 +21,11 @@ New invoices use `schemaVersion: 2` and `pricingMode: tax_exclusive`:
 
 For each schema v2 line, `unitPriceBeforeTax` is the pre-tax unit price, `subtotal` is rounded quantity times unit price, `taxAmount` is rounded line subtotal times tax rate for taxable lines, and `total` is subtotal plus tax. `amount` remains populated with the line total for compatibility. Invoice subtotal, tax, and amount are sums of rounded lines. The server always recalculates all derived fields.
 
+Invoice lines use an invoice-specific category set: `contract_service`, `labour`, `material`, `equipment`, and `subcontractor`. Generated Deposit, fixed or percentage Progress, and Final lump-sum lines use `contract_service` (displayed as Contract Services). Imported Job source lines retain their snapshotted resource category. Estimate pricing categories remain unchanged.
+
 Source lines snapshot `sourceWorkAreaId`, `sourceLineItemId`, category, description, quantity, unit, pre-tax price, and taxable status. Future Estimate or Job-plan edits do not mutate saved invoices.
+
+QuickBooks configuration may map Contract Services independently from the four existing resource categories. Existing configurations remain readable and valid. An invoice containing a Contract Services line cannot sync until that category has an explicit QuickBooks Product/Service mapping; it never falls back to Labour or another mapping.
 
 ## Contract authority
 

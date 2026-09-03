@@ -132,3 +132,8 @@ test('invoice revenue excludes HST and preserves legacy fallbacks', () => {
   assert.equal(getInvoiceRevenueAmount({ amount: 113, taxRate: 13, lineItems: [line()] }), 100);
   assert.equal(getInvoiceRevenueAmount({ amount: 75 }), 75);
 });
+
+test('invoice validation accepts Contract Services without changing resource categories', () => {
+  assert.equal(validateInvoiceLineItems([line({ category: 'contract_service' })], 13), null);
+  assert.equal(validateInvoiceLineItems([line({ category: 'unknown' })], 13), 'Invoice line item category is invalid.');
+});

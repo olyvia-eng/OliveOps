@@ -231,10 +231,11 @@ export interface EstimateTemplate {
 
 export type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'void';
 export type InvoiceType = 'deposit' | 'progress' | 'final' | 'custom';
+export type InvoiceLineCategory = 'contract_service' | LineItemCategory;
 
 export interface InvoiceLineItem {
   id: ID;
-  category: LineItemCategory;
+  category: InvoiceLineCategory;
   description: string;
   quantity: number;
   unit: string;
@@ -302,7 +303,7 @@ export interface QuickBooksTaxCodeReference extends QuickBooksResourceReference 
 }
 
 export interface QuickBooksConfiguration {
-  categoryMappings: Partial<Record<LineItemCategory, QuickBooksItemReference>>;
+  categoryMappings: Partial<Record<InvoiceLineCategory, QuickBooksItemReference>>;
   taxableTaxCode?: QuickBooksTaxCodeReference;
   nonTaxableTaxCode?: QuickBooksTaxCodeReference;
 }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { calculateInvoiceLineFinancials, validateInvoiceLineItems } from '../../src/utils/invoiceModel.js';
 
-const CATEGORY_SET = new Set(['material', 'equipment', 'labour', 'subcontractor']);
+const CATEGORY_SET = new Set(['contract_service', 'material', 'equipment', 'labour', 'subcontractor']);
 
 export function quickBooksRequestId(type, businessId, realmId, entityId) {
   return createHash('sha256').update(`${type}:${businessId}:${realmId}:${entityId}`).digest('hex').slice(0, 48);
@@ -54,7 +54,8 @@ export function buildQuickBooksInvoicePayload({ invoice, customerMapping, config
   const lines = invoice.lineItems.map((lineItem) => {
     if (!CATEGORY_SET.has(lineItem.category)) throw new Error('Invoice line category is invalid.');
     const item = categoryMappings[lineItem.category];
-    if (!item?.id) throw new Error(`Map the ${lineItem.category} category to a QuickBooks Product/Service first.`);
+    const categoryLabel = lineItem.category === 'contract_service' ? 'Contract Services' : lineItem.category;
+    if (!item?.id) throw new Error(`Map the ${categoryLabel} category to a QuickBooks Product/Service first.`);
     const taxCode = lineItem.taxable ? taxableTaxCode : nonTaxableTaxCode;
     if (!taxCode?.id) throw new Error(`Configure a QuickBooks ${lineItem.taxable ? 'taxable' : 'non-taxable'} tax code first.`);
     const financials = calculateInvoiceLineFinancials(lineItem, invoice.taxRate, invoice.schemaVersion);
