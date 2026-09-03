@@ -101,16 +101,18 @@ test('invoice builder presents the requested compact section order and helper co
   assert.match(page, /grid gap-3 md:grid-cols-4/);
 });
 
-test('generated invoice lines preserve edited descriptions and calculated amounts', () => {
+test('generated invoice lines preserve editable state while protecting calculated fields', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /const description = next\.lineItems\[0\]\?\.description\.trim\(\) \|\| defaultDescription/);
-  assert.match(page, /line\.description === generatedDescription\(form\.invoiceType\) \? \{ \.\.\.line, description: '' \} : line/);
+  assert.match(page, /const taxable = next\.lineItems\[0\]\?\.taxable \?\? true/);
   assert.match(page, /unitPrice: amount, unitPriceBeforeTax: amount/);
   assert.match(page, /category: 'contract_service'/);
+  assert.match(page, /generatedLumpSum && !\['description', 'taxable'\]\.includes\(key\)/);
   assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
   assert.match(page, /label="Description" disabled=\{!editable\}/);
   assert.match(page, /label="Quantity" type="number" disabled=\{!financialEditable\}/);
   assert.match(page, /label=\{legacy \? 'Legacy price incl\. tax' : 'Unit Price'\} type="number" disabled=\{!financialEditable\}/);
+  assert.match(page, /type="checkbox" disabled=\{!editable\} checked=\{line\.taxable\}/);
   assert.match(page, /form\.invoiceType === 'custom'/);
 });
 
@@ -129,10 +131,20 @@ test('work-area selection is exclusive to Progress Work Areas and Final has one 
   assert.match(page, /form\.invoiceType === 'progress' && form\.amountMode === 'work_areas'/);
   assert.match(page, /invoiceType === 'progress' && hasSourceLines \? 'work_areas' : 'fixed'/);
   assert.match(page, /lineItems: nextMode === 'work_areas' \|\| form\.amountMode === 'work_areas' \? \[\] : form\.lineItems/);
-  assert.match(page, /invoiceType === 'final'.*amountMode.*generatedLines/s);
-  assert.match(page, /return \{ \.\.\.next, lineItems: \[\{ \.\.\.emptyLine\(\), description, unitPrice: amount, unitPriceBeforeTax: amount \}\] \}/);
+  assert.match(page, /const reset = \{ \.\.\.form, invoiceType, amountMode: 'fixed' as const, billingAmount: 0, billingPercent: 0, lineItems: \[\] \}/);
+  assert.match(page, /if \(invoiceType === 'custom'\) return setForm\(\{ \.\.\.reset, lineItems: \[emptyLine\(\)\] \}\)/);
+  assert.match(page, /next\.invoiceType === 'final' \? nextPosition\.remainingAmount/);
+  assert.match(page, /return \{ \.\.\.next, lineItems: \[\{ \.\.\.emptyLine\(\), description, taxable, unitPrice: amount, unitPriceBeforeTax: amount \}\] \}/);
   assert.match(page, /Remaining pre-tax balance:/);
-  assert.match(page, /window\.confirm\('Discard the current custom invoice lines\?'\)/);
+  assert.match(page, /window\.confirm\('Changing invoice type will clear the current invoice lines\. Continue\?'\)/);
+});
+
+test('opening a saved Draft hydrates its amount without invoice-type reset logic', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  const view = page.match(/const view = \(invoice: Invoice\) => \{[^\n]+/)?.[0] ?? '';
+  assert.match(view, /lineItems: invoice\.lineItems\?\.map\(\(line\) => \(\{ \.\.\.line \}\)\) \?\? \[\]/);
+  assert.match(view, /billingAmount: invoice\.subtotal \?\? invoice\.amount/);
+  assert.doesNotMatch(view, /chooseType|applyAmount/);
 });
 
 test('source lines retain Job categories and custom lines expose Contract Services', () => {
