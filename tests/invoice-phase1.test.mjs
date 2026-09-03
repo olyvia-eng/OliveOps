@@ -142,6 +142,24 @@ test('source lines retain Job categories and custom lines expose Contract Servic
   assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
 });
 
+test('generated lump-sum lines cannot be removed and lock Category to Contract Services', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /const generatedLumpSum = form\.invoiceType !== 'custom' && form\.amountMode !== 'work_areas' && !line\.sourceLineItemId/);
+  assert.match(page, /generatedLumpSum=\{generatedLumpSum\}/);
+  assert.match(page, /editable && !generatedLumpSum \? <button aria-label=\{`Remove line/);
+  assert.match(page, /generatedLumpSum \? <div>[\s\S]*title="Contract Services">Contract Services<\/p>[\s\S]*: <Select label="Category"/);
+  assert.match(page, /minmax\(150px,1\.25fr\)/);
+  assert.doesNotMatch(page, /Contract Serv\./);
+});
+
+test('custom and Work Area line removal paths remain available', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /form\.invoiceType === 'custom'.*<Plus \/> Add line/);
+  assert.match(page, /onRemove=\{\(\) => setForm\(\(current\) => \(\{ \.\.\.current, lineItems: current\.lineItems\.filter/);
+  assert.match(page, /toggleSource = .*current\.lineItems\.filter\(\(item\) => item\.sourceLineItemId !== line\.id\)/);
+  assert.match(page, /generatedLumpSum = .*form\.amountMode !== 'work_areas'/);
+});
+
 test('saved Draft and issued headers are explicit and dirty Drafts cannot be sent', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /!selected \? 'New draft invoice' : selected\.status === 'draft' \? 'Draft invoice' : 'Invoice'/);
