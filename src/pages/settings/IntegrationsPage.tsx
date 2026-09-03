@@ -28,6 +28,7 @@ const emptyIntegration: GoogleCalendarIntegration = {
 };
 
 const emptyQuickBooksIntegration: QuickBooksIntegration = { connected: false, environment: 'sandbox' };
+const OUTLOOK_INTEGRATION_ENABLED = false;
 const emptyMicrosoftIntegration: MicrosoftCalendarIntegration = {
   connected: false,
   preferences: {
@@ -141,7 +142,7 @@ export default function IntegrationsPage() {
     };
     void load();
     void loadQuickBooks();
-    void loadMicrosoft();
+    if (OUTLOOK_INTEGRATION_ENABLED) void loadMicrosoft();
   }, []);
 
   useEffect(() => {
@@ -149,7 +150,7 @@ export default function IntegrationsPage() {
   }, [integration.connected]);
 
   useEffect(() => {
-    if (microsoft.connected) void loadMicrosoftCalendars();
+    if (OUTLOOK_INTEGRATION_ENABLED && microsoft.connected) void loadMicrosoftCalendars();
   }, [microsoft.connected]);
 
   useEffect(() => {
@@ -190,6 +191,7 @@ export default function IntegrationsPage() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
+    if (!OUTLOOK_INTEGRATION_ENABLED) return;
     const result = searchParams.get('microsoft');
     if (!result) return;
     const messages: Record<string, { tone: 'success' | 'error'; message: string }> = {
@@ -506,7 +508,7 @@ export default function IntegrationsPage() {
         ) : null}
       </Card>
 
-      <Card className="mt-6 overflow-hidden">
+      {OUTLOOK_INTEGRATION_ENABLED ? <Card className="mt-6 overflow-hidden">
         <div className="flex flex-col gap-4 border-b border-brand-100 p-5 dark:border-brand-600 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-sky-100 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
@@ -562,7 +564,7 @@ export default function IntegrationsPage() {
             <CheckCircle2 size={14} /> Connected securely. Microsoft credentials remain server-side.
           </div>
         ) : null}
-      </Card>
+      </Card> : null}
 
       <Card className="mt-6 overflow-hidden">
         <div className="flex flex-col gap-4 border-b border-brand-100 p-5 dark:border-brand-600 sm:flex-row sm:items-start sm:justify-between">

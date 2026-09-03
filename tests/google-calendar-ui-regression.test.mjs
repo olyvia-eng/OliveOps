@@ -22,6 +22,22 @@ test('Google Calendar settings remain owner-admin guarded and expose no token fi
   assert.doesNotMatch(settingsSource, /refreshToken|accessToken|clientSecret/);
 });
 
+test('unfinished Outlook integration is hidden and does not request data while disabled', () => {
+  assert.match(settingsSource, /const OUTLOOK_INTEGRATION_ENABLED = false/);
+  assert.match(settingsSource, /if \(OUTLOOK_INTEGRATION_ENABLED\) void loadMicrosoft\(\)/);
+  assert.match(settingsSource, /if \(OUTLOOK_INTEGRATION_ENABLED && microsoft\.connected\) void loadMicrosoftCalendars\(\)/);
+  assert.match(settingsSource, /if \(!OUTLOOK_INTEGRATION_ENABLED\) return;[\s\S]*searchParams\.get\('microsoft'\)/);
+  assert.match(settingsSource, /\{OUTLOOK_INTEGRATION_ENABLED \? <Card[\s\S]*Connect Outlook Calendar[\s\S]*<\/Card> : null\}/);
+});
+
+test('Google Calendar and QuickBooks remain visible outside the Outlook availability gate', () => {
+  const outlookGateIndex = settingsSource.indexOf('{OUTLOOK_INTEGRATION_ENABLED ? <Card');
+  assert.ok(outlookGateIndex > 0);
+  assert.ok(settingsSource.indexOf('Connect Google Calendar') < outlookGateIndex);
+  assert.ok(settingsSource.indexOf('QuickBooks Online') > outlookGateIndex);
+  assert.match(settingsSource, /void load\(\);\s*void loadQuickBooks\(\);\s*if \(OUTLOOK_INTEGRATION_ENABLED\) void loadMicrosoft\(\);/);
+});
+
 test('company Schedule is provider-free and keeps operational job actions', () => {
   assert.doesNotMatch(calendarSource, /api\/integrations\/calendars\/events/);
   assert.doesNotMatch(calendarSource, /ExternalCalendarEvent|source: 'external'/);
