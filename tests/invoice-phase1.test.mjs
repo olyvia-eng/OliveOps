@@ -71,7 +71,8 @@ test('invoice API owns numbers, totals, snapshots, lifecycle timestamps, and des
 test('invoice drawer awaits persistence, keeps errors visible, and does not expose manual numbers', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   const store = readFileSync('src/store/index.ts', 'utf8');
-  assert.match(page, /Assigned when saved/);
+  assert.match(page, /Invoice number assigned when saved/);
+  assert.match(page, /selected\?\.number \?\? 'Invoice number assigned when saved'/);
   assert.doesNotMatch(page, /label="Invoice Number"/);
   assert.match(page, /const result = selected \? await updateInvoice/);
   assert.match(page, /if \(!result\.ok\) return setError/);
@@ -79,6 +80,44 @@ test('invoice drawer awaits persistence, keeps errors visible, and does not expo
   assert.match(page, /legacy \? 'Legacy price incl\. tax' : 'Unit Price'/);
   assert.match(store, /addInvoice: async/);
   assert.match(store, /payload\.invoice/);
+});
+
+test('invoice builder presents the requested compact section order and helper copy', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  const sections = [
+    '1. Job and contract',
+    '2. Invoice type and billing method',
+    '3. Invoice lines',
+    '4. Invoice details',
+    '5. Notes',
+  ].map((label) => page.indexOf(label));
+  assert.ok(sections.every((position) => position >= 0));
+  assert.deepEqual(sections, sections.slice().sort((left, right) => left - right));
+  for (const copy of ['Collect an upfront payment', 'Bill part of the contract', 'Bill the remaining balance', 'Build an invoice manually', 'Percentage of contract.', 'Pre-tax amount.', 'Full selected lines will be added']) {
+    assert.match(page, new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(page, /label="HST rate \(%\)"/);
+  assert.match(page, /label="Notes" rows=\{3\} className="resize-y"/);
+  assert.match(page, /grid gap-3 md:grid-cols-4/);
+});
+
+test('generated invoice lines preserve edited descriptions and calculated amounts', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /const description = next\.lineItems\[0\]\?\.description\.trim\(\) \|\| defaultDescription/);
+  assert.match(page, /unitPrice: amount, unitPriceBeforeTax: amount/);
+  assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
+  assert.match(page, /label="Description" disabled=\{!editable\}/);
+  assert.match(page, /label="Quantity" type="number" disabled=\{!financialEditable\}/);
+});
+
+test('invoice due date remains independently editable and save availability mirrors server rules', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /label="Due date"[^>]+onChange=\{\(event\) => setForm\(\(current\) => \(\{ \.\.\.current, dueDate: event\.target\.value \}\)\)\}/);
+  assert.match(page, /const lineValidationError = validateInvoiceLineItems/);
+  assert.match(page, /disabled=\{saving \|\| Boolean\(saveDisabledReason\)\}/);
+  assert.match(page, /title=\{saveDisabledReason \|\| undefined\}/);
+  assert.match(page, /Add a billable amount to save this draft\./);
+  assert.match(page, /Confirm intentional over-contract billing to save this draft\./);
 });
 
 test('QuickBooks refuses draft invoice creation and supports both tax modes', () => {
