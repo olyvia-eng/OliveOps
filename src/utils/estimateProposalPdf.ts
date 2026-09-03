@@ -101,15 +101,15 @@ export function createEstimateProposalDocument(projection: EstimateProposalProje
   cursorY += 22;
 
   for (const area of projection.workAreas) {
-    const descriptions = area.descriptions.length ? area.descriptions : ['Included work'];
-    const firstLines = lines(descriptions[0], CONTENT_WIDTH - 28);
+    const scopeLines = area.scopeLines.length ? area.scopeLines : ['Scope details to be confirmed.'];
+    const firstLines = lines(scopeLines[0], CONTENT_WIDTH - 28);
     ensureSpace(32 + firstLines.length * 12);
     setText(11.5, OLIVE, 'bold');
     doc.text(clean(area.name), MARGIN, cursorY);
     cursorY += 18;
 
-    for (const description of descriptions) {
-      const wrapped = lines(description, CONTENT_WIDTH - 28);
+    for (const scopeLine of scopeLines) {
+      const wrapped = lines(scopeLine, CONTENT_WIDTH - 28);
       ensureSpace(wrapped.length * 12 + 7);
       setText(9.5, MUTED);
       doc.setFillColor(...OLIVE);

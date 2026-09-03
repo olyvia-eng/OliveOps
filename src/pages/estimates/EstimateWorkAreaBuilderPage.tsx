@@ -648,6 +648,17 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               value={form.name}
               onChange={(event) => setForm((current) => current ? { ...current, name: event.target.value } : current)}
             />
+            <div>
+              <TextArea
+                label="Customer-facing scope of work"
+                disabled={isReadOnly}
+                rows={5}
+                className="resize-y"
+                value={form.description}
+                onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
+              />
+              <p className="mt-1.5 text-xs text-gray-500 dark:text-brand-300">Describe the work included in this area. This appears on the customer proposal.</p>
+            </div>
             <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
               <span>Estimate: {estimate.title}</span>
               {pricingBudget ? <span>• Pricing Budget: {pricingBudget.name}</span> : null}
@@ -685,12 +696,6 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           {CATEGORY_ORDER.map(renderLineItemGroup)}
 
           <Card className="p-4 space-y-4">
-            <TextArea
-              label="Description / Scope"
-              disabled={isReadOnly}
-              value={form.description}
-              onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
-            />
             {!isReadOnly ? <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="secondary" onClick={() => setConfirmDeleteOpen(true)}>
                 <Trash2 size={14} /> Delete Work Area

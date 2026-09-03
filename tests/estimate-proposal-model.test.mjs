@@ -8,13 +8,12 @@ const estimate = {
   propertyAddressSnapshot: '20 Project Road, Toronto, ON', createdAt: '2026-09-01T10:00:00.000Z', validUntil: '2026-10-01', taxRate: 13,
   notes: 'Customer-facing note.', internalNotes: 'Never print this.', estimatedProfit: 9000, margin: 40, overhead: 2000,
   workAreas: [{
-    id: 'patio', name: 'Patio', description: 'Excavate and prepare the patio area', sortOrder: 0,
+    id: 'patio', name: 'Patio', description: 'Excavate and prepare the patio area\n\nInstall interlocking stone\u0000\u0007', sortOrder: 0,
     lineItems: [
-      { category: 'labour', itemName: 'Labour', description: 'Labour', quantity: 10, unit: 'hr', unitCost: 25, sellPrice: 80, total: 800, employeeName: 'Alex', overheadRecoveryPerHour: 20 },
-      { category: 'equipment', itemName: 'Excavator', description: 'Supply and install interlocking stone', quantity: 4, unit: 'hr', unitCost: 50, sellPrice: 125, total: 500 },
-      { category: 'material', itemName: 'Stone', description: 'Supply and install interlocking stone', quantity: 1, unit: 'lot', unitCost: 1000, sellPrice: 1500, total: 1500 },
-      { category: 'subcontractor', itemName: 'Cleanup', description: 'Final grading and site cleanup', quantity: 1, unit: 'job', unitCost: 400, sellPrice: 600, total: 600 },
-      { category: 'labour', itemName: 'Labour', description: 'Supply and install interlocking stone', quantity: 0, unit: 'hr', unitCost: 25, sellPrice: 80, total: 0 },
+      { category: 'labour', itemName: 'John Smith', description: 'Assigned employee record', quantity: 10, unit: 'hr', unitCost: 25, sellPrice: 80, total: 800, employeeName: 'Mike White', overheadRecoveryPerHour: 20 },
+      { category: 'equipment', itemName: 'Bobcat e50', description: 'Equipment catalog record', quantity: 4, unit: 'hr', unitCost: 50, sellPrice: 125, total: 500 },
+      { category: 'material', itemName: 'HPB Aggregate', description: 'Material catalog record', quantity: 1, unit: 'lot', unitCost: 1000, sellPrice: 1500, total: 1500 },
+      { category: 'subcontractor', itemName: 'Trade Partner Inc.', description: 'Subcontractor record', quantity: 1, unit: 'job', unitCost: 400, sellPrice: 600, total: 600 },
     ],
   }],
 };
@@ -34,7 +33,7 @@ test('proposal projection exposes customer scope and exact stored totals without
 
   assert.deepEqual(projection.workAreas, [{
     name: 'Patio',
-    descriptions: ['Excavate and prepare the patio area', 'Included work', 'Supply and install interlocking stone', 'Final grading and site cleanup'],
+    scopeLines: ['Excavate and prepare the patio area', 'Install interlocking stone'],
     subtotal: 3400,
   }]);
   assert.equal(projection.proposal.subtotal, 3400);
@@ -45,9 +44,24 @@ test('proposal projection exposes customer scope and exact stored totals without
   assert.deepEqual(estimate, before, 'projection must not mutate the Estimate');
 
   const serialized = JSON.stringify(projection);
-  for (const secret of ['unitCost', 'sellPrice', 'quantity', 'overhead', 'profit', 'margin', 'employeeName', 'equipment']) {
+  for (const secret of ['John Smith', 'Mike White', 'Bobcat e50', 'HPB Aggregate', 'Trade Partner Inc.', 'Assigned employee record', 'Equipment catalog record', 'Material catalog record', 'Subcontractor record', 'unitCost', 'sellPrice', 'quantity', 'overhead', 'profit', 'margin', 'employeeName']) {
     assert.doesNotMatch(serialized, new RegExp(secret, 'i'));
   }
+});
+
+test('legacy Work Areas without customer scope use a fixed fallback without mutating the Estimate', () => {
+  const legacyEstimate = structuredClone(estimate);
+  legacyEstimate.workAreas[0].description = '';
+  const before = structuredClone(legacyEstimate);
+
+  const projection = buildEstimateProposalProjection({ estimate: legacyEstimate, customer, business });
+
+  assert.deepEqual(projection.workAreas[0].scopeLines, ['Scope details to be confirmed.']);
+  assert.equal(projection.proposal.subtotal, 3400);
+  assert.equal(projection.proposal.taxAmount, 442);
+  assert.equal(projection.proposal.total, 3842);
+  assert.deepEqual(legacyEstimate, before);
+  assert.doesNotMatch(JSON.stringify(projection), /John Smith|Mike White|Bobcat e50|HPB Aggregate|Trade Partner Inc\./i);
 });
 
 test('proposal projection omits optional content and rejects external logos cleanly', () => {

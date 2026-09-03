@@ -98,13 +98,15 @@ test('work-area builder uses a dedicated nested route and returns to estimate wo
   assert.match(workAreaBuilderSource, /Delete Work Area/);
 });
 
-test('work-area builder puts totals below the name and scope after line items', () => {
+test('work-area builder puts customer-facing scope beside the Work Area name', () => {
   const nameIndex = workAreaBuilderSource.indexOf('label="Work Area Name"');
+  const scopeIndex = workAreaBuilderSource.indexOf('label="Customer-facing scope of work"');
   const totalsIndex = workAreaBuilderSource.indexOf('Work Area Totals');
   const categoriesIndex = workAreaBuilderSource.indexOf('{CATEGORY_ORDER.map(renderLineItemGroup)}');
-  const scopeIndex = workAreaBuilderSource.indexOf('label="Description / Scope"');
-  assert.ok(nameIndex >= 0 && nameIndex < totalsIndex);
-  assert.ok(totalsIndex < categoriesIndex && categoriesIndex < scopeIndex);
+  assert.ok(nameIndex >= 0 && nameIndex < scopeIndex && scopeIndex < totalsIndex);
+  assert.ok(totalsIndex < categoriesIndex);
+  assert.match(workAreaBuilderSource, /Describe the work included in this area\. This appears on the customer proposal\./);
+  assert.doesNotMatch(workAreaBuilderSource, /label="Description \/ Scope"/);
   assert.doesNotMatch(workAreaBuilderSource, />Sell Total</);
 });
 

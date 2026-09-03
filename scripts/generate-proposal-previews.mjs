@@ -20,10 +20,14 @@ function sample(areaCount, descriptionsPerArea, longNames = false) {
     description: 'Thank you for the opportunity to provide this proposal for the improvements described below.',
     propertyAddressSnapshot: '72 Project Avenue, Burlington, ON L7M 3A1', notes: 'Please keep the driveway clear for material deliveries during scheduled work days.',
     workAreas: Array.from({ length: areaCount }, (_, areaIndex) => ({
-      id: `area-${areaIndex}`, name: ['Patio', 'Excavation and Base Preparation', 'Drainage', 'Landscape Restoration', 'Front Walkway', 'Retaining Edge', 'Site Cleanup', 'Final Grading'][areaIndex] ?? `Work Area ${areaIndex + 1}`, description: '', sortOrder: areaIndex,
+      id: `area-${areaIndex}`,
+      name: ['Patio', 'Excavation and Base Preparation', 'Drainage', 'Landscape Restoration', 'Front Walkway', 'Retaining Edge', 'Site Cleanup', 'Final Grading'][areaIndex] ?? `Work Area ${areaIndex + 1}`,
+      description: Array.from({ length: descriptionsPerArea }, (_, lineIndex) => ['Excavate and prepare the work area to the required depth', 'Supply and install compacted granular base', 'Supply and install selected interlocking stone', 'Complete final grading and site cleanup'][lineIndex % 4] + (descriptionsPerArea > 4 ? ` for phase ${Math.floor(lineIndex / 4) + 1}, including careful coordination around existing site features and adjacent finished surfaces` : '')).join('\n'),
+      sortOrder: areaIndex,
       lineItems: Array.from({ length: descriptionsPerArea }, (_, lineIndex) => ({
-        category: ['labour', 'equipment', 'material', 'subcontractor'][lineIndex % 4], itemName: 'Internal resource',
-        description: ['Excavate and prepare the work area to the required depth', 'Supply and install compacted granular base', 'Supply and install selected interlocking stone', 'Complete final grading and site cleanup'][lineIndex % 4] + (descriptionsPerArea > 4 ? ` for phase ${Math.floor(lineIndex / 4) + 1}, including careful coordination around existing site features and adjacent finished surfaces` : ''),
+        category: ['labour', 'equipment', 'material', 'subcontractor'][lineIndex % 4],
+        itemName: ['John Smith', 'Bobcat e50', 'Interlocking Stone SKU 412', 'Landscape Trade Partner'][lineIndex % 4],
+        description: 'Internal resource record',
         quantity: 1, unit: 'job', unitCost: 1, sellPrice: 1, total: 1450 + areaIndex * 125 + lineIndex * 50,
       })),
     })),

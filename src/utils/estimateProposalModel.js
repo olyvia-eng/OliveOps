@@ -1,20 +1,21 @@
-const INTERNAL_FALLBACK_LABELS = new Set(['labour', 'labor', 'equipment', 'material', 'materials', 'subcontractor', 'subcontractors']);
-
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
+
+function sanitizeScopeLines(value) {
+  if (typeof value !== 'string') return [];
+  const sanitized = Array.from(value)
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint === 9 || codePoint === 10 || codePoint === 13 || (codePoint >= 32 && codePoint !== 127);
+    })
+    .join('');
+  return sanitized.split(/\r\n?|\n/).map((line) => line.trim()).filter(Boolean);
+}
 
 export function formatProposalAddress(address) {
   if (typeof address === 'string') return address.trim();
   if (!address || typeof address !== 'object') return '';
   return [address.street, address.city, address.province, address.postalCode, address.country].map(text).filter(Boolean).join(', ');
-}
-
-function customerFacingDescription(line) {
-  const description = text(line?.description);
-  const itemName = text(line?.itemName);
-  if (description && !INTERNAL_FALLBACK_LABELS.has(description.toLowerCase())) return description;
-  if (itemName && !INTERNAL_FALLBACK_LABELS.has(itemName.toLowerCase())) return itemName;
-  return 'Included work';
 }
 
 export function buildEstimateProposalProjection({ estimate, customer, business }) {
@@ -26,17 +27,10 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
     .slice()
     .sort((left, right) => number(left.sortOrder) - number(right.sortOrder))
     .map((area, index) => {
-      const descriptions = [];
-      const seenDescriptions = new Set();
-      for (const candidate of [text(area.description), ...(Array.isArray(area.lineItems) ? area.lineItems.map(customerFacingDescription) : [])]) {
-        const key = candidate.toLocaleLowerCase('en-CA');
-        if (!candidate || seenDescriptions.has(key)) continue;
-        seenDescriptions.add(key);
-        descriptions.push(candidate);
-      }
+      const scopeLines = sanitizeScopeLines(area.description);
       return {
         name: text(area.name) || `Work Area ${index + 1}`,
-        descriptions,
+        scopeLines: scopeLines.length ? scopeLines : ['Scope details to be confirmed.'],
         subtotal: (Array.isArray(area.lineItems) ? area.lineItems : []).reduce((sum, line) => sum + number(line?.total), 0),
       };
     });
