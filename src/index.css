@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+table button[aria-label^='Actions for'] + div {
+  display: none;
+}
+
 :root {
   --surface: #ffffff;
   --surface-elevated: #ffffff;

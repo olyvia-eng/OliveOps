@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { ddb } from '../api/_lib/db.js';
 import { reserveNextInvoiceNumberForBusiness } from '../api/_lib/authRepo.js';
+import { calculateFixedMenuPosition } from '../src/utils/fixedMenuPosition.js';
 import { getInvoiceBalance, isValidInvoiceStatusTransition } from '../src/utils/invoiceModel.js';
 
 test('invoice numbers use one tenant-and-year scoped atomic ADD counter', async (context) => {
@@ -80,6 +81,59 @@ test('invoice drawer awaits persistence, keeps errors visible, and does not expo
   assert.match(page, /legacy \? 'Legacy price incl\. tax' : 'Unit Price'/);
   assert.match(store, /addInvoice: async/);
   assert.match(store, /payload\.invoice/);
+});
+
+test('invoice row Actions use a viewport-aware portal without changing table scroll geometry', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  const styles = readFileSync('src/index.css', 'utf8');
+  const cardEnd = page.indexOf('</Card>');
+  const portalMount = page.indexOf('{menuInvoice ? <InvoiceActionsMenu');
+
+  assert.ok(portalMount > cardEnd, 'the live menu must render outside the Invoice Register card and table');
+  assert.match(page, /return createPortal\([\s\S]*document\.body/);
+  assert.match(page, /className="fixed z-\[80\][^"]*overflow-y-auto/);
+  assert.match(styles, /table button\[aria-label\^='Actions for'\] \+ div \{\s*display: none;/);
+  assert.match(page, /calculateFixedMenuPosition\(triggerRect, \{ width: 160, height: menuRect\.height \}/);
+  assert.match(page, /window\.addEventListener\('scroll', closeOnViewportChange, true\)/);
+  assert.match(page, /window\.addEventListener\('resize', closeOnViewportChange\)/);
+  assert.match(page, /document\.addEventListener\('pointerdown', closeOnOutsidePointer\)/);
+  assert.match(page, /document\.addEventListener\('keydown', closeOnEscape\)/);
+  assert.match(page, /role="menu" aria-label=\{`Actions for \$\{invoice\.number\}`\}/);
+  assert.equal((page.match(/type="button" role="menuitem"/g) ?? []).length, 3);
+  for (const action of ['Open invoice', 'Mark sent', 'Delete draft']) assert.match(page, new RegExp(`>${action}<`));
+  assert.match(page, /trigger\.setAttribute\('aria-haspopup', 'menu'\)/);
+  assert.match(page, /focus\(\{ preventScroll: true \}\)/);
+});
+
+test('invoice row Actions position below, flip above, and remain inside narrow viewports', () => {
+  const firstRow = calculateFixedMenuPosition(
+    { top: 100, right: 1000, bottom: 136 },
+    { width: 160, height: 116 },
+    { width: 1200, height: 800 },
+  );
+  assert.deepEqual(firstRow, { left: 840, top: 142, width: 160, maxHeight: 784 });
+
+  const lastRow = calculateFixedMenuPosition(
+    { top: 700, right: 1000, bottom: 736 },
+    { width: 160, height: 116 },
+    { width: 1200, height: 800 },
+  );
+  assert.equal(lastRow.top, 578);
+
+  const narrowViewport = calculateFixedMenuPosition(
+    { top: 200, right: 350, bottom: 236 },
+    { width: 160, height: 116 },
+    { width: 360, height: 640 },
+  );
+  assert.equal(narrowViewport.left, 190);
+  assert.ok(narrowViewport.left >= 8 && narrowViewport.left + narrowViewport.width <= 352);
+
+  const constrainedViewport = calculateFixedMenuPosition(
+    { top: 40, right: 80, bottom: 76 },
+    { width: 160, height: 116 },
+    { width: 150, height: 100 },
+  );
+  assert.deepEqual(constrainedViewport, { left: 8, top: 8, width: 134, maxHeight: 84 });
 });
 
 test('invoice builder presents the requested compact section order and helper copy', () => {

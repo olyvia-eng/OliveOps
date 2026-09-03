@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Ban, BookOpenCheck, Ellipsis, FilePlus2, Mail, Plus, ReceiptText, Search, Send, Trash2, Wallet, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, PageHeader, Select, StatCard, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, generateId } from '../../utils';
+import { calculateFixedMenuPosition } from '../../utils/fixedMenuPosition.js';
 import { calculateInvoiceLineFinancials, calculateInvoiceSummary, calculateJobInvoicePosition, getCustomerBillingAddressSnapshot, getInvoiceBalance, getInvoiceContractAmount, normalizeInvoiceFinancials, validateInvoiceLineItems } from '../../utils/invoiceModel.js';
 import type { ID, Invoice, InvoiceLineCategory, InvoiceLineItem, InvoiceStatus, InvoiceType, JobWorkAreaLineItem, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
 
@@ -75,6 +77,7 @@ export default function InvoicesPage() {
     return { ready: jobs.filter((item) => item.status !== 'cancelled').reduce((sum, item) => sum + calculateJobInvoicePosition(item, invoices).remainingAmount, 0), outstanding: issued.filter((invoice) => ['sent', 'partially_paid', 'overdue'].includes(displayStatus(invoice))).reduce((sum, invoice) => sum + getInvoiceBalance(invoice), 0), overdue: issued.filter((invoice) => displayStatus(invoice) === 'overdue').reduce((sum, invoice) => sum + getInvoiceBalance(invoice), 0), billed: issued.reduce((sum, invoice) => sum + invoice.amount, 0), drafts: invoices.filter((invoice) => invoice.status === 'draft').reduce((sum, invoice) => sum + invoice.amount, 0) };
   }, [invoices, jobs]);
   const rows = useMemo(() => invoices.map((invoice) => ({ ...invoice, status: displayStatus(invoice) })).filter((invoice) => filter === 'all' || invoice.status === filter).filter((invoice) => { const query = search.trim().toLowerCase(); return !query || [invoice.number, invoice.customerNameSnapshot, clientName(customerMap.get(invoice.customerId)), invoice.jobTitleSnapshot, jobMap.get(invoice.jobId)?.title].some((value) => value?.toLowerCase().includes(query)); }).sort((left, right) => right.issueDate.localeCompare(left.issueDate) || right.createdAt.localeCompare(left.createdAt)), [invoices, filter, search, customerMap, jobMap]);
+  const menuInvoice = menu ? rows.find((invoice) => invoice.id === menu) : undefined;
 
   const applyAmount = (next: Form, nextPosition = position) => {
     if (next.invoiceType === 'custom' || next.amountMode === 'work_areas') return next;
@@ -128,6 +131,7 @@ export default function InvoicesPage() {
     <Card className="overflow-visible"><div className="border-b border-brand-100 p-4 dark:border-brand-600"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="relative lg:w-96"><Search className="absolute left-3 top-3 h-4 w-4 text-brand-400" /><input aria-label="Search invoices" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, client or job" className="h-10 w-full rounded-xl border border-brand-100 bg-white pl-9 pr-3 text-sm dark:border-brand-600 dark:bg-brand-700" /></div><div className="flex gap-1 overflow-x-auto">{filters.map((item) => <button key={item.value} onClick={() => setFilter(item.value)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold ${filter === item.value ? 'bg-brand-800 text-white dark:bg-brand-100 dark:text-brand-900' : 'text-brand-500 hover:bg-brand-50'}`}>{item.label}</button>)}</div></div></div>
       {rows.length === 0 ? <EmptyState title="No matching invoices" description="Create a draft from a job or adjust the current filters." action={<Button onClick={start}><FilePlus2 /> New Invoice</Button>} /> : <div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-sm"><thead><tr className="border-b border-brand-100 bg-brand-50 text-left text-brand-500 dark:bg-brand-800"><th className="px-4 py-3">Invoice</th><th>Client</th><th>Job</th><th>Issued</th><th>Due</th><th className="text-right">Total</th><th className="text-right">Balance</th><th className="pl-4">Status</th><th>QuickBooks</th><th className="px-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-brand-100">{rows.map((invoice) => { const linked = invoice.quickBooksLinked || Boolean(qbo[invoice.id]); return <tr key={invoice.id} onClick={() => view(invoice)} className="cursor-pointer hover:bg-brand-50"><td className="px-4 py-3 font-semibold">{invoice.number}</td><td>{invoice.customerNameSnapshot || clientName(customerMap.get(invoice.customerId))}</td><td>{invoice.jobTitleSnapshot || jobMap.get(invoice.jobId)?.title || 'Unknown job'}</td><td>{invoice.issueDate}</td><td>{invoice.dueDate}</td><td className="text-right font-medium">{formatCurrency(invoice.amount)}</td><td className="text-right">{formatCurrency(getInvoiceBalance(invoice))}</td><td className="pl-4"><Badge label={invoice.status} className={badge[invoice.status]} /></td><td className="text-xs">{qbo[invoice.id]?.documentNumber || (linked ? 'Linked' : 'Not linked')}</td><td className="relative px-4 text-right" onClick={(event) => event.stopPropagation()}><button aria-label={`Actions for ${invoice.number}`} className="h-9 w-9 rounded-lg hover:bg-brand-100" onClick={() => setMenu(menu === invoice.id ? null : invoice.id)}><Ellipsis className="mx-auto" /></button>{menu === invoice.id ? <div className="absolute right-4 top-10 z-20 w-40 rounded-lg border bg-white p-1 text-left shadow-xl"><button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => view(invoice)}>Open invoice</button>{invoice.status === 'draft' && !linked ? <button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => void status(invoice, 'sent')}>Mark sent</button> : null}{invoice.status === 'draft' && !linked ? <button className="w-full px-3 py-2 text-sm text-red-700 hover:bg-red-50" onClick={() => void remove(invoice)}>Delete draft</button> : null}</div> : null}</td></tr>; })}</tbody></table></div>}
     </Card>
+    {menuInvoice ? <InvoiceActionsMenu invoice={menuInvoice} linked={menuInvoice.quickBooksLinked || Boolean(qbo[menuInvoice.id])} onClose={() => setMenu(null)} onOpen={() => view(menuInvoice)} onMarkSent={() => void status(menuInvoice, 'sent')} onDelete={() => void remove(menuInvoice)} /> : null}
     {open ? <div className="fixed inset-0 z-50"><button aria-label="Close invoice drawer" className="absolute inset-0 bg-black/40" onClick={() => !saving && setOpen(false)} /><aside className="absolute inset-y-0 right-0 flex w-full max-w-7xl flex-col border-l border-brand-100 bg-brand-50 shadow-2xl dark:border-brand-600 dark:bg-brand-800"><header className="flex h-16 items-center justify-between border-b border-brand-100 bg-white px-5 dark:border-brand-600 dark:bg-brand-700"><div><p className="text-xs font-semibold uppercase text-brand-400">{!selected ? 'New draft invoice' : selected.status === 'draft' ? 'Draft invoice' : 'Invoice'}</p><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">{selected?.number ?? 'Invoice number assigned when saved'}</h2>{selected ? <Badge label={displayStatus(selected)} className={badge[displayStatus(selected)]} /> : null}</div></div><button aria-label="Close" className="h-10 w-10 rounded-lg hover:bg-brand-100" onClick={() => setOpen(false)}><X className="mx-auto" /></button></header><div className="flex-1 overflow-y-auto"><div className="grid min-h-full xl:grid-cols-[minmax(0,1fr)_340px]"><main className="space-y-6 p-5 lg:p-7">
         {selected && !editable ? <div className="rounded-lg border border-brand-200 bg-white p-4 text-sm dark:bg-brand-700"><strong>Read-only invoice.</strong> {selected.quickBooksLinked || qbo[selected.id] ? 'This invoice is linked to QuickBooks.' : selected.schemaVersion !== 2 ? 'Legacy calculations are preserved.' : 'Financial details lock when issued.'}</div> : null}
         <section><h3 className="mb-3 text-sm font-semibold">1. Job and contract</h3><Select label="Job" required disabled={Boolean(selected) || !editable} value={form.jobId} onChange={(event) => chooseJob(event.target.value)}><option value="">Select a job</option>{jobs.filter((item) => item.status !== 'cancelled').map((item) => <option key={item.id} value={item.id}>{item.jobNumber ? `${item.jobNumber} · ` : ''}{item.title}</option>)}</Select>{job ? <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-brand-100 bg-white p-3 text-sm dark:bg-brand-700 lg:grid-cols-5"><Info label="Client" value={selected ? selected.customerNameSnapshot || 'Unknown client' : clientName(customerMap.get(job.customerId))} /><Info label="Job" value={selected ? selected.jobTitleSnapshot || 'Unknown job' : job.title} /><Info label="Billing address" value={selected ? selected.billingAddressSnapshot || 'Not recorded' : getCustomerBillingAddressSnapshot(customerMap.get(job.customerId)) || 'Not recorded'} /><Info label="Job address" value={selected ? selected.jobAddressSnapshot || 'Not recorded' : job.propertyAddressSnapshot || 'Not recorded'} /><Info label="Proposal" value={job.originalEstimateSnapshot?.proposalNumber || 'Not recorded'} /></div> : null}</section>
@@ -141,6 +145,81 @@ export default function InvoicesPage() {
 
 function Info({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><p className="text-xs text-brand-400">{label}</p><p className="mt-0.5 break-words font-medium leading-snug">{value}</p></div>; }
 function Money({ label, value, border, strong }: { label: string; value: number; border?: boolean; strong?: boolean }) { return <div className={`flex justify-between ${border ? 'border-t border-brand-100 pt-3' : ''} ${strong ? 'text-base font-semibold' : ''}`}><dt>{label}</dt><dd>{formatCurrency(value)}</dd></div>; }
+
+function InvoiceActionsMenu({ invoice, linked, onClose, onOpen, onMarkSent, onDelete }: { invoice: Invoice; linked: boolean; onClose: () => void; onOpen: () => void; onMarkSent: () => void; onDelete: () => void }) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [style, setStyle] = useState<CSSProperties>({ left: 8, top: 8, visibility: 'hidden' });
+
+  useLayoutEffect(() => {
+    const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]')).find((button) => button.getAttribute('aria-label') === `Actions for ${invoice.number}`) ?? null;
+    const menuElement = menuRef.current;
+    if (!trigger || !menuElement) return;
+
+    triggerRef.current = trigger;
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'true');
+    trigger.setAttribute('aria-controls', `invoice-actions-${invoice.id}`);
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menuElement.getBoundingClientRect();
+    setStyle({ ...calculateFixedMenuPosition(triggerRect, { width: 160, height: menuRect.height }, { width: window.innerWidth, height: window.innerHeight }), visibility: 'visible' });
+    menuElement.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+
+    return () => {
+      trigger.removeAttribute('aria-haspopup');
+      trigger.removeAttribute('aria-expanded');
+      trigger.removeAttribute('aria-controls');
+    };
+  }, [invoice.id, invoice.number]);
+
+  useEffect(() => {
+    const closeAndRestoreFocus = () => {
+      const trigger = triggerRef.current;
+      onClose();
+      window.requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
+    };
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) onClose();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeAndRestoreFocus();
+    };
+    const closeOnViewportChange = () => onClose();
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('scroll', closeOnViewportChange, true);
+    window.addEventListener('resize', closeOnViewportChange);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('scroll', closeOnViewportChange, true);
+      window.removeEventListener('resize', closeOnViewportChange);
+    };
+  }, [onClose]);
+
+  const select = (action: () => void) => { onClose(); action(); };
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : event.key === 'ArrowDown' ? (currentIndex + 1) % items.length : (currentIndex <= 0 ? items.length : currentIndex) - 1;
+    items[nextIndex]?.focus();
+  };
+
+  return createPortal(
+    <div ref={menuRef} id={`invoice-actions-${invoice.id}`} role="menu" aria-label={`Actions for ${invoice.number}`} className="fixed z-[80] w-40 overflow-y-auto rounded-lg border border-brand-100 bg-white p-1 text-left shadow-xl dark:border-brand-600 dark:bg-brand-700" style={style} onKeyDown={handleKeyDown}>
+      <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-brand-600" onClick={() => select(onOpen)}>Open invoice</button>
+      {invoice.status === 'draft' && !linked ? <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-brand-600" onClick={() => select(onMarkSent)}>Mark sent</button> : null}
+      {invoice.status === 'draft' && !linked ? <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40" onClick={() => select(onDelete)}>Delete draft</button> : null}
+    </div>,
+    document.body,
+  );
+}
+
 function InvoiceLine({ line, index, taxRate, legacy, editable, financialEditable, generatedLumpSum, onChange, onRemove }: { line: InvoiceLineItem; index: number; taxRate: number; legacy: boolean; editable: boolean; financialEditable: boolean; generatedLumpSum: boolean; onChange: <K extends keyof InvoiceLineItem>(id: ID, key: K, value: InvoiceLineItem[K]) => void; onRemove: () => void }) {
   const financials = calculateInvoiceLineFinancials(line, taxRate, legacy ? undefined : 2);
   return <div className="rounded-lg border border-brand-100 bg-white p-4 dark:bg-brand-700"><div className="mb-3 flex justify-between"><span className="text-xs font-semibold text-brand-400">LINE {index + 1}</span>{editable && !generatedLumpSum ? <button aria-label={`Remove line ${index + 1}`} onClick={onRemove}><Trash2 className="h-4 w-4 text-red-600" /></button> : null}</div><div className="grid grid-cols-2 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(80px,0.75fr)_minmax(90px,0.85fr)_minmax(120px,1fr)_minmax(150px,1.25fr)]"><div className="col-span-2"><Input label="Description" disabled={!editable} value={line.description} onChange={(event) => onChange(line.id, 'description', event.target.value)} /></div><Input label="Quantity" type="number" disabled={!financialEditable} value={line.quantity} onChange={(event) => onChange(line.id, 'quantity', Number(event.target.value))} /><Input label="Unit" disabled={!financialEditable} value={line.unit} onChange={(event) => onChange(line.id, 'unit', event.target.value)} /><Input className={!financialEditable ? 'disabled:bg-brand-50 disabled:text-brand-700 dark:disabled:bg-brand-800 dark:disabled:text-brand-100' : ''} label={legacy ? 'Legacy price incl. tax' : 'Unit Price'} type="number" disabled={!financialEditable} value={legacy ? line.unitPrice : line.unitPriceBeforeTax ?? 0} onChange={(event) => onChange(line.id, 'unitPriceBeforeTax', Number(event.target.value))} />{generatedLumpSum ? <div><p className="mb-1.5 text-sm font-medium text-brand-700 dark:text-brand-100">Category</p><p className="min-h-10 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2 text-sm text-brand-700 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100" title="Contract Services">Contract Services</p></div> : <Select label="Category" disabled={!financialEditable} value={line.category} onChange={(event) => onChange(line.id, 'category', event.target.value as InvoiceLineCategory)}><option value="contract_service">Contract Services</option><option value="labour">Labour</option><option value="material">Material</option><option value="equipment">Equipment</option><option value="subcontractor">Subcontractor</option></Select>}</div><div className="mt-3 flex flex-wrap justify-between gap-3 text-sm"><label className="flex gap-2"><input type="checkbox" disabled={!editable} checked={line.taxable} onChange={(event) => onChange(line.id, 'taxable', event.target.checked)} /> Taxable</label><div className="flex gap-5"><span>Subtotal <strong>{formatCurrency(financials.subtotal)}</strong></span><span>Tax <strong>{formatCurrency(financials.taxAmount)}</strong></span><span>Total <strong>{formatCurrency(financials.total)}</strong></span></div></div></div>;
