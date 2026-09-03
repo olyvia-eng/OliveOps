@@ -77,17 +77,18 @@ test('Custom items keep explicit rate and secondary costing without Estimate mar
   assert.doesNotMatch(builderSource, /customItem\.markupPercent/);
 });
 
-test('Estimate Analysis consumes internal cost snapshots while proposals expose customer rates only', () => {
+test('Estimate Analysis consumes internal cost snapshots while proposals use the authorized customer projection', () => {
   assert.match(workspaceSource, /computeWorkAreaEstimatedCost/);
   assert.match(workspaceSource, /computeWorkAreaCategoryCostTotals/);
   assert.match(workspaceSource, />Revenue</);
   assert.match(workspaceSource, />Estimated Cost</);
   assert.match(workspaceSource, />Gross Profit</);
   assert.match(workspaceSource, />Gross Margin</);
-  assert.match(workspaceSource, /head: \[\['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total'\]\]/);
-  assert.match(estimatesSource, /head: \[\['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total'\]\]/);
-  assert.doesNotMatch(workspaceSource, /head: \[\[[^\]]*'Unit Cost'/);
-  assert.doesNotMatch(estimatesSource, /head: \[\[[^\]]*'Unit Cost'/);
+  for (const source of [workspaceSource, estimatesSource]) {
+    assert.match(source, /fetchEstimateProposal\(estimateId\)/);
+    assert.match(source, /createEstimateProposalDocument\(proposal\)/);
+    assert.doesNotMatch(source, /head: \[\['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total'\]\]/);
+  }
   assert.match(modelSource, /export function normalizeEstimateWorkAreas/);
   assert.match(modelSource, /const unitCost = Math\.max\(0, asNumber\(item\.unitCost, 0\)\)/);
 });

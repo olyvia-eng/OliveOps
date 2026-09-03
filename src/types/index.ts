@@ -29,6 +29,8 @@ export interface Customer {
   phone: string;
   properties: Address[];
   address?: Address;
+  billingAddress?: Address;
+  mailingAddress?: Address;
   status: CustomerRecordStatus;
   leadSource?: CustomerLeadSource;
   leadSourceOther?: string;

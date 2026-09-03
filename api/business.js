@@ -14,8 +14,13 @@ export default async function handler(req, res) {
 
   if (req.method === 'PATCH') {
     const timezone = req.body?.timezone;
-    if (!isValidTimeZone(timezone)) return res.status(400).json({ ok: false, error: 'A valid IANA timezone is required.' });
-    const business = await updateBusinessProfile({ businessId: session.businessId, profile: { timezone } });
+    if (timezone !== undefined && !isValidTimeZone(timezone)) return res.status(400).json({ ok: false, error: 'A valid IANA timezone is required.' });
+    const textFields = ['legalName', 'phone', 'email', 'website', 'businessAddress', 'taxLabel', 'proposalTerms'];
+    const invalidField = textFields.find((field) => req.body?.[field] !== undefined && (typeof req.body[field] !== 'string' || req.body[field].length > (field === 'proposalTerms' ? 10000 : 500)));
+    if (invalidField) return res.status(400).json({ ok: false, error: `${invalidField} is invalid.` });
+    const profile = { ...(timezone !== undefined ? { timezone } : {}) };
+    for (const field of textFields) if (req.body?.[field] !== undefined) profile[field] = req.body[field].trim();
+    const business = await updateBusinessProfile({ businessId: session.businessId, profile });
     return res.status(200).json({ ok: true, business });
   }
 

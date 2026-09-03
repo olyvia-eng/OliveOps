@@ -602,6 +602,14 @@ export async function getBusinessProfile(businessId) {
   return {
     id: result.Item.businessId,
     name: result.Item.name,
+    legalName: typeof result.Item.legalName === 'string' ? result.Item.legalName : '',
+    phone: typeof result.Item.phone === 'string' ? result.Item.phone : '',
+    email: typeof result.Item.email === 'string' ? result.Item.email : '',
+    website: typeof result.Item.website === 'string' ? result.Item.website : '',
+    businessAddress: typeof result.Item.businessAddress === 'string' ? result.Item.businessAddress : '',
+    taxLabel: typeof result.Item.taxLabel === 'string' ? result.Item.taxLabel : '',
+    proposalTerms: typeof result.Item.proposalTerms === 'string' ? result.Item.proposalTerms : '',
+    logoDataUrl: typeof result.Item.logoDataUrl === 'string' ? result.Item.logoDataUrl : '',
     timezone: normalizeBusinessTimeZone(result.Item.timezone),
     pricingBudgetId: typeof result.Item.pricingBudgetId === 'string' && result.Item.pricingBudgetId.trim() ? result.Item.pricingBudgetId.trim() : null,
     createdAt: result.Item.createdAt,
@@ -611,13 +619,22 @@ export async function getBusinessProfile(businessId) {
 
 export async function updateBusinessProfile({ businessId, profile }) {
   const updatedAt = nowIso();
+  const current = await getBusinessProfile(businessId);
+  if (!current) return null;
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
-      ':timezone': normalizeBusinessTimeZone(profile.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
+      ':timezone': normalizeBusinessTimeZone(profile.timezone ?? current.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
+      ':legalName': profile.legalName ?? current.legalName,
+      ':phone': profile.phone ?? current.phone,
+      ':email': profile.email ?? current.email,
+      ':website': profile.website ?? current.website,
+      ':businessAddress': profile.businessAddress ?? current.businessAddress,
+      ':taxLabel': profile.taxLabel ?? current.taxLabel,
+      ':proposalTerms': profile.proposalTerms ?? current.proposalTerms,
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
@@ -1295,6 +1312,8 @@ export async function listCustomersForBusiness(businessId) {
       ? item.properties
       : (item.address ? [item.address] : []),
     address: item.address,
+    billingAddress: item.billingAddress,
+    mailingAddress: item.mailingAddress,
     status: normalizePersistedCustomerStatus(item.status),
     leadSource: item.leadSource,
     leadSourceOther: item.leadSourceOther,
@@ -1348,6 +1367,8 @@ export async function getCustomerForBusiness(businessId, customerId) {
           ? result.Item.properties
           : (result.Item.address ? [result.Item.address] : []),
         address: result.Item.address,
+        billingAddress: result.Item.billingAddress,
+        mailingAddress: result.Item.mailingAddress,
         status: normalizePersistedCustomerStatus(result.Item.status),
         leadSource: result.Item.leadSource,
         leadSourceOther: result.Item.leadSourceOther,

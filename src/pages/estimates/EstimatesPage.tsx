@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRight, FileDown, FilterX, Mail, Plus, RefreshCw, Search, Trash2, Users, Wallet, FileText } from 'lucide-react';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { useStore } from '../../store';
 import { Badge, Button, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
 import { emitAppToast } from '../../toast';
@@ -11,9 +9,7 @@ import {
   computeEstimateSubtotal,
   computeEstimateTax,
   computeEstimateTotal,
-  computeWorkAreaSubtotal,
   createDefaultEstimateWorkArea,
-  flattenWorkAreaLineItems,
   normalizeEstimateWorkAreas,
 } from '../../utils/estimateModel';
 import type { Address, Estimate, EstimateStatus, ID } from '../../types';
@@ -25,6 +21,7 @@ import {
 } from '../../components/detail-workspace/detailWorkspaceQuery';
 import EstimateDetailPanel from './EstimateDetailPanel';
 import { activeDivisionsForBudget, resolveEstimateDivisionId } from './estimateSetupModel.js';
+import { createEstimateProposalDocument, fetchEstimateProposal, proposalPdfFileName } from '../../utils/estimateProposalPdf';
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
 const ESTIMATE_WORKSPACE_QUERY = { recordParam: 'estimate', tabParam: 'estimateTab', defaultTab: 'overview' } as const;
@@ -78,14 +75,6 @@ const nextProposalNumber = (estimates: Estimate[]): string => {
   return `${prefix}${String(next).padStart(4, '0')}`;
 };
 
-const sanitizeFileNamePart = (value: string): string => {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-};
-
 const formatPropertyAddress = (property: Address): string => {
   const parts = [
     property.street,
@@ -114,80 +103,6 @@ const parsePropertyRef = (value: string): number | null => {
   const index = Number(value.slice(4));
   if (!Number.isInteger(index) || index < 0) return null;
   return index;
-};
-
-const createProposalDocument = (estimate: Estimate, customerName: string, customerCompany?: string) => {
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const workAreas = normalizeEstimateWorkAreas(estimate);
-  const lineItems = flattenWorkAreaLineItems(workAreas);
-  const subtotal = computeEstimateSubtotal(workAreas);
-  const tax = computeEstimateTax(subtotal, estimate.taxRate);
-  const total = computeEstimateTotal(subtotal, tax);
-  const generatedAt = new Date().toLocaleString();
-
-  doc.setFontSize(18);
-  doc.text('Project Proposal', 40, 44);
-  doc.setFontSize(10);
-  const hasProposalNumber = Boolean(estimate.proposalNumber?.trim());
-  if (hasProposalNumber) {
-    doc.text(`Proposal #: ${estimate.proposalNumber?.trim()}`, 40, 64);
-  }
-  const estimateY = hasProposalNumber ? 78 : 64;
-  const customerY = hasProposalNumber ? 92 : 78;
-  const generatedY = hasProposalNumber ? 106 : 92;
-  const validUntilY = hasProposalNumber ? 120 : 106;
-  doc.text(`Estimate: ${estimate.title}`, 40, estimateY);
-  doc.text(`Customer: ${customerName}${customerCompany ? ` (${customerCompany})` : ''}`, 40, customerY);
-  doc.text(`Generated: ${generatedAt}`, 40, generatedY);
-  doc.text(`Valid Until: ${estimate.validUntil ? formatDate(estimate.validUntil) : 'Not specified'}`, 40, validUntilY);
-
-  autoTable(doc, {
-    startY: 176,
-    head: [['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total']],
-    body: lineItems.map((line) => [
-      line.category,
-      line.description,
-      String(line.quantity),
-      line.unit,
-      formatCurrency(line.sellPrice),
-      formatCurrency(line.total),
-    ]),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [97, 110, 86] },
-  });
-
-  const tableBottomY = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 176;
-
-  autoTable(doc, {
-    startY: tableBottomY + 16,
-    head: [['Summary', 'Amount']],
-    body: [
-      ['Subtotal', formatCurrency(subtotal)],
-      [`Tax (${estimate.taxRate}%)`, formatCurrency(tax)],
-      ['Total', formatCurrency(total)],
-    ],
-    styles: { fontSize: 10 },
-    headStyles: { fillColor: [134, 143, 122] },
-  });
-
-  autoTable(doc, {
-    startY: ((doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? tableBottomY) + 16,
-    head: [['Work Area', 'Subtotal']],
-    body: workAreas.map((area) => [area.name, formatCurrency(computeWorkAreaSubtotal(area))]),
-    styles: { fontSize: 9 },
-    headStyles: { fillColor: [180, 186, 169] },
-  });
-
-  if (estimate.notes?.trim()) {
-    const notesStartY = ((doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? tableBottomY) + 20;
-    doc.setFontSize(11);
-    doc.text('Notes', 40, notesStartY);
-    doc.setFontSize(10);
-    const noteLines = doc.splitTextToSize(estimate.notes.trim(), 530);
-    doc.text(noteLines, 40, notesStartY + 16);
-  }
-
-  return doc;
 };
 
 interface EstimatesPageProps {
@@ -407,18 +322,15 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     emitAppToast({ tone: 'success', message: 'Estimate converted to job successfully.' });
   };
 
-  const createProposalPdf = (estimate: Estimate) => {
-    const customer = customers.find((value) => value.id === estimate.customerId);
-    const customerName = customer?.name?.trim() || 'Client';
-    const safeTitle = sanitizeFileNamePart(estimate.title) || 'estimate';
-    const safeProposalNumber = sanitizeFileNamePart(estimate.proposalNumber ?? '');
-    const fileName = safeProposalNumber
-      ? `proposal-${safeProposalNumber}-${safeTitle}.pdf`
-      : `proposal-${safeTitle}-${estimate.id.slice(0, 8)}.pdf`;
-
-    const doc = createProposalDocument(estimate, customerName, customer?.company);
-    doc.save(fileName);
-    emitAppToast({ tone: 'success', message: `Proposal PDF generated: ${fileName}` });
+  const createProposalPdf = async (estimateId: ID) => {
+    try {
+      const proposal = await fetchEstimateProposal(estimateId);
+      const fileName = proposalPdfFileName(proposal);
+      createEstimateProposalDocument(proposal).save(fileName);
+      emitAppToast({ tone: 'success', message: `Proposal PDF generated: ${fileName}` });
+    } catch (error) {
+      emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Proposal could not be generated.' });
+    }
   };
 
   const sendProposalToClient = (estimate: Estimate) => {
@@ -428,7 +340,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       return;
     }
 
-    createProposalPdf(estimate);
+    void createProposalPdf(estimate.id);
 
     const estimateWorkAreas = normalizeEstimateWorkAreas(estimate);
     const subtotalValue = computeEstimateSubtotal(estimateWorkAreas);
@@ -726,7 +638,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
               variant="secondary"
               onClick={() => {
                 if (!proposalEstimate) return;
-                createProposalPdf(proposalEstimate);
+                void createProposalPdf(proposalEstimate.id);
               }}
             >
               <FileDown size={14} /> Download PDF

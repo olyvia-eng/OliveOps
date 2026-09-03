@@ -19,7 +19,7 @@ function installDdb(t) {
       const itemKey = key(input.Key.PK, input.Key.SK);
       const existing = store.get(itemKey);
       if (!existing) throw Object.assign(new Error('missing'), { name: 'ConditionalCheckFailedException' });
-      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
+      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], legalName: input.ExpressionAttributeValues[':legalName'], phone: input.ExpressionAttributeValues[':phone'], email: input.ExpressionAttributeValues[':email'], website: input.ExpressionAttributeValues[':website'], businessAddress: input.ExpressionAttributeValues[':businessAddress'], taxLabel: input.ExpressionAttributeValues[':taxLabel'], proposalTerms: input.ExpressionAttributeValues[':proposalTerms'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
       store.set(itemKey, next);
       return {};
     }
@@ -57,6 +57,19 @@ test('business profile uses Toronto fallback and persists a valid tenant timezon
   assert.equal(saved.body.business.id, 'biz-a');
   assert.equal(saved.body.business.timezone, 'America/Vancouver');
   assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).timezone, 'America/Vancouver');
+});
+
+test('company proposal identity and reusable terms persist without changing tenant ownership', async (t) => {
+  const store = installDdb(t);
+  store.set(key('BUSINESS#biz-a', 'PROFILE'), { PK: 'BUSINESS#biz-a', SK: 'PROFILE', entityType: 'BUSINESS', businessId: 'biz-a', name: 'Olive Test', timezone: 'America/Toronto', createdAt: '2026-01-01T00:00:00.000Z' });
+  await seedUser(store, { userId: 'owner-proposal', role: 'owner', token: 'owner-proposal-token' });
+
+  const saved = await request('owner-proposal-token', 'PATCH', { legalName: 'Olive Test Ltd.', phone: '905-555-0100', email: 'office@example.ca', website: 'example.ca', businessAddress: '1 Main Street', taxLabel: 'HST', proposalTerms: 'Customer terms', businessId: 'biz-b' });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.body.business.id, 'biz-a');
+  assert.equal(saved.body.business.legalName, 'Olive Test Ltd.');
+  assert.equal(saved.body.business.proposalTerms, 'Customer terms');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).taxLabel, 'HST');
 });
 
 test('crew members cannot read or change company timezone', async (t) => {
