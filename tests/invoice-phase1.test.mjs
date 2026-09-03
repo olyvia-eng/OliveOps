@@ -172,6 +172,12 @@ test('QuickBooks settings keep OliveOps authoritative and expose explicit tax-co
   assert.match(page, /This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available\./);
   assert.match(endpoint, /nonTaxableTaxCodeId/);
   assert.doesNotMatch(endpoint, /one unambiguous non-taxable tax code/);
+  assert.match(page, /QuickBooks sync readiness/);
+  assert.match(page, /Country\/tax mismatch/);
+  assert.match(page, /Setup incomplete/);
+  assert.match(page, /label: 'Ready'/);
+  assert.match(page, /text-amber-700.*nonTaxableTaxCodeWarning/);
+  assert.match(page, /quickBooksConfigurationValid = !Object\.values\(mappingErrors\)\.some\(Boolean\)/);
 });
 
 test('QuickBooks-only mapping failures do not alter local invoice creation or sending', () => {

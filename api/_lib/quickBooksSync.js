@@ -15,11 +15,15 @@ export function buildQuickBooksConfigurationSelection({ requestedMappings, taxab
     if (!item?.active) throw new Error(`Selected ${category} Product/Service is unavailable.`);
     categoryMappings[category] = item;
   }
-  const taxableTaxCode = taxCodeById.get(String(taxableTaxCodeId ?? ''));
-  if (!taxableTaxCode?.active || !taxableTaxCode.taxable) throw new Error('Select an active taxable QuickBooks tax code.');
-  const nonTaxableTaxCode = taxCodeById.get(String(nonTaxableTaxCodeId ?? ''));
-  if (!nonTaxableTaxCode?.active || nonTaxableTaxCode.taxable) throw new Error('Select an active non-taxable QuickBooks tax code.');
-  return { categoryMappings, taxableTaxCode, nonTaxableTaxCode };
+  const taxableTaxCode = taxableTaxCodeId ? taxCodeById.get(String(taxableTaxCodeId)) : undefined;
+  if (taxableTaxCodeId && (!taxableTaxCode?.active || !taxableTaxCode.taxable)) throw new Error('Select an active taxable QuickBooks tax code.');
+  const nonTaxableTaxCode = nonTaxableTaxCodeId ? taxCodeById.get(String(nonTaxableTaxCodeId)) : undefined;
+  if (nonTaxableTaxCodeId && (!nonTaxableTaxCode?.active || nonTaxableTaxCode.taxable)) throw new Error('Select an active non-taxable QuickBooks tax code.');
+  return {
+    categoryMappings,
+    ...(taxableTaxCode ? { taxableTaxCode } : {}),
+    ...(nonTaxableTaxCode ? { nonTaxableTaxCode } : {}),
+  };
 }
 
 export function quickBooksRequestId(type, businessId, realmId, entityId) {

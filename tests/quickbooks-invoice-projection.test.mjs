@@ -67,19 +67,58 @@ test('QuickBooks invoice projection fails closed on missing mappings', () => {
   );
 });
 
-test('multiple non-taxable codes require an explicit selection without arbitrary inference', () => {
+test('partial configuration saves valid Product/Service mappings without tax codes', () => {
   const taxCodes = [
     { ...configuration.taxableTaxCode, active: true },
     { id: 'NON-1', name: 'Zero rated', taxable: false, active: true, rate: 0 },
     { id: 'NON-2', name: 'Exempt', taxable: false, active: true, rate: 0 },
   ];
-  assert.throws(() => buildQuickBooksConfigurationSelection({
-    requestedMappings: {}, taxableTaxCodeId: 'tax-hst', nonTaxableTaxCodeId: '', items: [], taxCodes,
-  }), /Select an active non-taxable/);
+  const partial = buildQuickBooksConfigurationSelection({
+    requestedMappings: { labour: 'item-1', material: '' }, taxableTaxCodeId: '', nonTaxableTaxCodeId: '',
+    items: [{ ...configuration.categoryMappings.labour, active: true }], taxCodes,
+  });
+  assert.equal(partial.categoryMappings.labour.id, 'item-1');
+  assert.equal(partial.categoryMappings.material, undefined);
+  assert.equal(partial.taxableTaxCode, undefined);
+  assert.equal(partial.nonTaxableTaxCode, undefined);
   const selected = buildQuickBooksConfigurationSelection({
-    requestedMappings: {}, taxableTaxCodeId: 'tax-hst', nonTaxableTaxCodeId: 'NON-2', items: [], taxCodes,
+    requestedMappings: {}, taxableTaxCodeId: '', nonTaxableTaxCodeId: 'NON-2', items: [], taxCodes,
   });
   assert.equal(selected.nonTaxableTaxCode.id, 'NON-2');
+});
+
+test('taxable-only invoices do not require a non-taxable tax code', () => {
+  const taxableInvoice = { ...invoice, lineItems: [invoice.lineItems[0]] };
+  const payload = buildQuickBooksInvoicePayload({
+    invoice: taxableInvoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { categoryMappings: { labour: configuration.categoryMappings.labour }, taxableTaxCode: configuration.taxableTaxCode },
+  });
+  assert.equal(payload.Line[0].SalesItemLineDetail.TaxCodeRef.value, 'tax-hst');
+});
+
+test('non-taxable invoice lines require the explicit non-taxable tax code', () => {
+  const nonTaxableInvoice = { ...invoice, lineItems: [invoice.lineItems[1]] };
+  assert.throws(() => buildQuickBooksInvoicePayload({
+    invoice: nonTaxableInvoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { categoryMappings: { material: configuration.categoryMappings.material } },
+  }), /Configure a QuickBooks non-taxable tax code first/);
+});
+
+test('invoice projection requires only category mappings used by that invoice', () => {
+  const taxableInvoice = { ...invoice, lineItems: [invoice.lineItems[0]] };
+  const payload = buildQuickBooksInvoicePayload({
+    invoice: taxableInvoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { categoryMappings: { labour: configuration.categoryMappings.labour }, taxableTaxCode: configuration.taxableTaxCode },
+  });
+  assert.equal(payload.Line.length, 1);
+  assert.throws(() => buildQuickBooksInvoicePayload({
+    invoice: taxableInvoice,
+    customerMapping: { quickBooksCustomerId: 'qbo-customer-1' },
+    configuration: { categoryMappings: {}, taxableTaxCode: configuration.taxableTaxCode },
+  }), /Map the labour category/);
 });
 
 test('existing mapping IDs remain compatible when provider resources are refreshed', () => {

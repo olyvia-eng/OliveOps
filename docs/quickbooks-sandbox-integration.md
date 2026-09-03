@@ -40,11 +40,13 @@ Changing or losing this key makes stored QuickBooks credentials undecryptable. U
 After connecting, an owner or admin must explicitly:
 
 1. Map each OliveOps invoice category in use to an active QuickBooks Product/Service Item.
-2. Select an active taxable QuickBooks sales tax code when taxable invoices will be synchronized.
-3. Select an active non-taxable QuickBooks sales tax code. A single valid option may be preselected; multiple options require an explicit choice.
+2. Select an active taxable QuickBooks sales tax code before synchronizing an invoice with taxable lines.
+3. Select an active non-taxable QuickBooks sales tax code before synchronizing an invoice with non-taxable lines. A single valid option may be preselected; multiple options require an explicit choice.
 4. Map each OliveOps customer to an existing QuickBooks customer or explicitly create it in QuickBooks.
 
 OliveOps never guesses Product/Service Items, income accounts, tax codes, customer matches, or currency conversion.
+
+Configuration may be saved incrementally. Unmapped categories and blank tax-code selections are valid saved states; synchronization validates only the categories and tax treatments used by the selected invoice.
 
 ## Invoice behavior
 

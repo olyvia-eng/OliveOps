@@ -372,12 +372,20 @@ export default function IntegrationsPage() {
     return [value, selectedId && !activeQuickBooksItemIds.has(selectedId) ? 'Select an active QuickBooks Product/Service.' : ''];
   })) as Partial<Record<InvoiceLineCategory, string>>;
   const taxableTaxCodeError = taxableTaxCodeId && !activeTaxableCodeIds.has(taxableTaxCodeId) ? 'Select an active taxable QuickBooks sales tax code.' : '';
-  const nonTaxableTaxCodeError = !nonTaxableTaxCodeId
-    ? (activeNonTaxableCodeIds.size === 0 ? 'QuickBooks did not return an active non-taxable sales tax code.' : 'Select a non-taxable QuickBooks sales tax code.')
-    : (!activeNonTaxableCodeIds.has(nonTaxableTaxCodeId) ? 'Select an active non-taxable QuickBooks sales tax code.' : '');
+  const nonTaxableTaxCodeError = nonTaxableTaxCodeId && !activeNonTaxableCodeIds.has(nonTaxableTaxCodeId) ? 'Select an active non-taxable QuickBooks sales tax code.' : '';
+  const nonTaxableTaxCodeWarning = activeNonTaxableCodeIds.size === 0
+    ? 'QuickBooks did not return an active non-taxable sales tax code. Invoices with non-taxable lines cannot sync until one is available.'
+    : (!nonTaxableTaxCodeId ? 'Select a non-taxable sales tax code before syncing an invoice with non-taxable lines.' : '');
   const quickBooksConfigurationValid = !Object.values(mappingErrors).some(Boolean)
     && (!taxableTaxCodeId || activeTaxableCodeIds.has(taxableTaxCodeId))
-    && !nonTaxableTaxCodeError;
+    && (!nonTaxableTaxCodeId || activeNonTaxableCodeIds.has(nonTaxableTaxCodeId));
+  const quickBooksCountryMismatch = Boolean(quickBooks.country && !['CA', 'CANADA'].includes(quickBooks.country.toUpperCase()));
+  const quickBooksSetupIncomplete = !quickBooksConfigurationValid || !taxableTaxCodeId || !nonTaxableTaxCodeId || !Object.values(quickBooksMappings).some(Boolean);
+  const quickBooksReadiness = quickBooksCountryMismatch
+    ? { label: 'Country/tax mismatch', className: 'bg-amber-100 text-amber-800' }
+    : quickBooksSetupIncomplete
+      ? { label: 'Setup incomplete', className: 'bg-gray-100 text-gray-700' }
+      : { label: 'Ready', className: 'bg-emerald-100 text-emerald-800' };
 
   const findQuickBooksCustomer = async () => {
     if (!syncCustomerId) return;
@@ -582,7 +590,7 @@ export default function IntegrationsPage() {
           )}
         </div>
 
-        {quickBooks.connected && quickBooks.country && quickBooks.country.toUpperCase() !== 'CA' && quickBooks.country.toUpperCase() !== 'CANADA' ? (
+        {quickBooks.connected && quickBooksCountryMismatch ? (
           <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
             This QuickBooks company is not configured for Canada. Ontario HST invoices cannot be fully validated in this sandbox. This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available.
           </div>
@@ -590,7 +598,11 @@ export default function IntegrationsPage() {
 
         <div className="grid gap-8 p-5 lg:grid-cols-2">
           <section>
-            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Invoice accounting mappings</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Invoice accounting mappings</h3>
+              {quickBooks.connected ? <Badge label={quickBooksReadiness.label} className={quickBooksReadiness.className} /> : null}
+            </div>
+            <p className="mt-1 text-xs font-medium text-brand-500 dark:text-brand-200">QuickBooks sync readiness</p>
             <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">Choose the QuickBooks Product/Service used for each OliveOps invoice category.</p>
             <div className="mt-4 space-y-3">
               {quickBooksCategories.map((category) => (
@@ -617,6 +629,7 @@ export default function IntegrationsPage() {
                 {quickBooksTaxCodes.filter((taxCode) => !taxCode.taxable).map((taxCode) => <option key={taxCode.id} value={taxCode.id}>{taxCode.name}</option>)}
               </Select>
               {nonTaxableTaxCodeError ? <p className="-mt-2 text-xs text-red-600">{nonTaxableTaxCodeError}</p> : null}
+              {!nonTaxableTaxCodeError && nonTaxableTaxCodeWarning ? <p className="-mt-2 text-xs text-amber-700">{nonTaxableTaxCodeWarning}</p> : null}
               <Button disabled={!quickBooks.connected || quickBooksSaving || !quickBooksConfigurationDirty || !quickBooksConfigurationValid} onClick={() => void saveQuickBooksConfiguration()}>Save Mappings</Button>
             </div>
           </section>
