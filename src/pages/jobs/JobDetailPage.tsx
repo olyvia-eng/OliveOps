@@ -6,16 +6,14 @@ import { Card, Button, Badge, EmptyState, Input, Modal, Select, TextArea } from 
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
 import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
-import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } from '../../types';
-import { classifyTrackedHoursByWorkType } from './profitability';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobLabourSummaryCard from '../../components/jobs/JobLabourSummaryCard';
-import type { JobLabourSummary } from '../../utils/jobLabourSummary.js';
+import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
@@ -45,6 +43,10 @@ const formatPropertyAddress = (property: Address) => [property.street, property.
   .filter(Boolean)
   .join(', ');
 
+const formatEmployeeCompensation = (employee: { compensationType?: string; hourlyRate: number }) => employee.compensationType === 'salary'
+  ? `${formatCurrency(employee.hourlyRate)} annual salary`
+  : `${formatCurrency(employee.hourlyRate)}/hr`;
+
 const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
   const fileIds = [...new Set([
     entry.clockInPhotoFileId,
@@ -66,7 +68,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, divisions, budgetDivisions, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, updateJobSchedule, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, labourClasses, crews, divisions, budgetDivisions, invoices, expenses, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, updateJobSchedule, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -79,9 +81,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [submissionError, setSubmissionError] = useState('');
   const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
   const [jobTaskFilter, setJobTaskFilter] = useState<'all' | 'completed'>('all');
-  const [labourSummary, setLabourSummary] = useState<JobLabourSummary | null>(null);
-  const [labourSummaryLoading, setLabourSummaryLoading] = useState(false);
-  const [labourSummaryError, setLabourSummaryError] = useState('');
+  const [analysisScope, setAnalysisScope] = useState('entire-job');
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
 
   const customer = customers.find((c) => c.id === job?.customerId);
@@ -162,26 +162,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const selectedTimeEntry = jobTimeEntries.find((entry) => entry.id === selectedTimeEntryId) ?? null;
 
   useEffect(() => {
-    if (!id || !canViewAnalysis || activeTab !== 'analysis') return;
-    const controller = new AbortController();
-    setLabourSummaryLoading(true);
-    setLabourSummaryError('');
-    void fetch(`/api/job-labour-summary?jobId=${encodeURIComponent(id)}`, { credentials: 'include', signal: controller.signal })
-      .then(async (response) => {
-        const payload = await response.json() as { ok?: boolean; summary?: JobLabourSummary; error?: string };
-        if (!response.ok || !payload.ok || !payload.summary) throw new Error(payload.error || 'Could not load Job labour.');
-        setLabourSummary(payload.summary);
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
-        setLabourSummary(null);
-        setLabourSummaryError(error instanceof Error ? error.message : 'Could not load Job labour.');
-      })
-      .finally(() => { if (!controller.signal.aborted) setLabourSummaryLoading(false); });
-    return () => controller.abort();
-  }, [activeTab, canViewAnalysis, effectiveTimeEntries, id, job]);
-
-  useEffect(() => {
     let cancelled = false;
 
     const resolveUrls = async () => {
@@ -203,106 +183,32 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     };
   }, [jobTimeEntries]);
 
-  const actualCostTotal = job ? job.actualCosts.reduce((s, c) => s + c.total, 0) : 0;
-  const profit = job ? job.contractValue - actualCostTotal : 0;
-  const marginPct = job && job.contractValue > 0 ? (profit / job.contractValue) * 100 : 0;
-  const hoursPct = job && job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
-
-  const profitability = useMemo(() => {
-    if (!job) {
-      return {
-        trackedHours: 0,
-        trackedBillableHours: 0,
-        trackedNonBillableHours: 0,
-        trackedLaborCost: 0,
-        recordedLaborCosts: 0,
-        recordedNonLaborCosts: 0,
-        projectedCostFromTracking: 0,
-        projectedProfitFromTracking: 0,
-        projectedMarginFromTracking: 0,
-        laborVariance: 0,
-        laborVariancePct: 0,
-      };
-    }
-
-    let trackedHours = 0;
-    let trackedBillableHours = 0;
-    let trackedNonBillableHours = 0;
-    let trackedLaborCost = 0;
-
-    for (const entry of jobTimeEntries) {
-      const ids = normalizeEntryJobIds(entry);
-      const divisor = ids.length > 0 ? ids.length : 1;
-      const sharedHours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes) / divisor;
-      const classification = classifyTrackedHoursByWorkType(entry.workType, sharedHours);
-
-      trackedHours += sharedHours;
-      trackedBillableHours += classification.billableHours;
-      trackedNonBillableHours += classification.nonBillableHours;
-
-      const rate = employees.find((employee) => employee.id === entry.employeeId)?.hourlyRate ?? 0;
-      trackedLaborCost += sharedHours * rate;
-    }
-
-    const recordedLaborCosts = job.actualCosts
-      .filter((cost) => cost.category === 'labour')
-      .reduce((sum, cost) => sum + cost.total, 0);
-    const recordedNonLaborCosts = job.actualCosts
-      .filter((cost) => cost.category !== 'labour')
-      .reduce((sum, cost) => sum + cost.total, 0);
-
-    const projectedCostFromTracking = trackedLaborCost + recordedNonLaborCosts;
-    const projectedProfitFromTracking = job.contractValue - projectedCostFromTracking;
-    const projectedMarginFromTracking =
-      job.contractValue > 0 ? (projectedProfitFromTracking / job.contractValue) * 100 : 0;
-    const laborVariance = recordedLaborCosts - trackedLaborCost;
-    const laborVariancePct = trackedLaborCost > 0 ? (laborVariance / trackedLaborCost) * 100 : 0;
-
-    return {
-      trackedHours,
-      trackedBillableHours,
-      trackedNonBillableHours,
-      trackedLaborCost,
-      recordedLaborCosts,
-      recordedNonLaborCosts,
-      projectedCostFromTracking,
-      projectedProfitFromTracking,
-      projectedMarginFromTracking,
-      laborVariance,
-      laborVariancePct,
-    };
-  }, [employees, job, jobTimeEntries]);
-  const hasMeaningfulAnalysisData = Boolean(job && (actualCostTotal > 0 || job.actualHours > 0 || profitability.trackedHours > 0 || (job.currentPlannedCost ?? job.estimatedCost) > 0 || job.originalEstimateSnapshot));
-
+  const performance = useMemo(() => job ? calculateJobPerformance({
+    job,
+    employees,
+    labourClasses,
+    timeEntries,
+    timeCorrections,
+    invoices,
+    expenses,
+    scopeWorkAreaId: analysisScope,
+  }) : null, [analysisScope, employees, expenses, invoices, job, labourClasses, timeCorrections, timeEntries]);
+  const unallocatedPerformance = useMemo(() => job ? calculateJobPerformance({
+    job,
+    employees,
+    labourClasses,
+    timeEntries,
+    timeCorrections,
+    invoices,
+    expenses,
+    scopeWorkAreaId: 'unallocated',
+  }) : null, [employees, expenses, invoices, job, labourClasses, timeCorrections, timeEntries]);
+  const hasUnallocatedData = Boolean(unallocatedPerformance && (
+    unallocatedPerformance.labour.actual.hasData
+    || unallocatedPerformance.expenses.length > 0
+    || unallocatedPerformance.costs.categories.some((row) => row.actualCost !== null)
+  ));
   const originalContractRevenue = job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? job?.contractValue ?? 0;
-  const originalEstimatedCost = job?.originalEstimateSnapshot?.estimatedCost
-    ?? job?.originalEstimateSnapshot?.workAreas.reduce((sum, area) => sum + area.estimatedCost, 0)
-    ?? job?.estimatedCost
-    ?? 0;
-  const originalEstimatedProfit = originalContractRevenue - originalEstimatedCost;
-  const originalEstimatedMargin = originalContractRevenue > 0 ? (originalEstimatedProfit / originalContractRevenue) * 100 : 0;
-  const currentContractRevenue = job?.currentContractRevenue ?? originalContractRevenue;
-  const currentPlannedCost = job?.currentPlannedCost ?? job?.estimatedCost ?? 0;
-  const currentExpectedProfit = currentContractRevenue - currentPlannedCost;
-  const currentExpectedMargin = currentContractRevenue > 0 ? (currentExpectedProfit / currentContractRevenue) * 100 : 0;
-
-  const profitabilityWarnings = useMemo(() => {
-    const warnings: Array<{ label: string; className: string }> = [];
-
-    if (job && job.estimatedHours > 0 && job.actualHours > job.estimatedHours) {
-      warnings.push({ label: 'Over Hours', className: 'bg-accent-100 text-accent-700' });
-    }
-
-    if (job && profitability.projectedMarginFromTracking < LOW_MARGIN_THRESHOLD_PCT) {
-      warnings.push({ label: `Low Margin (<${LOW_MARGIN_THRESHOLD_PCT}%)`, className: 'bg-accent-50 text-accent-600' });
-    }
-
-    if (job && Math.abs(profitability.laborVariancePct) > HIGH_LABOR_VARIANCE_THRESHOLD_PCT) {
-      warnings.push({ label: `Labor Variance High (>${HIGH_LABOR_VARIANCE_THRESHOLD_PCT}%)`, className: 'bg-brand-100 text-brand-700' });
-    }
-
-    return warnings;
-  }, [job, profitability.laborVariancePct, profitability.projectedMarginFromTracking]);
 
   const employeeTimeEntryNotes = useMemo(
     () => jobTimeEntries.filter((entry) => entry.notes?.trim()),
@@ -530,55 +436,43 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (
-        !hasMeaningfulAnalysisData
-        && !labourSummaryLoading
-        && !labourSummaryError
-        && !labourSummary?.estimated.hasData
-        && !labourSummary?.scheduled.hasData
-        && !labourSummary?.actual.hasData ? (
+        !performance ? (
           <Card className="p-4">
             <EmptyState
-              title="Job analysis will appear as costs and progress are recorded"
-              description="Record time, actual costs, and job progress before relying on margin analysis here."
+              title="Job analysis is unavailable"
+              description="The Job performance model could not be calculated."
             />
           </Card>
         ) : (
           <div className="space-y-6">
-            <div className="grid gap-4 xl:grid-cols-3">
-              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Original Estimate</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Contract Revenue</span><strong>{formatCurrency(originalContractRevenue)}</strong></p><p className="flex justify-between"><span>Estimated Cost</span><strong>{formatCurrency(originalEstimatedCost)}</strong></p><p className="flex justify-between"><span>Estimated Profit</span><strong>{formatCurrency(originalEstimatedProfit)}</strong></p><p className="text-right text-xs text-gray-500">{originalEstimatedMargin.toFixed(1)}% margin</p></div></Card>
-              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Current Job Plan</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Contract Revenue</span><strong>{formatCurrency(currentContractRevenue)}</strong></p><p className="flex justify-between"><span>Planned Cost</span><strong>{formatCurrency(currentPlannedCost)}</strong></p><p className="flex justify-between"><span>Expected Profit</span><strong className={currentExpectedProfit >= 0 ? 'text-brand-700' : 'text-accent-700'}>{formatCurrency(currentExpectedProfit)}</strong></p><p className="text-right text-xs text-gray-500">{currentExpectedMargin.toFixed(1)}% margin</p></div></Card>
-              <Card className="p-4"><p className="text-xs font-semibold uppercase text-gray-500">Actual To Date</p><div className="mt-3 space-y-2 text-sm"><p className="flex justify-between"><span>Recorded Costs</span><strong>{formatCurrency(actualCostTotal)}</strong></p><p className="flex justify-between"><span>Tracked Labour</span><strong>{formatCurrency(profitability.trackedLaborCost)}</strong></p><p className="text-xs text-gray-500">Actual revenue is not recognized here.</p></div></Card>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><h2 className="text-lg font-semibold text-gray-900">Job Performance</h2><p className="text-sm text-gray-500">Estimated plan compared with eligible time and recorded costs.</p></div>
+              <Select label="Scope" value={analysisScope} onChange={(event) => setAnalysisScope(event.target.value)} className="min-w-56">
+                <option value="entire-job">Entire Job</option>
+                {(job.operationalWorkAreas ?? []).slice().sort((left, right) => left.sortOrder - right.sortOrder).map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
+                {hasUnallocatedData ? <option value="unallocated">Unallocated</option> : null}
+              </Select>
             </div>
-            <JobLabourSummaryCard summary={labourSummary} loading={labourSummaryLoading} error={labourSummaryError} />
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Card className="p-4"><p className="text-xs text-gray-500">Contract Value</p><p className="text-xl font-bold text-gray-900">{formatCurrency(job.contractValue)}</p></Card>
-              <Card className="p-4"><p className="text-xs text-gray-500">Actual Costs</p><p className="text-xl font-bold text-gray-900">{formatCurrency(actualCostTotal)}</p></Card>
-              <Card className="p-4">
-                <p className="text-xs text-gray-500">Gross Profit</p>
-                <p className={`text-xl font-bold ${profit >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profit)}</p>
-                <p className="text-xs text-gray-400">{marginPct.toFixed(1)}% margin</p>
-              </Card>
-              <Card className="p-4">
-                <p className="text-xs text-gray-500">Hours</p>
-                <p className="text-xl font-bold text-gray-900">{job.actualHours.toFixed(1)}/{job.estimatedHours}h</p>
-                <div className="mt-1 h-1.5 rounded-full bg-gray-100"><div className={`h-1.5 rounded-full ${hoursPct >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${hoursPct}%` }} /></div>
-              </Card>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <Card className="p-4"><p className="text-xs text-gray-500">Contract revenue</p><p className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(performance.revenue.contract)}</p><p className="text-xs text-gray-400">Excludes tax</p></Card>
+              <Card className="p-4"><p className="text-xs text-gray-500">Issued revenue</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance.revenue.issued === null ? 'Unavailable' : formatCurrency(performance.revenue.issued)}</p><p className="text-xs text-gray-400">Sent, overdue, partially paid, and paid invoices; excludes tax</p></Card>
+              <Card className="p-4"><p className="text-xs text-gray-500">Estimated gross profit</p><p className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(performance.profit.estimatedGross)}</p><p className="text-xs text-gray-400">{performance.profit.estimatedGrossMargin === null ? 'Margin unavailable' : `${performance.profit.estimatedGrossMargin.toFixed(1)}% margin`}</p></Card>
+              <Card className="p-4"><p className="text-xs text-gray-500">Estimated net profit</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance.profit.estimatedNet === null ? 'Unavailable' : formatCurrency(performance.profit.estimatedNet)}</p><p className="text-xs text-gray-400">Estimated overhead is not recorded on this Job</p></Card>
+              <Card className="p-4"><p className="text-xs text-gray-500">Profit to date</p><p className="mt-1 text-lg font-semibold text-gray-900">{performance.profit.toDate === null ? 'Incomplete cost data' : formatCurrency(performance.profit.toDate)}</p><p className="text-xs text-gray-400">{performance.profit.unavailableReason ?? `${performance.profit.toDateMargin?.toFixed(1)}% margin`}</p></Card>
             </div>
             <Card className="p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-gray-900">Job Profitability (Tracked)</h2>
-                  {profitabilityWarnings.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{profitabilityWarnings.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div>}
-                </div>
-                <span className="text-xs text-gray-500">Uses shared hours for multi-job time entries</span>
-              </div>
-              <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
-                <div><p className="text-gray-500">Tracked Hours</p><p className="font-semibold text-gray-900">{profitability.trackedHours.toFixed(2)}h</p><p className="text-xs text-gray-400">Billable {profitability.trackedBillableHours.toFixed(2)}h · Non-billable {profitability.trackedNonBillableHours.toFixed(2)}h</p></div>
-                <div><p className="text-gray-500">Tracked Labor Cost</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.trackedLaborCost)}</p><p className="text-xs text-gray-400">Recorded labor costs: {formatCurrency(profitability.recordedLaborCosts)}</p><p className={`mt-1 text-xs ${profitability.laborVariance >= 0 ? 'text-accent-700' : 'text-brand-700'}`}>Variance: {formatCurrency(profitability.laborVariance)} ({profitability.laborVariancePct.toFixed(1)}%)</p></div>
-                <div><p className="text-gray-500">Projected Cost (Tracked)</p><p className="font-semibold text-gray-900">{formatCurrency(profitability.projectedCostFromTracking)}</p><p className="text-xs text-gray-400">Includes non-labor costs: {formatCurrency(profitability.recordedNonLaborCosts)}</p></div>
-                <div><p className="text-gray-500">Projected Profit (Tracked)</p><p className={`font-semibold ${profitability.projectedProfitFromTracking >= 0 ? 'text-brand-700' : 'text-accent-700'}`}>{formatCurrency(profitability.projectedProfitFromTracking)}</p><p className="text-xs text-gray-400">{profitability.projectedMarginFromTracking.toFixed(1)}% margin</p></div>
-              </div>
+              <div><h2 className="font-semibold text-gray-900">Estimated versus actual costs</h2><p className="text-sm text-gray-500">{performance.costs.varianceConvention} Under budget is not a final saving while work remains.</p></div>
+              <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b border-gray-100 text-left text-xs text-gray-500"><th className="py-2 font-medium">Category</th><th className="py-2 text-right font-medium">Estimated Cost</th><th className="py-2 text-right font-medium">Actual Cost to Date</th><th className="py-2 text-right font-medium">Variance</th></tr></thead><tbody className="divide-y divide-gray-50">
+                {performance.costs.categories.map((row) => <tr key={row.category}><td className="py-3"><p className="font-medium capitalize text-gray-900">{row.category === 'material' ? 'Materials' : row.category}</p><p className="text-xs text-gray-400">{row.sourceDescription}</p></td><td className="py-3 text-right tabular-nums">{formatCurrency(row.estimatedCost)}</td><td className="py-3 text-right tabular-nums">{row.actualCost === null ? 'Not tracked' : formatCurrency(row.actualCost)}</td><td className={`py-3 text-right tabular-nums ${row.variance === null ? 'text-gray-400' : row.variance > 0 ? 'text-accent-700' : row.variance < 0 ? 'text-emerald-700' : 'text-gray-600'}`}>{row.variance === null ? 'Unavailable' : `${formatCurrency(Math.abs(row.variance))} ${row.variance > 0 ? 'over' : row.variance < 0 ? 'under' : 'on budget'}`}</td></tr>)}
+                <tr className="font-semibold"><td className="py-3">Total direct costs</td><td className="py-3 text-right">{formatCurrency(performance.costs.estimatedDirect)}</td><td className="py-3 text-right">{formatCurrency(performance.costs.knownActualDirect)}{performance.costs.actualDirectComplete ? '' : ' known'}</td><td className="py-3 text-right text-gray-400">{performance.costs.actualDirectComplete ? formatCurrency(performance.costs.knownActualDirect - performance.costs.estimatedDirect) : 'Incomplete'}</td></tr>
+                <tr><td className="py-3 font-medium">Overhead</td><td className="py-3 text-right text-gray-400">Unavailable</td><td className="py-3 text-right">{performance.costs.actualOverhead === null ? 'Not recorded' : formatCurrency(performance.costs.actualOverhead)}</td><td className="py-3 text-right text-gray-400">Unavailable</td></tr>
+                <tr className="font-semibold"><td className="py-3">Total cost including overhead</td><td className="py-3 text-right text-gray-400">Unavailable</td><td className="py-3 text-right">{formatCurrency(performance.costs.knownActualIncludingOverhead)} known</td><td className="py-3 text-right text-gray-400">Incomplete</td></tr>
+              </tbody></table></div>
             </Card>
+            <JobLabourSummaryCard summary={performance.labour} loading={false} error="" />
+            <Card className="p-4"><h2 className="font-semibold text-gray-900">Unbillable work</h2>{performance.labour.unbillable.hasData ? <div className="mt-3 flex flex-wrap gap-8 text-sm"><p><span className="text-gray-500">Job-linked hours</span><br /><strong>{performance.labour.unbillable.hours.toFixed(1)} hr</strong></p><p><span className="text-gray-500">Labour cost</span><br /><strong>{performance.labour.unbillable.cost === null ? 'Unavailable' : formatCurrency(performance.labour.unbillable.cost)}</strong></p></div> : <p className="mt-2 text-sm text-gray-500">No eligible job-linked unbillable time is recorded.</p>}<p className="mt-2 text-xs text-gray-400">Shown separately and not included in direct labour totals above.</p></Card>
+            <Card className="overflow-hidden"><div className="border-b border-gray-100 p-4"><h2 className="font-semibold text-gray-900">Detailed item comparison</h2><p className="text-sm text-gray-500">Estimated quantities and direct costs from stable Job plan items. Actual resource quantities are shown only when recorded.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[840px] text-sm"><thead><tr className="border-b border-gray-100 text-left text-xs text-gray-500"><th className="px-4 py-3 font-medium">Item / Description</th><th className="py-3 font-medium">Category</th><th className="py-3 text-right font-medium">Estimated Qty</th><th className="py-3 text-right font-medium">Actual Qty</th><th className="py-3 font-medium">Unit</th><th className="py-3 text-right font-medium">Estimated Cost</th><th className="px-4 py-3 text-right font-medium">Actual Cost / Variance</th></tr></thead><tbody className="divide-y divide-gray-50">{performance.details.map((item) => <tr key={item.id}><td className="px-4 py-3"><p className="font-medium text-gray-900">{item.description}</p><p className="text-xs text-gray-400">{item.workAreaName}</p></td><td className="py-3 capitalize">{item.category}</td><td className="py-3 text-right tabular-nums">{item.estimatedQuantity === null ? 'Not estimated' : item.estimatedQuantity}</td><td className="py-3 text-right text-gray-400">{item.actualQuantity === null ? 'Not tracked' : item.actualQuantity}</td><td className="py-3">{item.unit || '—'}</td><td className="py-3 text-right tabular-nums">{item.estimatedCost === null ? 'Not estimated' : formatCurrency(item.estimatedCost)}</td><td className="px-4 py-3 text-right tabular-nums">{item.actualCost === null ? <span className="text-gray-400">Unavailable</span> : formatCurrency(item.actualCost)}</td></tr>)}</tbody></table></div>{performance.details.length === 0 ? <p className="p-4 text-sm text-gray-500">No estimated or actual items are available for this scope.</p> : null}</Card>
+            <Card className="overflow-hidden"><div className="border-b border-gray-100 p-4"><h2 className="font-semibold text-gray-900">Job-linked receipts and expenses</h2><p className="text-sm text-gray-500">Approved and paid records only. Pending and unrelated expenses are excluded.</p></div>{performance.expenses.length ? <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm"><thead><tr className="border-b border-gray-100 text-left text-xs text-gray-500"><th className="px-4 py-3 font-medium">Vendor / Description</th><th className="py-3 font-medium">Category</th><th className="py-3 font-medium">Date</th><th className="py-3 font-medium">Treatment</th><th className="px-4 py-3 text-right font-medium">Amount</th></tr></thead><tbody className="divide-y divide-gray-50">{performance.expenses.map((expense) => <tr key={expense.id}><td className="px-4 py-3"><p className="font-medium text-gray-900">{expense.vendor}</p><p className="text-xs text-gray-500">{expense.description}</p></td><td className="py-3 capitalize">{expense.category}</td><td className="py-3">{formatDate(expense.date)}</td><td className="py-3 text-xs text-gray-500">{expense.countedInActuals ? 'Included once above' : 'Supporting record; not added again'}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(expense.amount)}</td></tr>)}</tbody></table></div> : <p className="p-4 text-sm text-gray-500">No approved or paid Job-linked expenses are available for this scope.</p>}</Card>
           </div>
         )
       )}
@@ -690,7 +584,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             <Card className="p-4">
               <h2 className="mb-3 font-semibold">Assigned Employees</h2>
               {assignedEmployees.length === 0 ? <p className="text-sm text-gray-400">No employees assigned.</p> : (
-                <ul className="space-y-2">{assignedEmployees.map((employee) => <li key={employee.id} className="flex items-center justify-between text-sm"><span>{employee.name}</span><span className="text-gray-400 capitalize">{employee.role.replace('_', ' ')} · ${employee.hourlyRate}/hr</span></li>)}</ul>
+                <ul className="space-y-2">{assignedEmployees.map((employee) => <li key={employee.id} className="flex items-center justify-between text-sm"><span>{employee.name}</span><span className="text-gray-400 capitalize">{employee.role.replace('_', ' ')} · {formatEmployeeCompensation(employee)}</span></li>)}</ul>
               )}
             </Card>
             <Card className="p-4">

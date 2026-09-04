@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const detailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const cardSource = readFileSync('src/components/jobs/JobLabourSummaryCard.tsx', 'utf8');
 
-test('Job Analysis loads one authoritative labour summary without changing quoted revenue', () => {
-  assert.match(detailSource, /\/api\/job-labour-summary\?jobId=/);
-  assert.match(detailSource, /<JobLabourSummaryCard summary=\{labourSummary\}/);
+test('Jobs list and Analysis use one shared performance model without changing quoted revenue', () => {
+  assert.match(detailSource, /calculateJobPerformance\(\{/);
+  assert.match(jobsSource, /calculateJobPerformance\(\{/);
+  assert.match(detailSource, /<JobLabourSummaryCard summary=\{performance\.labour\}/);
+  assert.doesNotMatch(detailSource, /job\.actualHours\.toFixed|trackedLaborCost|projectedProfitFromTracking/);
+  assert.doesNotMatch(jobsSource, /employee\.hourlyRate|job\.actualHours \/ job\.estimatedHours/);
   assert.doesNotMatch(cardSource, /contractValue|originalEstimateSnapshot|estimatedRevenue/);
 });
 
@@ -24,6 +28,6 @@ test('Job labour Analysis compares estimate, schedule, and actual with useful dr
 
 test('unknown durations and labour costs remain visibly unavailable', () => {
   assert.match(cardSource, /total\.hoursAvailable \? hours\(total\.hours\) : 'Unavailable'/);
-  assert.match(cardSource, /row\.scheduledCostAvailable \? formatCurrency\(row\.scheduledCost\) : 'Unavailable'/);
+  assert.match(cardSource, /summary\.scheduled\.hoursAvailable \?/);
   assert.match(cardSource, /row\.actualCostAvailable \? formatCurrency\(row\.actualCost\) : 'Unavailable'/);
 });

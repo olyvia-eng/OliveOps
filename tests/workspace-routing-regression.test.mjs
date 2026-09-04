@@ -164,7 +164,9 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /This view is read-only\. Approval and rejection remain in Forms → Submissions\./);
   assert.match(jobWorkspaceSource, />Open Review Workflow<\/Button>/);
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
-  assert.match(jobWorkspaceSource, /Job analysis will appear as costs and progress are recorded/);
+  assert.match(jobWorkspaceSource, /Job Performance/);
+  assert.match(jobWorkspaceSource, /Estimated versus actual costs/);
+  assert.match(jobWorkspaceSource, /Detailed item comparison/);
   assert.match(jobWorkspaceSource, /No invoices yet/);
 });
 
@@ -180,9 +182,12 @@ test('Job navigation has only Quick View and the full Job workspace', () => {
 });
 
 test('Job Quick View remains concise and preserves operational context', () => {
-  for (const label of ['Hours Used / Planned', 'Schedule', 'Contract Value', 'Recorded Margin', 'Customer', 'Property', 'Schedule Status', 'Assigned Team', 'Work Areas']) {
+  for (const label of ['Labour Hours Used', 'Schedule', 'Contract Value', 'Actual Cost to Date', 'Customer', 'Property', 'Schedule Status', 'Assigned Team', 'Work Areas']) {
     assert.match(jobPanelSource, new RegExp(`>${label}<`));
   }
+  assert.match(jobPanelSource, /performance\?\.labour\.actual\.hours/);
+  assert.match(jobPanelSource, /Known costs; data incomplete/);
+  assert.doesNotMatch(jobPanelSource, /job\.actualHours\.toFixed|Recorded Margin/);
   assert.match(jobPanelSource, /risk\?\.atRisk/);
   assert.match(jobPanelSource, /risk\.warningBadges/);
   assert.match(jobPanelSource, /job\.jobNumber/);

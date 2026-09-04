@@ -4,6 +4,7 @@ import type { Customer, Employee, Job } from '../../types';
 import DetailWorkspaceHeader from '../../components/detail-workspace/DetailWorkspaceHeader';
 import { Badge, Button, Card } from '../../components/ui';
 import { formatCurrency, formatDate, statusColor } from '../../utils';
+import type { JobPerformance } from '../../utils/jobPerformanceModel.js';
 
 interface JobRiskSummary {
   atRisk: boolean;
@@ -15,6 +16,7 @@ interface JobDetailPanelProps {
   customer: Customer | null;
   assignedEmployees: Employee[];
   risk?: JobRiskSummary;
+  performance?: JobPerformance;
   canViewFinancials: boolean;
   canOpenJob?: boolean;
   onClose: () => void;
@@ -25,12 +27,15 @@ export default function JobDetailPanel({
   customer,
   assignedEmployees,
   risk,
+  performance,
   canViewFinancials,
   canOpenJob = true,
   onClose,
 }: JobDetailPanelProps) {
-  const actualCostTotal = job.actualCosts.reduce((total, cost) => total + cost.total, 0);
-  const progress = job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
+  const actualHours = performance?.labour.actual.hours;
+  const estimatedHours = performance?.labour.estimated.hours;
+  const hasEstimatedHours = Boolean(performance?.labour.estimated.hasData && estimatedHours && estimatedHours > 0);
+  const progress = hasEstimatedHours && actualHours !== undefined ? Math.min(100, (actualHours / estimatedHours!) * 100) : 0;
   const workAreas = job.operationalWorkAreas?.slice().sort((left, right) => left.sortOrder - right.sortOrder) ?? [];
 
   return (
@@ -46,10 +51,10 @@ export default function JobDetailPanel({
       <div className="space-y-4 p-4 sm:p-5">
         {risk?.warningBadges.length ? <div className="flex flex-wrap gap-2">{risk.warningBadges.map((warning) => <Badge key={warning.label} label={warning.label} className={warning.className} />)}</div> : null}
         <div className="grid grid-cols-2 gap-3">
-          <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Hours Used / Planned</p><p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{job.actualHours.toFixed(1)} / {job.estimatedHours}h</p><div className="mt-2 h-1.5 rounded-full bg-gray-100 dark:bg-brand-600"><div className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div></Card>
+          <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Labour Hours Used</p><p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{actualHours === undefined ? 'Unavailable' : `${actualHours.toFixed(1)}${hasEstimatedHours ? ` / ${estimatedHours!.toFixed(1)} hr` : ' hr'}`}</p>{hasEstimatedHours ? <div className="mt-2 h-1.5 rounded-full bg-gray-100 dark:bg-brand-600"><div className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div> : <p className="mt-1 text-xs text-gray-400">No hours estimate</p>}</Card>
           <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Schedule</p><p className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{formatDate(job.startDate)}</p><p className="text-xs text-gray-400 dark:text-brand-300">{job.endDate ? `to ${formatDate(job.endDate)}` : 'No end date'}</p></Card>
           {canViewFinancials ? <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Contract Value</p><p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(job.contractValue)}</p></Card> : null}
-          {canViewFinancials ? <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Recorded Margin</p><p className={`mt-1 text-lg font-semibold ${job.contractValue - actualCostTotal >= 0 ? 'text-brand-700 dark:text-brand-100' : 'text-accent-700'}`}>{formatCurrency(job.contractValue - actualCostTotal)}</p></Card> : null}
+          {canViewFinancials ? <Card className="p-3"><p className="text-xs text-gray-500 dark:text-brand-200">Actual Cost to Date</p><p className="mt-1 text-lg font-semibold text-gray-900 dark:text-brand-50">{performance ? formatCurrency(performance.costs.knownActualIncludingOverhead) : 'Unavailable'}</p><p className="text-xs text-gray-400">{performance?.costs.actualDirectComplete ? 'Recorded cost' : 'Known costs; data incomplete'}</p></Card> : null}
         </div>
 
         <Card className="p-4">

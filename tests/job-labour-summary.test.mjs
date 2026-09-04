@@ -80,6 +80,21 @@ test('missing schedule duration and missing employee cost remain unavailable rat
   assert.deepEqual(summary.actual, { hours: 0, cost: 0, hasData: false, hoursAvailable: true, costAvailable: true });
 });
 
+test('invalid or missing current compensation makes fallback cost unavailable', () => {
+  const entry = { id: 'missing-rate', employeeId: 'missing-rate', workType: 'job', jobId: 'job-a', clockIn: '2026-08-24T08:00:00.000Z', clockOut: '2026-08-24T10:00:00.000Z', breakMinutes: 0, status: 'clocked_out' };
+  for (const hourlyRate of [undefined, Number.NaN, -10, 0]) {
+    const summary = calculateJobLabourSummary({
+      job,
+      employees: [{ id: 'missing-rate', name: 'Missing Rate', compensationType: 'hourly', hourlyRate }],
+      labourClasses,
+      timeEntries: [entry],
+    });
+    assert.equal(summary.actual.hours, 2);
+    assert.equal(summary.actual.cost, null);
+    assert.equal(summary.actual.costAvailable, false);
+  }
+});
+
 test('legacy Jobs without occurrences use their top-level schedule and Employee assignments', () => {
   const legacyJob = {
     ...job,
@@ -95,4 +110,70 @@ test('legacy Jobs without occurrences use their top-level schedule and Employee 
   assert.equal(summary.scheduled.hours, 8);
   assert.equal(summary.scheduled.cost, 8 * 23.6);
   assert.deepEqual(summary.scheduledEmployees.map((row) => row.employeeId), ['john']);
+});
+
+test('reported Job shape converts annual salary before costing 11.37 tracked labour hours', () => {
+  const reportedJob = {
+    id: 'reported-job',
+    contractValue: 5254.46,
+    operationalWorkAreas: [{
+      id: 'reported-area',
+      lineItems: [{
+        category: 'labour',
+        labourClassId: 'foreman',
+        labourClassName: 'Foreman',
+        quantity: 50,
+        averageLabourCost: 47.2,
+        estimatedCost: 2360,
+        total: 3500,
+      }],
+    }],
+  };
+  const salariedEmployee = {
+    id: 'salary-employee',
+    name: 'Salary Employee',
+    labourClassId: 'foreman',
+    compensationType: 'salary',
+    hourlyRate: 83200,
+    payrollBurdenPct: 18,
+    benefitsExtraCost: 0,
+    bonus: 0,
+  };
+  const timeEntries = [{
+    id: 'reported-entry',
+    employeeId: salariedEmployee.id,
+    workType: 'job',
+    jobId: reportedJob.id,
+    clockIn: '2026-09-03T08:00:00.000Z',
+    clockOut: '2026-09-03T19:22:12.000Z',
+    breakMinutes: 0,
+    status: 'clocked_out',
+  }];
+
+  const summary = calculateJobLabourSummary({
+    job: reportedJob,
+    employees: [salariedEmployee],
+    labourClasses: [{ id: 'foreman', name: 'Foreman' }],
+    timeEntries,
+  });
+
+  assert.equal(reportedJob.contractValue, 5254.46);
+  assert.equal(summary.estimated.hours, 50);
+  assert.ok(Math.abs(summary.actual.hours - 11.37) < 0.000001);
+  assert.ok(Math.abs(summary.actual.cost - (11.37 * 47.2)) < 0.000001);
+  assert.ok(summary.actual.cost < salariedEmployee.hourlyRate);
+});
+
+test('legacy top-level estimated hours do not leak into Work Area or unallocated scopes', () => {
+  const legacyJob = { ...job, operationalWorkAreas: [], estimatedHours: 50 };
+  const entireJob = calculateJobLabourSummary({ job: legacyJob, employees, labourClasses });
+  const workArea = calculateJobLabourSummary({ job: legacyJob, employees, labourClasses, scopeWorkAreaId: 'area-a' });
+  const unallocated = calculateJobLabourSummary({ job: legacyJob, employees, labourClasses, scopeWorkAreaId: 'unallocated' });
+
+  assert.equal(entireJob.estimated.hours, 50);
+  assert.equal(entireJob.estimated.hasData, true);
+  assert.equal(workArea.estimated.hours, 0);
+  assert.equal(workArea.estimated.hasData, false);
+  assert.equal(unallocated.estimated.hours, 0);
+  assert.equal(unallocated.estimated.hasData, false);
 });

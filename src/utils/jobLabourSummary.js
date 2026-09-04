@@ -28,8 +28,9 @@ const scheduleOccurrences = (job) => {
 
 const employeeCostRate = (employee) => {
   if (!employee) return null;
+  if (typeof employee.hourlyRate !== 'number' || !Number.isFinite(employee.hourlyRate) || employee.hourlyRate <= 0) return null;
   const calculated = calculateEmployeeLabourCost(employee);
-  return optionalNumber(calculated.labourCostPerPaidHour);
+  return calculated.labourCostPerPaidHour > 0 ? calculated.labourCostPerPaidHour : null;
 };
 
 const classIdentity = (labourClassId, labourClassName, classById) => {
@@ -58,7 +59,7 @@ const variance = (comparison, baseline) => ({
   cost: comparison.cost !== null && baseline.cost !== null ? comparison.cost - baseline.cost : null,
 });
 
-export function calculateJobLabourSummary({ job, employees = [], labourClasses = [], timeEntries = [], timeCorrections = [] }) {
+export function calculateJobLabourSummary({ job, employees = [], labourClasses = [], timeEntries = [], timeCorrections = [], scopeWorkAreaId }) {
   const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
   const classById = new Map(labourClasses.map((labourClass) => [labourClass.id, labourClass]));
   const byClass = new Map();
@@ -68,7 +69,10 @@ export function calculateJobLabourSummary({ job, employees = [], labourClasses =
   let estimatedHours = 0;
   let estimatedCost = 0;
   let estimatedRevenue = 0;
-  const estimatedLines = (job.operationalWorkAreas ?? []).flatMap((area) => area.lineItems ?? []).filter((line) => line.category === 'labour');
+  const estimatedLines = (job.operationalWorkAreas ?? [])
+    .filter((area) => !scopeWorkAreaId || (scopeWorkAreaId === 'unallocated' ? false : area.id === scopeWorkAreaId))
+    .flatMap((area) => area.lineItems ?? [])
+    .filter((line) => line.category === 'labour');
   for (const line of estimatedLines) {
     const hours = Math.max(0, number(line.quantity));
     const costRate = optionalNumber(line.averageLabourCost) ?? Math.max(0, number(line.unitCost));
@@ -83,12 +87,15 @@ export function calculateJobLabourSummary({ job, employees = [], labourClasses =
       estimatedRevenue: revenue,
     });
   }
+  const legacyEstimatedHours = Math.max(0, number(job?.estimatedHours));
+  const usesLegacyEstimatedHours = !scopeWorkAreaId && estimatedLines.length === 0 && legacyEstimatedHours > 0;
+  if (usesLegacyEstimatedHours) estimatedHours = legacyEstimatedHours;
 
   let scheduledHours = 0;
   let scheduledCost = 0;
   let scheduledCostAvailable = true;
   let scheduledDurationUnavailable = false;
-  for (const occurrence of scheduleOccurrences(job)) {
+  for (const occurrence of scopeWorkAreaId ? [] : scheduleOccurrences(job)) {
     if (occurrence.scheduleAllDay !== false) {
       scheduledDurationUnavailable = true;
       scheduledCostAvailable = false;
@@ -121,11 +128,16 @@ export function calculateJobLabourSummary({ job, employees = [], labourClasses =
   let actualHours = 0;
   let actualCost = 0;
   let actualCostAvailable = true;
+  let unbillableHours = 0;
+  let unbillableCost = 0;
+  let unbillableCostAvailable = true;
   const effectiveEntries = buildEffectiveTimeEntries(timeEntries, timeCorrections);
   for (const entry of effectiveEntries) {
     if (entry.status !== 'clocked_out' || entry.workType !== 'job' || !entry.clockOut) continue;
     const jobIds = entryJobIds(entry);
     if (!jobIds.includes(job.id)) continue;
+    if (scopeWorkAreaId === 'unallocated' && entry.workAreaId) continue;
+    if (scopeWorkAreaId && scopeWorkAreaId !== 'unallocated' && entry.workAreaId !== scopeWorkAreaId) continue;
     const fullHours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
     if (fullHours === null) continue;
     const divisor = jobIds.length || 1;
@@ -153,13 +165,58 @@ export function calculateJobLabourSummary({ job, employees = [], labourClasses =
     actualByEmployee.set(entry.employeeId, row);
   }
 
-  const estimated = totals(estimatedHours, estimatedCost, estimatedRevenue, estimatedLines.length > 0);
-  const scheduled = totals(scheduledHours, scheduledCost, undefined, scheduleOccurrences(job).length > 0, scheduledCostAvailable, !scheduledDurationUnavailable, scheduledDurationUnavailable ? 'Scheduled duration is unavailable for one or more occurrences.' : undefined);
+  for (const entry of effectiveEntries) {
+    if (entry.status !== 'clocked_out' || entry.workType === 'job' || !entry.clockOut) continue;
+    const jobIds = entryJobIds(entry);
+    if (!jobIds.includes(job.id)) continue;
+    if (scopeWorkAreaId === 'unallocated' && entry.workAreaId) continue;
+    if (scopeWorkAreaId && scopeWorkAreaId !== 'unallocated' && entry.workAreaId !== scopeWorkAreaId) continue;
+    const fullHours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+    if (fullHours === null) continue;
+    const divisor = jobIds.length || 1;
+    const hours = fullHours / divisor;
+    const employee = employeeById.get(entry.employeeId);
+    const fallbackRate = employeeCostRate(employee);
+    const snapshotRate = optionalNumber(entry.labourCostRateSnapshot);
+    const snapshotTotal = optionalNumber(entry.labourCostTotalSnapshot);
+    const cost = snapshotRate !== null
+      ? hours * snapshotRate
+      : snapshotTotal !== null
+        ? snapshotTotal / divisor
+        : fallbackRate !== null ? hours * fallbackRate : 0;
+    unbillableHours += hours;
+    unbillableCost += cost;
+    if (snapshotTotal === null && snapshotRate === null && fallbackRate === null) unbillableCostAvailable = false;
+  }
+
+  const estimated = totals(
+    estimatedHours,
+    estimatedCost,
+    estimatedRevenue,
+    estimatedLines.length > 0 || usesLegacyEstimatedHours,
+    !usesLegacyEstimatedHours,
+    true,
+    usesLegacyEstimatedHours ? 'Estimated labour cost is unavailable for this legacy hours estimate.' : undefined,
+  );
+  const scheduleUnavailableReason = scopeWorkAreaId
+    ? 'Scheduled labour is not linked to individual Work Areas.'
+    : scheduledDurationUnavailable ? 'Scheduled duration is unavailable for one or more occurrences.' : undefined;
+  const scheduled = totals(
+    scheduledHours,
+    scheduledCost,
+    undefined,
+    scopeWorkAreaId ? false : scheduleOccurrences(job).length > 0,
+    scopeWorkAreaId ? false : scheduledCostAvailable,
+    scopeWorkAreaId ? false : !scheduledDurationUnavailable,
+    scheduleUnavailableReason,
+  );
   const actual = totals(actualHours, actualCost, undefined, actualHours > 0, actualCostAvailable, true, actualCostAvailable ? undefined : 'Employee labour cost is unavailable for one or more Time Entries.');
+  const unbillable = totals(unbillableHours, unbillableCost, undefined, unbillableHours > 0, unbillableCostAvailable, true, unbillableCostAvailable ? undefined : 'Employee labour cost is unavailable for one or more unbillable Time Entries.');
   return {
     estimated,
     scheduled,
     actual,
+    unbillable,
     variance: {
       scheduledVsEstimated: variance(scheduled, estimated),
       actualVsEstimated: variance(actual, estimated),

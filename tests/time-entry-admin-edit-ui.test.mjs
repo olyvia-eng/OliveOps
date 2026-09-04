@@ -100,7 +100,10 @@ test('reports and Job calculations consume updated Time Entry duration and labou
   assert.match(reports, /durationHours\(entry\.clockIn, entry\.clockOut, entry\.breakMinutes\)/);
   assert.match(reports, /const employeeSummaryRows = useMemo/);
   assert.match(reports, /const totalsByType = useMemo/);
-  assert.match(jobDetail, /trackedLaborCost/);
+  assert.match(jobDetail, /calculateJobPerformance/);
+  assert.match(jobDetail, /timeEntries,/);
+  assert.match(jobDetail, /timeCorrections,/);
+  assert.doesNotMatch(jobDetail, /trackedLaborCost|employee\.hourlyRate \*/);
 });
 
 test('Time Tracking uses one filtered table with responsive controls and compact empty states', async () => {

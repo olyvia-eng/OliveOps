@@ -3,10 +3,9 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
-import { statusColor, formatCurrency, formatDate, durationHours } from '../../utils';
+import { statusColor, formatCurrency, formatDate } from '../../utils';
 import type { Job, JobStatus } from '../../types';
-import { HIGH_LABOR_VARIANCE_THRESHOLD_PCT, LOW_MARGIN_THRESHOLD_PCT } from '../../config/profitability';
-import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
+import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
 import {
   closeDetailWorkspace,
@@ -41,7 +40,7 @@ interface JobsPageProps {
 }
 
 export default function JobsPage({ currentUserRole }: JobsPageProps) {
-  const { jobs, customers, employees, estimates, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
+  const { jobs, customers, employees, labourClasses, estimates, invoices, expenses, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -64,15 +63,15 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     return estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
   }, [estimates]);
 
-  const entryJobIds = (entry: { jobIds?: string[]; jobId?: string }) =>
-    Array.isArray(entry.jobIds) && entry.jobIds.length > 0
-      ? entry.jobIds
-      : (entry.jobId ? [entry.jobId] : []);
-
-  const effectiveTimeEntries = useMemo(
-    () => buildEffectiveTimeEntries(timeEntries, timeCorrections),
-    [timeEntries, timeCorrections]
-  );
+  const jobPerformanceById = useMemo(() => new Map(jobs.map((job) => [job.id, calculateJobPerformance({
+    job,
+    employees,
+    labourClasses,
+    timeEntries,
+    timeCorrections,
+    invoices,
+    expenses,
+  })])), [employees, expenses, invoices, jobs, labourClasses, timeCorrections, timeEntries]);
 
   const jobRiskById = useMemo(() => {
     const map = new Map<string, {
@@ -84,39 +83,16 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     }>();
 
     jobs.forEach((job) => {
-      const jobEntries = effectiveTimeEntries.filter((entry) => entryJobIds(entry).includes(job.id));
-
-      let trackedLaborCost = 0;
-      for (const entry of jobEntries) {
-        const ids = entryJobIds(entry);
-        const divisor = ids.length > 0 ? ids.length : 1;
-        const sharedHours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes) / divisor;
-        const rate = employees.find((employee) => employee.id === entry.employeeId)?.hourlyRate ?? 0;
-        trackedLaborCost += sharedHours * rate;
-      }
-
-      const recordedLaborCosts = job.actualCosts
-        .filter((cost) => cost.category === 'labour')
-        .reduce((sum, cost) => sum + cost.total, 0);
-      const recordedNonLaborCosts = job.actualCosts
-        .filter((cost) => cost.category !== 'labour')
-        .reduce((sum, cost) => sum + cost.total, 0);
-
-      const projectedCostFromTracking = trackedLaborCost + recordedNonLaborCosts;
-      const projectedProfitFromTracking = job.contractValue - projectedCostFromTracking;
-      const projectedMarginFromTracking =
-        job.contractValue > 0 ? (projectedProfitFromTracking / job.contractValue) * 100 : 0;
-      const laborVariancePct =
-        trackedLaborCost > 0 ? ((recordedLaborCosts - trackedLaborCost) / trackedLaborCost) * 100 : 0;
-
-      const overHours = job.estimatedHours > 0 && job.actualHours > job.estimatedHours;
-      const lowMargin = projectedMarginFromTracking < LOW_MARGIN_THRESHOLD_PCT;
-      const laborVarianceHigh = Math.abs(laborVariancePct) > HIGH_LABOR_VARIANCE_THRESHOLD_PCT;
+      const performance = jobPerformanceById.get(job.id)!;
+      const overHours = performance.labour.estimated.hasData
+        && performance.labour.actual.hours > performance.labour.estimated.hours;
+      const lowMargin = false;
+      const labourCostRow = performance.costs.categories.find((row) => row.category === 'labour');
+      const laborVarianceHigh = Boolean(labourCostRow?.variance !== null && labourCostRow && labourCostRow.variance > 0);
 
       const warningBadges: Array<{ label: string; className: string }> = [];
       if (overHours) warningBadges.push({ label: 'Over Hours', className: 'bg-accent-100 text-accent-700' });
-      if (lowMargin) warningBadges.push({ label: `Low Margin (<${LOW_MARGIN_THRESHOLD_PCT}%)`, className: 'bg-accent-50 text-accent-600' });
-      if (laborVarianceHigh) warningBadges.push({ label: `Labor Variance (>${HIGH_LABOR_VARIANCE_THRESHOLD_PCT}%)`, className: 'bg-brand-100 text-brand-700' });
+      if (laborVarianceHigh) warningBadges.push({ label: 'Labour Cost Over', className: 'bg-brand-100 text-brand-700' });
 
       map.set(job.id, {
         overHours,
@@ -128,7 +104,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     });
 
     return map;
-  }, [effectiveTimeEntries, employees, jobs]);
+  }, [jobPerformanceById, jobs]);
 
   const filtered = jobs.filter((j) => {
     const c = customers.find((c) => c.id === j.customerId);
@@ -288,13 +264,13 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
         )
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] table-fixed text-sm">
+          <table className="w-full min-w-[1120px] table-fixed text-sm">
             <colgroup>
-              <col className="w-[23%]" />
-              <col className="w-[20%]" />
-              <col className="w-[18%]" />
-              <col className="w-[12%]" />
-              <col className="w-[14%]" />
+              <col className="w-[18rem]" />
+              <col className="w-[14rem]" />
+              <col className="w-[14rem]" />
+              <col className="w-[10rem]" />
+              <col className="w-[13rem]" />
               {canViewFinancials ? <col className="w-[9rem]" /> : null}
               <col className="w-[7rem]" />
             </colgroup>
@@ -304,7 +280,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                 <th className="pb-2 font-medium">Customer</th>
                 <th className="pb-2 font-medium">Work Areas</th>
                 <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium">Progress</th>
+                <th className="pb-2 font-medium" title="Actual labour hours used compared with estimated labour hours">Labour Hours</th>
                 {canViewFinancials ? <th className="whitespace-nowrap pb-2 text-right font-medium">Contract Value</th> : null}
                 <th className="pb-2 text-right font-medium">Actions</th>
               </tr>
@@ -312,7 +288,12 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
             <tbody className="divide-y divide-gray-100 dark:divide-brand-700">
               {filtered.map((job) => {
                 const customer = customers.find((item) => item.id === job.customerId);
-                const progress = job.estimatedHours > 0 ? Math.min(100, (job.actualHours / job.estimatedHours) * 100) : 0;
+                const performance = jobPerformanceById.get(job.id)!;
+                const actualHours = performance.labour.actual.hours;
+                const estimatedHours = performance.labour.estimated.hours;
+                const hasEstimate = performance.labour.estimated.hasData && estimatedHours > 0;
+                const progress = hasEstimate ? Math.min(100, (actualHours / estimatedHours) * 100) : 0;
+                const overHours = hasEstimate && actualHours > estimatedHours;
                 const workAreaNames = job.operationalWorkAreas?.map((area) => area.name) ?? job.workAreas ?? [];
                 const workAreaLabel = workAreaNames.length ? workAreaNames.join(', ') : '—';
 
@@ -325,24 +306,25 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                     tabIndex={0}
                     aria-selected={workspace.recordId === job.id}
                   >
-                    <td className="py-3 pr-6">
-                      <button type="button" className="block truncate font-semibold text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
-                      <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-gray-500 dark:text-brand-300">
-                        <span>{job.jobNumber ? `Job #${job.jobNumber}` : 'No job number'}</span>
+                    <td className="min-w-0 py-3 pr-6 align-top">
+                      <button type="button" title={job.title} className="block max-w-full break-words text-left font-semibold leading-5 text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
+                      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-brand-300">
+                        <span className="whitespace-nowrap">{job.jobNumber ? `Job #${job.jobNumber}` : 'No job number'}</span>
                         {job.sourceEstimateId ? <Badge label="From Estimate" className="shrink-0 whitespace-nowrap bg-gray-100 text-gray-600 dark:bg-brand-700 dark:text-brand-200" /> : null}
                       </div>
                     </td>
-                    <td className="py-3 pr-6 text-gray-600 dark:text-brand-100">
-                      <p>{customer?.name ?? '—'}</p>
+                    <td className="min-w-0 py-3 pr-6 align-top text-gray-600 dark:text-brand-100">
+                      <p className="truncate" title={customer?.name}>{customer?.name ?? '—'}</p>
                       <p className="mt-0.5 text-xs text-gray-500 dark:text-brand-300">Started {formatDate(job.startDate)}</p>
                     </td>
                     <td className="max-w-56 py-3 pr-4 text-gray-600 dark:text-brand-100"><p className="truncate" title={workAreaLabel}>{workAreaLabel}</p></td>
                     <td className="py-3 pr-4"><Badge label={job.status} className={statusColor[job.status]} /></td>
-                    <td className="w-44 py-3 pr-4">
-                      <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-brand-700"><div className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div>
-                      <p className="mt-1 text-xs tabular-nums text-gray-500 dark:text-brand-300">{job.actualHours.toFixed(1)} / {job.estimatedHours} hrs</p>
+                    <td className="w-44 py-3 pr-4" title="Actual labour hours used compared with estimated labour hours; this is not percent complete.">
+                      {hasEstimate ? <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-brand-700"><div className={`h-1.5 rounded-full ${overHours ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div> : null}
+                      <p className={`mt-1 text-xs tabular-nums ${overHours ? 'font-semibold text-accent-700' : 'text-gray-500 dark:text-brand-300'}`}>{actualHours.toFixed(1)} hr{hasEstimate ? ` / ${estimatedHours.toFixed(1)} hr` : ''}</p>
+                      {!hasEstimate ? <p className="text-xs text-gray-400">No hours estimate</p> : overHours ? <p className="text-xs font-medium text-accent-700">{(actualHours - estimatedHours).toFixed(1)} hr over</p> : null}
                     </td>
-                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(job.contractValue)}</td> : null}
+                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(performance.revenue.contract)}</td> : null}
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }} title="Open Details"><ChevronRight size={13} /></Button>
@@ -366,6 +348,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
             customer={selectedCustomer}
             assignedEmployees={selectedEmployees}
             risk={jobRiskById.get(selectedJob.id)}
+            performance={jobPerformanceById.get(selectedJob.id)}
             canViewFinancials={canViewFinancials}
             onClose={closeJob}
           />

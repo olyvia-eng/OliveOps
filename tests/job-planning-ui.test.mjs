@@ -40,11 +40,12 @@ test('Job Info separates editable operations from read-only conversion history',
   assert.match(jobSource, /Proposal Number/);
 });
 
-test('Job Analysis presents original, current-plan, and actual values without invented actual revenue', () => {
-  assert.match(jobSource, />Original Estimate</);
-  assert.match(jobSource, />Current Job Plan</);
-  assert.match(jobSource, />Actual To Date</);
-  assert.match(jobSource, /originalEstimateSnapshot\?\.subtotal/);
-  assert.match(jobSource, /currentPlannedCost/);
-  assert.match(jobSource, /Actual revenue is not recognized here/);
+test('Job Analysis compares current estimates with actuals without inventing revenue or profit', () => {
+  assert.match(jobSource, /Estimated versus actual costs/);
+  assert.match(jobSource, /Contract revenue/);
+  assert.match(jobSource, /Issued revenue/);
+  assert.match(jobSource, /Excludes tax/);
+  assert.match(jobSource, /Incomplete cost data/);
+  assert.match(jobSource, /performance\.profit\.toDate/);
+  assert.doesNotMatch(jobSource, /contractValue - actualCosts|projectedProfitFromTracking/);
 });

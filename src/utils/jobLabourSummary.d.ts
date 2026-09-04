@@ -8,10 +8,11 @@ export type JobLabourSummary = {
   estimated: JobLabourTotal;
   scheduled: JobLabourTotal;
   actual: JobLabourTotal;
+  unbillable: JobLabourTotal;
   variance: { scheduledVsEstimated: JobLabourVariance; actualVsEstimated: JobLabourVariance; actualVsScheduled: JobLabourVariance };
   byLabourClass: JobLabourClassSummary[];
   scheduledEmployees: JobLabourEmployeeSummary[];
   actualEmployees: JobLabourEmployeeSummary[];
 };
 
-export function calculateJobLabourSummary(input: { job: Job; employees?: Employee[]; labourClasses?: LabourClass[]; timeEntries?: TimeEntry[]; timeCorrections?: TimeCorrectionRequest[] }): JobLabourSummary;
+export function calculateJobLabourSummary(input: { job: Job; employees?: Employee[]; labourClasses?: LabourClass[]; timeEntries?: TimeEntry[]; timeCorrections?: TimeCorrectionRequest[]; scopeWorkAreaId?: string }): JobLabourSummary;
