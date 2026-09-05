@@ -1,21 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
 import { statusColor, formatCurrency, formatDate } from '../../utils';
 import type { Job, JobStatus } from '../../types';
 import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
-import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
-import {
-  closeDetailWorkspace,
-  openDetailWorkspace,
-  readDetailWorkspaceQuery,
-} from '../../components/detail-workspace/detailWorkspaceQuery';
-import JobDetailPanel from './JobDetailPanel';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
-const JOB_WORKSPACE_QUERY = { recordParam: 'job', tabParam: 'jobTab', defaultTab: 'overview' } as const;
 
 const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'updatedAt'> => ({
   customerId: customers[0]?.id ?? '',
@@ -40,23 +32,15 @@ interface JobsPageProps {
 }
 
 export default function JobsPage({ currentUserRole }: JobsPageProps) {
-  const { jobs, customers, employees, labourClasses, estimates, invoices, expenses, timeEntries, timeCorrections, addJob, updateJob, deleteJob } = useStore();
+  const { jobs, customers, employees, labourClasses, estimates, invoices, expenses, timeEntries, timeCorrections, addJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<JobStatus | 'all'>('all');
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Job | null>(null);
   const [form, setForm] = useState(empty(customers));
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const workspace = readDetailWorkspaceQuery(searchParams, JOB_WORKSPACE_QUERY);
-  const selectedJob = jobs.find((job) => job.id === workspace.recordId) ?? null;
-  const selectedCustomer = customers.find((customer) => customer.id === selectedJob?.customerId) ?? null;
-  const selectedEmployees = employees.filter((employee) => selectedJob?.assignedEmployeeIds.includes(employee.id));
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
-  const selectJob = (jobId: string) => setSearchParams(openDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY, jobId));
-  const closeJob = () => setSearchParams(closeDetailWorkspace(searchParams, JOB_WORKSPACE_QUERY));
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
@@ -73,39 +57,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     expenses,
   })])), [employees, expenses, invoices, jobs, labourClasses, timeCorrections, timeEntries]);
 
-  const jobRiskById = useMemo(() => {
-    const map = new Map<string, {
-      overHours: boolean;
-      lowMargin: boolean;
-      laborVarianceHigh: boolean;
-      atRisk: boolean;
-      warningBadges: Array<{ label: string; className: string }>;
-    }>();
-
-    jobs.forEach((job) => {
-      const performance = jobPerformanceById.get(job.id)!;
-      const overHours = performance.labour.estimated.hasData
-        && performance.labour.actual.hours > performance.labour.estimated.hours;
-      const lowMargin = false;
-      const labourCostRow = performance.costs.categories.find((row) => row.category === 'labour');
-      const laborVarianceHigh = Boolean(labourCostRow?.variance !== null && labourCostRow && labourCostRow.variance > 0);
-
-      const warningBadges: Array<{ label: string; className: string }> = [];
-      if (overHours) warningBadges.push({ label: 'Over Hours', className: 'bg-accent-100 text-accent-700' });
-      if (laborVarianceHigh) warningBadges.push({ label: 'Labour Cost Over', className: 'bg-brand-100 text-brand-700' });
-
-      map.set(job.id, {
-        overHours,
-        lowMargin,
-        laborVarianceHigh,
-        atRisk: overHours || lowMargin || laborVarianceHigh,
-        warningBadges,
-      });
-    });
-
-    return map;
-  }, [jobPerformanceById, jobs]);
-
   const filtered = jobs.filter((j) => {
     const c = customers.find((c) => c.id === j.customerId);
     const matchSearch =
@@ -116,7 +67,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   });
 
   const openNew = () => {
-    setEditing(null);
     setForm(empty(customers));
     setModalOpen(true);
   };
@@ -133,51 +83,12 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     }, { replace: true });
   }, [location.pathname, location.search, navigate, customers]);
 
-  const openEdit = (j: Job) => {
-    setEditing(j);
-    setForm({
-      customerId: j.customerId, title: j.title, description: j.description,
-      workAreas: [...(j.workAreas ?? [])],
-      status: j.status, startDate: j.startDate, endDate: j.endDate,
-      scheduleConfirmed: j.scheduleConfirmed,
-      scheduledStartAt: j.scheduledStartAt,
-      scheduledEndAt: j.scheduledEndAt,
-      scheduleAllDay: j.scheduleAllDay,
-      scheduleNotes: j.scheduleNotes,
-      assignedEquipmentIds: [...(j.assignedEquipmentIds ?? [])],
-      estimatedHours: j.estimatedHours, actualHours: j.actualHours,
-      estimatedCost: j.estimatedCost, actualCosts: j.actualCosts,
-      contractValue: j.contractValue, assignedEmployeeIds: [...j.assignedEmployeeIds],
-      notes: j.notes,
-    });
-    setModalOpen(true);
-  };
-
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.title.trim() || !form.customerId) return;
-    if (editing?.sourceEstimateId) {
-      const operationalPatch = {
-        customerId: form.customerId,
-        title: form.title,
-        description: form.description,
-        status: form.status,
-        startDate: form.startDate,
-        endDate: form.endDate,
-        scheduleConfirmed: form.scheduleConfirmed,
-        scheduledStartAt: form.scheduledStartAt,
-        scheduledEndAt: form.scheduledEndAt,
-        scheduleAllDay: form.scheduleAllDay,
-        scheduleNotes: form.scheduleNotes,
-        assignedEmployeeIds: form.assignedEmployeeIds,
-        assignedEquipmentIds: form.assignedEquipmentIds,
-        actualHours: form.actualHours,
-        actualCosts: form.actualCosts,
-        notes: form.notes,
-      };
-      void updateJob(editing.id, operationalPatch);
-    } else if (editing) updateJob(editing.id, form);
-    else addJob(form);
+    const jobId = await addJob(form);
+    if (!jobId) return;
     setModalOpen(false);
+    navigate(`/jobs/${jobId}`);
   };
 
   const set = (key: keyof typeof form, value: unknown) =>
@@ -194,12 +105,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
 
   return (
     <div>
-      <DetailWorkspace
-        open={Boolean(workspace.recordId)}
-        expanded={false}
-        detailKey={workspace.recordId}
-        list={(
-          <div>
       <PageHeader
         title="Jobs"
         subtitle="Track active and completed jobs."
@@ -300,14 +205,13 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                 return (
                   <tr
                     key={job.id}
-                    className={`cursor-pointer transition-colors ${workspace.recordId === job.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`}
-                    onClick={() => selectJob(job.id)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') selectJob(job.id); }}
+                    className="cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-brand-600/60"
+                    onClick={() => navigate(`/jobs/${job.id}`)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') navigate(`/jobs/${job.id}`); }}
                     tabIndex={0}
-                    aria-selected={workspace.recordId === job.id}
                   >
                     <td className="min-w-0 py-3 pr-6 align-top">
-                      <button type="button" title={job.title} className="block max-w-full break-words text-left font-semibold leading-5 text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</button>
+                      <Link to={`/jobs/${job.id}`} onClick={(event) => event.stopPropagation()} title={job.title} className="block max-w-full break-words text-left font-semibold leading-5 text-gray-900 hover:text-brand-700 dark:text-brand-50 dark:hover:text-brand-100">{job.title}</Link>
                       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-brand-300">
                         <span className="whitespace-nowrap">{job.jobNumber ? `Job #${job.jobNumber}` : 'No job number'}</span>
                         {job.sourceEstimateId ? <Badge label="From Estimate" className="shrink-0 whitespace-nowrap bg-gray-100 text-gray-600 dark:bg-brand-700 dark:text-brand-200" /> : null}
@@ -327,8 +231,8 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                     {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{performance.revenue.contract === null ? 'Unavailable' : formatCurrency(performance.revenue.contract)}</td> : null}
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }} title="Open Details"><ChevronRight size={13} /></Button>
-                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); openEdit(job); }} title="Edit Job"><Pencil size={13} /></Button>
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); navigate(`/jobs/${job.id}`); }} title="Open Job"><ChevronRight size={13} /></Button>
+                        <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); navigate(`/jobs/${job.id}?tab=info`); }} title="Edit Job"><Pencil size={13} /></Button>
                         {!job.sourceEstimateId ? <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setConfirmDelete(job.id); }} title="Delete Job"><Trash2 size={13} className="text-accent-600" /></Button> : null}
                       </div>
                     </td>
@@ -340,28 +244,11 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
         </div>
       )}
 
-          </div>
-        )}
-        detail={selectedJob ? (
-          <JobDetailPanel
-            job={selectedJob}
-            customer={selectedCustomer}
-            assignedEmployees={selectedEmployees}
-            risk={jobRiskById.get(selectedJob.id)}
-            performance={jobPerformanceById.get(selectedJob.id)}
-            canViewFinancials={canViewFinancials}
-            onClose={closeJob}
-          />
-        ) : (
-          <div className="p-6"><p className="text-sm text-gray-500 dark:text-brand-200">Job not found or no longer available.</p><Button className="mt-4" variant="secondary" onClick={closeJob}>Close</Button></div>
-        )}
-      />
-
       {/* Form Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit Job' : 'New Job'} wide
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New Job" wide
         footer={<>
           <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button>
-          <Button onClick={handleSave}>Save Job</Button>
+          <Button onClick={() => void handleSave()}>Save Job</Button>
         </>}
       >
         <div className="space-y-4">
@@ -376,20 +263,20 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
           </div>
           <Input label="Title *" required value={form.title} onChange={(e) => set('title', e.target.value)} />
           <TextArea label="Description" value={form.description} onChange={(e) => set('description', e.target.value)} />
-          {!editing?.sourceEstimateId ? <TextArea
+          <TextArea
             label="Work Areas"
             value={(form.workAreas ?? []).join('\n')}
             onChange={(e) => set('workAreas', e.target.value.split('\n').map((line) => line.trim()).filter(Boolean))}
             placeholder="Main floor\nGarage\nBackyard"
-          /> : <p className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700">Edit converted Job scope from the Work Areas tab. Sold contract values remain read-only.</p>}
+          />
           <div className="grid grid-cols-2 gap-3">
             <Input label="Start Date" type="date" value={form.startDate?.slice(0, 10) ?? ''} onChange={(e) => set('startDate', e.target.value)} />
             <Input label="End Date" type="date" value={form.endDate?.slice(0, 10) ?? ''} onChange={(e) => set('endDate', e.target.value || undefined)} />
           </div>
           <div className="grid grid-cols-3 gap-3">
-            {!editing?.sourceEstimateId ? <Input label="Estimated Hours" type="number" min={0} value={form.estimatedHours} onChange={(e) => set('estimatedHours', Number(e.target.value))} /> : <div />}
+            <Input label="Estimated Hours" type="number" min={0} value={form.estimatedHours} onChange={(e) => set('estimatedHours', Number(e.target.value))} />
             <Input label="Actual Hours" type="number" min={0} step={0.25} value={form.actualHours} onChange={(e) => set('actualHours', Number(e.target.value))} />
-            {!editing?.sourceEstimateId ? <Input label="Contract Value ($)" type="number" min={0} value={form.contractValue} onChange={(e) => set('contractValue', Number(e.target.value))} /> : <div><p className="text-sm font-medium text-gray-700">Contract Total</p><p className="mt-2 font-semibold">{formatCurrency(editing.contractValue)}</p><p className="text-xs text-gray-500">From sold Estimate</p></div>}
+            <Input label="Contract Value ($)" type="number" min={0} value={form.contractValue} onChange={(e) => set('contractValue', Number(e.target.value))} />
           </div>
 
           {/* Assign employees */}

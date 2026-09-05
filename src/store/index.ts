@@ -209,7 +209,7 @@ interface AppState {
   deleteSubcontractorCatalogItem: (id: ID) => void;
 
   // Jobs
-  addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  addJob: (j: Omit<Job, 'id' | 'createdAt' | 'updatedAt'>) => Promise<ID | null>;
   updateJob: (id: ID, data: Partial<Job>) => Promise<boolean>;
   updateJobSchedule: (id: ID, data: JobScheduleUpdate) => Promise<boolean>;
   initializeJobPlan: (id: ID) => Promise<{ ok: boolean; error?: string }>;
@@ -962,24 +962,27 @@ export const useStore = create<AppState>()((set, get) => ({
       },
 
       // ── Jobs ──────────────────────────────────────────────────────────────
-      addJob: (j) => {
-        const previous = get().jobs;
+      addJob: async (j) => {
         const job = { ...j, id: generateId(), createdAt: nowISO(), updatedAt: nowISO() };
-        set((s) => ({
-          jobs: [...s.jobs, job],
-        }));
 
-        void ensureOk(fetch(dataUrl('jobs'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: job }),
-        })).catch(() => {
-          set({ jobs: previous });
-          emitAppToast({ tone: 'error', message: 'Job could not be saved.' });
-        });
+        try {
+          const response = await fetch(dataUrl('jobs'), {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ data: job }),
+          });
+          if (!response.ok) await ensureOk(Promise.resolve(response));
+          const payload = await response.json() as { ok?: boolean; job?: Job };
+          if (!payload.ok || !payload.job) throw new Error('Job creation response was incomplete.');
+          set((state) => ({ jobs: [...state.jobs, payload.job as Job] }));
+          return payload.job.id;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Job could not be saved.') });
+          return null;
+        }
       },
       updateJob: async (id, data) => {
         const previous = get().jobs;

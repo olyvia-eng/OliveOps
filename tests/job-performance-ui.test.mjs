@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
-const panelSource = readFileSync('src/pages/jobs/JobDetailPanel.tsx', 'utf8');
 const summarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
 
 test('Jobs list contains long titles and presents labour hours instead of completion progress', () => {
@@ -20,8 +19,9 @@ test('Jobs list contains long titles and presents labour hours instead of comple
 });
 
 test('Job summary and Analysis consume one shared performance model', () => {
-  assert.match(jobsSource, /performance=\{jobPerformanceById\.get\(selectedJob\.id\)\}/);
-  assert.match(panelSource, /performance\?\.labour\.actual\.hours/);
+  assert.match(jobsSource, /new Map\(jobs\.map\(\(job\) => \[job\.id, calculateJobPerformance\(\{/);
+  assert.match(jobsSource, /const performance = jobPerformanceById\.get\(job\.id\)!/);
+  assert.match(detailSource, /const performance = useMemo\(\(\) => job \? calculateJobPerformance\(\{/);
   assert.match(detailSource, /scopeWorkAreaId: analysisScope/);
   assert.match(detailSource, /<option value="entire-job">Entire Job<\/option>/);
   assert.match(detailSource, /<option value="unallocated">Unallocated<\/option>/);

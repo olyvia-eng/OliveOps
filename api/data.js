@@ -2010,6 +2010,7 @@ export default async function handler(req, res) {
       }
       if (entity === 'jobs') {
         await syncJobToExternalCalendars({ businessId: session.businessId, job: record });
+        return res.status(200).json({ ok: true, job: record });
       }
       if (entity === 'estimates') return res.status(200).json({ ok: true, estimate: record });
       if (entity === 'invoices') return res.status(200).json({ ok: true, invoice: record });

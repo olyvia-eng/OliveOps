@@ -6,6 +6,7 @@ const dataSource = readFileSync('api/data.js', 'utf8');
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const builderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
+const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 
 test('generic API locks converted Estimate edits and deletion', () => {
   assert.match(dataSource, /entity === 'estimates' && existing\.status === 'converted'/);
@@ -28,9 +29,11 @@ test('converted Estimate UI is read-only while preserving the linked Job action'
   assert.match(builderSource, /This Work Area is part of the converted Estimate and is read-only/);
 });
 
-test('converted Job deletion and contract editing are absent from the legacy modal', () => {
+test('converted Job deletion stays guarded and contract editing is absent from the full Job page', () => {
   assert.match(jobsSource, /!job\.sourceEstimateId \? <Button/);
   assert.match(jobsSource, /setConfirmDelete\(job\.id\)/);
-  assert.match(jobsSource, /!editing\?\.sourceEstimateId \? <Input label="Contract Value \(\$\)"/);
-  assert.match(jobsSource, /Sold contract values remain read-only/);
+  assert.match(jobsSource, /navigate\(`\/jobs\/\$\{job\.id\}\?tab=info`\)/);
+  assert.match(jobDetailSource, /Changes here update the Job only\. The sold Estimate remains unchanged\./);
+  assert.match(jobDetailSource, /Contract Total/);
+  assert.doesNotMatch(jobDetailSource, /<Input label="Contract Value \(\$\)"/);
 });

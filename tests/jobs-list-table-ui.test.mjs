@@ -36,21 +36,20 @@ test('Jobs rows preserve customer, work-area, labour-hours, and contract present
   assert.doesNotMatch(jobsSource, /formatCurrency\(profit\).*margin/);
 });
 
-test('Jobs risk calculations remain available to the detail panel but not table rows', () => {
-  assert.match(jobsSource, /const jobRiskById = useMemo/);
-  assert.match(jobsSource, /const lowMargin = false/);
-  assert.match(jobsSource, /const laborVarianceHigh = Boolean\(labourCostRow\?\.variance !== null/);
-  assert.match(jobsSource, /risk=\{jobRiskById\.get\(selectedJob\.id\)\}/);
+test('Jobs list uses the shared performance model without drawer-only risk state', () => {
+  assert.match(jobsSource, /const jobPerformanceById = useMemo/);
+  assert.match(jobsSource, /calculateJobPerformance\(\{/);
+  assert.doesNotMatch(jobsSource, /jobRiskById|selectedJob|JobDetailPanel/);
   assert.doesNotMatch(jobsSource, /projectedMarginFromTracking|HIGH_LABOR_VARIANCE_THRESHOLD_PCT/);
 });
 
-test('Jobs rows retain URL-backed open and edit actions without duplicate row activation', () => {
-  assert.match(jobsSource, /const selectJob = \(jobId: string\) => setSearchParams\(openDetailWorkspace/);
-  assert.match(jobsSource, /onClick=\{\(\) => selectJob\(job\.id\)\}/);
-  assert.match(jobsSource, /title="Open Details"/);
-  assert.match(jobsSource, /event\.stopPropagation\(\); selectJob\(job\.id\)/);
+test('Jobs rows, titles, and actions open the full Job route without a drawer', () => {
+  assert.match(jobsSource, /onClick=\{\(\) => navigate\(`\/jobs\/\$\{job\.id\}`\)\}/);
+  assert.match(jobsSource, /<Link to=\{`\/jobs\/\$\{job\.id\}`\} onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(jobsSource, /title="Open Job"/);
+  assert.match(jobsSource, /navigate\(`\/jobs\/\$\{job\.id\}\?tab=info`\)/);
   assert.match(jobsSource, /title="Edit Job"/);
-  assert.match(jobsSource, /event\.stopPropagation\(\); openEdit\(job\)/);
+  assert.doesNotMatch(jobsSource, /DetailWorkspace|openDetailWorkspace|selectJob/);
 });
 
 test('Jobs toolbar and table retain responsive and dark-mode treatments', () => {

@@ -8,10 +8,8 @@ const budgetWorkspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage
 const budgetDetailSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
-const estimatePanelSource = readFileSync('src/pages/estimates/EstimateDetailPanel.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
-const jobPanelSource = readFileSync('src/pages/jobs/JobDetailPanel.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarItemSource = readFileSync('src/components/layout/SidebarItem.tsx', 'utf8');
@@ -19,6 +17,7 @@ const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf
 const sidebarConfigSource = readFileSync('src/navigation/sidebarConfig.ts', 'utf8');
 const userAccessPageSource = readFileSync('src/pages/users/UserAccessPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
+const dataApiSource = readFileSync('api/data.js', 'utf8');
 
 test('estimate and job workspaces are wired with the current user context', () => {
   assert.match(appSource, /path="estimates\/:id"/);
@@ -36,36 +35,23 @@ test('lightweight estimate creation returns an id and opens the workspace', () =
   assert.match(estimatesSource, /Customer, pricing budget, and Division are required to start an estimate\./);
 });
 
-test('estimate list title and action open URL-backed details with a dedicated workspace available', () => {
-  assert.match(estimatesSource, /const selectEstimate = \(estimateId: string\) => setSearchParams\(openDetailWorkspace/);
-  assert.match(estimatesSource, /onClick=\{\(\) => selectEstimate\(estimate\.id\)\}/);
-  assert.match(estimatesSource, /title="Open Details"/);
+test('estimate list rows, titles, and actions open the full Estimate route', () => {
+  assert.match(estimatesSource, /onClick=\{\(\) => navigate\(`\/estimates\/\$\{estimate\.id\}`\)\}/);
+  assert.match(estimatesSource, /<Link to=\{`\/estimates\/\$\{estimate\.id\}`\} onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(estimatesSource, /title="Open Estimate"/);
   assert.match(appSource, /path="estimates\/:id"/);
+  assert.doesNotMatch(estimatesSource, /DetailWorkspace|openDetailWorkspace|selectEstimate/);
 });
 
-test('Estimate navigation has only Quick View and the full Estimate workspace', () => {
-  assert.match(estimatesSource, /expanded=\{false\}/);
-  assert.doesNotMatch(estimatesSource, /setDetailWorkspaceMode|setWorkspaceMode|workspace\.mode === 'expanded'/);
-  assert.doesNotMatch(estimatePanelSource, /onExpand|onCollapse|Full Workspace|DetailWorkspaceTabs/);
-  assert.match(estimatePanelSource, /to=\{`\/estimates\/\$\{estimate\.id\}`\}/);
-  assert.match(estimatePanelSource, />Open Estimate <ArrowRight/);
+test('Estimate navigation uses only stable full-page routes', () => {
   assert.match(estimateWorkspaceSource, /onClick=\{\(\) => navigate\('\/estimates'\)\}/);
+  assert.doesNotMatch(estimatesSource, /workspace\.recordId|expanded=\{false\}|EstimateDetailPanel/);
 });
 
-test('Estimate Quick View is concise and does not duplicate workspace editing', () => {
-  for (const label of ['Work Areas', 'Line Items', 'Subtotal', 'Total', 'Customer', 'Proposal Number', 'Property', 'Valid Until', 'Scope']) {
-    assert.match(estimatePanelSource, new RegExp(`>${label}<`));
-  }
-  assert.match(estimatePanelSource, /onCreateProposal/);
-  assert.doesNotMatch(estimatePanelSource, /Edit Work Area|Open Scope Builder|Convert to Job|Estimate Notes|activeTab/);
-});
-
-test('converted Estimate Quick View prioritizes proposal and canonical linked Job routes', () => {
-  assert.match(estimatePanelSource, /isConverted \? 'View Proposal' : 'Proposal'/);
-  assert.match(estimatePanelSource, /to=\{`\/jobs\/\$\{estimate\.convertedToJobId\}`\}/);
-  assert.match(estimatePanelSource, />Open Linked Job <ArrowRight/);
-  assert.match(estimatePanelSource, />View historical Estimate<\/Link>/);
+test('converted Estimates preserve canonical linked Job routes and navigate after conversion', () => {
   assert.match(estimatesSource, /to=\{`\/jobs\/\$\{estimate\.convertedToJobId\}`\}/);
+  assert.match(estimatesSource, /if \(result\.jobId\) \{\s*navigate\(`\/jobs\/\$\{result\.jobId\}`\);\s*\}/);
+  assert.match(estimateWorkspaceSource, /if \(result\.jobId\) \{\s*navigate\(`\/jobs\/\$\{result\.jobId\}`\);\s*\}/);
 });
 
 test('estimate editing uses a URL-backed tab workspace with restricted analysis', () => {
@@ -170,31 +156,22 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, /No invoices yet/);
 });
 
-test('Job navigation has only Quick View and the full Job workspace', () => {
-  assert.match(jobsSource, /const selectJob = \(jobId: string\) => setSearchParams\(openDetailWorkspace/);
-  assert.match(jobsSource, /onClick=\{\(\) => selectJob\(job\.id\)\}/);
-  assert.match(jobsSource, /expanded=\{false\}/);
-  assert.doesNotMatch(jobsSource, /setDetailWorkspaceMode|setWorkspaceMode|workspace\.mode === 'expanded'/);
-  assert.doesNotMatch(jobPanelSource, /onExpand|onCollapse|Full Record|DetailWorkspaceTabs|activeTab/);
-  assert.match(jobPanelSource, /to=\{`\/jobs\/\$\{job\.id\}`\}/);
-  assert.match(jobPanelSource, />Open Job <ArrowRight/);
+test('Job list navigation opens the full Job workspace without a drawer', () => {
+  assert.match(jobsSource, /onClick=\{\(\) => navigate\(`\/jobs\/\$\{job\.id\}`\)\}/);
+  assert.match(jobsSource, /<Link to=\{`\/jobs\/\$\{job\.id\}`\} onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(jobsSource, /title="Open Job"/);
+  assert.match(jobsSource, /navigate\(`\/jobs\/\$\{job\.id\}\?tab=info`\)/);
+  assert.doesNotMatch(jobsSource, /DetailWorkspace|openDetailWorkspace|selectJob|JobDetailPanel/);
   assert.match(jobWorkspaceSource, /onClick=\{\(\) => navigate\('\/jobs'\)\}/);
 });
 
-test('Job Quick View remains concise and preserves operational context', () => {
-  for (const label of ['Labour Hours Used', 'Schedule', 'Contract Value', 'Actual Cost to Date', 'Customer', 'Property', 'Schedule Status', 'Assigned Team', 'Work Areas']) {
-    assert.match(jobPanelSource, new RegExp(`>${label}<`));
-  }
-  assert.match(jobPanelSource, /performance\?\.labour\.actual\.hours/);
-  assert.match(jobPanelSource, /Known costs; data incomplete/);
-  assert.doesNotMatch(jobPanelSource, /job\.actualHours\.toFixed|Recorded Margin/);
-  assert.match(jobPanelSource, /risk\?\.atRisk/);
-  assert.match(jobPanelSource, /risk\.warningBadges/);
-  assert.match(jobPanelSource, /job\.jobNumber/);
-  assert.match(jobPanelSource, /job\.operationalWorkAreas/);
-  assert.match(jobPanelSource, /to=\{`\/estimates\/\$\{job\.sourceEstimateId\}`\}/);
-  assert.match(jobPanelSource, />View Source Estimate <ArrowRight/);
-  assert.doesNotMatch(jobPanelSource, /onEdit|>Edit<|Job Notes|Schedule Notes|Total Invoiced/);
+test('new Jobs open only after the backend confirms the authoritative record', () => {
+  assert.match(storeSource, /addJob: \(j: Omit<Job,[^\n]+\) => Promise<ID \| null>;/);
+  assert.match(storeSource, /addJob: async \(j\) =>/);
+  assert.match(storeSource, /if \(!payload\.ok \|\| !payload\.job\)/);
+  assert.match(storeSource, /jobs: \[\.\.\.state\.jobs, payload\.job as Job\]/);
+  assert.match(jobsSource, /const jobId = await addJob\(form\);\s*if \(!jobId\) return;\s*setModalOpen\(false\);\s*navigate\(`\/jobs\/\$\{jobId\}`\)/);
+  assert.match(dataApiSource, /if \(entity === 'jobs'\) \{\s*await syncJobToExternalCalendars[^]*return res\.status\(200\)\.json\(\{ ok: true, job: record \}\);/);
 });
 
 test('full Job workspace retains management tabs and role gates', () => {
