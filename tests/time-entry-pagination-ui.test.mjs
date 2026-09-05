@@ -12,6 +12,15 @@ test('shared Time Entry pagination rejects stale responses and preserves rows wh
   assert.doesNotMatch(hook, /setItems\(\[\]\)/);
   assert.match(hook, /setError\(/);
   assert.match(hook, /cursorHistory/);
+  assert.match(hook, /activeRequest\.current = null/);
+  assert.match(hook, /const refresh = useCallback\(\(\) => \{\s*setCursorHistory\(\[null\]\);\s*setPageIndex\(0\)/);
+});
+
+test('initial requests omit cursors and blank or false filters', async () => {
+  const hook = await source('../src/hooks/useTimeEntryPage.ts');
+  assert.match(hook, /value !== undefined && value !== '' && value !== false/);
+  assert.match(hook, /if \(cursor\) params\.set\('cursor', cursor\)/);
+  assert.doesNotMatch(hook, /params\.set\('cursor', cursor \?\?/);
 });
 
 test('main and Job Time Entry surfaces use their required defaults and page sizes', async () => {
@@ -46,4 +55,6 @@ test('pagination controls expose loading, errors, retry, and disabled navigation
     assert.match(page, /disabled=\{![^}]*hasNext[^}]*loading/);
     assert.match(page, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
   }
+  assert.match(reports, /timeEntryPage\.loading \? \([\s\S]*: timeEntryPage\.error \? \([\s\S]*: timeEntryPage\.items\.length === 0 \? \(/);
+  assert.match(job, /jobTimeEntryPage\.loading \?[\s\S]*: jobTimeEntryPage\.error \?[\s\S]*: jobTimeEntryPage\.items\.length === 0 \?/);
 });

@@ -55,7 +55,10 @@ test('reports page is tenant scoped and resolves employee search before reposito
   await context.handler({ method: 'GET', query: { surface: 'reports', employeeSearch: 'ADA', limit: '25' } }, res);
 
   assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
   assert.deepEqual(res.body.items.map((item) => item.id), ['entry-1']);
+  assert.equal(res.body.hasMore, false);
+  assert.equal(res.body.nextCursor, null);
   assert.equal(context.calls[0].businessId, 'business-1');
   assert.deepEqual(context.calls[0].filters.employeeIds, ['employee-1']);
   assert.equal(context.calls[0].filters.employeeFilterApplied, true);

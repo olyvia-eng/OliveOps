@@ -15,9 +15,7 @@ import { normalizePersistedCustomerStatus } from '../../src/config/customer.js';
 import { normalizeMobileTimePermissions } from './mobileTimePermissions.js';
 import {
   matchesTimeEntryFilters,
-  TIME_ENTRY_INDEX_NAME,
-  TIME_ENTRY_INDEX_PK,
-  TIME_ENTRY_INDEX_SK,
+  timeEntryOrderKey,
   timeEntryIndexAttributes,
 } from './timeEntryPagination.js';
 
@@ -5232,42 +5230,40 @@ export async function listTimeEntriesForBusiness(businessId, { consistentRead = 
 
 export async function listTimeEntryPageForBusiness({ businessId, filters, limit, exclusiveStartKey, transformEntry = (entry) => entry }) {
   const matches = [];
-  let queryStartKey = exclusiveStartKey;
-  let exhausted = false;
+  let queryStartKey;
 
-  while (matches.length <= limit && !exhausted) {
+  do {
     const result = await ddb.send(new QueryCommand({
       TableName: tableName,
-      IndexName: TIME_ENTRY_INDEX_NAME,
-      KeyConditionExpression: '#indexPk = :indexPk',
-      ExpressionAttributeNames: { '#indexPk': TIME_ENTRY_INDEX_PK },
-      ExpressionAttributeValues: { ':indexPk': `BUSINESS#${businessId}#TIME_ENTRIES` },
-      ExclusiveStartKey: queryStartKey,
-      ScanIndexForward: false,
-      Limit: Math.max(100, Math.min(500, limit * 4)),
-    }));
-    const candidates = (result.Items ?? []).map((item) => ({
-      entry: transformEntry(timeEntryFromItem(item)),
-      key: {
-        PK: item.PK,
-        SK: item.SK,
-        [TIME_ENTRY_INDEX_PK]: item[TIME_ENTRY_INDEX_PK],
-        [TIME_ENTRY_INDEX_SK]: item[TIME_ENTRY_INDEX_SK],
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': businessPk(businessId),
+        ':prefix': 'TIME#',
       },
+      ExclusiveStartKey: queryStartKey,
     }));
-    matches.push(...candidates.filter(({ entry }) => matchesTimeEntryFilters(entry, filters)));
+    const candidates = (result.Items ?? [])
+      .map((item) => transformEntry(timeEntryFromItem(item)))
+      .filter((entry) => matchesTimeEntryFilters(entry, filters));
+    matches.push(...candidates);
     queryStartKey = result.LastEvaluatedKey;
-    exhausted = !queryStartKey;
-  }
+  } while (queryStartKey);
 
-  const pageMatches = matches.slice(0, limit);
-  const items = pageMatches.map(({ entry }) => entry);
-  const hasMore = matches.length > limit || !exhausted;
-  const lastItem = hasMore ? pageMatches[pageMatches.length - 1] : null;
+  matches.sort((left, right) => timeEntryOrderKey(right).localeCompare(timeEntryOrderKey(left)));
+  const cursorOrderKey = typeof exclusiveStartKey?.timeEntryOrderKey === 'string'
+    ? exclusiveStartKey.timeEntryOrderKey
+    : null;
+  const remainingMatches = cursorOrderKey
+    ? matches.filter((entry) => timeEntryOrderKey(entry) < cursorOrderKey)
+    : matches;
+
+  const items = remainingMatches.slice(0, limit);
+  const hasMore = remainingMatches.length > limit;
+  const lastItem = hasMore ? items[items.length - 1] : null;
   return {
     items,
     hasMore,
-    lastEvaluatedKey: lastItem?.key ?? null,
+    lastEvaluatedKey: lastItem ? { timeEntryOrderKey: timeEntryOrderKey(lastItem) } : null,
   };
 }
 

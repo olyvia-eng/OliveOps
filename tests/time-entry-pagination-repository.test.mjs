@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ddb } from '../api/_lib/db.js';
 import { listTimeEntryPageForBusiness } from '../api/_lib/authRepo.js';
-import { normalizeTimeEntryPageQuery, timeEntryIndexAttributes } from '../api/_lib/timeEntryPagination.js';
+import { normalizeTimeEntryPageQuery } from '../api/_lib/timeEntryPagination.js';
 
 function item(id, clockIn, jobIds) {
   const entry = {
@@ -24,13 +24,12 @@ function item(id, clockIn, jobIds) {
     businessId: 'business-1',
     entryId: id,
     ...entry,
-    ...timeEntryIndexAttributes('business-1', entry),
   };
 }
 
-test('filtered DynamoDB windows produce stable pages without duplicates or skips', async (t) => {
+test('historical rows paginate through tenant Queries without an index, duplicates, or skips', async (t) => {
   const originalSend = ddb.send.bind(ddb);
-  const firstWindowKey = { page: 'first-window' };
+  const firstWindowKey = { PK: 'BUSINESS#business-1', SK: 'TIME#first-window' };
   const calls = [];
   const newestOtherJob = item('other', '2026-01-04T10:00:00.000Z', ['job-2']);
   const first = item('first', '2026-01-03T10:00:00.000Z', ['job-1']);
@@ -42,7 +41,6 @@ test('filtered DynamoDB windows produce stable pages without duplicates or skips
     const start = command.input.ExclusiveStartKey;
     if (!start) return { Items: [newestOtherJob, first], LastEvaluatedKey: firstWindowKey };
     if (start === firstWindowKey) return { Items: [second, third] };
-    if (start.SK === second.SK) return { Items: [third] };
     return { Items: [] };
   };
   t.after(() => { ddb.send = originalSend; });
@@ -56,5 +54,7 @@ test('filtered DynamoDB windows produce stable pages without duplicates or skips
   assert.equal(firstPage.hasMore, true);
   assert.equal(secondPage.hasMore, false);
   assert.equal(new Set([...firstPage.items, ...secondPage.items].map((entry) => entry.id)).size, 3);
-  assert.equal(calls.every((input) => input.IndexName === 'TimeEntryChronologicalIndex' && input.ScanIndexForward === false), true);
+  assert.equal(calls.every((input) => !input.IndexName), true);
+  assert.equal(calls.every((input) => input.KeyConditionExpression === 'PK = :pk AND begins_with(SK, :prefix)'), true);
+  assert.equal(calls.every((input) => input.ExpressionAttributeValues[':pk'] === 'BUSINESS#business-1'), true);
 });

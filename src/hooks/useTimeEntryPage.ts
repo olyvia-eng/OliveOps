@@ -19,7 +19,11 @@ interface TimeEntryPagePayload {
 async function readPayload(response: Response): Promise<TimeEntryPagePayload> {
   const contentType = response.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) return { ok: false, error: 'The server returned an invalid response.' };
-  return response.json() as Promise<TimeEntryPagePayload>;
+  const payload: unknown = await response.json();
+  if (!payload || typeof payload !== 'object' || typeof (payload as { ok?: unknown }).ok !== 'boolean') {
+    return { ok: false, error: 'The server returned an invalid response.' };
+  }
+  return payload as TimeEntryPagePayload;
 }
 
 export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = true }: TimeEntryPageOptions) {
@@ -87,7 +91,10 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
         setError(reason instanceof Error ? reason.message : 'Could not load Time Entries. Retry this page.');
       })
       .finally(() => {
-        if (sequence === requestSequence.current && !controller.signal.aborted) setLoading(false);
+        if (sequence === requestSequence.current && !controller.signal.aborted) {
+          activeRequest.current = null;
+          setLoading(false);
+        }
       });
 
     return () => controller.abort();
@@ -105,7 +112,12 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
     setNavigationVersion((value) => value + 1);
   }, [loading, pageIndex]);
   const setPageSize = useCallback((value: number) => setPageSizeState(value), []);
-  const refresh = useCallback(() => setRefreshVersion((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    setCursorHistory([null]);
+    setPageIndex(0);
+    setNextCursor(null);
+    setRefreshVersion((value) => value + 1);
+  }, []);
 
   return {
     items,

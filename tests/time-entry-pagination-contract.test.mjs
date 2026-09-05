@@ -73,3 +73,14 @@ test('server filters include multi-Job and zero-duration entries before page sel
   assert.equal(matchesTimeEntryFilters(zeroDuration, { ...page.filters, includeZero: false }), false);
   assert.equal(matchesTimeEntryFilters({ ...zeroDuration, jobIds: ['job-1'] }, page.filters), false);
 });
+
+test('server filters retain open activities and legacy single-Job records', async () => {
+  const { matchesTimeEntryFilters } = await import('../api/_lib/timeEntryPagination.js');
+  const page = normalizeTimeEntryPageQuery({ jobId: 'job-1', status: 'clocked_in' }, { surface: 'job', businessId: 'business-1' });
+  const legacyOpenEntry = {
+    id: 'entry-open', employeeId: 'employee-1', jobId: 'job-1', workType: 'job',
+    clockIn: '2026-01-01T10:00:00.000Z', status: 'clocked_in', createdAt: '2026-01-01T10:00:00.000Z',
+  };
+  assert.equal(matchesTimeEntryFilters(legacyOpenEntry, page.filters), true);
+  assert.equal(matchesTimeEntryFilters({ ...legacyOpenEntry, status: 'clocked_out' }, page.filters), false);
+});

@@ -101,7 +101,7 @@ export function normalizeTimeEntryPageQuery(query = {}, { surface, businessId, e
     throw new TimeEntryPageError('time_entry_date_range_invalid', 'Start Date must be on or before End Date.');
   }
 
-  const scope = { version: 1, surface, businessId: stringValue(businessId), filters };
+  const scope = { version: 2, surface, businessId: stringValue(businessId), filters };
   return { limit: requestedLimit, filters, scope, scopeHash: scopeDigest(scope) };
 }
 
@@ -143,6 +143,17 @@ function inverseId(value) {
     .toJSON().data
     .map((byte) => (255 - byte).toString(16).padStart(2, '0'))
     .join('');
+}
+
+export function timeEntryOrderKey(entry) {
+  const clockIn = Number.isFinite(Date.parse(entry?.clockIn ?? ''))
+    ? new Date(entry.clockIn).toISOString()
+    : new Date(0).toISOString();
+  const createdAt = Number.isFinite(Date.parse(entry?.createdAt ?? ''))
+    ? new Date(entry.createdAt).toISOString()
+    : new Date(0).toISOString();
+  const activeRank = entry?.status === 'clocked_in' ? '1' : '0';
+  return `${activeRank}#${clockIn}#${createdAt}#${inverseId(entry?.id)}`;
 }
 
 export function timeEntryIndexAttributes(businessId, entry) {

@@ -581,7 +581,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
 
           <Card>
             <div className="border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2></div>
-            {jobTimeEntryPage.items.length === 0 && !jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
+            {jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-500" role="status">Loading Time Entries...</p> : jobTimeEntryPage.error ? <div className="flex items-center gap-2 p-4"><p className="text-sm font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : jobTimeEntryPage.items.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
               <ul className="divide-y divide-gray-50">{jobTimeEntryPage.items.map((entry) => {
                 const employee = employees.find((item) => item.id === entry.employeeId);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
@@ -591,7 +591,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
               })}</ul>
             )}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
-              <div><p className="text-gray-600">Showing {jobTimeEntryPage.showingStart}–{jobTimeEntryPage.showingEnd}</p>{jobTimeEntryPage.loading ? <p className="text-xs text-gray-500" role="status">Loading Time Entries...</p> : null}{jobTimeEntryPage.error ? <div className="flex items-center gap-2"><p className="text-xs font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : null}</div>
+              <p className="text-gray-600">{!jobTimeEntryPage.loading && !jobTimeEntryPage.error && jobTimeEntryPage.items.length > 0 ? <>Showing {jobTimeEntryPage.showingStart}–{jobTimeEntryPage.showingEnd}</> : 'Time Entries'}</p>
               <div className="flex items-end gap-2"><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.previous} disabled={!jobTimeEntryPage.hasPrevious || jobTimeEntryPage.loading}>Previous</Button><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.next} disabled={!jobTimeEntryPage.hasNext || jobTimeEntryPage.loading}>Next</Button><Select label="Rows" value={String(jobTimeEntryPage.pageSize)} onChange={(event) => jobTimeEntryPage.setPageSize(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Select></div>
             </div>
           </Card>

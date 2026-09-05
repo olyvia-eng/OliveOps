@@ -561,7 +561,7 @@ export default function TimeReportsPage({
             <p className="mt-1 text-xs text-gray-500">Newest clock-in first. Select an entry to view its details.</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={() => void handleExportSummaryCsv()} disabled={filteredEntries.length === 0 || exporting}>
+            <Button onClick={() => void handleExportSummaryCsv()} disabled={timeEntryPage.loading || Boolean(timeEntryPage.error) || timeEntryPage.items.length === 0 || exporting}>
               {exporting ? 'Exporting...' : 'Bookkeeper Export'}
             </Button>
           </div>
@@ -580,7 +580,11 @@ export default function TimeReportsPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {timeEntryPage.items.length === 0 && !timeEntryPage.loading ? (
+              {timeEntryPage.loading ? (
+                <tr><td colSpan={7} className="px-4 py-6 text-gray-500" role="status">Loading Time Entries...</td></tr>
+              ) : timeEntryPage.error ? (
+                <tr><td colSpan={7} className="px-4 py-6"><div className="flex items-center gap-2"><p className="text-sm font-medium text-accent-700" role="alert">{timeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={timeEntryPage.refresh}>Retry</Button></div></td></tr>
+              ) : timeEntryPage.items.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
               ) : timeEntryPage.items.map((entry) => {
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
@@ -620,11 +624,7 @@ export default function TimeReportsPage({
           </table>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
-          <div>
-            <p className="text-gray-600">Showing {timeEntryPage.showingStart}–{timeEntryPage.showingEnd}</p>
-            {timeEntryPage.loading ? <p className="text-xs text-gray-500" role="status">Loading Time Entries...</p> : null}
-            {timeEntryPage.error ? <div className="flex items-center gap-2"><p className="text-xs font-medium text-accent-700" role="alert">{timeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={timeEntryPage.refresh}>Retry</Button></div> : null}
-          </div>
+          <p className="text-gray-600">{!timeEntryPage.loading && !timeEntryPage.error && timeEntryPage.items.length > 0 ? <>Showing {timeEntryPage.showingStart}–{timeEntryPage.showingEnd}</> : 'Time Entries'}</p>
           <div className="flex items-end gap-2">
             <Button variant="secondary" size="sm" onClick={timeEntryPage.previous} disabled={!timeEntryPage.hasPrevious || timeEntryPage.loading}>Previous</Button>
             <Button variant="secondary" size="sm" onClick={timeEntryPage.next} disabled={!timeEntryPage.hasNext || timeEntryPage.loading}>Next</Button>
