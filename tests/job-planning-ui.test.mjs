@@ -42,12 +42,13 @@ test('Job Info separates editable operations from read-only conversion history',
 });
 
 test('Job Analysis compares current estimates with actuals without inventing revenue or profit', () => {
-  assert.match(jobSource, /Estimated versus actual costs/);
   assert.match(jobSource, /<JobAnalysisSummary performance=\{performance\}/);
   assert.match(analysisSummarySource, /Contract revenue, excluding tax/);
   assert.match(analysisSummarySource, /Margin after recorded costs/);
   assert.match(analysisSummarySource, /It is not the final Job profit until all costs are recorded/);
   assert.match(analysisSummarySource, /Incomplete cost data/);
   assert.match(analysisSummarySource, /performance\.economics\.marginAfterRecordedCosts/);
+  assert.doesNotMatch(jobSource, /Estimated versus actual costs|Detailed item comparison|Job-linked receipts and expenses/);
+  assert.doesNotMatch(analysisSummarySource, /Job Target|Remaining estimated cost/);
   assert.doesNotMatch(jobSource, /contractValue - actualCosts|projectedProfitFromTracking/);
 });

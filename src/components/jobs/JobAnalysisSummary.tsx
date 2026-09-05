@@ -72,11 +72,6 @@ export default function JobAnalysisSummary({ performance }: { performance: JobPe
 
         {!performance.baseline.available && summaryMode === 'estimated' ? <div className="mt-4 flex gap-2 border-t border-amber-200 pt-4 text-sm text-amber-800"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p>{performance.baseline.unavailableReason}</p></div> : null}
         {summaryMode === 'actual' ? <div className="mt-4 border-t border-gray-200 pt-4 text-xs text-gray-500 dark:border-brand-600 dark:text-brand-300"><p>This is the contract value less costs recorded to date. It is not the final Job profit until all costs are recorded.</p>{!performance.economics.actualCostComplete ? <p className="mt-2 font-medium text-amber-700">Incomplete cost data: {performance.costs.unavailableCategories.join(', ')} unavailable.</p> : null}</div> : null}
-
-        <section className="mt-4 grid gap-4 border-t border-gray-200 pt-4 text-xs dark:border-brand-600 sm:grid-cols-2" aria-labelledby="job-target-heading">
-          <div><h3 id="job-target-heading" className="font-semibold uppercase text-gray-500 dark:text-brand-300">Job Target · Planned</h3><dl className="mt-2 space-y-1.5"><div className="flex justify-between gap-3"><dt>Expected profit</dt><dd className="font-medium tabular-nums">{performance.profit.estimatedGross === null ? 'Unavailable' : formatCurrency(performance.profit.estimatedGross)}</dd></div><div className="flex justify-between gap-3"><dt>Expected margin</dt><dd className="font-medium tabular-nums">{percent(performance.profit.estimatedGrossMargin)}</dd></div></dl></div>
-          <div><h3 className="font-semibold uppercase text-gray-500 dark:text-brand-300">Current</h3><dl className="mt-2 space-y-1.5"><div className="flex justify-between gap-3"><dt>Recorded cost</dt><dd className="font-medium tabular-nums">{formatCurrency(performance.economics.knownActualCost)}</dd></div><div className="flex justify-between gap-3"><dt>Remaining estimated cost</dt><dd className="font-medium">Unavailable</dd></div></dl><p className="mt-2 text-gray-500">{performance.economics.forecastUnavailableReason}</p></div>
-        </section>
       </section>
 
       <section className="border-t border-gray-200 bg-gray-50 p-5 sm:p-6 lg:border-l lg:border-t-0 dark:border-brand-600 dark:bg-brand-800/40" aria-labelledby="cost-distribution-heading">

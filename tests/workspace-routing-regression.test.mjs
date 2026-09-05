@@ -151,8 +151,8 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, />Open Review Workflow<\/Button>/);
   assert.match(jobWorkspaceSource, /No work areas have been added to this job/);
   assert.match(jobWorkspaceSource, /Job Performance/);
-  assert.match(jobWorkspaceSource, /Estimated versus actual costs/);
-  assert.match(jobWorkspaceSource, /Detailed item comparison/);
+  assert.match(jobWorkspaceSource, /<JobAnalysisSummary performance=\{performance\}/);
+  assert.doesNotMatch(jobWorkspaceSource, /Estimated versus actual costs|Detailed item comparison|Job-linked receipts and expenses|Unbillable work/);
   assert.match(jobWorkspaceSource, /No invoices yet/);
 });
 

@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const summarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
+const analysisTabSource = detailSource.slice(
+  detailSource.indexOf("activeTab === 'analysis'"),
+  detailSource.indexOf("activeTab === 'project-management'"),
+);
 
 test('Jobs list contains long titles and presents labour hours instead of completion progress', () => {
   assert.match(jobsSource, /min-w-\[1120px\] table-fixed/);
@@ -24,16 +28,19 @@ test('Job summary and Analysis consume one shared performance model', () => {
   assert.match(detailSource, /const performance = useMemo\(\(\) => job \? calculateJobPerformance\(\{/);
   assert.match(detailSource, /scopeWorkAreaId: analysisScope/);
   assert.match(detailSource, /<option value="entire-job">Entire Job<\/option>/);
+  assert.match(detailSource, /<option key=\{area\.id\} value=\{area\.id\}>\{area\.name\}<\/option>/);
   assert.match(detailSource, /<option value="unallocated">Unallocated<\/option>/);
+  assert.match(detailSource, /onChange=\{\(event\) => setAnalysisScope\(event\.target\.value\)\}/);
   assert.doesNotMatch(detailSource, /trackedLaborCost|projectedProfitFromTracking|job\.actualHours\.toFixed/);
 });
 
-test('Job Analysis exposes source-aware financial, time, detail, and expense sections', () => {
-  assert.match(detailSource, /<JobAnalysisSummary performance=\{performance\}/);
-  for (const label of ['Estimated versus actual costs', 'Unbillable work', 'Detailed item comparison', 'Job-linked receipts and expenses']) assert.match(detailSource, new RegExp(label));
-  assert.match(detailSource, /performance\.costs\.varianceConvention/);
-  assert.match(detailSource, /Not tracked/);
-  assert.match(detailSource, /Supporting record; not added again/);
+test('Job Analysis stops after the scoped financial summary and cost distribution card', () => {
+  assert.match(analysisTabSource, /Job Performance/);
+  assert.match(analysisTabSource, /Accepted Estimate baseline compared with eligible time and recorded costs\./);
+  assert.match(analysisTabSource, /<JobAnalysisSummary performance=\{performance\} \/>/);
+  for (const label of ['Estimated versus actual costs', 'Unbillable work', 'Detailed item comparison', 'Job-linked receipts and expenses', 'JobLabourSummaryCard']) {
+    assert.doesNotMatch(analysisTabSource, new RegExp(label));
+  }
 });
 
 test('Job economics mirrors the Budget split-card hierarchy without coupling calculation models', () => {
@@ -53,14 +60,16 @@ test('Job financial summary keeps estimated, actual, and variance values in expl
   assert.match(summarySource, /On estimate/);
   assert.match(summarySource, /Incomplete cost data/);
   assert.match(summarySource, /It is not the final Job profit until all costs are recorded/);
+  assert.match(summarySource, /value === null \? 'Unavailable' : formatCurrency\(value\)/);
+  assert.match(summarySource, /row\.variance === null/);
 });
 
-test('Job target and distribution remain read-only, accessible, and loss-safe', () => {
-  for (const label of ['Job Target · Planned', 'Estimated costs', 'Actual costs to date']) assert.match(summarySource, new RegExp(label));
-  assert.match(summarySource, /performance\.economics\.forecastUnavailableReason/);
+test('Cost distribution remains accessible and loss-safe without the target footer', () => {
+  for (const label of ['Estimated costs', 'Actual costs to date']) assert.match(summarySource, new RegExp(label));
   assert.match(summarySource, /<PieChart>/);
   assert.match(summarySource, /<table className="sr-only">/);
   assert.match(summarySource, /no negative donut slice is drawn/);
   assert.match(summarySource, /segment\.amount > 0/);
+  assert.doesNotMatch(summarySource, /Job Target|Planned|Remaining estimated cost|forecastUnavailableReason/);
   assert.doesNotMatch(summarySource, /<Input|onTargetMarginChange/);
 });
