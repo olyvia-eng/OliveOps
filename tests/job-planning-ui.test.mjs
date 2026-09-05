@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync('src/App.tsx', 'utf8');
 const jobSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const analysisSummarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
 const builderSource = readFileSync('src/pages/jobs/JobWorkAreaBuilderPage.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
@@ -42,10 +43,11 @@ test('Job Info separates editable operations from read-only conversion history',
 
 test('Job Analysis compares current estimates with actuals without inventing revenue or profit', () => {
   assert.match(jobSource, /Estimated versus actual costs/);
-  assert.match(jobSource, /Contract revenue/);
-  assert.match(jobSource, /Issued revenue/);
-  assert.match(jobSource, /Excludes tax/);
-  assert.match(jobSource, /Incomplete cost data/);
-  assert.match(jobSource, /performance\.profit\.toDate/);
+  assert.match(jobSource, /<JobAnalysisSummary performance=\{performance\}/);
+  assert.match(analysisSummarySource, /Contract revenue, excluding tax/);
+  assert.match(analysisSummarySource, /Margin after recorded costs/);
+  assert.match(analysisSummarySource, /It is not the final Job profit until all costs are recorded/);
+  assert.match(analysisSummarySource, /Incomplete cost data/);
+  assert.match(analysisSummarySource, /performance\.economics\.marginAfterRecordedCosts/);
   assert.doesNotMatch(jobSource, /contractValue - actualCosts|projectedProfitFromTracking/);
 });

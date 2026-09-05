@@ -4,6 +4,25 @@ import { calculateJobPerformance } from '../src/utils/jobPerformanceModel.js';
 
 const job = {
   id: 'job-a', contractValue: 5254.46, currentContractRevenue: 5254.46, actualCosts: [],
+  originalEstimateSnapshot: {
+    subtotal: 5254.46,
+    taxRate: 13,
+    taxAmount: 683.0798,
+    total: 5937.5398,
+    estimatedCost: 3460,
+    estimatedProfit: 1794.46,
+    estimatedMarginPct: 34.1509,
+    workAreas: [
+      { id: 'area-a', name: 'Excavation', estimatedRevenue: 3000, lineItems: [
+        { id: 'snapshot-labour-a', category: 'labour', description: 'Labour', quantity: 50, unit: 'hr', unitCost: 47.2, plannedCost: 2360 },
+        { id: 'snapshot-material-a', category: 'material', description: 'Stone', quantity: 2, unit: 't', unitCost: 200, plannedCost: 400 },
+      ] },
+      { id: 'area-b', name: 'Grading', estimatedRevenue: 2254.46, lineItems: [
+        { id: 'snapshot-equipment-b', category: 'equipment', description: 'Excavator', quantity: 5, unit: 'hr', unitCost: 80, plannedCost: 400 },
+        { id: 'snapshot-sub-b', category: 'subcontractor', description: 'Hauling', quantity: 1, unit: 'job', unitCost: 300, plannedCost: 300 },
+      ] },
+    ],
+  },
   operationalWorkAreas: [
     { id: 'area-a', name: 'Excavation', contractRevenue: 3000, lineItems: [
       { id: 'labour-a', category: 'labour', description: 'Labour', quantity: 50, unit: 'hr', unitCost: 47.2, plannedCost: 2360 },
@@ -53,7 +72,7 @@ test('shared Job performance reconciles salary labour, tax-exclusive issued reve
   assert.equal(result.costs.actualDirectComplete, false);
   assert.equal(result.labour.unbillable.hours, 1);
   assert.ok(Math.abs(result.labour.unbillable.cost - 47.2) < 0.000001);
-  assert.equal(result.profit.toDate, null);
+  assert.equal(result.profit.toDate, result.revenue.contract - result.economics.knownActualCost);
   assert.match(result.profit.unavailableReason, /Incomplete actual cost/);
   assert.ok(result.details.some((item) => item.id === 'expense:material-expense' && item.actualCost === 250));
 });
@@ -87,6 +106,27 @@ test('Work Area and unallocated scopes reconcile labour without assigning unlink
   assert.equal(unallocated.costs.categories.find((row) => row.category === 'material').actualCost, 250);
   assert.equal(area.labour.scheduled.hoursAvailable, false);
   assert.match(area.labour.scheduled.unavailableReason, /not linked to individual Work Areas/);
+  assert.ok(Math.abs(entire.costs.knownActualDirect - (area.costs.knownActualDirect + unallocated.costs.knownActualDirect)) < 0.000001);
+});
+
+test('Work Area baseline follows immutable source lineage when operational IDs change', () => {
+  const remappedJob = {
+    ...job,
+    operationalWorkAreas: job.operationalWorkAreas.map((area) => area.id === 'area-a'
+      ? { ...area, id: 'operational-area-a', sourceEstimateWorkAreaId: 'estimate-area-a' }
+      : area),
+    originalEstimateSnapshot: {
+      ...job.originalEstimateSnapshot,
+      workAreas: job.originalEstimateSnapshot.workAreas.map((area) => area.id === 'area-a'
+        ? { ...area, sourceEstimateWorkAreaId: 'estimate-area-a' }
+        : area),
+    },
+  };
+  const remappedEntries = entries.map((entry) => entry.workAreaId === 'area-a' ? { ...entry, workAreaId: 'operational-area-a' } : entry);
+  const area = calculate({ job: remappedJob, timeEntries: remappedEntries, scopeWorkAreaId: 'operational-area-a' });
+  assert.equal(area.revenue.contract, 3000);
+  assert.equal(area.costs.estimatedDirect, 2760);
+  assert.ok(Math.abs(area.labour.actual.hours - 11.37) < 0.000001);
 });
 
 test('variance is actual minus estimated and missing actuals stay unavailable', () => {
@@ -96,4 +136,76 @@ test('variance is actual minus estimated and missing actuals stay unavailable', 
   assert.equal(equipment.variance, -310);
   assert.equal(subcontractor.variance, null);
   assert.match(result.costs.varianceConvention, /Actual minus estimated/);
+});
+
+test('accepted Estimate snapshot remains the immutable Job economics baseline', () => {
+  const result = calculate({
+    job: {
+      ...job,
+      currentContractRevenue: 999999,
+      operationalWorkAreas: job.operationalWorkAreas.map((area) => ({ ...area, lineItems: area.lineItems.map((line) => ({ ...line, plannedCost: 999999 })) })),
+    },
+  });
+  assert.equal(result.baseline.source, 'accepted-estimate-snapshot');
+  assert.equal(result.revenue.contract, 5254.46);
+  assert.notEqual(result.revenue.contract, job.originalEstimateSnapshot.total);
+  assert.equal(result.costs.estimatedDirect, 3460);
+  assert.equal(result.profit.estimatedGross, 1794.46);
+  assert.equal(result.economics.estimatedChartSegments.reduce((total, item) => total + item.amount, 0), 5254.46);
+});
+
+test('summary and chart share category values and percentages reconcile to pre-tax contract revenue', () => {
+  const result = calculate();
+  for (const row of result.costs.categories) {
+    const segment = result.economics.estimatedChartSegments.find((item) => item.key === row.category);
+    assert.equal(segment.amount, row.estimatedCost);
+    assert.equal(segment.percent, row.estimatedCost / result.revenue.contract * 100);
+  }
+  assert.equal(result.economics.estimatedChartSegments.reduce((total, segment) => total + segment.amount, 0), result.revenue.contract);
+});
+
+test('active under-estimate, active over-estimate, completed, and incomplete Jobs have honest status', () => {
+  const completeActualCosts = [
+    { id: 'material', category: 'material', total: 250 },
+    { id: 'equipment', category: 'equipment', total: 90 },
+    { id: 'subcontractor', category: 'subcontractor', total: 100 },
+  ];
+  const completeExpenses = [...expenses, { id: 'complete-overhead', jobId: 'job-a', status: 'paid', category: 'overhead', amount: 75 }];
+  const activeUnder = calculate({ job: { ...job, status: 'in_progress', actualCosts: completeActualCosts }, expenses: completeExpenses });
+  assert.equal(activeUnder.economics.actualCostComplete, true);
+  assert.match(activeUnder.economics.statusMessage, /% of the estimated cost has been used/);
+
+  const activeOver = calculate({ job: { ...job, status: 'in_progress', actualCosts: completeActualCosts.map((cost) => ({ ...cost, total: 2000 })) }, expenses: completeExpenses });
+  assert.match(activeOver.economics.statusMessage, /^This Job is currently \$[\d.]+ over its total estimated cost\.$/);
+
+  const completed = calculate({ job: { ...job, status: 'completed', actualCosts: completeActualCosts }, expenses: completeExpenses });
+  assert.equal(completed.economics.knownActualCost, activeUnder.economics.knownActualCost);
+  assert.equal(completed.economics.marginAfterRecordedCosts, activeUnder.economics.marginAfterRecordedCosts);
+
+  const incomplete = calculate();
+  assert.equal(incomplete.economics.actualCostComplete, false);
+  assert.match(incomplete.economics.statusMessage, /Actual cost data is incomplete/);
+  assert.ok(incomplete.costs.unavailableCategories.includes('Subcontractors'));
+});
+
+test('distribution never creates negative slices and summary values reconcile', () => {
+  const result = calculate({
+    job: { ...job, actualCosts: [{ id: 'material', category: 'material', total: 7000 }, { id: 'equipment', category: 'equipment', total: 1000 }, { id: 'sub', category: 'subcontractor', total: 500 }] },
+    expenses: [...expenses, { id: 'large-overhead', jobId: 'job-a', status: 'paid', category: 'overhead', amount: 1000 }],
+  });
+  assert.ok(result.economics.actualChartSegments.every((segment) => segment.amount >= 0));
+  assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'unspent').amount, 0);
+  assert.ok(result.economics.overContractAmount > 0);
+  assert.equal(result.economics.marginAfterRecordedCosts, result.revenue.contract - result.economics.knownActualCost);
+});
+
+test('Jobs without accepted Estimate snapshots expose no historical estimate', () => {
+  const manualJob = { ...job, originalEstimateSnapshot: undefined };
+  const result = calculate({ job: manualJob });
+  assert.equal(result.baseline.available, false);
+  assert.equal(result.costs.estimatedDirect, null);
+  assert.equal(result.profit.estimatedGross, null);
+  assert.deepEqual(result.economics.estimatedChartSegments, []);
+  assert.equal(result.economics.forecastProfit, null);
+  assert.match(result.economics.forecastUnavailableReason, /Forecast unavailable until sufficient actual cost information is recorded/);
 });

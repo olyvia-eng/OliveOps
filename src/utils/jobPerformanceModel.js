@@ -2,6 +2,7 @@ import { calculateJobLabourSummary } from './jobLabourSummary.js';
 import { getAuthoritativeContractValue, getInvoiceRevenueAmount, isIssuedInvoice } from './invoiceModel.js';
 
 const CATEGORIES = ['labour', 'material', 'equipment', 'subcontractor'];
+const CATEGORY_LABELS = { labour: 'Labour', equipment: 'Equipment', material: 'Materials', subcontractor: 'Subcontractors' };
 const number = (value, fallback = 0) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 const optionalNumber = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null;
 const sum = (values) => values.reduce((total, value) => total + number(value), 0);
@@ -11,11 +12,20 @@ const expenseCategory = (category) => ({ materials: 'material', equipment: 'equi
 const costCategory = (category) => category === 'materials' ? 'material' : category;
 const eligibleExpense = (expense, jobId) => expense?.jobId === jobId && (expense.status === 'approved' || expense.status === 'paid');
 
-function scopeAreas(job, scopeWorkAreaId) {
-  const areas = Array.isArray(job?.operationalWorkAreas) ? job.operationalWorkAreas : [];
+function scopeAreas(areas, scopeWorkAreaId) {
   if (!scopeWorkAreaId || scopeWorkAreaId === 'entire-job') return areas;
   if (scopeWorkAreaId === 'unallocated') return [];
   return areas.filter((area) => area.id === scopeWorkAreaId);
+}
+
+function snapshotAreasForJob(job) {
+  if (!Array.isArray(job?.originalEstimateSnapshot?.workAreas)) return null;
+  const operational = Array.isArray(job?.operationalWorkAreas) ? job.operationalWorkAreas : [];
+  return job.originalEstimateSnapshot.workAreas.map((snapshotArea) => {
+    const currentArea = operational.find((area) => area.id === snapshotArea.id
+      || (area.sourceEstimateWorkAreaId && area.sourceEstimateWorkAreaId === snapshotArea.sourceEstimateWorkAreaId));
+    return currentArea ? { ...snapshotArea, id: currentArea.id } : snapshotArea;
+  });
 }
 
 function estimatedCategoryTotals(areas) {
@@ -76,17 +86,22 @@ export function calculateJobPerformance({
 }) {
   const scoped = scopeWorkAreaId !== 'entire-job';
   const workAreaScoped = scoped && scopeWorkAreaId !== 'unallocated';
-  const areas = scopeAreas(job, scopeWorkAreaId);
+  const snapshotAreas = snapshotAreasForJob(job);
+  const baselineAvailable = snapshotAreas !== null;
+  const areas = scopeAreas(baselineAvailable ? snapshotAreas : [], scopeWorkAreaId);
+  const labourJob = baselineAvailable
+    ? { ...job, estimatedHours: 0, operationalWorkAreas: snapshotAreas }
+    : { ...job, estimatedHours: 0, operationalWorkAreas: [] };
   const labour = calculateJobLabourSummary({
-    job,
+    job: labourJob,
     employees,
     labourClasses,
     timeEntries,
     timeCorrections,
     scopeWorkAreaId: scopeWorkAreaId === 'entire-job' ? undefined : scopeWorkAreaId,
   });
-  const estimated = estimatedCategoryTotals(areas);
-  estimated.labour = labour.estimated.cost ?? estimated.labour;
+  const estimated = baselineAvailable ? estimatedCategoryTotals(areas) : null;
+  if (estimated && labour.estimated.cost !== null) estimated.labour = labour.estimated.cost;
   const recordedLabour = workAreaScoped ? [] : (Array.isArray(job?.actualCosts) ? job.actualCosts : [])
     .filter((cost) => costCategory(cost?.category) === 'labour');
   const labourActual = labour.actual.hasData || recordedLabour.length === 0
@@ -112,30 +127,36 @@ export function calculateJobPerformance({
 
   const categoryRows = CATEGORIES.map((category) => {
     const actualValue = actual[category].value;
+    const estimatedValue = estimated?.[category] ?? null;
     return {
       category,
-      estimatedCost: estimated[category],
+      estimatedCost: estimatedValue,
       actualCost: actualValue,
-      variance: actualValue === null ? null : actualValue - estimated[category],
+      variance: actualValue === null || estimatedValue === null ? null : actualValue - estimatedValue,
       source: actual[category].source,
       sourceDescription: actual[category].reason,
     };
   });
-  const estimatedDirectCost = sum(categoryRows.map((row) => row.estimatedCost));
+  const estimatedDirectCost = baselineAvailable ? sum(categoryRows.map((row) => row.estimatedCost)) : null;
   const knownActualDirectCost = sum(categoryRows.map((row) => row.actualCost ?? 0));
   const actualDirectCostComplete = categoryRows.every((row) => row.actualCost !== null);
 
-  const scopedRevenue = scoped
-    ? sum(areas.map((area) => number(area.contractRevenue, area.estimatedRevenue)))
-    : getAuthoritativeContractValue(job);
+  const scopedRevenue = baselineAvailable
+    ? (scoped ? sum(areas.map((area) => number(area.contractRevenue, area.estimatedRevenue))) : number(job.originalEstimateSnapshot.subtotal))
+    : (scoped ? null : getAuthoritativeContractValue(job));
   const issuedRevenue = scopedInvoiceRevenue(job, invoices, scopeWorkAreaId);
-  const estimatedGrossProfit = scopedRevenue - estimatedDirectCost;
+  const estimatedGrossProfit = scopedRevenue !== null && estimatedDirectCost !== null ? scopedRevenue - estimatedDirectCost : null;
 
   const overheadExpenses = workAreaScoped ? [] : (Array.isArray(expenses) ? expenses : [])
     .filter((expense) => eligibleExpense(expense, job.id) && expense.category === 'overhead');
   const recordedOverhead = overheadExpenses.length ? sum(overheadExpenses.map((expense) => expense.amount)) : null;
   const estimatedOverhead = null;
   const knownActualCostIncludingOverhead = knownActualDirectCost + (recordedOverhead ?? 0);
+  const actualCostComplete = actualDirectCostComplete && recordedOverhead !== null;
+  const unavailableCategories = [
+    ...categoryRows.filter((row) => row.actualCost === null).map((row) => CATEGORY_LABELS[row.category]),
+    ...(recordedOverhead === null ? ['Overhead'] : []),
+  ];
 
   const estimatedLines = areas.flatMap((area) => (area.lineItems ?? []).map((line) => ({
     id: line.id,
@@ -205,6 +226,34 @@ export function calculateJobPerformance({
     }
   }
 
+  const percentOfRevenue = (value) => scopedRevenue !== null && scopedRevenue > 0 ? value / scopedRevenue * 100 : null;
+  const estimatedChartSegments = baselineAvailable && scopedRevenue !== null
+    ? [
+        ...categoryRows.map((row) => ({ key: row.category, label: CATEGORY_LABELS[row.category], amount: row.estimatedCost ?? 0, percent: percentOfRevenue(row.estimatedCost ?? 0) })),
+        { key: 'overhead', label: 'Overhead', amount: estimatedOverhead ?? 0, percent: percentOfRevenue(estimatedOverhead ?? 0) },
+        { key: 'profit', label: 'Expected profit', amount: Math.max(0, estimatedGrossProfit ?? 0), percent: percentOfRevenue(Math.max(0, estimatedGrossProfit ?? 0)) },
+      ]
+    : [];
+  const actualChartSegments = scopedRevenue !== null
+    ? [
+        ...categoryRows.map((row) => ({ key: row.category, label: CATEGORY_LABELS[row.category], amount: Math.max(0, row.actualCost ?? 0), percent: percentOfRevenue(Math.max(0, row.actualCost ?? 0)) })),
+        { key: 'overhead', label: 'Recorded overhead', amount: Math.max(0, recordedOverhead ?? 0), percent: percentOfRevenue(Math.max(0, recordedOverhead ?? 0)) },
+        { key: 'unspent', label: 'Unspent contract value', amount: Math.max(0, scopedRevenue - knownActualCostIncludingOverhead), percent: percentOfRevenue(Math.max(0, scopedRevenue - knownActualCostIncludingOverhead)) },
+      ]
+    : [];
+  const estimatedVariance = estimatedDirectCost === null || !actualDirectCostComplete ? null : knownActualDirectCost - estimatedDirectCost;
+  const statusMessage = estimatedDirectCost !== null && knownActualCostIncludingOverhead > estimatedDirectCost
+    ? `This Job is currently $${(knownActualCostIncludingOverhead - estimatedDirectCost).toFixed(2)} over its total estimated cost.`
+    : unavailableCategories.length
+      ? `Actual cost data is incomplete for ${unavailableCategories.join(', ')}.`
+      : estimatedVariance === null
+      ? 'Cost position is unavailable until an accepted Estimate baseline exists.'
+      : estimatedVariance > 0
+        ? `This Job is currently ${estimatedVariance.toFixed(2)} over its total estimated cost.`
+        : estimatedDirectCost > 0
+          ? `${(knownActualCostIncludingOverhead / estimatedDirectCost * 100).toFixed(1)}% of the estimated cost has been used.`
+          : 'This Job is currently on its estimated cost.';
+
   return {
     scopeWorkAreaId,
     labour,
@@ -215,22 +264,43 @@ export function calculateJobPerformance({
     },
     profit: {
       estimatedGross: estimatedGrossProfit,
-      estimatedGrossMargin: margin(estimatedGrossProfit, scopedRevenue),
-      estimatedNet: estimatedOverhead === null ? null : estimatedGrossProfit - estimatedOverhead,
-      estimatedNetMargin: estimatedOverhead === null ? null : margin(estimatedGrossProfit - estimatedOverhead, scopedRevenue),
-      toDate: actualDirectCostComplete && recordedOverhead !== null ? scopedRevenue - knownActualCostIncludingOverhead : null,
-      toDateMargin: actualDirectCostComplete && recordedOverhead !== null ? margin(scopedRevenue - knownActualCostIncludingOverhead, scopedRevenue) : null,
-      unavailableReason: actualDirectCostComplete && recordedOverhead !== null ? null : 'Incomplete actual cost or overhead data; profit to date is not presented as confirmed.',
+      estimatedGrossMargin: estimatedGrossProfit === null || scopedRevenue === null ? null : margin(estimatedGrossProfit, scopedRevenue),
+      estimatedNet: null,
+      estimatedNetMargin: null,
+      toDate: scopedRevenue === null ? null : scopedRevenue - knownActualCostIncludingOverhead,
+      toDateMargin: scopedRevenue === null ? null : margin(scopedRevenue - knownActualCostIncludingOverhead, scopedRevenue),
+      unavailableReason: actualCostComplete ? null : 'Incomplete actual cost data; margin after recorded costs is not final Job profit.',
     },
     costs: {
       categories: categoryRows,
       estimatedDirect: estimatedDirectCost,
       knownActualDirect: knownActualDirectCost,
       actualDirectComplete: actualDirectCostComplete,
+      actualComplete: actualCostComplete,
+      unavailableCategories,
       estimatedOverhead,
       actualOverhead: recordedOverhead,
       knownActualIncludingOverhead: knownActualCostIncludingOverhead,
       varianceConvention: 'Actual minus estimated. Positive is over budget; negative is under budget to date.',
+    },
+    baseline: {
+      available: baselineAvailable,
+      source: baselineAvailable ? 'accepted-estimate-snapshot' : 'unavailable',
+      unavailableReason: baselineAvailable ? null : 'Accepted Estimate baseline unavailable for this Job.',
+    },
+    economics: {
+      estimatedChartSegments,
+      actualChartSegments,
+      chartTotal: Math.max(scopedRevenue ?? 0, knownActualCostIncludingOverhead, 1),
+      knownActualCost: knownActualCostIncludingOverhead,
+      actualCostComplete,
+      marginAfterRecordedCosts: scopedRevenue === null ? null : scopedRevenue - knownActualCostIncludingOverhead,
+      costConsumedPct: estimatedDirectCost !== null && estimatedDirectCost > 0 ? knownActualCostIncludingOverhead / estimatedDirectCost * 100 : null,
+      overContractAmount: scopedRevenue === null ? 0 : Math.max(0, knownActualCostIncludingOverhead - scopedRevenue),
+      statusMessage,
+      forecastProfit: null,
+      forecastMargin: null,
+      forecastUnavailableReason: 'Forecast unavailable until sufficient actual cost information is recorded.',
     },
     details: [...estimatedLines, ...actualOnlyDetails],
     expenses: supportingExpenses,

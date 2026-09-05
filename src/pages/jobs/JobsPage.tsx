@@ -324,7 +324,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                       <p className={`mt-1 text-xs tabular-nums ${overHours ? 'font-semibold text-accent-700' : 'text-gray-500 dark:text-brand-300'}`}>{actualHours.toFixed(1)} hr{hasEstimate ? ` / ${estimatedHours.toFixed(1)} hr` : ''}</p>
                       {!hasEstimate ? <p className="text-xs text-gray-400">No hours estimate</p> : overHours ? <p className="text-xs font-medium text-accent-700">{(actualHours - estimatedHours).toFixed(1)} hr over</p> : null}
                     </td>
-                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(performance.revenue.contract)}</td> : null}
+                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{performance.revenue.contract === null ? 'Unavailable' : formatCurrency(performance.revenue.contract)}</td> : null}
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); selectJob(job.id); }} title="Open Details"><ChevronRight size={13} /></Button>
