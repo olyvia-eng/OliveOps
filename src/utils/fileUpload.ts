@@ -1,6 +1,7 @@
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const DOCUMENT_MIME_TYPES = new Set([
 	'application/pdf',
+	'application/msword',
 	'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 	'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 	'text/csv',
@@ -15,6 +16,7 @@ const ALLOWED_EXTENSIONS_BY_MIME = new Map([
 	['image/png', new Set(['.png'])],
 	['image/webp', new Set(['.webp'])],
 	['application/pdf', new Set(['.pdf'])],
+	['application/msword', new Set(['.doc'])],
 	['application/vnd.openxmlformats-officedocument.wordprocessingml.document', new Set(['.docx'])],
 	['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', new Set(['.xlsx'])],
 	['text/csv', new Set(['.csv'])],

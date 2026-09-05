@@ -44,6 +44,7 @@ import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from '.
 import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
 import { getEligibleJobWorkAreas, WORK_AREA_CLOCKING_CONTRACT_VERSION } from './_lib/jobWorkAreas.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
+import { listTrainingAssignmentsForBusiness, presentTrainingAssignments } from './_lib/trainingRepo.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -80,7 +81,7 @@ export default async function handler(req, res) {
         })
       : false;
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -113,6 +114,7 @@ export default async function handler(req, res) {
       listJobTaskHeadingsForBusiness(session.businessId),
       listTimeEntriesForBusiness(session.businessId),
       listTimeCorrectionsForBusiness(session.businessId),
+      listTrainingAssignmentsForBusiness(session.businessId),
     ]);
 
     const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
@@ -122,6 +124,11 @@ export default async function handler(req, res) {
       hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
       eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
     }));
+    const employeeTrainingAssignments = typeof session.employeeId === 'string'
+      ? presentTrainingAssignments(trainingAssignments.filter((assignment) => assignment.employeeId === session.employeeId && !assignment.revokedAt), { timeZone: businessProfile?.timezone })
+      : [];
+    const overdueTrainingCount = employeeTrainingAssignments.filter((assignment) => assignment.presentationStatus === 'overdue').length;
+    const dueSoonTrainingCount = employeeTrainingAssignments.filter((assignment) => assignment.presentationStatus === 'due_soon').length;
 
     return res.status(200).json({
       ok: true,
@@ -133,6 +140,9 @@ export default async function handler(req, res) {
         ...normalizeMobileTimePermissions(sessionEmployee?.mobileTimePermissions),
       },
       timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
+      trainingAttentionCount: overdueTrainingCount + dueSoonTrainingCount,
+      overdueTrainingCount,
+      dueSoonTrainingCount,
       forms: filterRecordsForSession(session, 'forms', forms),
       formFields: filterRecordsForSession(session, 'form-fields', formFields),
       formSubmissions: filterRecordsForSession(session, 'form-submissions', formSubmissions),

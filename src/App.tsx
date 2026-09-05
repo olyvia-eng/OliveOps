@@ -52,6 +52,9 @@ const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'))
 const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
 const CompanySettingsPage = lazy(() => import('./pages/settings/CompanySettingsPage'));
 const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
+const TrainingLibraryPage = lazy(() => import('./pages/training/TrainingLibraryPage'));
+const TrainingBuilderPage = lazy(() => import('./pages/training/TrainingBuilderPage'));
+const TrainingDetailPage = lazy(() => import('./pages/training/TrainingDetailPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
@@ -656,6 +659,10 @@ export default function App() {
               <Route path="budget" element={<Navigate to="/budgets" replace />} />
               <Route path="employees" element={<EmployeesPage />} />
               <Route path="employees/:employeeId" element={<EmployeeProfilePage currentUserRole={sessionUser.role} />} />
+              <Route path="training" element={canManageUsers ? <TrainingLibraryPage /> : <Navigate to="/home" replace />} />
+              <Route path="training/new" element={canManageUsers ? <TrainingBuilderPage /> : <Navigate to="/home" replace />} />
+              <Route path="training/:trainingId" element={canManageUsers ? <TrainingDetailPage /> : <Navigate to="/home" replace />} />
+              <Route path="training/:trainingId/edit" element={canManageUsers ? <TrainingBuilderPage /> : <Navigate to="/home" replace />} />
               <Route path="time-off" element={canViewReports ? <TimeOffRequestsPage /> : <Navigate to="/" replace />} />
               <Route path="data-center" element={<DataCenterPage />} />
               <Route

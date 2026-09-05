@@ -704,6 +704,62 @@ test('prepare-download accepts fileId only', async () => {
   assert.equal(res.body.fileId, 'file-1');
 });
 
+test('Training attachment upload is restricted to owner/admin Draft modules', async () => {
+  const request = async (status) => {
+    const handler = createStorageHandler(baseDeps({
+      getTrainingDefinitionForBusiness: async (businessId, trainingId) => ({ id: trainingId, businessId, status }),
+    }));
+    const res = createMockRes();
+    await handler({ method: 'POST', body: { action: 'prepare-upload', fileName: 'safety.pdf', mimeType: 'application/pdf', sizeBytes: 1024, entityType: 'training', entityId: 'training-a', category: 'attachment' } }, res);
+    return res;
+  };
+  assert.equal((await request('draft')).statusCode, 200);
+  const published = await request('published');
+  assert.equal(published.statusCode, 403);
+  assert.equal(published.body.error, 'Forbidden');
+});
+
+test('employee can download Training attachment through an active assignment', async () => {
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
+    getFileForBusiness: async (businessId) => ({ id: 'file-training', businessId, entityType: 'training', entityId: 'training-a', uploadStatus: 'uploaded', key: 'biz-1/file-training/safety.pdf' }),
+    getTrainingDefinitionForBusiness: async (businessId, trainingId) => ({ id: trainingId, businessId, status: 'published' }),
+    listTrainingAssignmentsForBusiness: async () => [{ id: 'assignment-a', employeeId: 'emp-1', trainingId: 'training-a' }],
+    listTrainingCompletionsForBusiness: async () => [],
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-training' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.downloadUrl, 'https://signed.example/download');
+});
+
+test('historical Training completion preserves attachment access after revocation', async () => {
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
+    getFileForBusiness: async (businessId) => ({ id: 'file-training', businessId, entityType: 'training', entityId: 'training-a', uploadStatus: 'uploaded', key: 'biz-1/file-training/safety.pdf' }),
+    getTrainingDefinitionForBusiness: async (businessId, trainingId) => ({ id: trainingId, businessId, status: 'published' }),
+    listTrainingAssignmentsForBusiness: async () => [{ id: 'assignment-a', employeeId: 'emp-1', trainingId: 'training-a', revokedAt: '2026-08-01T00:00:00.000Z' }],
+    listTrainingCompletionsForBusiness: async () => [{ id: 'completion-a', employeeId: 'emp-1', trainingId: 'training-a' }],
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-training' } }, res);
+  assert.equal(res.statusCode, 200);
+});
+
+test('Training attachment download fails closed when the file is outside the session tenant', async () => {
+  const handler = createStorageHandler(baseDeps({
+    requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
+    getFileForBusiness: async (businessId) => businessId === 'biz-2' ? { id: 'foreign-file' } : null,
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'foreign-file' } }, res);
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.body.error, 'File not found.');
+  const spoofed = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'foreign-file', businessId: 'biz-2' } }, spoofed);
+  assert.equal(spoofed.statusCode, 400);
+});
+
 test('delete accepts fileId only', async () => {
   let deletedFileId;
   const handler = createStorageHandler(baseDeps({

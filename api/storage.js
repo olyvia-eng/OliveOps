@@ -37,12 +37,18 @@ import { listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { isFormAssignedToEmployee } from './_lib/formsEngine.js';
 import { findClockInWorkflowRequirement, getClockInWorkflowForBusiness } from './_lib/mandatoryClockIn.js';
 import { findWorkflowRequirement, getClockOutWorkflowForBusiness } from './_lib/mandatoryClockOut.js';
+import {
+  getTrainingDefinitionForBusiness,
+  listTrainingAssignmentsForBusiness,
+  listTrainingCompletionsForBusiness,
+} from './_lib/trainingRepo.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
 const DOCUMENT_ENTITY_ID = 'library';
 const FORM_SIGNATURE_ENTITY_TYPE = 'form-signature';
 const FORM_ATTACHMENT_ENTITY_TYPE = 'form-attachment';
+const TRAINING_ENTITY_TYPE = 'training';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -57,6 +63,7 @@ const ATTACHMENT_ALLOWLIST = {
   estimate: new Set(['document', 'photo', 'misc']),
   employee: new Set(['document', 'photo', 'misc']),
   feedback: new Set(['screenshot']),
+  [TRAINING_ENTITY_TYPE]: new Set(['attachment']),
   [FORM_SIGNATURE_ENTITY_TYPE]: new Set(['signature']),
   [FORM_ATTACHMENT_ENTITY_TYPE]: new Set(['photo']),
 };
@@ -241,6 +248,9 @@ const defaultDeps = {
   getEmployeeForBusiness,
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
+  getTrainingDefinitionForBusiness,
+  listTrainingAssignmentsForBusiness,
+  listTrainingCompletionsForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
   listFilesForBusiness,
@@ -268,6 +278,24 @@ export function createStorageHandler(overrides = {}) {
   }
 
   async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode = 'read' }) {
+    if (entityType === TRAINING_ENTITY_TYPE) {
+      const training = await deps.getTrainingDefinitionForBusiness(session.businessId, entityId);
+      if (!training) return null;
+      if (session.role === 'owner' || session.role === 'admin') {
+        return { entity: training, allowed: accessMode === 'read' || training.status === 'draft' };
+      }
+      if (accessMode !== 'read') return { entity: training, allowed: false };
+      const employee = await resolveSessionEmployee(session);
+      if (!employee) return { entity: training, allowed: false };
+      const [assignments, completions] = await Promise.all([
+        deps.listTrainingAssignmentsForBusiness(session.businessId),
+        deps.listTrainingCompletionsForBusiness(session.businessId),
+      ]);
+      const hasAccess = assignments.some((item) => item.employeeId === employee.id && item.trainingId === training.id && !item.revokedAt)
+        || completions.some((item) => item.employeeId === employee.id && item.trainingId === training.id);
+      return { entity: training, allowed: hasAccess };
+    }
+
     if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE) {
       const file = await deps.getFileForBusiness(session.businessId, entityId);
       if (!file) return null;

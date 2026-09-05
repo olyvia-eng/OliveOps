@@ -10,6 +10,7 @@ import {
   PackageSearch,
   Receipt,
   LayoutDashboard,
+  GraduationCap,
   UserCheck,
   Users,
   Wallet,
@@ -56,6 +57,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
         },
         { id: 'team-time-off', type: 'link', to: '/time-off', label: 'Time Off', icon: icon(CalendarOff), roles: ownerAdminRoles },
         { id: 'team-forms', type: 'link', to: '/operations/forms', label: 'Forms', icon: icon(FileBox) },
+        { id: 'team-training', type: 'link', to: '/training', label: 'Training', icon: icon(GraduationCap), roles: ownerAdminRoles },
       ],
     },
     {

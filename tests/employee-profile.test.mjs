@@ -54,7 +54,9 @@ test('profile exposes the requested architecture and honest unsupported states',
   assert.match(profileSource, /time-off-requests\?action=list/);
   assert.match(profileSource, /Pending Requests/);
   assert.match(profileSource, /Upcoming Approved/);
-  assert.match(profileSource, /Training records and assigned courses will appear here once Training is enabled/);
+  assert.match(profileSource, /import EmployeeTrainingSection/);
+  assert.match(profileSource, /<EmployeeTrainingSection employeeId=\{employee\.id\}/);
+  assert.match(profileSource, /<EmployeeTrainingSection employeeId=\{employee\.id\} scorecard \/>/);
   assert.match(profileSource, /entityType=employee/);
 });
 
