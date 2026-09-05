@@ -18,7 +18,8 @@ test('Home answers what this user needs to do with a personal command center', (
   assert.match(tasksSource, /heading = 'Tasks'/);
   assert.match(tasksSource, /draggable onDragStart/);
   assert.match(tasksSource, /onFilterOrderChange/);
-  assert.doesNotMatch(tasksSource, /GripVertical|ChevronLeft|ChevronRight|Move earlier|Move later/);
+  assert.doesNotMatch(tasksSource, /GripVertical/);
+  assert.match(tasksSource, /Move .* tab (left|right)/);
   assert.match(tasksSource, /Add task tab/);
   assert.match(tasksSource, /Right-click to manage tab/);
   assert.match(tasksSource, /Rename Task Tab/);

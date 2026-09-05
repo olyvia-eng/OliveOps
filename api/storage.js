@@ -42,6 +42,7 @@ import {
   listTrainingAssignmentsForBusiness,
   listTrainingCompletionsForBusiness,
 } from './_lib/trainingRepo.js';
+import { getSopDefinitionForBusiness } from './_lib/sopRepo.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
@@ -49,9 +50,15 @@ const DOCUMENT_ENTITY_ID = 'library';
 const FORM_SIGNATURE_ENTITY_TYPE = 'form-signature';
 const FORM_ATTACHMENT_ENTITY_TYPE = 'form-attachment';
 const TRAINING_ENTITY_TYPE = 'training';
+const SOP_ENTITY_TYPE = 'sop';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const SOP_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DOCUMENT_CATEGORIES = new Set(['contracts', 'proposals', 'permits', 'insurance', 'compliance', 'photos', 'misc']);
 const ATTACHMENT_ALLOWLIST = {
@@ -64,6 +71,7 @@ const ATTACHMENT_ALLOWLIST = {
   employee: new Set(['document', 'photo', 'misc']),
   feedback: new Set(['screenshot']),
   [TRAINING_ENTITY_TYPE]: new Set(['attachment']),
+  [SOP_ENTITY_TYPE]: new Set(['attachment']),
   [FORM_SIGNATURE_ENTITY_TYPE]: new Set(['signature']),
   [FORM_ATTACHMENT_ENTITY_TYPE]: new Set(['photo']),
 };
@@ -249,6 +257,7 @@ const defaultDeps = {
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
   getTrainingDefinitionForBusiness,
+  getSopDefinitionForBusiness,
   listTrainingAssignmentsForBusiness,
   listTrainingCompletionsForBusiness,
   listEmployeesForBusiness,
@@ -278,6 +287,18 @@ export function createStorageHandler(overrides = {}) {
   }
 
   async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode = 'read' }) {
+    if (entityType === SOP_ENTITY_TYPE) {
+      const sop = await deps.getSopDefinitionForBusiness(session.businessId, entityId);
+      if (!sop) return null;
+      if (session.role === 'owner' || session.role === 'admin') return { entity: sop, allowed: true };
+      if (accessMode !== 'read') return { entity: sop, allowed: false };
+      const employee = await resolveSessionEmployee(session);
+      return {
+        entity: sop,
+        allowed: Boolean(employee && sop.status === 'published' && sop.active === true && Number(sop.currentVersion) > 0),
+      };
+    }
+
     if (entityType === TRAINING_ENTITY_TYPE) {
       const training = await deps.getTrainingDefinitionForBusiness(session.businessId, entityId);
       if (!training) return null;
@@ -404,6 +425,9 @@ export function createStorageHandler(overrides = {}) {
           const validation = deps.validateUploadPayload({ fileName, mimeType, sizeBytes });
           if (!validation.ok) {
             return res.status(400).json({ ok: false, error: validation.error });
+          }
+          if (entityType === SOP_ENTITY_TYPE && !SOP_DOCUMENT_MIME_TYPES.has(validation.mimeType)) {
+            return res.status(400).json({ ok: false, error: 'SOP attachments must be PDF, DOC, or DOCX files.' });
           }
 
           let formContext;
@@ -654,7 +678,7 @@ export function createStorageHandler(overrides = {}) {
           const attachmentField = file.entityType === DOCUMENT_ENTITY_TYPE
             ? undefined
             : getAttachmentFieldForCategory({ entityType: file.entityType, category: normalizedCategory });
-          if (file.entityType !== DOCUMENT_ENTITY_TYPE && file.entityType !== FORM_SIGNATURE_ENTITY_TYPE && file.entityType !== FORM_ATTACHMENT_ENTITY_TYPE && !attachmentField) {
+          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
             return res.status(400).json({ ok: false, error: 'Unsupported attachment category.' });
           }
 

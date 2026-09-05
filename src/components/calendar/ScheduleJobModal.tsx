@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { AlertTriangle } from 'lucide-react';
-import { Badge, Button, Input, Modal, Select, TextArea } from '../ui';
+import { AlertTriangle, Check } from 'lucide-react';
+import { Badge, Button, Card, Input, Modal, Select, TextArea } from '../ui';
 import type { BudgetDivision, Crew, Customer, Division, Employee, EquipmentAsset, Job, JobScheduleUpdate, ID } from '../../types';
 import { formatTimeOffType, getEmployeeTimeOffConflicts, type ScheduleTimeOff } from '../../utils/employeeAvailability.js';
 import {
@@ -48,6 +48,8 @@ interface Props {
   budgetDivisions: BudgetDivision[];
   initialJobId?: string;
   approvedTimeOff?: ScheduleTimeOff[];
+  presentation?: 'modal' | 'page';
+  fixedJob?: boolean;
   onClose: () => void;
   onSave: (payload: SchedulePayload) => Promise<boolean>;
 }
@@ -103,6 +105,8 @@ export default function ScheduleJobModal({
   budgetDivisions,
   initialJobId,
   approvedTimeOff = [],
+  presentation = 'modal',
+  fixedJob = false,
   onClose,
   onSave,
 }: Props) {
@@ -111,6 +115,7 @@ export default function ScheduleJobModal({
   const [confirmingTimeOff, setConfirmingTimeOff] = useState(false);
   const [rangeTimeOff, setRangeTimeOff] = useState<ScheduleTimeOff[]>(approvedTimeOff);
   const [timeOffLoading, setTimeOffLoading] = useState(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
@@ -246,7 +251,8 @@ export default function ScheduleJobModal({
   };
 
   const performSave = async () => {
-    if (!selectedJob || !form.startDate) return;
+    if (!selectedJob || !form.startDate || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     const payload: SchedulePayload = {
       jobId: selectedJob.id,
@@ -262,34 +268,40 @@ export default function ScheduleJobModal({
       assignedEquipmentIds: [...new Set(form.assignedEquipmentIds)],
     };
     if (!selectedJob.sourceEstimateId) payload.divisionId = form.divisionId || null;
-    const saved = await onSave(payload);
-    setSaving(false);
-    if (saved) onClose();
+    try {
+      const saved = await onSave(payload);
+      if (saved) onClose();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
-    if (timeOffLoading) return;
-    if (timeOffConflicts.length > 0) {
+    if (timeOffLoading || savingRef.current) return;
+    if (timeOffConflicts.length > 0 || assignmentConflicts.length > 0) {
       setConfirmingTimeOff(true);
       return;
     }
     await performSave();
   };
 
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={title}
-      wide
-      footer={(
+  const footer = (
         confirmingTimeOff ? <><Button variant="secondary" onClick={() => setConfirmingTimeOff(false)}>Go Back</Button><Button onClick={() => void performSave()} disabled={saving}>{saving ? 'Saving…' : 'Schedule Anyway'}</Button></> : <><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => void handleSave()} disabled={!selectedJob || !form.startDate || saving || timeOffLoading}>{saving ? 'Saving…' : timeOffLoading ? 'Checking availability…' : 'Save Schedule'}</Button></>
-      )}
-    >
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+  );
+  const content = <div className="space-y-5">
+      {fixedJob && selectedJob ? <div className="grid gap-3 rounded-md border border-brand-100 bg-brand-50/60 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4 dark:border-brand-600 dark:bg-brand-800/70">
+        <div><p className="text-xs font-semibold uppercase text-brand-400">Job</p><p className="mt-1 font-semibold text-brand-900 dark:text-brand-50">{selectedJob.title}</p></div>
+        <div><p className="text-xs font-semibold uppercase text-brand-400">Job number</p><p className="mt-1 font-medium text-brand-800 dark:text-brand-100">{selectedJob.jobNumber ?? 'Not assigned'}</p></div>
+        <div><p className="text-xs font-semibold uppercase text-brand-400">Customer</p><p className="mt-1 font-medium text-brand-800 dark:text-brand-100">{selectedCustomer?.name ?? 'Not assigned'}</p></div>
+        <div><p className="text-xs font-semibold uppercase text-brand-400">Current schedule</p><p className="mt-1 font-medium text-brand-800 dark:text-brand-100">{selectedJob.startDate ? `${selectedJob.startDate}${selectedJob.endDate && selectedJob.endDate !== selectedJob.startDate ? ` to ${selectedJob.endDate}` : ''}` : 'Unscheduled'}</p></div>
+      </div> : null}
+      <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
+          <Card className="p-4 sm:p-5">
+          <h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Date and time</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {!fixedJob ? <div className="sm:col-span-2">
               <label className="text-sm font-medium text-gray-700 dark:text-brand-200">Job</label>
               <select
                 value={form.jobId}
@@ -303,7 +315,20 @@ export default function ScheduleJobModal({
                   <option key={job.id} value={job.id}>{job.title}</option>
                 ))}
               </select>
-            </div>
+            </div> : null}
+            <Input label="Start Date *" type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
+            <Input label="End Date *" type="date" value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} />
+            <label className="flex items-center gap-3 rounded-md border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100 sm:col-span-2">
+              <input type="checkbox" checked={form.allDay} onChange={(event) => setForm((current) => ({ ...current, allDay: event.target.checked }))} />
+              All Day
+            </label>
+            <Input label="Start Time" type="time" value={form.startTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
+            <Input label="End Time" type="time" value={form.endTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))} />
+          </div>
+          </Card>
+          <Card className="p-4 sm:p-5">
+          <h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Resources</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Select label="Primary Crew" value={form.crewId} onChange={(event) => setForm((current) => ({ ...current, crewId: event.target.value }))}>
               <option value="">No primary crew</option>
               {crews.filter((crew) => crew.active || crew.id === form.crewId).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
@@ -319,23 +344,8 @@ export default function ScheduleJobModal({
                 {divisions.filter((division) => division.active || division.id === form.divisionId).sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
               </Select>
             )}
-            <Input label="Start Date *" type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
-            <Input label="End Date *" type="date" value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} />
-            <label className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100 sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={form.allDay}
-                onChange={(event) => setForm((current) => ({ ...current, allDay: event.target.checked }))}
-              />
-              All Day
-            </label>
-            <Input label="Start Time" type="time" value={form.startTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
-            <Input label="End Time" type="time" value={form.endTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))} />
-            <div className="sm:col-span-2">
-              <TextArea label="Notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-            </div>
           </div>
-          <div className="rounded-2xl border border-brand-100 p-4 dark:border-brand-600">
+          <div className="mt-4 border-t border-brand-100 pt-4 dark:border-brand-600">
             <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Employees</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               {selectableEmployees.map((employee) => {
@@ -346,31 +356,43 @@ export default function ScheduleJobModal({
                     key={employee.id}
                     type="button"
                     onClick={() => toggleEmployee(employee.id)}
-                    className={`rounded-lg border px-3 py-1.5 text-left text-sm transition-colors ${selected ? 'border-brand-500 bg-brand-100 text-brand-800 dark:border-brand-300 dark:bg-brand-600 dark:text-brand-50' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
+                    aria-pressed={selected}
+                    className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${selected ? 'border-brand-700 bg-brand-700 text-white shadow-sm dark:border-brand-200 dark:bg-brand-500' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
                   >
-                    <span className="block font-medium">{employee.name}</span>
-                    <span className={`block text-[11px] ${unavailable.length || !employee.active ? 'text-rose-700 dark:text-rose-200' : 'text-brand-400 dark:text-brand-300'}`}>{!employee.active ? 'Inactive' : unavailable.length ? `${formatTimeOffType(unavailable[0].requestType)} · Unavailable` : 'Available'}</span>
+                    <span className="flex items-center gap-1.5 font-medium">{selected ? <Check size={14} /> : null}{employee.name}</span>
+                    <span className={`block text-[11px] ${selected ? 'text-white/80' : unavailable.length || !employee.active ? 'text-rose-700 dark:text-rose-200' : 'text-brand-400 dark:text-brand-300'}`}>{!employee.active ? 'Inactive' : unavailable.length ? `${formatTimeOffType(unavailable[0].requestType)} · Unavailable` : 'Available'}</span>
                   </button>
                 );
               })}
             </div>
           </div>
+          <div className="mt-4 border-t border-brand-100 pt-4 dark:border-brand-600">
+            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Equipment</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {availableEquipment.length === 0 ? <p className="text-sm text-brand-400 dark:text-brand-200">No unassigned equipment is available.</p> : availableEquipment.map((asset) => { const selected = form.assignedEquipmentIds.includes(asset.id); return <button key={asset.id} type="button" aria-pressed={selected} onClick={() => toggleEquipment(asset.id)} className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium ${selected ? 'border-accent-700 bg-accent-700 text-white shadow-sm' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200'}`}>{selected ? <Check size={14} /> : null}{asset.name}</button>; })}
+            </div>
+          </div>
+          </Card>
+          <Card className="p-4 sm:p-5"><h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Schedule notes</h2><div className="mt-4"><TextArea label="Notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} /></div></Card>
         </div>
 
         <div className="space-y-4">
           {confirmingTimeOff ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
-              <div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-700" /><div><h3 className="text-sm font-semibold">{timeOffConflicts.length} {timeOffConflicts.length === 1 ? 'employee is' : 'employees are'} unavailable</h3><p className="mt-1 text-xs text-rose-700">Approved Time Off overlaps this scheduled work. You can go back or acknowledge the conflict and schedule anyway.</p></div></div>
-              <div className="mt-3 space-y-2">{timeOffConflicts.map((conflict) => <div key={conflict.requestId} className="rounded-xl border border-rose-200 bg-white/70 p-3"><p className="text-sm font-semibold">{conflict.employeeName}</p><p className="mt-1 text-xs text-rose-700">{formatTimeOffType(conflict.requestType)} · {conflict.startDate === conflict.endDate ? conflict.startDate : `${conflict.startDate} - ${conflict.endDate}`}{conflict.fromCrew ? ' · Crew member' : ''}</p></div>)}</div>
+              <div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-700" /><div><h3 className="text-sm font-semibold">Confirm schedule conflicts</h3><p className="mt-1 text-xs text-rose-700">Review every overlap below. You can go back or explicitly schedule anyway where policy permits.</p></div></div>
             </div>
           ) : null}
-          <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/70">
+          {!fixedJob ? <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/70">
             <div className="flex flex-wrap items-start gap-2">
               <Badge label={selectedJob?.status ?? 'job'} className="bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-brand-100" />
             </div>
             <h3 className="mt-3 text-lg font-semibold text-brand-900 dark:text-brand-50">{selectedJob?.title ?? 'Select a job'}</h3>
             <p className="mt-1 text-sm text-brand-500 dark:text-brand-200">{selectedJob ? formatCustomerPropertyLabel(selectedJob, selectedCustomer) : 'Choose a job to derive the property and customer details.'}</p>
-          </div>
+          </div> : null}
+
+          {assignmentConflicts.length > 0 || timeOffConflicts.length > 0 ? <h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Conflict Review</h2> : null}
+
+          {timeOffConflicts.length > 0 ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-900"><div className="flex items-start gap-3"><AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-700" /><div className="min-w-0"><h3 className="text-sm font-semibold">Time Off</h3><p className="mt-1 text-xs text-rose-700">Approved Time Off requires explicit confirmation before saving.</p><div className="mt-3 space-y-2">{timeOffConflicts.map((conflict) => <div key={conflict.requestId} className="rounded-xl border border-rose-200 bg-white/70 p-3"><p className="text-sm font-semibold">{conflict.employeeName}</p><p className="mt-1 text-xs text-rose-700">{formatTimeOffType(conflict.requestType)} · {conflict.startDate === conflict.endDate ? conflict.startDate : `${conflict.startDate} - ${conflict.endDate}`}{conflict.fromCrew ? ' · Crew member' : ''}</p></div>)}</div></div></div></div> : null}
 
           {crewConflicts.length > 0 ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
@@ -436,29 +458,13 @@ export default function ScheduleJobModal({
             </div>
           ) : null}
 
-          <div className="rounded-2xl border border-brand-100 p-4 dark:border-brand-600">
-            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Equipment</h3>
-            <p className="mt-1 text-xs text-brand-400 dark:text-brand-200">Equipment is optional in Phase 1 and only shows assets not already linked to another job.</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {availableEquipment.length === 0 ? (
-                <p className="text-sm text-brand-400 dark:text-brand-200">No unassigned equipment is available.</p>
-              ) : availableEquipment.map((asset) => {
-                const selected = form.assignedEquipmentIds.includes(asset.id);
-                return (
-                  <button
-                    key={asset.id}
-                    type="button"
-                    onClick={() => toggleEquipment(asset.id)}
-                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected ? 'border-accent-500 bg-accent-50 text-accent-700 dark:border-accent-400 dark:bg-accent-900/20 dark:text-accent-100' : 'border-brand-100 bg-white text-brand-700 hover:bg-brand-50 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 dark:hover:bg-brand-600'}`}
-                  >
-                    {asset.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </div>
       </div>
-    </Modal>
-  );
+    </div>;
+
+  if (presentation === 'page') {
+    return <div className="space-y-4">{content}<div className="flex flex-wrap justify-end gap-2 border-t border-brand-100 pt-4 dark:border-brand-600">{footer}</div></div>;
+  }
+
+  return <Modal open={open} onClose={onClose} title={title} wide footer={footer}>{content}</Modal>;
 }

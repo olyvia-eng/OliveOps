@@ -8,6 +8,7 @@ const calendarSource = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8
 const calendarControlsSource = readFileSync('src/components/calendar/CalendarControls.tsx', 'utf8');
 const scheduleModelSource = readFileSync('src/utils/scheduleModel.js', 'utf8');
 const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const jobScheduleSource = readFileSync('src/pages/jobs/JobSchedulePage.tsx', 'utf8');
 const scheduleUtilsSource = readFileSync('src/utils/jobSchedule.ts', 'utf8');
 const scheduleModalSource = readFileSync('src/components/calendar/ScheduleJobModal.tsx', 'utf8');
 const estimateConversionSource = readFileSync('api/estimates.js', 'utf8');
@@ -92,7 +93,7 @@ test('job detail page exposes the same schedule workflow and equipment context',
   assert.match(jobDetailSource, /Operational Job Information/);
   assert.match(jobDetailSource, /Save Changes/);
   assert.match(jobDetailSource, /Schedule Notes/);
-  assert.match(jobDetailSource, /Assigned Equipment/);
+  assert.match(jobDetailSource, /Job Resources[\s\S]*Equipment/);
   assert.match(jobDetailSource, /formatScheduleTimeLabel/);
   assert.match(scheduleModalSource, /Assigned Employees/);
   assert.match(scheduleModalSource, /Assigned Equipment/);
@@ -107,7 +108,8 @@ test('Schedule preserves converted planning division through a dedicated mutatio
   assert.match(scheduleModalSource, /if \(!selectedJob\.sourceEstimateId\) payload\.divisionId = form\.divisionId \|\| null;/);
   assert.doesNotMatch(scheduleModalSource, /divisionId: form\.divisionId \|\| null,/);
   assert.match(calendarSource, /updateJobSchedule/);
-  assert.match(jobDetailSource, /updateJobSchedule/);
+  assert.match(jobDetailSource, /navigate\(`\/jobs\/\$\{job\.id\}\/schedule`\)/);
+  assert.match(jobScheduleSource, /updateJobSchedule/);
   assert.match(storeSource, /\/api\/job-schedule\?jobId=/);
   assert.match(scheduleApiSource, /SCHEDULE_FIELDS/);
   assert.match(scheduleApiSource, /Converted Job divisionId must be changed through the Job planning workflow\./);

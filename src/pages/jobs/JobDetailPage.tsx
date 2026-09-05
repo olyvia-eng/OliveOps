@@ -4,7 +4,6 @@ import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { Card, Button, Badge, EmptyState, Input, Modal, Select, TextArea } from '../../components/ui';
 import { statusColor, formatCurrency, formatDate, formatDateTime, durationHours } from '../../utils';
-import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import type { Address, FormRecord, FormResponse, FormSubmission, JobStatus, TimeEntry } from '../../types';
@@ -44,10 +43,6 @@ const formatPropertyAddress = (property: Address) => [property.street, property.
   .filter(Boolean)
   .join(', ');
 
-const formatEmployeeCompensation = (employee: { compensationType?: string; hourlyRate: number }) => employee.compensationType === 'salary'
-  ? `${formatCurrency(employee.hourlyRate)} annual salary`
-  : `${formatCurrency(employee.hourlyRate)}/hr`;
-
 const timeEntryPhotoRefs = (entry: TimeEntry): TimeEntryPhotoRef[] => {
   const fileIds = [...new Set([
     entry.clockInPhotoFileId,
@@ -69,7 +64,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, labourClasses, crews, divisions, budgetDivisions, invoices, expenses, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, updateJobSchedule, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, labourClasses, crews, invoices, expenses, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -84,6 +79,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [jobTaskFilter, setJobTaskFilter] = useState<'all' | 'completed'>('all');
   const [analysisScope, setAnalysisScope] = useState('entire-job');
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
+  const [showAllNotes, setShowAllNotes] = useState(false);
+  const [showAllPhotos, setShowAllPhotos] = useState(false);
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
@@ -100,10 +97,15 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     counts[submission.formId] = (counts[submission.formId] ?? 0) + 1;
     return counts;
   }, {}), [formSubmissions, id]);
+  const completedAssignedFormIds = useMemo(() => new Set(formSubmissions
+    .filter((submission) => submission.jobId === id && submission.status !== 'draft' && submission.status !== 'rejected')
+    .map((submission) => submission.formId)), [formSubmissions, id]);
+  const requiredAssignedForms = useMemo(() => assignedForms.filter((form) => form.completionRequirement === 'required'), [assignedForms]);
+  const completedAssignedForms = assignedForms.filter((form) => completedAssignedFormIds.has(form.id)).length;
+  const outstandingRequiredForms = requiredAssignedForms.filter((form) => !completedAssignedFormIds.has(form.id)).length;
   const jobTasks = useMemo(() => tasks.filter((task) => task.relatedEntityType === 'job' && task.relatedEntityId === id), [id, tasks]);
   const headings = useMemo(() => jobTaskHeadings.filter((heading) => heading.jobId === id).sort((left, right) => left.sortOrder - right.sortOrder), [id, jobTaskHeadings]);
   const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId && (jobTaskFilter === 'completed' ? task.status === 'completed' : task.status === 'open')), [jobTaskFilter, jobTasks]);
-  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
   const canEditFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const [jobInfoSaving, setJobInfoSaving] = useState(false);
@@ -214,6 +216,10 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     };
   }, [allJobTimeEntries]);
 
+  const availableAnalysisScopeIds = useMemo(() => new Set((job?.operationalWorkAreas ?? []).map((area) => area.id)), [job?.operationalWorkAreas]);
+  const resolvedAnalysisScope = analysisScope === 'entire-job' || analysisScope === 'unallocated' || availableAnalysisScopeIds.has(analysisScope)
+    ? analysisScope
+    : 'entire-job';
   const performance = useMemo(() => job ? calculateJobPerformance({
     job,
     employees,
@@ -222,8 +228,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     timeCorrections,
     invoices,
     expenses,
-    scopeWorkAreaId: analysisScope,
-  }) : null, [analysisScope, employees, expenses, invoices, job, labourClasses, timeCorrections, timeEntries]);
+    scopeWorkAreaId: resolvedAnalysisScope,
+  }) : null, [employees, expenses, invoices, job, labourClasses, resolvedAnalysisScope, timeCorrections, timeEntries]);
   const unallocatedPerformance = useMemo(() => job ? calculateJobPerformance({
     job,
     employees,
@@ -239,6 +245,11 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     || unallocatedPerformance.expenses.length > 0
     || unallocatedPerformance.costs.categories.some((row) => row.actualCost !== null)
   ));
+  useEffect(() => {
+    if (analysisScope !== resolvedAnalysisScope || analysisScope === 'unallocated' && !hasUnallocatedData) {
+      setAnalysisScope('entire-job');
+    }
+  }, [analysisScope, hasUnallocatedData, resolvedAnalysisScope]);
   const originalContractRevenue = job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? job?.contractValue ?? 0;
 
   const employeeTimeEntryNotes = useMemo(
@@ -338,8 +349,9 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             <p className="text-gray-500">{customer?.name ?? '—'} · {formatScheduleTimeLabel(job)} · Started {formatDate(job.startDate)}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canManageSchedule ? <Button variant="secondary" onClick={() => setScheduleModalOpen(true)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}</Button> : null}
+            {canManageSchedule ? <Button variant="secondary" onClick={() => navigate(`/jobs/${job.id}/schedule`)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}</Button> : null}
             <Select
+              label="Job Status"
               value={job.status}
               onChange={(e) => { void updateJob(job.id, { status: e.target.value as JobStatus }); }}
             >
@@ -477,8 +489,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         ) : (
           <div className="space-y-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <div><h2 className="text-lg font-semibold text-gray-900">Job Performance</h2><p className="text-sm text-gray-500">Accepted Estimate baseline compared with eligible time and recorded costs.</p>{analysisScope === 'entire-job' && hasUnallocatedData ? <p className="mt-1 text-xs font-medium text-brand-700">Entire Job includes Work Areas and clearly separated Unallocated records.</p> : null}</div>
-              <Select label="Scope" value={analysisScope} onChange={(event) => setAnalysisScope(event.target.value)} className="min-w-56">
+              <div><h2 className="text-lg font-semibold text-gray-900">Job Performance</h2><p className="text-sm text-gray-500">Accepted Estimate baseline compared with eligible time and recorded costs.</p>{resolvedAnalysisScope === 'entire-job' && hasUnallocatedData ? <p className="mt-1 text-xs font-medium text-brand-700">Entire Job includes Work Areas and clearly separated Unallocated records.</p> : null}</div>
+              <Select label="Scope" value={resolvedAnalysisScope} onChange={(event) => setAnalysisScope(event.target.value)} className="min-w-56">
                 <option value="entire-job">Entire Job</option>
                 {(job.operationalWorkAreas ?? []).slice().sort((left, right) => left.sortOrder - right.sortOrder).map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
                 {hasUnallocatedData ? <option value="unallocated">Unallocated</option> : null}
@@ -491,6 +503,20 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
 
       {activeTab === 'project-management' && (
         <div className="space-y-6">
+          <Card className="p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><h2 className="font-semibold text-gray-900">Job Resources</h2><p className="text-sm text-gray-500">Schedule and assigned field resources.</p></div>
+              {canManageSchedule ? <Button size="sm" variant="secondary" onClick={() => navigate(`/jobs/${job.id}/schedule`)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'} <ChevronRight size={14} /></Button> : null}
+            </div>
+            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
+              <div><dt className="text-xs font-medium text-gray-500">Scheduled</dt><dd className="mt-1 font-semibold text-gray-900">{job.startDate ? `${formatDate(job.startDate)}${job.endDate && job.endDate !== job.startDate ? ` – ${formatDate(job.endDate)}` : ''}` : 'Unscheduled'}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Time</dt><dd className="mt-1 font-semibold text-gray-900">{formatScheduleTimeLabel(job)}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Primary crew</dt><dd className="mt-1 font-semibold text-gray-900">{crews.find((crew) => crew.id === job.crewId)?.name ?? 'Not assigned'}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Employees</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEmployees.length ? assignedEmployees.slice(0, 3).map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEmployees.length > 3 ? <Badge label={`+${assignedEmployees.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Equipment</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEquipment.length ? assignedEquipment.slice(0, 3).map((asset) => <Badge key={asset.id} label={asset.name} className="bg-accent-50 text-accent-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEquipment.length > 3 ? <Badge label={`+${assignedEquipment.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
+            </dl>
+          </Card>
+
           <OutstandingTasks
             heading="Job Tasks"
             subtitle="Actions tied directly to this job"
@@ -546,19 +572,20 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
               <h2 className="font-semibold">Notes</h2>
               <div className="mt-3 space-y-3">
                 {job.notes?.trim() ? <div className="rounded-lg bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Job Note</p><p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{job.notes}</p></div> : null}
-                {employeeTimeEntryNotes.map((entry) => {
+                {employeeTimeEntryNotes.slice(0, showAllNotes ? undefined : 3).map((entry) => {
                   const employee = employees.find((item) => item.id === entry.employeeId);
                   const presentation = getTimeEntryPresentation(entry, jobs);
                   return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p>{presentation.workAreaLabel ? <p className="text-xs text-gray-500">{presentation.workAreaLabel}</p> : null}</div><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
                 })}
                 {!job.notes?.trim() && employeeTimeEntryNotes.length === 0 ? <p className="text-sm text-gray-400">No job or employee notes yet.</p> : null}
+                {employeeTimeEntryNotes.length > 3 ? <Button size="sm" variant="secondary" onClick={() => setShowAllNotes((value) => !value)}>{showAllNotes ? 'Show less' : `View all ${employeeTimeEntryNotes.length} notes`}</Button> : null}
               </div>
             </Card>
 
             <Card className="p-4">
               <h2 className="font-semibold">Photos</h2>
               {jobPhotos.length === 0 ? <p className="mt-3 text-sm text-gray-400">No photos uploaded for this job.</p> : (
-                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="truncate text-xs font-medium text-gray-700">{photo.employeeName}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p></div></a>)}</div>
+                <><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.slice(0, showAllPhotos ? undefined : 6).map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="truncate text-xs font-medium text-gray-700">{photo.employeeName}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p></div></a>)}</div>{jobPhotos.length > 6 ? <Button className="mt-3" size="sm" variant="secondary" onClick={() => setShowAllPhotos((value) => !value)}>{showAllPhotos ? 'Show less' : `View all ${jobPhotos.length} photos`}</Button> : null}</>
               )}
             </Card>
           </div>
@@ -571,6 +598,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
               </div>
               <Link to="/operations/forms"><Button variant="secondary" size="sm">Manage Forms <ChevronRight size={13} /></Button></Link>
             </div>
+            <dl className="grid grid-cols-3 gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm"><div><dt className="text-xs text-gray-500">Required</dt><dd className="mt-1 font-semibold text-gray-900">{requiredAssignedForms.length}</dd></div><div><dt className="text-xs text-gray-500">Outstanding</dt><dd className="mt-1 font-semibold text-accent-700">{outstandingRequiredForms}</dd></div><div><dt className="text-xs text-gray-500">Completed</dt><dd className="mt-1 font-semibold text-brand-700">{completedAssignedForms}</dd></div></dl>
             {assignedForms.length === 0 ? <p className="p-4 text-sm text-gray-400">No forms are assigned to this job.</p> : (
               <ul className="divide-y divide-gray-50">{assignedForms.map((form) => {
                 const submissionCount = jobFormSubmissionCounts[form.id] ?? 0;
@@ -596,20 +624,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             </div>
           </Card>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card className="p-4">
-              <h2 className="mb-3 font-semibold">Assigned Employees</h2>
-              {assignedEmployees.length === 0 ? <p className="text-sm text-gray-400">No employees assigned.</p> : (
-                <ul className="space-y-2">{assignedEmployees.map((employee) => <li key={employee.id} className="flex items-center justify-between text-sm"><span>{employee.name}</span><span className="text-gray-400 capitalize">{employee.role.replace('_', ' ')} · {formatEmployeeCompensation(employee)}</span></li>)}</ul>
-              )}
-            </Card>
-            <Card className="p-4">
-              <h2 className="mb-3 font-semibold">Assigned Equipment</h2>
-              {assignedEquipment.length === 0 ? <p className="text-sm text-gray-400">No equipment assigned.</p> : (
-                <ul className="space-y-2">{assignedEquipment.map((asset) => <li key={asset.id} className="flex items-center justify-between text-sm"><span>{asset.name}</span><span className="text-gray-400">{asset.type}</span></li>)}</ul>
-              )}
-            </Card>
-          </div>
         </div>
       )}
 
@@ -663,20 +677,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         </div> : null}
       </Modal>
 
-      <ScheduleJobModal
-        open={scheduleModalOpen}
-        title={job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}
-        jobs={jobs}
-        customers={customers}
-        employees={employees}
-        equipmentAssets={equipmentAssets}
-        crews={crews}
-        divisions={divisions}
-        budgetDivisions={budgetDivisions}
-        initialJobId={job.id}
-        onClose={() => setScheduleModalOpen(false)}
-        onSave={({ jobId, ...schedule }) => updateJobSchedule(jobId, schedule)}
-      />
       <TimeEntryDetailModal
         entry={selectedTimeEntry}
         employeeName={selectedTimeEntry ? employees.find((item) => item.id === selectedTimeEntry.employeeId)?.name ?? 'Employee' : ''}

@@ -12,6 +12,8 @@ export type JobPerformanceCostRow = {
 
 export type JobPerformance = {
   scopeWorkAreaId: string;
+  scopeValid: boolean;
+  scopeInvalidReason: string | null;
   labour: JobLabourSummary;
   revenue: { contract: number | null; issued: number | null; taxTreatment: string };
   profit: { estimatedGross: number | null; estimatedGrossMargin: number | null; estimatedNet: number | null; estimatedNetMargin: number | null; toDate: number | null; toDateMargin: number | null; unavailableReason: string | null };

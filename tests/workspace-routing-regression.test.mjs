@@ -11,6 +11,7 @@ const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorksp
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const jobScheduleSource = readFileSync('src/pages/jobs/JobSchedulePage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarItemSource = readFileSync('src/components/layout/SidebarItem.tsx', 'utf8');
 const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf8');
@@ -134,12 +135,19 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   assert.match(jobWorkspaceSource, />Assigned Forms<\/h2>/);
   assert.match(jobWorkspaceSource, /to="\/operations\/forms"/);
   const projectManagementSource = jobWorkspaceSource.slice(jobWorkspaceSource.indexOf("activeTab === 'project-management'"), jobWorkspaceSource.indexOf("activeTab === 'invoices'"));
+  const resourcesIndex = projectManagementSource.indexOf('>Job Resources</h2>');
+  const tasksIndex = projectManagementSource.indexOf('heading="Job Tasks"');
   const notesIndex = projectManagementSource.indexOf('>Notes</h2>');
   const photosIndex = projectManagementSource.indexOf('>Photos</h2>');
   const formsIndex = projectManagementSource.indexOf('>Assigned Forms</h2>');
   const timeEntriesIndex = projectManagementSource.indexOf('>Time Entries</h2>');
+  assert.ok(resourcesIndex >= 0 && resourcesIndex < tasksIndex && tasksIndex < notesIndex);
   assert.ok(notesIndex >= 0 && notesIndex < formsIndex && formsIndex < timeEntriesIndex);
   assert.ok(photosIndex >= 0 && photosIndex < formsIndex);
+  assert.match(projectManagementSource, /employeeTimeEntryNotes\.slice\(0, showAllNotes \? undefined : 3\)/);
+  assert.match(projectManagementSource, /jobPhotos\.slice\(0, showAllPhotos \? undefined : 6\)/);
+  for (const label of ['Required', 'Outstanding', 'Completed']) assert.match(projectManagementSource, new RegExp(`>${label}<`));
+  assert.match(projectManagementSource, /useTimeEntryPage|jobTimeEntryPage\.previous|jobTimeEntryPage\.next|jobTimeEntryPage\.setPageSize/);
   assert.match(projectManagementSource, /View Submissions \(\{submissionCount\}\)/);
   assert.match(projectManagementSource, /0 submissions[\s\S]*No submissions yet/);
   assert.match(jobWorkspaceSource, /forms-review\?jobId=\$\{encodeURIComponent\(id\)\}&formId=\$\{encodeURIComponent\(form\.id\)\}/);
@@ -181,8 +189,19 @@ test('full Job workspace retains management tabs and role gates', () => {
   assert.match(jobWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(jobWorkspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin' \|\| currentUserRole === 'foreman'/);
   assert.match(jobWorkspaceSource, /Source Estimate/);
-  assert.match(jobWorkspaceSource, /Assigned Employees/);
+  assert.match(jobWorkspaceSource, /Job Resources/);
+  assert.match(jobWorkspaceSource, /label="Job Status"/);
   assert.match(jobWorkspaceSource, /Related Invoices/);
+});
+
+test('Job scheduling uses a dedicated fixed-Job route and returns to Project Management', () => {
+  assert.match(appSource, /path="jobs\/:id\/schedule"/);
+  assert.match(appSource, /<JobSchedulePage currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(jobWorkspaceSource, /navigate\(`\/jobs\/\$\{job\.id\}\/schedule`\)/);
+  assert.match(jobScheduleSource, /presentation="page"/);
+  assert.match(jobScheduleSource, /fixedJob/);
+  assert.match(jobScheduleSource, /jobs=\{\[job\]\}/);
+  assert.match(jobScheduleSource, /navigate\(`\/jobs\/\$\{job\.id\}\?tab=project-management`\)/);
 });
 
 test('company setup sidebar keeps existing routes and account terminology', () => {

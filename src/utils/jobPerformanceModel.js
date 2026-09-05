@@ -28,15 +28,27 @@ function snapshotAreasForJob(job) {
   });
 }
 
+function immutableLineCost(line) {
+  const quantity = Math.max(0, number(line?.quantity));
+  if (optionalNumber(line?.plannedCost) !== null) return Math.max(0, line.plannedCost);
+  if (optionalNumber(line?.costRateAtEstimate) !== null) return quantity * Math.max(0, line.costRateAtEstimate);
+  if (line?.category === 'labour' && optionalNumber(line?.averageLabourCost) !== null) return quantity * Math.max(0, line.averageLabourCost);
+  if (optionalNumber(line?.directCostPerUnit) !== null) return quantity * Math.max(0, line.directCostPerUnit);
+  return null;
+}
+
 function estimatedCategoryTotals(areas) {
   const totals = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
+  const unavailable = new Set();
   for (const area of areas) {
     for (const line of Array.isArray(area?.lineItems) ? area.lineItems : []) {
       if (!CATEGORIES.includes(line?.category)) continue;
-      totals[line.category] += Math.max(0, number(line.plannedCost, number(line.estimatedCost, number(line.quantity) * number(line.unitCost))));
+      const cost = immutableLineCost(line);
+      if (cost === null) unavailable.add(line.category);
+      else totals[line.category] += cost;
     }
   }
-  return totals;
+  return Object.fromEntries(CATEGORIES.map((category) => [category, unavailable.has(category) ? null : totals[category]]));
 }
 
 function actualNonLabourCategory({ job, expenses, category, scoped }) {
@@ -86,9 +98,12 @@ export function calculateJobPerformance({
 }) {
   const scoped = scopeWorkAreaId !== 'entire-job';
   const workAreaScoped = scoped && scopeWorkAreaId !== 'unallocated';
+  const operationalAreas = Array.isArray(job?.operationalWorkAreas) ? job.operationalWorkAreas : [];
+  const scopeValid = !workAreaScoped || operationalAreas.some((area) => area.id === scopeWorkAreaId);
   const snapshotAreas = snapshotAreasForJob(job);
   const baselineAvailable = snapshotAreas !== null;
   const areas = scopeAreas(baselineAvailable ? snapshotAreas : [], scopeWorkAreaId);
+  const scopedBaselineAvailable = baselineAvailable && scopeValid && scopeWorkAreaId !== 'unallocated' && (!workAreaScoped || areas.length > 0);
   const labourJob = baselineAvailable
     ? { ...job, estimatedHours: 0, operationalWorkAreas: snapshotAreas }
     : { ...job, estimatedHours: 0, operationalWorkAreas: [] };
@@ -100,8 +115,7 @@ export function calculateJobPerformance({
     timeCorrections,
     scopeWorkAreaId: scopeWorkAreaId === 'entire-job' ? undefined : scopeWorkAreaId,
   });
-  const estimated = baselineAvailable ? estimatedCategoryTotals(areas) : null;
-  if (estimated && labour.estimated.cost !== null) estimated.labour = labour.estimated.cost;
+  const estimated = scopedBaselineAvailable ? estimatedCategoryTotals(areas) : null;
   const recordedLabour = workAreaScoped ? [] : (Array.isArray(job?.actualCosts) ? job.actualCosts : [])
     .filter((cost) => costCategory(cost?.category) === 'labour');
   const labourActual = labour.actual.hasData || recordedLabour.length === 0
@@ -137,11 +151,13 @@ export function calculateJobPerformance({
       sourceDescription: actual[category].reason,
     };
   });
-  const estimatedDirectCost = baselineAvailable ? sum(categoryRows.map((row) => row.estimatedCost)) : null;
+  const estimatedDirectCost = estimated && categoryRows.every((row) => row.estimatedCost !== null)
+    ? sum(categoryRows.map((row) => row.estimatedCost))
+    : null;
   const knownActualDirectCost = sum(categoryRows.map((row) => row.actualCost ?? 0));
   const actualDirectCostComplete = categoryRows.every((row) => row.actualCost !== null);
 
-  const scopedRevenue = baselineAvailable
+  const scopedRevenue = scopedBaselineAvailable
     ? (scoped ? sum(areas.map((area) => number(area.contractRevenue, area.estimatedRevenue))) : number(job.originalEstimateSnapshot.subtotal))
     : (scoped ? null : getAuthoritativeContractValue(job));
   const issuedRevenue = scopedInvoiceRevenue(job, invoices, scopeWorkAreaId);
@@ -167,7 +183,7 @@ export function calculateJobPerformance({
     estimatedQuantity: number(line.quantity),
     actualQuantity: null,
     unit: line.unit || '',
-    estimatedCost: Math.max(0, number(line.plannedCost, number(line.estimatedCost, number(line.quantity) * number(line.unitCost)))),
+    estimatedCost: immutableLineCost(line),
     actualCost: null,
     variance: null,
     status: 'estimated-only',
@@ -227,7 +243,7 @@ export function calculateJobPerformance({
   }
 
   const percentOfRevenue = (value) => scopedRevenue !== null && scopedRevenue > 0 ? value / scopedRevenue * 100 : null;
-  const estimatedChartSegments = baselineAvailable && scopedRevenue !== null
+  const estimatedChartSegments = scopedBaselineAvailable && scopedRevenue !== null
     ? [
         ...categoryRows.map((row) => ({ key: row.category, label: CATEGORY_LABELS[row.category], amount: row.estimatedCost ?? 0, percent: percentOfRevenue(row.estimatedCost ?? 0) })),
         { key: 'overhead', label: 'Overhead', amount: estimatedOverhead ?? 0, percent: percentOfRevenue(estimatedOverhead ?? 0) },
@@ -256,6 +272,8 @@ export function calculateJobPerformance({
 
   return {
     scopeWorkAreaId,
+    scopeValid,
+    scopeInvalidReason: scopeValid ? null : 'This Work Area is no longer available in the current Job plan.',
     labour,
     revenue: {
       contract: scopedRevenue,
@@ -284,9 +302,17 @@ export function calculateJobPerformance({
       varianceConvention: 'Actual minus estimated. Positive is over budget; negative is under budget to date.',
     },
     baseline: {
-      available: baselineAvailable,
-      source: baselineAvailable ? 'accepted-estimate-snapshot' : 'unavailable',
-      unavailableReason: baselineAvailable ? null : 'Accepted Estimate baseline unavailable for this Job.',
+      available: scopedBaselineAvailable && estimatedDirectCost !== null,
+      source: scopedBaselineAvailable ? 'accepted-estimate-snapshot' : 'unavailable',
+      unavailableReason: !scopeValid
+        ? 'The selected Work Area is no longer available.'
+        : scopeWorkAreaId === 'unallocated'
+          ? 'Unallocated records have no accepted-estimate revenue or cost baseline.'
+          : !baselineAvailable
+            ? 'Accepted Estimate baseline unavailable for this Job.'
+            : !scopedBaselineAvailable
+              ? 'This Work Area has no accepted-estimate baseline.'
+              : 'Historical internal cost was not captured for every category. Sell prices are not used as cost.',
     },
     economics: {
       estimatedChartSegments,

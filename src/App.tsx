@@ -20,6 +20,7 @@ const TemplateWorkspacePage = lazy(() => import('./pages/estimates/TemplateWorks
 const TemplateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/TemplateWorkAreaBuilderPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
+const JobSchedulePage = lazy(() => import('./pages/jobs/JobSchedulePage'));
 const JobWorkAreaBuilderPage = lazy(() => import('./pages/jobs/JobWorkAreaBuilderPage'));
 const BudgetsOverviewPage = lazy(() => import('./pages/budget/BudgetsOverviewPage'));
 const BudgetWorkspacePage = lazy(() => import('./pages/budget/BudgetWorkspacePage'));
@@ -55,6 +56,9 @@ const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/Persona
 const TrainingLibraryPage = lazy(() => import('./pages/training/TrainingLibraryPage'));
 const TrainingBuilderPage = lazy(() => import('./pages/training/TrainingBuilderPage'));
 const TrainingDetailPage = lazy(() => import('./pages/training/TrainingDetailPage'));
+const SopLibraryPage = lazy(() => import('./pages/sops/SopLibraryPage'));
+const SopEditorPage = lazy(() => import('./pages/sops/SopEditorPage'));
+const SopDetailPage = lazy(() => import('./pages/sops/SopDetailPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
@@ -650,6 +654,7 @@ export default function App() {
               <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
+              <Route path="jobs/:id/schedule" element={<JobSchedulePage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id/work-areas/:workAreaId" element={<JobWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
@@ -663,6 +668,10 @@ export default function App() {
               <Route path="training/new" element={canManageUsers ? <TrainingBuilderPage /> : <Navigate to="/home" replace />} />
               <Route path="training/:trainingId" element={canManageUsers ? <TrainingDetailPage /> : <Navigate to="/home" replace />} />
               <Route path="training/:trainingId/edit" element={canManageUsers ? <TrainingBuilderPage /> : <Navigate to="/home" replace />} />
+              <Route path="sops" element={canManageUsers ? <SopLibraryPage /> : <Navigate to="/home" replace />} />
+              <Route path="sops/new" element={canManageUsers ? <SopEditorPage /> : <Navigate to="/home" replace />} />
+              <Route path="sops/:sopId" element={canManageUsers ? <SopDetailPage /> : <Navigate to="/home" replace />} />
+              <Route path="sops/:sopId/edit" element={canManageUsers ? <SopEditorPage /> : <Navigate to="/home" replace />} />
               <Route path="time-off" element={canViewReports ? <TimeOffRequestsPage /> : <Navigate to="/" replace />} />
               <Route path="data-center" element={<DataCenterPage />} />
               <Route

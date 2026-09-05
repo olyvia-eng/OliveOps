@@ -48,31 +48,42 @@ test('Job Tasks retain task editing, completion, deletion, priorities, due dates
   assert.match(tasksSource, /aria-label="Due date"/);
 });
 
-test('Job Tasks group both Open and Completed tasks by first-class headings with Uncategorized fallback', () => {
+test('existing Job task headings remain accessible as tabs with a General fallback', () => {
   assert.match(jobSource, /jobTaskHeadings\.filter\(\(heading\) => heading\.jobId === id\)/);
-  assert.match(tasksSource, /visibleTasks\.filter\(\(task\) => task\.headingId === section\.id\)/);
-  assert.match(tasksSource, /filter === 'completed' \? 'completed' : 'open'/);
-  assert.match(tasksSource, /Uncategorized/);
+  assert.match(tasksSource, /role="tablist" aria-label="Job task tabs"/);
+  assert.match(tasksSource, /role="tab" aria-selected=/);
+  assert.match(tasksSource, /\[\{ id: 'general', name: 'General' \}, \.\.\.jobTaskHeadings\]/);
+  assert.match(jobSource, /jobTaskFilter === 'completed' \? task\.status === 'completed' : task\.status === 'open'/);
   assert.match(tasksSource, /!task\.headingId \|\| !jobTaskHeadings\.some/);
+  assert.match(tasksSource, /aria-label=\{`\$\{openCount\} open tasks`\}/);
 });
 
-test('heading controls support create, rename, safe delete, per-heading add, and drag reorder', () => {
-  assert.match(tasksSource, /Add Heading/);
-  assert.match(tasksSource, /openAdd\(section\.id\)/);
-  assert.match(tasksSource, /Move tasks to Uncategorized and delete/);
-  assert.match(tasksSource, /draggable onDragStart=\{\(\) => setDraggedHeadingId\(section\.id\)\}/);
+test('task tab controls support add, rename, accessible reorder, and selected-tab task creation', () => {
+  assert.match(tasksSource, /Add Tab/);
+  assert.match(tasksSource, /openAdd\(jobTaskHeadings && activeHeadingId !== 'general' \? activeHeadingId : ''\)/);
+  assert.match(tasksSource, /Move .* tab left/);
+  assert.match(tasksSource, /Move .* tab right/);
   assert.match(tasksSource, /onReorderHeadings\(orderedIds\)/);
+});
+
+test('non-empty task tabs require an explicit destination before deletion', () => {
+  assert.match(tasksSource, /Choose where to move them\. No task will be deleted\./);
+  assert.match(tasksSource, /label="Move tasks to"/);
+  assert.match(tasksSource, /Move Tasks and Delete Tab/);
+  assert.match(tasksSource, /await onUpdate\(task\.id, \{[\s\S]*headingId: moveHeadingTasksTo/);
+  assert.match(tasksSource, /General always remains available/);
 });
 
 test('task add and edit preserve or change the optional heading relationship', () => {
   assert.match(tasksSource, /setHeadingId\(task\.headingId \?\? ''\)/);
   assert.match(tasksSource, /headingId: headingId \|\| undefined/);
-  assert.match(tasksSource, /aria-label="Heading"/);
+  assert.match(tasksSource, /aria-label="Task tab"/);
   assert.match(typesSource, /headingId\?: ID/);
 });
 
-test('Job Task heading empty states stay compact and actionable', () => {
-  assert.match(tasksSource, /No job tasks yet/);
-  assert.match(tasksSource, /Create a heading or add your first task\./);
-  assert.match(tasksSource, /No \{filter === 'completed' \? 'completed' : 'open'\} tasks in this section\./);
+test('Job Task tab empty states stay compact and actionable', () => {
+  assert.match(tasksSource, /No completed tasks/);
+  assert.match(tasksSource, /No open tasks/);
+  assert.match(tasksSource, /Add a task to this tab when work is ready\./);
+  assert.doesNotMatch(tasksSource, /No .* tasks in this section/);
 });

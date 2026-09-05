@@ -209,3 +209,29 @@ test('Jobs without accepted Estimate snapshots expose no historical estimate', (
   assert.equal(result.economics.forecastProfit, null);
   assert.match(result.economics.forecastUnavailableReason, /Forecast unavailable until sufficient actual cost information is recorded/);
 });
+
+test('accepted Estimate sell values are never substituted for internal cost', () => {
+  const snapshotJob = structuredClone(job);
+  snapshotJob.originalEstimateSnapshot.workAreas[0].lineItems = [{
+    id: 'sell-only-material', category: 'material', description: 'Stone', quantity: 2,
+    unitPrice: 900, sellPrice: 1800, total: 1800,
+  }];
+  const result = calculate({ job: snapshotJob, timeEntries: [], expenses: [], invoices: [] });
+  const material = result.costs.categories.find((row) => row.category === 'material');
+  assert.equal(material.estimatedCost, null);
+  assert.equal(result.costs.estimatedDirect, null);
+  assert.equal(result.profit.estimatedGross, null);
+  assert.equal(result.baseline.available, false);
+});
+
+test('ambiguous historical cost fields remain unavailable without an immutable cost snapshot', () => {
+  const snapshotJob = structuredClone(job);
+  snapshotJob.originalEstimateSnapshot.workAreas[0].lineItems = [{
+    id: 'ambiguous-material', category: 'material', description: 'Stone', quantity: 2,
+    unitCost: 200, estimatedCost: 400,
+  }];
+  const result = calculate({ job: snapshotJob, timeEntries: [], expenses: [], invoices: [] });
+  const material = result.costs.categories.find((row) => row.category === 'material');
+  assert.equal(material.estimatedCost, null);
+  assert.match(result.baseline.unavailableReason, /historical.*cost/i);
+});

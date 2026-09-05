@@ -29,6 +29,7 @@ const ENTITY_READ_ROLES = {
   tasks: ['owner', 'admin', 'foreman', 'crew_member'],
   'time-entries': ['owner', 'admin', 'foreman', 'crew_member'],
   'time-corrections': ['owner', 'admin', 'crew_member'],
+  sops: ['owner', 'admin'],
   'audit-events': ['owner', 'admin'],
 };
 
@@ -63,6 +64,7 @@ const ENTITY_WRITE_ROLES = {
   tasks: ['owner', 'admin', 'foreman', 'crew_member'],
   'time-entries': ['owner', 'admin', 'foreman'],
   'time-corrections': ['owner', 'admin', 'crew_member'],
+  sops: ['owner', 'admin'],
   'audit-events': ['owner', 'admin'],
 };
 

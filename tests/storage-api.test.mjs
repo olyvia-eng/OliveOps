@@ -760,6 +760,41 @@ test('Training attachment download fails closed when the file is outside the ses
   assert.equal(spoofed.statusCode, 400);
 });
 
+test('SOP uploads allow only PDF, DOC, and DOCX for owner/admin users', async () => {
+  const request = async (fileName, mimeType) => {
+    const handler = createStorageHandler(baseDeps({
+      getSopDefinitionForBusiness: async (businessId, sopId) => ({ id: sopId, businessId, status: 'draft', active: false }),
+    }));
+    const res = createMockRes();
+    await handler({ method: 'POST', body: { action: 'prepare-upload', fileName, mimeType, sizeBytes: 1024, entityType: 'sop', entityId: 'sop-a', category: 'attachment' } }, res);
+    return res;
+  };
+
+  assert.equal((await request('procedure.pdf', 'application/pdf')).statusCode, 200);
+  assert.equal((await request('procedure.doc', 'application/msword')).statusCode, 200);
+  assert.equal((await request('procedure.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).statusCode, 200);
+  const image = await request('procedure.png', 'image/png');
+  assert.equal(image.statusCode, 400);
+  assert.equal(image.body.error, 'SOP attachments must be PDF, DOC, or DOCX files.');
+});
+
+test('employee SOP attachment access requires an active published SOP', async () => {
+  const request = async (sop) => {
+    const handler = createStorageHandler(baseDeps({
+      requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
+      getFileForBusiness: async (businessId) => ({ id: 'file-sop', businessId, entityType: 'sop', entityId: 'sop-a', uploadStatus: 'uploaded', key: 'biz-1/file-sop/procedure.pdf' }),
+      getSopDefinitionForBusiness: async () => sop,
+    }));
+    const res = createMockRes();
+    await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-sop' } }, res);
+    return res;
+  };
+
+  assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 })).statusCode, 200);
+  assert.equal((await request({ id: 'sop-a', status: 'draft', active: false, currentVersion: 0 })).statusCode, 403);
+  assert.equal((await request({ id: 'sop-a', status: 'published', active: false, currentVersion: 1 })).statusCode, 403);
+});
+
 test('delete accepts fileId only', async () => {
   let deletedFileId;
   const handler = createStorageHandler(baseDeps({

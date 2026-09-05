@@ -26,7 +26,8 @@ test('Job summary and Analysis consume one shared performance model', () => {
   assert.match(jobsSource, /new Map\(jobs\.map\(\(job\) => \[job\.id, calculateJobPerformance\(\{/);
   assert.match(jobsSource, /const performance = jobPerformanceById\.get\(job\.id\)!/);
   assert.match(detailSource, /const performance = useMemo\(\(\) => job \? calculateJobPerformance\(\{/);
-  assert.match(detailSource, /scopeWorkAreaId: analysisScope/);
+  assert.match(detailSource, /scopeWorkAreaId: resolvedAnalysisScope/);
+  assert.match(detailSource, /setAnalysisScope\('entire-job'\)/);
   assert.match(detailSource, /<option value="entire-job">Entire Job<\/option>/);
   assert.match(detailSource, /<option key=\{area\.id\} value=\{area\.id\}>\{area\.name\}<\/option>/);
   assert.match(detailSource, /<option value="unallocated">Unallocated<\/option>/);
@@ -48,7 +49,7 @@ test('Job economics mirrors the Budget split-card hierarchy without coupling cal
   assert.match(summarySource, /Job Economics/);
   assert.match(summarySource, /Financial Summary/);
   assert.match(summarySource, /Cost Distribution/);
-  assert.match(summarySource, /Where each contract dollar is currently allocated/);
+  assert.match(summarySource, /Planned internal cost allocation/);
   assert.match(summarySource, /valueMode === mode/);
   assert.doesNotMatch(summarySource, /budgetFinancialModel|buildBudgetAnalysisSummary|Target Profit Margin/);
 });
@@ -64,12 +65,15 @@ test('Job financial summary keeps estimated, actual, and variance values in expl
   assert.match(summarySource, /row\.variance === null/);
 });
 
-test('Cost distribution remains accessible and loss-safe without the target footer', () => {
-  for (const label of ['Estimated costs', 'Actual costs to date']) assert.match(summarySource, new RegExp(label));
+test('one Analysis mode controls accessible distribution and variance visualizations', () => {
+  assert.match(summarySource, /ariaLabel="Job Analysis mode"/);
+  assert.doesNotMatch(summarySource, /chartMode|summaryMode/);
   assert.match(summarySource, /<PieChart>/);
+  assert.match(summarySource, /<BarChart/);
+  assert.match(summarySource, /Cost variance by category/);
   assert.match(summarySource, /<table className="sr-only">/);
-  assert.match(summarySource, /no negative donut slice is drawn/);
   assert.match(summarySource, /segment\.amount > 0/);
-  assert.doesNotMatch(summarySource, /Job Target|Planned|Remaining estimated cost|forecastUnavailableReason/);
+  assert.match(summarySource, /mode !== 'estimated' && !deferredPerformance\.economics\.actualCostComplete/);
+  assert.doesNotMatch(summarySource, /Job Target|Remaining estimated cost|forecastUnavailableReason/);
   assert.doesNotMatch(summarySource, /<Input|onTargetMarginChange/);
 });

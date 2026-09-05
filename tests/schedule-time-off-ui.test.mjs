@@ -41,7 +41,7 @@ test('one warning lists all direct and Crew-member conflicts before an explicit 
   assert.match(modal, /timeOffConflicts\.map/);
   assert.match(modal, /Go Back/);
   assert.match(modal, /Schedule Anyway/);
-  assert.match(modal, /if \(timeOffConflicts\.length > 0\)/);
+  assert.match(modal, /if \(timeOffConflicts\.length > 0 \|\| assignmentConflicts\.length > 0\)/);
   assert.match(modal, /setConfirmingTimeOff\(true\)/);
   assert.match(modal, /onClick=\{\(\) => void performSave\(\)\}/);
   assert.match(calendar, /pendingTimeOffOverride/);

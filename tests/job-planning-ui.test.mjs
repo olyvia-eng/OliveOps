@@ -47,7 +47,7 @@ test('Job Analysis compares current estimates with actuals without inventing rev
   assert.match(analysisSummarySource, /Margin after recorded costs/);
   assert.match(analysisSummarySource, /It is not the final Job profit until all costs are recorded/);
   assert.match(analysisSummarySource, /Incomplete cost data/);
-  assert.match(analysisSummarySource, /performance\.economics\.marginAfterRecordedCosts/);
+  assert.match(analysisSummarySource, /deferredPerformance\.economics\.marginAfterRecordedCosts/);
   assert.doesNotMatch(jobSource, /Estimated versus actual costs|Detailed item comparison|Job-linked receipts and expenses/);
   assert.doesNotMatch(analysisSummarySource, /Job Target|Remaining estimated cost/);
   assert.doesNotMatch(jobSource, /contractValue - actualCosts|projectedProfitFromTracking/);
