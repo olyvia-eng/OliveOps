@@ -13,6 +13,13 @@ import { DEFAULT_BUSINESS_TIME_ZONE, normalizeBusinessTimeZone } from './busines
 import { approvedTimeOffOverlapping } from './timeOff.js';
 import { normalizePersistedCustomerStatus } from '../../src/config/customer.js';
 import { normalizeMobileTimePermissions } from './mobileTimePermissions.js';
+import {
+  matchesTimeEntryFilters,
+  TIME_ENTRY_INDEX_NAME,
+  TIME_ENTRY_INDEX_PK,
+  TIME_ENTRY_INDEX_SK,
+  timeEntryIndexAttributes,
+} from './timeEntryPagination.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -5154,34 +5161,20 @@ export async function deleteEmployeeForBusiness(businessId, employeeId) {
   return { ok: true };
 }
 
-export async function listTimeEntriesForBusiness(businessId, { consistentRead = false } = {}) {
-  const result = await ddb.send(
-    new QueryCommand({
-      TableName: tableName,
-      ConsistentRead: consistentRead,
-      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
-      ExpressionAttributeValues: {
-        ':pk': businessPk(businessId),
-        ':prefix': 'TIME#',
-      },
-    })
-  );
+function timeEntryFromItem(item) {
+  const photoAttachmentFileIds = Array.isArray(item.photoAttachmentFileIds)
+    ? item.photoAttachmentFileIds
+    : (typeof item.photoAttachmentFileId === 'string' && item.photoAttachmentFileId.trim() ? [item.photoAttachmentFileId.trim()] : []);
+  const clockOutPhotoFileIds = Array.isArray(item.clockOutPhotoFileIds)
+    ? item.clockOutPhotoFileIds
+    : (typeof item.clockOutPhotoFileId === 'string' && item.clockOutPhotoFileId.trim() ? [item.clockOutPhotoFileId.trim()] : photoAttachmentFileIds);
 
-  return (result.Items ?? []).map((item) => {
-    const photoAttachmentFileIds = Array.isArray(item.photoAttachmentFileIds)
-      ? item.photoAttachmentFileIds
-      : (typeof item.photoAttachmentFileId === 'string' && item.photoAttachmentFileId.trim() ? [item.photoAttachmentFileId.trim()] : []);
-    const clockOutPhotoFileIds = Array.isArray(item.clockOutPhotoFileIds)
-      ? item.clockOutPhotoFileIds
-      : (typeof item.clockOutPhotoFileId === 'string' && item.clockOutPhotoFileId.trim() ? [item.clockOutPhotoFileId.trim()] : photoAttachmentFileIds);
-
-    return {
+  return {
     id: item.entryId,
     employeeId: item.employeeId,
+    employeeName: item.employeeName ?? undefined,
     jobId: item.jobId ?? (Array.isArray(item.jobIds) ? item.jobIds[0] : undefined),
-    jobIds: Array.isArray(item.jobIds)
-      ? item.jobIds
-      : (item.jobId ? [item.jobId] : []),
+    jobIds: Array.isArray(item.jobIds) ? item.jobIds : (item.jobId ? [item.jobId] : []),
     workType: item.workType ?? 'job',
     workAreaId: item.workAreaId ?? undefined,
     workAreaNameSnapshot: item.workAreaNameSnapshot ?? undefined,
@@ -5211,7 +5204,63 @@ export async function listTimeEntriesForBusiness(businessId, { consistentRead = 
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
-  });
+}
+
+export async function listTimeEntriesForBusiness(businessId, { consistentRead = false } = {}) {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: tableName,
+      ConsistentRead: consistentRead,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': businessPk(businessId),
+        ':prefix': 'TIME#',
+      },
+    })
+  );
+
+  return (result.Items ?? []).map(timeEntryFromItem);
+}
+
+export async function listTimeEntryPageForBusiness({ businessId, filters, limit, exclusiveStartKey, transformEntry = (entry) => entry }) {
+  const matches = [];
+  let queryStartKey = exclusiveStartKey;
+  let exhausted = false;
+
+  while (matches.length <= limit && !exhausted) {
+    const result = await ddb.send(new QueryCommand({
+      TableName: tableName,
+      IndexName: TIME_ENTRY_INDEX_NAME,
+      KeyConditionExpression: '#indexPk = :indexPk',
+      ExpressionAttributeNames: { '#indexPk': TIME_ENTRY_INDEX_PK },
+      ExpressionAttributeValues: { ':indexPk': `BUSINESS#${businessId}#TIME_ENTRIES` },
+      ExclusiveStartKey: queryStartKey,
+      ScanIndexForward: false,
+      Limit: Math.max(100, Math.min(500, limit * 4)),
+    }));
+    const candidates = (result.Items ?? []).map((item) => ({
+      entry: transformEntry(timeEntryFromItem(item)),
+      key: {
+        PK: item.PK,
+        SK: item.SK,
+        [TIME_ENTRY_INDEX_PK]: item[TIME_ENTRY_INDEX_PK],
+        [TIME_ENTRY_INDEX_SK]: item[TIME_ENTRY_INDEX_SK],
+      },
+    }));
+    matches.push(...candidates.filter(({ entry }) => matchesTimeEntryFilters(entry, filters)));
+    queryStartKey = result.LastEvaluatedKey;
+    exhausted = !queryStartKey;
+  }
+
+  const pageMatches = matches.slice(0, limit);
+  const items = pageMatches.map(({ entry }) => entry);
+  const hasMore = matches.length > limit || !exhausted;
+  const lastItem = hasMore ? pageMatches[pageMatches.length - 1] : null;
+  return {
+    items,
+    hasMore,
+    lastEvaluatedKey: lastItem?.key ?? null,
+  };
 }
 
 export async function createTimeEntryForBusiness({ businessId, timeEntry }) {
@@ -5225,6 +5274,7 @@ export async function createTimeEntryForBusiness({ businessId, timeEntry }) {
         businessId,
         entryId: timeEntry.id,
         ...timeEntry,
+        ...timeEntryIndexAttributes(businessId, timeEntry),
       },
       ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
     })
@@ -5298,6 +5348,7 @@ export async function updateTimeEntryForBusiness({ businessId, timeEntry }) {
         businessId,
         entryId: timeEntry.id,
         ...timeEntry,
+        ...timeEntryIndexAttributes(businessId, timeEntry),
       },
       ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
     })

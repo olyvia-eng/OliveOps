@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
@@ -15,6 +15,7 @@ import OutstandingTasks from '../home/OutstandingTasks';
 import JobAnalysisSummary from '../../components/jobs/JobAnalysisSummary';
 import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
+import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -154,19 +155,49 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     [timeEntries, timeCorrections]
   );
 
-  const jobTimeEntries = useMemo(() => {
+  const allJobTimeEntries = useMemo(() => {
     if (!job || !id) return [];
 
     return sortTimeEntriesNewestFirst(effectiveTimeEntries.filter((entry) => normalizeEntryJobIds(entry).includes(id)));
   }, [effectiveTimeEntries, job, id]);
-  const selectedTimeEntry = jobTimeEntries.find((entry) => entry.id === selectedTimeEntryId) ?? null;
+  const jobTimeEntryPageFilters = useMemo(() => ({ jobId: id }), [id]);
+  const requestedJobPageSize = Number(searchParams.get('timeEntryPageSize'));
+  const jobTimeEntryPage = useTimeEntryPage({
+    surface: 'job',
+    defaultPageSize: [10, 25, 50].includes(requestedJobPageSize) ? requestedJobPageSize : 10,
+    filters: jobTimeEntryPageFilters,
+    enabled: Boolean(job && id && activeTab.startsWith('project-')),
+  });
+  const lastScrolledTimeEntryPageVersion = useRef(jobTimeEntryPage.loadedVersion);
+  const selectedTimeEntry = jobTimeEntryPage.items.find((entry) => entry.id === selectedTimeEntryId) ?? null;
+
+  useEffect(() => {
+    if (selectedTimeEntryId && !jobTimeEntryPage.items.some((entry) => entry.id === selectedTimeEntryId)) {
+      setSelectedTimeEntryId(null);
+    }
+  }, [jobTimeEntryPage.items, jobTimeEntryPage.loadedVersion, selectedTimeEntryId]);
+
+  useEffect(() => {
+    if (jobTimeEntryPage.navigationVersion > 0 && jobTimeEntryPage.loadedVersion !== lastScrolledTimeEntryPageVersion.current) {
+      document.getElementById('job-time-entries-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    lastScrolledTimeEntryPageVersion.current = jobTimeEntryPage.loadedVersion;
+  }, [jobTimeEntryPage.loadedVersion, jobTimeEntryPage.navigationVersion]);
+
+  useEffect(() => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set('timeEntryPageSize', String(jobTimeEntryPage.pageSize));
+      return next;
+    }, { replace: true });
+  }, [jobTimeEntryPage.pageSize, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
 
     const resolveUrls = async () => {
       const pairs = await Promise.all(
-        jobTimeEntries.flatMap((entry) => timeEntryPhotoRefs(entry).map(async (photo) => {
+        allJobTimeEntries.flatMap((entry) => timeEntryPhotoRefs(entry).map(async (photo) => {
           const url = await resolveAttachmentUrl({ fileId: photo.fileId, legacyUrl: photo.legacyUrl });
           return [photo.key, url] as const;
         }))
@@ -181,7 +212,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     return () => {
       cancelled = true;
     };
-  }, [jobTimeEntries]);
+  }, [allJobTimeEntries]);
 
   const performance = useMemo(() => job ? calculateJobPerformance({
     job,
@@ -211,16 +242,16 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const originalContractRevenue = job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? job?.contractValue ?? 0;
 
   const employeeTimeEntryNotes = useMemo(
-    () => jobTimeEntries.filter((entry) => entry.notes?.trim()),
-    [jobTimeEntries]
+    () => allJobTimeEntries.filter((entry) => entry.notes?.trim()),
+    [allJobTimeEntries]
   );
 
-  const jobPhotos = useMemo(() => jobTimeEntries.flatMap((entry) => {
+  const jobPhotos = useMemo(() => allJobTimeEntries.flatMap((entry) => {
     const employeeName = employees.find((employee) => employee.id === entry.employeeId)?.name ?? 'Employee';
     return timeEntryPhotoRefs(entry)
       .map((photo) => ({ ...photo, url: attachmentUrls[photo.key], employeeName, clockIn: entry.clockIn }))
       .filter((photo): photo is typeof photo & { url: string } => Boolean(photo.url));
-  }), [attachmentUrls, employees, jobTimeEntries]);
+  }), [allJobTimeEntries, attachmentUrls, employees]);
 
   const timeEntryTypeMeta = (entry: { workType?: string }) => {
     if (entry.workType === 'drive_time') {
@@ -549,16 +580,20 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
           </Card>
 
           <Card>
-            <div className="border-b border-gray-100 p-4"><h2 className="font-semibold">Time Entries</h2></div>
-            {jobTimeEntries.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
-              <ul className="divide-y divide-gray-50">{jobTimeEntries.map((entry) => {
+            <div className="border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2></div>
+            {jobTimeEntryPage.items.length === 0 && !jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
+              <ul className="divide-y divide-gray-50">{jobTimeEntryPage.items.map((entry) => {
                 const employee = employees.find((item) => item.id === entry.employeeId);
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const typeMeta = timeEntryTypeMeta(entry);
                 const presentation = getTimeEntryPresentation(entry, jobs);
-                return <li key={entry.id} className="flex items-center gap-2 px-2 py-1 text-sm"><button type="button" onClick={() => setSelectedTimeEntryId(entry.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></span><span className="mt-1 block text-sm text-gray-700">{presentation.workLabel}</span><span className="block text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</span></span><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span></button><button type="button" onClick={() => deleteTimeEntry(entry.id)} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="p-2 text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></li>;
+                return <li key={entry.id} className="flex items-center gap-2 px-2 py-1 text-sm"><button type="button" onClick={() => setSelectedTimeEntryId(entry.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></span><span className="mt-1 block text-sm text-gray-700">{presentation.workLabel}</span><span className="block text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</span></span><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span></button><button type="button" onClick={() => { deleteTimeEntry(entry.id); jobTimeEntryPage.refresh(); }} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="p-2 text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></li>;
               })}</ul>
             )}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
+              <div><p className="text-gray-600">Showing {jobTimeEntryPage.showingStart}–{jobTimeEntryPage.showingEnd}</p>{jobTimeEntryPage.loading ? <p className="text-xs text-gray-500" role="status">Loading Time Entries...</p> : null}{jobTimeEntryPage.error ? <div className="flex items-center gap-2"><p className="text-xs font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : null}</div>
+              <div className="flex items-end gap-2"><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.previous} disabled={!jobTimeEntryPage.hasPrevious || jobTimeEntryPage.loading}>Previous</Button><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.next} disabled={!jobTimeEntryPage.hasNext || jobTimeEntryPage.loading}>Next</Button><Select label="Rows" value={String(jobTimeEntryPage.pageSize)} onChange={(event) => jobTimeEntryPage.setPageSize(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Select></div>
+            </div>
           </Card>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -647,6 +682,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         employeeName={selectedTimeEntry ? employees.find((item) => item.id === selectedTimeEntry.employeeId)?.name ?? 'Employee' : ''}
         currentUserRole={currentUserRole}
         onClose={() => setSelectedTimeEntryId(null)}
+        onUpdated={jobTimeEntryPage.refresh}
       />
     </div>
   );

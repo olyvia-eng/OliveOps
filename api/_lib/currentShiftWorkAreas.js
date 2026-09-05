@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { timeEntryIndexAttributes } from './timeEntryPagination.js';
 import { tableName } from './db.js';
 
 const MAX_RECONCILED_SEGMENTS = 40;
@@ -274,7 +275,7 @@ export function buildCurrentShiftWorkAreaTransaction({
       && (!entry.clockOut || Date.parse(segment.startAt) < Date.parse(entry.clockOut))) ?? segment.sourceEntries[0];
     const entryId = replacementId(employee.id, clientRequestId, index, segment.startAt);
     const isShiftStart = segment.startAt === sourceTimeline[0].clockIn;
-    return {
+    const item = {
       PK: businessPk(businessId),
       SK: timeEntrySk(entryId),
       entityType: 'TIME_ENTRY',
@@ -303,6 +304,7 @@ export function buildCurrentShiftWorkAreaTransaction({
       createdAt: isShiftStart ? activeShift.createdAt : editedAt,
       updatedAt: editedAt,
     };
+    return { ...item, ...timeEntryIndexAttributes(businessId, { id: entryId, ...item }) };
   });
   const resultTimeline = [
     ...lockedSource,

@@ -1,5 +1,6 @@
 import { DeleteCommand, GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { TIME_ENTRY_INDEX_SK, timeEntryIndexAttributes } from './timeEntryPagination.js';
 import { getBusinessPeriodKeys } from './businessTime.js';
 
 function nowIso() {
@@ -192,6 +193,7 @@ export function buildClockInTransaction({
     createdAt: receivedAt,
     updatedAt: receivedAt,
   };
+  Object.assign(timeEntryItem, timeEntryIndexAttributes(businessId, { id: timeEntryId, ...timeEntryItem }));
 
   const lockItem = {
     PK: activeShiftPk(businessId, employeeId),
@@ -382,6 +384,7 @@ export function buildClockOutTransaction({
   workAreaId,
   workAreaNameSnapshot,
   clockIn,
+  createdAt,
   employeeName = '',
   labourCostRateSnapshot,
   labourCostTotalSnapshot,
@@ -495,6 +498,15 @@ export function buildClockOutTransaction({
     ':clockOutTimestampSource': timestampSource,
     ':clockedIn': 'clocked_in',
   };
+  const completedIndex = timeEntryIndexAttributes(businessId, {
+    id: timeEntryId,
+    status: 'clocked_out',
+    clockIn: clockIn ?? eventOccurredAt,
+    createdAt: createdAt ?? clockIn ?? eventOccurredAt,
+  });
+  updateExpressionParts.push('#timeEntryIndexSk = :timeEntryIndexSk');
+  expressionAttributeNames['#timeEntryIndexSk'] = TIME_ENTRY_INDEX_SK;
+  expressionAttributeValues[':timeEntryIndexSk'] = completedIndex[TIME_ENTRY_INDEX_SK];
 
   if (hasPhotoAttachment) {
     updateExpressionParts.push('#photoAttachmentUrl = :photoAttachmentUrl');
@@ -659,6 +671,7 @@ export function buildSwitchActivityTransaction({
     createdAt: receivedAt,
     updatedAt: receivedAt,
   };
+  Object.assign(nextEntryItem, timeEntryIndexAttributes(businessId, { id: nextTimeEntry.id, ...nextEntryItem }));
 
   const auditItem = {
     PK: businessPk(businessId),
@@ -705,7 +718,7 @@ export function buildSwitchActivityTransaction({
             PK: businessPk(businessId),
             SK: timeEntrySk(previousTimeEntry.id),
           },
-          UpdateExpression: 'SET #status = :status, #clockOut = :clockOut, #updatedAt = :updatedAt, #clockOutServerReceivedAt = :clockOutServerReceivedAt, #clockOutTimestampSource = :clockOutTimestampSource',
+          UpdateExpression: 'SET #status = :status, #clockOut = :clockOut, #updatedAt = :updatedAt, #clockOutServerReceivedAt = :clockOutServerReceivedAt, #clockOutTimestampSource = :clockOutTimestampSource, #timeEntryIndexSk = :timeEntryIndexSk',
           ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn AND #clockIn = :expectedClockIn',
           ExpressionAttributeNames: {
             '#status': 'status',
@@ -714,6 +727,7 @@ export function buildSwitchActivityTransaction({
             '#clockOutServerReceivedAt': 'clockOutServerReceivedAt',
             '#clockOutTimestampSource': 'clockOutTimestampSource',
             '#clockIn': 'clockIn',
+            '#timeEntryIndexSk': TIME_ENTRY_INDEX_SK,
           },
           ExpressionAttributeValues: {
             ':status': 'clocked_out',
@@ -723,6 +737,12 @@ export function buildSwitchActivityTransaction({
             ':clockOutTimestampSource': timestampSource,
             ':clockedIn': 'clocked_in',
             ':expectedClockIn': previousTimeEntry.clockIn,
+            ':timeEntryIndexSk': timeEntryIndexAttributes(businessId, {
+              ...previousTimeEntry,
+              status: 'clocked_out',
+              clockIn: previousTimeEntry.clockIn ?? eventOccurredAt,
+              createdAt: previousTimeEntry.createdAt ?? previousTimeEntry.clockIn ?? eventOccurredAt,
+            })[TIME_ENTRY_INDEX_SK],
           },
         },
       },

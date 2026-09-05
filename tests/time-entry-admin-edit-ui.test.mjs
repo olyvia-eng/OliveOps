@@ -10,7 +10,7 @@ test('authoritative filtered Time Entries open the shared detail view', async ()
     source('../src/components/time/TimeEntryDetailModal.tsx'),
   ]);
   const entries = reports.slice(reports.indexOf('<h2 className="font-semibold text-gray-800">Time Entries</h2>'), reports.indexOf('non-billable-breakdown-heading'));
-  assert.match(entries, /filteredEntries\.map\(\(entry\)/);
+  assert.match(entries, /timeEntryPage\.items\.map\(\(entry\)/);
   assert.match(entries, /setSelectedTimeEntryId\(entry\.id\)/);
   assert.match(entries, /role="button"/);
   assert.match(entries, /tabIndex=\{0\}/);
@@ -85,9 +85,9 @@ test('web store applies only the authoritative edit response without optimistic 
   assert.doesNotMatch(action, /const previous/);
 });
 
-test('selected detail and newest-first tables derive from updated store entries by ID', async () => {
+test('selected detail derives from the current server page and full-history totals retain shared ordering', async () => {
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
-  assert.match(reports, /selectedTimeEntry = effectiveTimeEntries\.find\(\(entry\) => entry\.id === selectedTimeEntryId\)/);
+  assert.match(reports, /selectedTimeEntry = timeEntryPage\.items\.find\(\(entry\) => entry\.id === selectedTimeEntryId\)/);
   assert.match(reports, /sortTimeEntriesNewestFirst\(effectiveTimeEntries\.filter/);
   assert.doesNotMatch(reports, /sort[^\n]*updatedAt|updatedAt[^\n]*sort/i);
 });
@@ -98,7 +98,6 @@ test('reports and Job calculations consume updated Time Entry duration and labou
     source('../src/pages/jobs/JobDetailPage.tsx'),
   ]);
   assert.match(reports, /durationHours\(entry\.clockIn, entry\.clockOut, entry\.breakMinutes\)/);
-  assert.match(reports, /const employeeSummaryRows = useMemo/);
   assert.match(reports, /const totalsByType = useMemo/);
   assert.match(jobDetail, /calculateJobPerformance/);
   assert.match(jobDetail, /timeEntries,/);
@@ -113,22 +112,25 @@ test('Time Tracking uses one filtered table with responsive controls and compact
   for (const label of ['Payroll Period', 'Start Date', 'End Date', 'Work Type', 'Job', 'Unbillable Category', 'Employee Search']) {
     assert.match(reports, new RegExp(`(?:label=|>)["']?${label}`));
   }
-  assert.equal(reports.match(/filteredEntries\.map\(\(entry\)/g)?.length, 1);
-  assert.doesNotMatch(reports, /Recent Time Entries|Time Entry Detail|No focused employee|No focused job|Showing \{/);
+  assert.equal(reports.match(/timeEntryPage\.items\.map\(\(entry\)/g)?.length, 1);
+  assert.doesNotMatch(reports, /Recent Time Entries|Time Entry Detail|No focused employee|No focused job/);
+  assert.match(reports, /Showing \{timeEntryPage\.showingStart\}/);
+  assert.match(reports, /<option value="25">25<\/option><option value="50">50<\/option><option value="100">100<\/option>/);
   assert.match(reports, /No entries match these filters/);
   assert.match(reports, /No non-billable time recorded for this period/);
   assert.match(reports, /min-w-\[900px\]/);
 });
 
-test('all report filters drive the authoritative table and Bookkeeper Export', async () => {
+test('all report filters drive the server page and full Bookkeeper Export', async () => {
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
   const filtered = reports.slice(reports.indexOf('const filteredEntries'), reports.indexOf('const totalsByType'));
   for (const value of ['startDate', 'endDate', 'employeeSearchValue', 'jobFilter', 'unbillableCategoryFilter', 'workTypeFilter']) {
     assert.match(filtered, new RegExp(value));
   }
   const exportAction = reports.slice(reports.indexOf('const handleExportSummaryCsv'), reports.indexOf('return (', reports.indexOf('const handleExportSummaryCsv')));
-  assert.match(exportAction, /employeeSummaryRows/);
-  assert.match(exportAction, /filteredEntries\.length/);
+  assert.match(exportAction, /action: 'export'/);
+  assert.match(exportAction, /\/api\/time-entries/);
+  assert.match(exportAction, /timeEntryPageFilters/);
   assert.match(reports, /Bookkeeper Export/);
 });
 

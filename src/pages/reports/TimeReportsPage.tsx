@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { endOfWeek, format, startOfMonth, startOfWeek, subWeeks } from 'date-fns';
-import { useLocation } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
 import { Card, PageHeader, StatCard, Button, Select, Input } from '../../components/ui';
 import { durationHours, formatDateTime } from '../../utils';
@@ -11,6 +11,7 @@ import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
+import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -46,19 +47,10 @@ function correctionLocationLabel(jobId: string | undefined, workAreaNameSnapshot
   return [jobLabel, workAreaLabel].filter(Boolean).join(' · ');
 }
 
-function escapeCsvValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined) return '';
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
-  }
-  return text;
-}
-
 export default function TimeReportsPage({
   currentUserRole,
 }: TimeReportsPageProps) {
-  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     timeEntries,
     timeCorrections,
@@ -68,29 +60,28 @@ export default function TimeReportsPage({
     approveTimeCorrectionRequest,
     rejectTimeCorrectionRequest,
   } = useStore();
-  const [startDate, setStartDate] = useState(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(searchParams.get('startDate') || format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(searchParams.get('endDate') || format(new Date(), 'yyyy-MM-dd'));
   const [payrollPeriodPreset, setPayrollPeriodPreset] = useState<PayrollPeriodPreset>('this_month');
-  const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>('all');
-  const [employeeSearch, setEmployeeSearch] = useState('');
-  const [jobFilter, setJobFilter] = useState<JobFilter>('all');
-  const [unbillableCategoryFilter, setUnbillableCategoryFilter] = useState<UnbillableCategoryFilter>('all');
+  const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>((searchParams.get('workType') as WorkTypeFilter) || 'all');
+  const [employeeSearch, setEmployeeSearch] = useState(searchParams.get('employeeSearch') || '');
+  const [jobFilter, setJobFilter] = useState<JobFilter>(searchParams.get('jobId') || 'all');
+  const [unbillableCategoryFilter, setUnbillableCategoryFilter] = useState<UnbillableCategoryFilter>(searchParams.get('unbillableCategoryId') || 'all');
   const [reviewingCorrectionId, setReviewingCorrectionId] = useState<string | null>(null);
   const [correctionStatusFilter, setCorrectionStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('entries');
+  const [exporting, setExporting] = useState(false);
 
   const correctionHighlightId = useMemo(() => {
-    const query = new URLSearchParams(location.search);
-    const id = query.get('correctionId');
+    const id = searchParams.get('correctionId');
     if (!id || !id.trim()) return null;
     return id.trim();
-  }, [location.search]);
+  }, [searchParams]);
 
   useEffect(() => {
-    const query = new URLSearchParams(location.search);
-    const requestedStatus = query.get('correctionStatus');
+    const requestedStatus = searchParams.get('correctionStatus');
     if (
       requestedStatus === 'pending'
       || requestedStatus === 'approved'
@@ -99,14 +90,12 @@ export default function TimeReportsPage({
       setCorrectionStatusFilter(requestedStatus);
       setActiveTab('corrections');
     }
-  }, [location.search]);
+  }, [searchParams]);
 
   const effectiveTimeEntries = useMemo(
     () => buildEffectiveTimeEntries(timeEntries, timeCorrections),
     [timeEntries, timeCorrections]
   );
-  const selectedTimeEntry = effectiveTimeEntries.find((entry) => entry.id === selectedTimeEntryId) ?? null;
-
   const employeeSearchValue = employeeSearch.trim().toLowerCase();
   const jobsSorted = useMemo(() => [...jobs].sort((a, b) => a.title.localeCompare(b.title)), [jobs]);
   const unbillableCategoriesSorted = useMemo(
@@ -116,10 +105,6 @@ export default function TimeReportsPage({
   const getEmployeeName = useCallback(
     (employeeId: string) => employees.find((employee) => employee.id === employeeId)?.name ?? 'Unknown',
     [employees]
-  );
-  const getJobTitle = useCallback(
-    (jobId: string) => jobs.find((job) => job.id === jobId)?.title ?? 'Unknown job',
-    [jobs]
   );
   const getUnbillableCategoryLabel = useCallback(
     (entry: TimeEntry) => {
@@ -132,11 +117,58 @@ export default function TimeReportsPage({
     [unbillableCategoriesSorted]
   );
 
+  const timeEntryPageFilters = useMemo(() => ({
+    startDate,
+    endDate,
+    employeeSearch: employeeSearch.trim(),
+    jobId: jobFilter === 'all' ? undefined : jobFilter,
+    workType: workTypeFilter === 'all' ? undefined : workTypeFilter,
+    unbillableCategoryId: unbillableCategoryFilter === 'all' ? undefined : unbillableCategoryFilter,
+    includeZero: true,
+  }), [employeeSearch, endDate, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
+  const requestedPageSize = Number(searchParams.get('timeEntryPageSize'));
+  const timeEntryPage = useTimeEntryPage({ surface: 'reports', defaultPageSize: [25, 50, 100].includes(requestedPageSize) ? requestedPageSize : 25, filters: timeEntryPageFilters });
+  const lastScrolledPageVersion = useRef(timeEntryPage.loadedVersion);
+  const selectedTimeEntry = timeEntryPage.items.find((entry) => entry.id === selectedTimeEntryId) ?? null;
+
+  useEffect(() => {
+    if (selectedTimeEntryId && !timeEntryPage.items.some((entry) => entry.id === selectedTimeEntryId)) {
+      setSelectedTimeEntryId(null);
+    }
+  }, [selectedTimeEntryId, timeEntryPage.items, timeEntryPage.loadedVersion]);
+
+  useEffect(() => {
+    if (timeEntryPage.navigationVersion > 0 && timeEntryPage.loadedVersion !== lastScrolledPageVersion.current) {
+      document.getElementById('time-entries-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    lastScrolledPageVersion.current = timeEntryPage.loadedVersion;
+  }, [timeEntryPage.loadedVersion, timeEntryPage.navigationVersion]);
+
+  useEffect(() => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      const values = {
+        startDate,
+        endDate,
+        employeeSearch: employeeSearch.trim(),
+        jobId: jobFilter === 'all' ? '' : jobFilter,
+        workType: workTypeFilter === 'all' ? '' : workTypeFilter,
+        unbillableCategoryId: unbillableCategoryFilter === 'all' ? '' : unbillableCategoryFilter,
+        timeEntryPageSize: String(timeEntryPage.pageSize),
+      };
+      for (const [key, value] of Object.entries(values)) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
+      return next;
+    }, { replace: true });
+  }, [employeeSearch, endDate, jobFilter, setSearchParams, startDate, timeEntryPage.pageSize, unbillableCategoryFilter, workTypeFilter]);
+
   useEffect(() => {
     let cancelled = false;
 
     const resolveUrls = async () => {
-      const candidates = effectiveTimeEntries.filter((entry) => Boolean(entry.clockOutPhotoFileId || entry.photoAttachmentFileId || entry.photoAttachmentUrl));
+      const candidates = timeEntryPage.items.filter((entry) => Boolean(entry.clockOutPhotoFileId || entry.photoAttachmentFileId || entry.photoAttachmentUrl));
       const pairs = await Promise.all(
         candidates.map(async (entry) => {
           const url = await resolveAttachmentUrl({
@@ -156,7 +188,7 @@ export default function TimeReportsPage({
     return () => {
       cancelled = true;
     };
-  }, [effectiveTimeEntries]);
+  }, [timeEntryPage.items]);
 
   const applyPayrollPreset = (preset: PayrollPeriodPreset) => {
     setPayrollPeriodPreset(preset);
@@ -290,33 +322,6 @@ export default function TimeReportsPage({
 
   const totalHours = filteredEntries.reduce((sum, entry) => sum + durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes), 0);
 
-  const employeeSummaryRows = useMemo(() => {
-    const map = new Map<string, { total: number; job: number; drive_time: number; non_billable: number }>();
-
-    filteredEntries.forEach((entry) => {
-      const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-      const workType = normalizeWorkType(entry);
-      const current = map.get(entry.employeeId) ?? {
-        total: 0,
-        job: 0,
-        drive_time: 0,
-        non_billable: 0,
-      };
-
-      current.total += hours;
-      current[workType] += hours;
-      map.set(entry.employeeId, current);
-    });
-
-    return [...map.entries()]
-      .map(([employeeId, totals]) => ({
-        employeeId,
-        employeeName: getEmployeeName(employeeId),
-        ...totals,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [filteredEntries, getEmployeeName]);
-
   const nonBillableCategoryTotals = useMemo(() => {
     const map = new Map<string, number>();
 
@@ -332,68 +337,28 @@ export default function TimeReportsPage({
       .sort((a, b) => b.hours - a.hours);
   }, [filteredEntries, getUnbillableCategoryLabel]);
 
-  const handleExportSummaryCsv = () => {
-    const payrollPeriodLabel =
-      payrollPeriodPreset === 'this_month'
-        ? 'This Month'
-        : payrollPeriodPreset === 'this_week'
-          ? 'This Week'
-          : payrollPeriodPreset === 'last_week'
-            ? 'Last Week'
-            : 'Custom';
-
-    const selectedWorkTypeLabel =
-      workTypeFilter === 'all'
-        ? 'All Types'
-        : workTypeFilter === 'job'
-          ? 'Job Work'
-          : workTypeFilter === 'drive_time'
-            ? 'Drive Time'
-            : 'Non-Billable Work';
-    const selectedJobLabel = jobFilter === 'all' ? 'All Jobs' : getJobTitle(jobFilter);
-    const employeeFilterLabel = employeeSearch.trim() ? employeeSearch.trim() : 'All Employees';
-
-    const filterRows = [
-      ['Report', 'Bookkeeper Time Summary'],
-      ['Generated At', new Date().toISOString()],
-      ['Payroll Period', payrollPeriodLabel],
-      ['Start Date', startDate],
-      ['End Date', endDate],
-      ['Work Type', selectedWorkTypeLabel],
-      ['Job', selectedJobLabel],
-      ['Unbillable Category', unbillableCategoryFilter === 'all' ? 'All Categories' : unbillableCategoryFilter === 'uncategorized' ? 'Uncategorized' : (unbillableCategoriesSorted.find((item) => item.id === unbillableCategoryFilter)?.name ?? 'Unknown Category')],
-      ['Employee Search', employeeFilterLabel],
-      ['Matching Entries', String(filteredEntries.length)],
-      [],
-    ];
-
-    const header = ['Employee', 'Total Hours', 'Job Hours', 'Drive Time Hours', 'Non-Billable Hours'];
-
-    const rows = employeeSummaryRows.map((row) => [
-      row.employeeName,
-      row.total.toFixed(2),
-      row.job.toFixed(2),
-      row.drive_time.toFixed(2),
-      row.non_billable.toFixed(2),
-    ]);
-
-    const csv = [...filterRows, header, ...rows]
-      .map((row) => row.map((value) => escapeCsvValue(value)).join(','))
-      .join('\r\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    const jobSegment = jobFilter === 'all'
-      ? 'all-jobs'
-      : getJobTitle(jobFilter)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '') || 'selected-job';
-    anchor.download = `time-summary-${jobSegment}-${startDate}-to-${endDate}.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  const handleExportSummaryCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ surface: 'reports', action: 'export', limit: '100' });
+      for (const [key, value] of Object.entries(timeEntryPageFilters)) {
+        if (value !== undefined && value !== '' && value !== false) params.set(key, String(value));
+      }
+      const response = await fetch(`/api/time-entries?${params.toString()}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Bookkeeper export could not be generated.');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `time-summary-${startDate}-to-${endDate}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Bookkeeper export could not be generated.' });
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -592,12 +557,12 @@ export default function TimeReportsPage({
       <Card className="overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
           <div>
-            <h2 className="font-semibold text-gray-800">Time Entries</h2>
+            <h2 id="time-entries-heading" className="font-semibold text-gray-800">Time Entries</h2>
             <p className="mt-1 text-xs text-gray-500">Newest clock-in first. Select an entry to view its details.</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={handleExportSummaryCsv} disabled={filteredEntries.length === 0}>
-              Bookkeeper Export
+            <Button onClick={() => void handleExportSummaryCsv()} disabled={filteredEntries.length === 0 || exporting}>
+              {exporting ? 'Exporting...' : 'Bookkeeper Export'}
             </Button>
           </div>
         </div>
@@ -615,9 +580,9 @@ export default function TimeReportsPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredEntries.length === 0 ? (
+              {timeEntryPage.items.length === 0 && !timeEntryPage.loading ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
-              ) : filteredEntries.map((entry) => {
+              ) : timeEntryPage.items.map((entry) => {
                 const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
                 const presentation = getTimeEntryPresentation(entry, jobs);
                 return (
@@ -654,6 +619,20 @@ export default function TimeReportsPage({
             </tbody>
           </table>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
+          <div>
+            <p className="text-gray-600">Showing {timeEntryPage.showingStart}–{timeEntryPage.showingEnd}</p>
+            {timeEntryPage.loading ? <p className="text-xs text-gray-500" role="status">Loading Time Entries...</p> : null}
+            {timeEntryPage.error ? <div className="flex items-center gap-2"><p className="text-xs font-medium text-accent-700" role="alert">{timeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={timeEntryPage.refresh}>Retry</Button></div> : null}
+          </div>
+          <div className="flex items-end gap-2">
+            <Button variant="secondary" size="sm" onClick={timeEntryPage.previous} disabled={!timeEntryPage.hasPrevious || timeEntryPage.loading}>Previous</Button>
+            <Button variant="secondary" size="sm" onClick={timeEntryPage.next} disabled={!timeEntryPage.hasNext || timeEntryPage.loading}>Next</Button>
+            <Select label="Rows" value={String(timeEntryPage.pageSize)} onChange={(event) => timeEntryPage.setPageSize(Number(event.target.value))}>
+              <option value="25">25</option><option value="50">50</option><option value="100">100</option>
+            </Select>
+          </div>
+        </div>
       </Card>
       <section className="mt-5 border-t border-gray-200 pt-4" aria-labelledby="non-billable-breakdown-heading">
         <h2 id="non-billable-breakdown-heading" className="font-semibold text-gray-800">Non-Billable Category Breakdown</h2>
@@ -677,6 +656,7 @@ export default function TimeReportsPage({
         employeeName={selectedTimeEntry ? getEmployeeName(selectedTimeEntry.employeeId) : ''}
         currentUserRole={currentUserRole}
         onClose={() => setSelectedTimeEntryId(null)}
+        onUpdated={timeEntryPage.refresh}
       />
     </div>
   );

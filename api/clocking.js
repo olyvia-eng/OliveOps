@@ -912,6 +912,7 @@ export default async function handler(req, res) {
             workAreaId: activeEntry.workAreaId,
             workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
             clockIn: activeEntry.clockIn,
+            createdAt: activeEntry.createdAt,
             ...costSnapshot,
           },
           createdAt: eventTime.serverReceivedAt,
@@ -954,6 +955,7 @@ export default async function handler(req, res) {
       workAreaId: activeEntry.workAreaId,
       workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
       clockIn: activeEntry.clockIn,
+      createdAt: activeEntry.createdAt,
       employeeName: employee?.name ?? '',
       ...costSnapshot,
     });

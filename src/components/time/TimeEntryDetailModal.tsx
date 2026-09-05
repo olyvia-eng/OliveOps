@@ -12,6 +12,7 @@ interface Props {
   employeeName: string;
   currentUserRole: string;
   onClose: () => void;
+  onUpdated?: () => void;
 }
 
 function dateLabel(value: string) {
@@ -24,7 +25,7 @@ function statusLabel(value: string) {
   return value.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
-export default function TimeEntryDetailModal({ entry, employeeName, currentUserRole, onClose }: Props) {
+export default function TimeEntryDetailModal({ entry, employeeName, currentUserRole, onClose, onUpdated }: Props) {
   const { jobs, unbillableTimeCategories, timeCorrections, editTimeEntry } = useStore();
   const [editing, setEditing] = useState(false);
   const canEdit = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -42,7 +43,11 @@ export default function TimeEntryDetailModal({ entry, employeeName, currentUserR
       jobs={jobs}
       unbillableCategories={unbillableTimeCategories}
       onClose={() => setEditing(false)}
-      onSave={editTimeEntry}
+      onSave={async (entryId, payload) => {
+        const result = await editTimeEntry(entryId, payload);
+        if (result.ok) onUpdated?.();
+        return result;
+      }}
     />;
   }
 

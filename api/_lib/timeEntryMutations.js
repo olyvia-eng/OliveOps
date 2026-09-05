@@ -10,6 +10,7 @@ import {
 } from './authRepo.js';
 import { getPendingClockOutWorkflowForEmployee } from './mandatoryClockOut.js';
 import { calculateEmployeeLabourCost } from '../../src/utils/employeeLabourCost.js';
+import { timeEntryIndexAttributes } from './timeEntryPagination.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 const MAX_EDIT_AGE_MS = 10 * 366 * 24 * 60 * 60 * 1000;
@@ -230,6 +231,7 @@ export async function applyTimeEntryMutation({
       businessId: session.businessId,
       entryId: existing.id,
       ...next,
+      ...timeEntryIndexAttributes(session.businessId, next),
     },
     ConditionExpression: `attribute_exists(PK) AND attribute_exists(SK) AND ${conditionExpression}`,
     ExpressionAttributeNames: { '#updatedAt': 'updatedAt' },
