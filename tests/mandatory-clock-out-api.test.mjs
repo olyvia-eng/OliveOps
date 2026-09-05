@@ -242,10 +242,11 @@ test('reminder-only after-clock-out forms do not block or create a workflow', as
 
   assert.equal(result.statusCode, 200);
   assert.equal(result.body.timeEntry.status, 'clocked_out');
+  assert.deepEqual(result.body.reminderForms.map((item) => item.formId), ['reminder']);
   assert.equal([...context.store.values()].some((item) => item.entityType === 'CLOCK_OUT_WORKFLOW'), false);
 });
 
-test('required forms create one recoverable idempotent workflow and block direct finalization', async (t) => {
+test('required forms close the entry first and create one recoverable idempotent workflow', async (t) => {
   const context = await setup(t, { forms: [{ id: 'required' }] });
   const body = clockOutBody(context.entryId);
   const initiated = await clockingRequest(context.token, { action: 'clock-out', body });
@@ -255,7 +256,8 @@ test('required forms create one recoverable idempotent workflow and block direct
   assert.equal(initiated.body.requiredFormCount, 1);
   assert.equal(initiated.body.remainingForms[0].formId, 'required');
   assert.equal(initiated.body.intendedClockOutAt, body.clientOccurredAt);
-  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${context.entryId}`)).status, 'clocked_in');
+  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${context.entryId}`)).status, 'clocked_out');
+  assert.equal(context.store.has(key(`ACTIVE_SHIFT#${context.businessId}#${context.employeeId}`, 'ACTIVE')), false);
 
   const duplicate = await clockingRequest(context.token, { action: 'clock-out', body });
   assert.equal(duplicate.statusCode, 202);

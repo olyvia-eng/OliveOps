@@ -1,6 +1,50 @@
+import {
+  deliveryRuleCompletionRequirement,
+  deliveryRuleToLegacyTriggers,
+  inspectFormDeliveryConfiguration,
+  validateFormDeliveryRule,
+} from '../../utils/formDeliveryRules.js';
+
+/** @typedef {import('../../types').FormDeliveryRule} FormDeliveryRule */
+/** @typedef {import('../../types').FormDeliveryType} FormDeliveryType */
 /** @typedef {import('../../types').FormField} FormField */
 /** @typedef {import('../../types').FormRecord} FormRecord */
 /** @typedef {{ form: FormRecord, fields: FormField[] }} FormBuilderDraft */
+
+const LEGACY_TRIGGER_LABELS = {
+  before_clock_in: 'Before Clock In',
+  after_clock_out: 'After Clock Out',
+  before_starting_job: 'Before Starting Job',
+  after_completing_job: 'After Completing Job',
+  after_leaving_job: 'After Leaving Job',
+  job_completed: 'When Job Is Completed',
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+  on_demand: 'Always Available',
+};
+
+/** @param {FormDeliveryType} type @returns {FormDeliveryRule} */
+export function createDefaultDeliveryRule(type = 'always_available') {
+  if (type === 'before_clock_in' || type === 'after_clock_out') {
+    return { type, frequency: 'once_daily', completionBehavior: 'reminder', schedule: null, allowManualAccess: false };
+  }
+  if (type === 'scheduled') {
+    return { type, frequency: null, completionBehavior: 'due', schedule: { cadence: 'daily' }, allowManualAccess: false };
+  }
+  return { type: 'always_available', frequency: null, completionBehavior: 'manual', schedule: null, allowManualAccess: true };
+}
+
+/** @param {FormRecord} form @param {FormDeliveryRule} deliveryRule @returns {FormRecord} */
+export function applyFormDeliveryRule(form, deliveryRule) {
+  return {
+    ...form,
+    deliveryRule,
+    deliveryRuleVersion: 1,
+    trigger: deliveryRuleToLegacyTriggers(deliveryRule),
+    completionRequirement: deliveryRuleCompletionRequirement(deliveryRule),
+  };
+}
 
 /** @param {FormBuilderDraft} draft */
 function comparableDraft(draft) {
@@ -13,6 +57,7 @@ function comparableDraft(draft) {
       assignedTo: draft.form.assignedTo,
       assignmentValue: draft.form.assignmentValue ?? '',
       trigger: [...draft.form.trigger].sort(),
+      deliveryRule: draft.form.deliveryRule ?? null,
       completionRequirement: draft.form.completionRequirement ?? 'reminder',
       requiresApproval: draft.form.requiresApproval ?? false,
     },
@@ -35,8 +80,24 @@ function comparableDraft(draft) {
 
 /** @param {FormRecord} form @param {FormField[]} fields @returns {FormBuilderDraft} */
 export function createFormBuilderDraft(form, fields) {
+  const inspection = inspectFormDeliveryConfiguration(form);
+  const inspectedRule = inspection.deliveryRule?.type === 'scheduled' && inspection.deliveryRule.schedule?.cadence === 'weekly'
+    ? { ...inspection.deliveryRule, schedule: { cadence: 'weekly', weekdays: inspection.deliveryRule.schedule.weekdays ?? [1] } }
+    : inspection.deliveryRule?.type === 'scheduled' && inspection.deliveryRule.schedule?.cadence === 'monthly'
+      ? { ...inspection.deliveryRule, schedule: { cadence: 'monthly', dayOfMonth: inspection.deliveryRule.schedule.dayOfMonth ?? 1 } }
+      : inspection.deliveryRule;
+  const normalizedForm = inspectedRule
+    ? applyFormDeliveryRule(form, inspectedRule)
+    : { ...form, trigger: [...form.trigger] };
   return {
-    form: { ...form, trigger: [...form.trigger], completionRequirement: form.completionRequirement ?? 'reminder', requiresApproval: form.requiresApproval ?? false },
+    form: {
+      ...normalizedForm,
+      deliveryRule: inspectedRule
+        ? { ...inspectedRule, schedule: inspectedRule.schedule ? { ...inspectedRule.schedule } : null }
+        : undefined,
+      completionRequirement: normalizedForm.completionRequirement ?? 'reminder',
+      requiresApproval: normalizedForm.requiresApproval ?? false,
+    },
     fields: fields
       .slice()
       .sort((left, right) => left.order - right.order)
@@ -48,55 +109,6 @@ export function createFormBuilderDraft(form, fields) {
 export function isFormBuilderDirty(baseline, draft) {
   if (!baseline || !draft) return false;
   return JSON.stringify(comparableDraft(baseline)) !== JSON.stringify(comparableDraft(draft));
-}
-
-const WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
-const SCHEDULE_TRIGGERS = new Set(['daily', 'weekly', 'monthly']);
-const ENFORCED_WORKFLOW_TRIGGERS = new Set(['before_clock_in', 'after_clock_out']);
-
-const WORKFLOW_LABELS = {
-  before_clock_in: 'before clocking in',
-  after_clock_out: 'after clocking out',
-  before_starting_job: 'before starting a job',
-  after_completing_job: 'at the legacy after-completing-job event',
-  after_leaving_job: 'after leaving a job',
-  job_completed: 'when a job is marked completed',
-};
-
-/** @param {string[]} triggers */
-export function getWorkflowTriggers(triggers) {
-  return triggers.filter((trigger) => WORKFLOW_TRIGGERS.has(trigger));
-}
-
-/** @param {string[]} triggers */
-export function getScheduleTriggers(triggers) {
-  return triggers.filter((trigger) => SCHEDULE_TRIGGERS.has(trigger));
-}
-
-/** @param {string[]} triggers @param {string} schedule */
-export function setFormSchedule(triggers, schedule) {
-  return [...triggers.filter((trigger) => !SCHEDULE_TRIGGERS.has(trigger)), ...(schedule ? [schedule] : [])];
-}
-
-/** @param {string[]} triggers @param {boolean} enabled */
-export function setFormOnDemand(triggers, enabled) {
-  const withoutOnDemand = triggers.filter((trigger) => trigger !== 'on_demand');
-  return enabled ? [...withoutOnDemand, 'on_demand'] : withoutOnDemand;
-}
-
-/** @param {string[]} triggers @param {number} index @param {string} nextTrigger */
-export function setFormWorkflowTrigger(triggers, index, nextTrigger) {
-  const workflow = getWorkflowTriggers(triggers);
-  const other = triggers.filter((trigger) => !WORKFLOW_TRIGGERS.has(trigger));
-  if (nextTrigger) workflow[index] = nextTrigger;
-  else workflow.splice(index, 1);
-  return [...workflow.filter((trigger, triggerIndex) => workflow.indexOf(trigger) === triggerIndex), ...other];
-}
-
-/** @param {string[]} triggers */
-export function hasMultipleFormRequirements(triggers) {
-  return triggers.some((trigger) => WORKFLOW_TRIGGERS.has(trigger))
-    && triggers.some((trigger) => SCHEDULE_TRIGGERS.has(trigger));
 }
 
 /** @param {FormField[]} fields @param {string} fieldId @param {string} targetFieldId */
@@ -111,50 +123,66 @@ export function moveFormField(fields, fieldId, targetFieldId) {
   return next.map((item, order) => ({ ...item, order }));
 }
 
-/** @param {import('../../types').FormRecord} form */
+/** @param {FormRecord} form */
 export function getFormConfigurationWarnings(form) {
   const warnings = [];
-  if (!form.trigger.some((trigger) => WORKFLOW_TRIGGERS.has(trigger) || SCHEDULE_TRIGGERS.has(trigger) || trigger === 'on_demand')) {
-    warnings.push('This form has no workflow trigger, schedule, or employee access. Employees will have no way to access it.');
+  const inspection = inspectFormDeliveryConfiguration(form);
+  if (inspection.needsReview) {
+    warnings.push(inspection.status === 'invalid' && inspection.error
+      ? `Configuration needs review. ${inspection.error}`
+      : 'Configuration needs review. OliveOps now supports one delivery rule per form; choose one option before saving.');
+  } else if (form.deliveryRule) {
+    const error = validateFormDeliveryRule(form.deliveryRule);
+    if (error) warnings.push(error);
   }
   if (form.assignedTo !== 'everyone' && !String(form.assignmentValue ?? '').trim()) {
     warnings.push(`This form is assigned to ${form.assignedTo} but no ${form.assignedTo} has been selected.`);
   }
-  if (getScheduleTriggers(form.trigger).length > 1) {
-    warnings.push('This legacy form has multiple recurring schedules. Choose one schedule to simplify it, or leave it unchanged to preserve the existing configuration.');
-  }
-  if ((form.completionRequirement ?? 'reminder') === 'required' && getWorkflowTriggers(form.trigger).some((trigger) => !ENFORCED_WORKFLOW_TRIGGERS.has(trigger))) {
-    warnings.push('Required workflow enforcement is not yet available for this trigger. Employees are still allowed to continue.');
-  }
-  if (form.trigger.includes('after_completing_job')) {
-    warnings.push('This form uses the legacy After Completing Job trigger. Its existing mobile behavior is preserved until you choose an explicit job event.');
-  }
   return warnings;
 }
 
-/** @param {import('../../types').FormRecord} form @param {{ assignmentLabel?: string }} [labels] */
+/** @param {FormRecord} form */
+export function getLegacyConfigurationLabels(form) {
+  return inspectFormDeliveryConfiguration(form).legacyTriggers.map((trigger) => LEGACY_TRIGGER_LABELS[trigger] ?? trigger);
+}
+
+/** @param {FormRecord} form @param {{ assignmentLabel?: string }} [labels] */
 export function describeFormConfiguration(form, labels = {}) {
   const name = form.name.trim() || 'This form';
   const assignment = form.assignedTo === 'everyone'
     ? 'all employees'
     : `${form.assignedTo === 'role' ? 'employees with the' : 'employees assigned to the'} ${labels.assignmentLabel || `selected ${form.assignedTo}`}`;
-  const workflow = getWorkflowTriggers(form.trigger).map((trigger) => WORKFLOW_LABELS[trigger]).filter(Boolean);
-  const schedules = getScheduleTriggers(form.trigger);
-  const access = [];
-  if (workflow.length) access.push(workflow.join(' and '));
-  if (schedules.length) access.push(schedules.length === 1 ? `on a ${schedules[0]} schedule` : `on ${schedules.join(' and ')} schedules`);
-  const availability = access.length ? `will be shown to ${assignment} ${access.join(' and ')}` : `is not currently presented automatically to ${assignment}`;
-  const workflowTriggers = getWorkflowTriggers(form.trigger);
-  const onlyEnforcedWorkflowTriggers = workflowTriggers.length > 0 && workflowTriggers.every((trigger) => ENFORCED_WORKFLOW_TRIGGERS.has(trigger));
-  const requirement = (form.completionRequirement ?? 'reminder') === 'required'
-    ? onlyEnforcedWorkflowTriggers
-      ? workflowTriggers.includes('before_clock_in') && workflowTriggers.includes('after_clock_out')
-        ? 'It is required and employees must submit it before clock-in or clock-out can be finalized.'
-        : workflowTriggers.includes('before_clock_in')
-          ? 'It is required and employees must submit it before clock-in can be finalized.'
-          : 'It is required and employees must submit it before clock-out can be finalized.'
-      : 'It is configured as required, but enforcement remains advisory for workflow triggers other than Before Clock In and After Clock Out.'
-    : 'It is a reminder, so employees may continue and complete it later.';
-  const onDemand = form.trigger.includes('on_demand') ? ' Employees can also open it manually from Forms.' : '';
-  return `${name} ${availability}. ${requirement}${onDemand}`;
+  const rule = form.deliveryRule;
+  if (!rule) return `${name} is assigned to ${assignment}. Its historical delivery settings need review before automation can be saved.`;
+
+  let delivery;
+  let policy = '';
+  if (rule.type === 'before_clock_in' || rule.type === 'after_clock_out') {
+    const timing = rule.type === 'before_clock_in' ? 'before clock-in' : 'after clock-out';
+    const frequency = rule.frequency === 'once_daily' ? 'once per day' : 'every time';
+    delivery = `is shown to ${assignment} ${timing}, ${frequency}`;
+    policy = rule.completionBehavior === 'blocking'
+      ? `It blocks ${rule.type === 'before_clock_in' ? 'clock-in' : 'clock-out'} until submitted`
+      : 'It is a reminder, so employees may continue and complete it later';
+  } else if (rule.type === 'scheduled') {
+    const cadence = rule.schedule?.cadence === 'custom'
+      ? `every ${rule.schedule.interval?.count} ${rule.schedule.interval?.unit}`
+      : rule.schedule?.cadence;
+    delivery = `is due for ${assignment} on a ${cadence} schedule`;
+  } else {
+    delivery = `is always available to ${assignment} in Forms`;
+  }
+  const manual = rule.type !== 'always_available' && rule.allowManualAccess
+    ? ' employees may also open it anytime, but a generic manual submission does not complete a future or pending occurrence'
+    : '';
+  const detail = [policy, manual].filter(Boolean).join('; ');
+  return `${name} ${delivery}.${detail ? ` ${detail}.` : ''}`;
+}
+
+/** @param {string} templateName @returns {FormDeliveryRule} */
+export function getTemplateDeliveryRule(templateName) {
+  if (['Excavator Daily Inspection', 'Morning Truck Inspection', 'MTO Daily Inspection'].includes(templateName)) {
+    return { type: 'before_clock_in', frequency: 'once_daily', completionBehavior: 'blocking', schedule: null, allowManualAccess: false };
+  }
+  return createDefaultDeliveryRule('always_available');
 }

@@ -1,4 +1,5 @@
-import { getPeriodKeyForTrigger, normalizeBusinessTimeZone } from './businessTime.js';
+import { getBusinessDateParts, getPeriodKeyForTrigger, normalizeBusinessTimeZone } from './businessTime.js';
+import { inspectFormDeliveryConfiguration } from '../../src/utils/formDeliveryRules.js';
 
 const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'pending_review', 'approved']);
 const CONTEXT_TRIGGERS = new Set(['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']);
@@ -10,6 +11,25 @@ const NON_OPERATIONAL_JOB_STATUSES = new Set(['completed', 'cancelled', 'on_hold
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const NUMBER_PATTERN = /^-?(?:\d+\.?\d*|\.\d+)$/;
+
+export function runtimeDeliveryRule(form) {
+  return inspectFormDeliveryConfiguration(form).deliveryRule;
+}
+
+export function isFormDeliveredBy(form, deliveryType) {
+  return runtimeDeliveryRule(form)?.type === deliveryType;
+}
+
+export function isClockDeliverySatisfied({ form, deliveryType, employeeId, submissions = [], instant = new Date(), timeZone }) {
+  const rule = runtimeDeliveryRule(form);
+  if (!rule || rule.type !== deliveryType || rule.frequency !== 'once_daily') return false;
+  const periodKey = getPeriodKeyForTrigger(deliveryType, instant, normalizeBusinessTimeZone(timeZone));
+  return submissions.some((submission) => submission.formId === form.id
+    && submission.employeeId === employeeId
+    && submission.trigger === deliveryType
+    && submission.periodKey === periodKey
+    && SATISFYING_SUBMISSION_STATUSES.has(submission.status));
+}
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -106,6 +126,7 @@ export function isSubmissionSatisfiedForScope({ submission, employeeId, scope, t
   if (!submission || submission.formId !== scope.formId || submission.employeeId !== employeeId) return false;
   if (!SATISFYING_SUBMISSION_STATUSES.has(submission.status)) return false;
   if (submission.trigger && submission.trigger !== scope.trigger) return false;
+  if (scope.deliveryOccurrenceId && submission.deliveryOccurrenceId !== scope.deliveryOccurrenceId) return false;
   if (submission.periodKey && submission.periodKey !== scope.periodKey) return false;
   if (submission.jobId && scope.jobId && submission.jobId !== scope.jobId) return false;
   if (submission.equipmentId && scope.equipmentId && submission.equipmentId !== scope.equipmentId) return false;
@@ -129,7 +150,11 @@ export function getMissingRequiredFormsForTrigger({
 }) {
   if (trigger === 'on_demand') return [];
   return forms.filter((form) => {
-    if (form.status !== 'active' || !form.trigger?.includes(trigger)) return false;
+    const rule = runtimeDeliveryRule(form);
+    const scheduledTrigger = rule?.type === 'scheduled'
+      ? (rule.schedule.cadence === 'custom' ? 'daily' : rule.schedule.cadence)
+      : null;
+    if (form.status !== 'active' || (rule?.type !== trigger && scheduledTrigger !== trigger)) return false;
     if (!isFormAssignedToEmployee({ form, employee, crews, divisions, job, equipment })) return false;
     const scope = buildFormCompletionScope({ form, trigger, instant, timeZone, job, equipment, division });
     return !submissions.some((submission) => isSubmissionSatisfiedForScope({
@@ -250,4 +275,67 @@ export function validateEmployeeFormResponses({ fields = [], responses, choicesB
 
 export function isJobOperationallyActive(job) {
   return Boolean(job) && !NON_OPERATIONAL_JOB_STATUSES.has(normalized(job.status));
+}
+
+const dateKey = (date) => date.toISOString().slice(0, 10);
+const dateFromKey = (value) => new Date(`${value}T12:00:00.000Z`);
+
+function daysInMonth(year, monthIndex) {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+function clampedMonthDate(year, monthIndex, dayOfMonth) {
+  return new Date(Date.UTC(year, monthIndex, Math.min(dayOfMonth, daysInMonth(year, monthIndex)), 12));
+}
+
+function latestScheduledDate(form, schedule, todayKey, timeZone) {
+  const today = dateFromKey(todayKey);
+  if (schedule.cadence === 'daily') return todayKey;
+  if (schedule.cadence === 'weekly') {
+    const weekdays = schedule.weekdays?.length ? schedule.weekdays : [1];
+    const offsets = weekdays.map((weekday) => (today.getUTCDay() - weekday + 7) % 7);
+    const due = new Date(today);
+    due.setUTCDate(due.getUTCDate() - Math.min(...offsets));
+    return dateKey(due);
+  }
+  if (schedule.cadence === 'monthly') {
+    const requestedDay = schedule.dayOfMonth ?? 1;
+    let due = clampedMonthDate(today.getUTCFullYear(), today.getUTCMonth(), requestedDay);
+    if (due > today) due = clampedMonthDate(today.getUTCFullYear(), today.getUTCMonth() - 1, requestedDay);
+    return dateKey(due);
+  }
+
+  const createdParts = getBusinessDateParts(form.createdAt ?? todayKey, timeZone);
+  const anchor = dateFromKey(`${createdParts.year}-${createdParts.month}-${createdParts.day}`);
+  if (anchor > today) return null;
+  const count = schedule.interval.count;
+  if (schedule.interval.unit === 'days' || schedule.interval.unit === 'weeks') {
+    const intervalDays = count * (schedule.interval.unit === 'weeks' ? 7 : 1);
+    const elapsedDays = Math.floor((today - anchor) / 86_400_000);
+    const due = new Date(anchor);
+    due.setUTCDate(due.getUTCDate() + Math.floor(elapsedDays / intervalDays) * intervalDays);
+    return dateKey(due);
+  }
+  const elapsedMonths = (today.getUTCFullYear() - anchor.getUTCFullYear()) * 12 + today.getUTCMonth() - anchor.getUTCMonth();
+  const dueMonthOffset = Math.floor(elapsedMonths / count) * count;
+  return dateKey(clampedMonthDate(anchor.getUTCFullYear(), anchor.getUTCMonth() + dueMonthOffset, anchor.getUTCDate()));
+}
+
+export function buildScheduledOccurrence({ form, employeeId, context = {}, instant = new Date(), timeZone }) {
+  const rule = runtimeDeliveryRule(form);
+  if (!rule || rule.type !== 'scheduled') return null;
+  const zone = normalizeBusinessTimeZone(timeZone);
+  const parts = getBusinessDateParts(instant, zone);
+  const todayKey = `${parts.year}-${parts.month}-${parts.day}`;
+  const dueDate = latestScheduledDate(form, rule.schedule, todayKey, zone);
+  if (!dueDate) return null;
+  const contextKey = [context.job?.id, context.equipment?.id, context.division?.id ?? context.job?.divisionId]
+    .filter(Boolean).join(':') || 'global';
+  return {
+    occurrenceId: `scheduled:${form.id}:${employeeId}:${contextKey}:${dueDate}`,
+    dueDate,
+    periodKey: dueDate,
+    state: dueDate < todayKey ? 'overdue' : 'due',
+    trigger: rule.schedule.cadence === 'custom' ? 'daily' : rule.schedule.cadence,
+  };
 }

@@ -62,9 +62,9 @@ async function seedIdentity(store, { businessId = 'biz-a', userId, employeeId, t
   await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role, businessName: 'Olive Test', employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
-function seedForm(store, { id, businessId = 'biz-a', assignedTo = 'everyone', assignmentValue, trigger = ['on_demand'], status = 'active' }) {
+function seedForm(store, { id, businessId = 'biz-a', assignedTo = 'everyone', assignmentValue, trigger = ['on_demand'], status = 'active', deliveryRule }) {
   const pk = `BUSINESS#${businessId}`;
-  store.set(key(pk, `FORM#${id}`), { PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+  store.set(key(pk, `FORM#${id}`), { PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, deliveryRule, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), { PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId, formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0 });
 }
 
@@ -307,21 +307,63 @@ test('simultaneous recurring submissions create only one completion record', asy
   assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_RESPONSE').length, 1);
 });
 
-test('employee required endpoint surfaces every advisory workflow and recurrence trigger', async (t) => {
+test('employee required endpoint preserves supported legacy rules and suppresses ambiguous Job events', async (t) => {
   const store = installDdb(t);
   await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
   store.set(key('BUSINESS#biz-a', 'JOB#job-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#job-a', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-a', title: 'Main Street', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: [] });
   const triggers = ['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly'];
   for (const trigger of triggers) seedForm(store, { id: `form-${trigger}`, trigger: [trigger] });
 
+  const supported = new Set(['before_clock_in', 'after_clock_out', 'daily', 'weekly', 'monthly']);
   for (const trigger of triggers) {
     const query = ['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed'].includes(trigger) ? { trigger, jobId: 'job-a' } : { trigger };
     const required = await request('token-a', { action: 'required', query });
     assert.equal(required.statusCode, 200, trigger);
-    assert.deepEqual(required.body.forms.map((item) => item.id), [`form-${trigger}`], trigger);
-    assert.equal(required.body.forms[0].completionRequirement, 'reminder');
-    assert.equal(required.body.forms[0].enforcement, 'advisory');
+    assert.deepEqual(required.body.forms.map((item) => item.id), supported.has(trigger) ? [`form-${trigger}`] : [], trigger);
+    if (supported.has(trigger)) {
+      assert.equal(required.body.forms[0].completionRequirement, 'reminder');
+      assert.equal(required.body.forms[0].enforcement, 'advisory');
+    }
   }
+});
+
+test('normalized scheduled submission requires its occurrence and manual access does not satisfy it', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, {
+    id: 'normalized-daily',
+    trigger: ['daily', 'on_demand'],
+    deliveryRule: { type: 'scheduled', frequency: null, completionBehavior: 'due', schedule: { cadence: 'daily' }, allowManualAccess: true },
+  });
+
+  const initial = await request('token-a', { action: 'forms' });
+  const due = initial.body.toDo.find((item) => item.id === 'normalized-daily');
+  assert.equal(due.occurrenceState, 'due');
+  assert.equal(initial.body.available.some((item) => item.id === 'normalized-daily'), true);
+
+  const manual = await request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'normalized-daily', trigger: 'on_demand', clientSubmissionId: 'manual-normalized-daily',
+    responses: [{ fieldId: 'normalized-daily-notes', value: 'Manual' }],
+  } });
+  assert.equal(manual.statusCode, 201);
+  assert.equal((await request('token-a', { action: 'forms' })).body.toDo.some((item) => item.id === 'normalized-daily'), true);
+
+  const uncorrelated = await request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'normalized-daily', trigger: 'daily', clientSubmissionId: 'uncorrelated-normalized-daily',
+    responses: [{ fieldId: 'normalized-daily-notes', value: 'Due' }],
+  } });
+  assert.equal(uncorrelated.statusCode, 409);
+  assert.equal(uncorrelated.body.code, 'delivery_occurrence_required');
+
+  const correlated = await request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: 'normalized-daily', trigger: 'daily', occurrenceId: due.occurrenceId, clientSubmissionId: 'correlated-normalized-daily',
+    responses: [{ fieldId: 'normalized-daily-notes', value: 'Due' }],
+  } });
+  assert.equal(correlated.statusCode, 201);
+  assert.equal(correlated.body.submission.deliveryOccurrenceId, due.occurrenceId);
+  const refreshed = await request('token-a', { action: 'forms' });
+  assert.equal(refreshed.body.toDo.some((item) => item.id === 'normalized-daily'), false);
+  assert.equal(refreshed.body.completed.find((item) => item.deliveryOccurrenceId === due.occurrenceId).occurrenceState, 'completed');
 });
 
 test('new clientSubmissionId is stored atomically, echoed, and replayed without duplicate answers', async (t) => {

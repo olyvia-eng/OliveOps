@@ -27,6 +27,7 @@ import {
   getUnbillableTimeCategoryForBusiness,
   listEquipmentAssetsForBusiness,
   listFormFieldsForBusiness,
+  listFormSubmissionsForBusiness,
   listFormsForBusiness,
   listJobsForBusiness,
   listTimeEntriesForBusiness,
@@ -601,20 +602,27 @@ export default async function handler(req, res) {
     }
 
     const forms = await listFormsForBusiness(session.businessId);
-    if (forms.some((form) => form.status === 'active' && form.completionRequirement === 'required' && form.trigger?.includes('before_clock_in'))) {
+    let reminderForms = [];
+    if (forms.some((form) => form.status === 'active')) {
       if (!employee?.active) {
         return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
       }
-      const [jobs, equipment, crews, divisions, fields, customers] = await Promise.all([
+      const [jobs, equipment, crews, divisions, fields, customers, submissions, profile] = await Promise.all([
         listJobsForBusiness(session.businessId),
         listEquipmentAssetsForBusiness(session.businessId),
         listCrewsForBusiness(session.businessId),
         listDivisionsForBusiness(session.businessId),
         listFormFieldsForBusiness(session.businessId),
         listCustomersForBusiness(session.businessId),
+        listFormSubmissionsForBusiness(session.businessId),
+        getBusinessProfile(session.businessId),
       ]);
       const selectedJobs = jobs.filter((job) => requestedJobIds.includes(job.id));
-      const applicableForms = resolveBeforeClockInForms({ forms, fields, employee, crews, divisions, jobs: selectedJobs, equipment, customers });
+      const applicableForms = resolveBeforeClockInForms({
+        forms, fields, submissions, employee, crews, divisions, jobs: selectedJobs, equipment, customers,
+        instant: eventTime.eventOccurredAt, timeZone: profile?.timezone,
+      });
+      reminderForms = applicableForms.reminderForms;
       if (applicableForms.requiredForms.length > 0) {
         const workflowOccurrenceId = createClockInOccurrenceId({
           businessId: session.businessId,
@@ -710,7 +718,7 @@ export default async function handler(req, res) {
         notes: '',
         status: 'clocked_in',
       };
-      return res.status(200).json({ ok: true, timeEntry });
+      return res.status(200).json({ ok: true, timeEntry, ...(reminderForms.length ? { reminderForms } : {}) });
     } catch (error) {
       const committed = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
       if (committed) return replayClockingRequest(res, committed, hashedPayload);
@@ -776,6 +784,9 @@ export default async function handler(req, res) {
     const idempotencyKey = scopedIdempotencyKey(requestedEntry.employeeId, clientIdempotencyKey);
     const existing = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
     if (existing) {
+      if (existing.payloadHash !== hashedPayload) return replayClockingRequest(res, existing, hashedPayload);
+      const pendingWorkflow = await getPendingClockOutWorkflowForEmployee(session.businessId, requestedEntry.employeeId);
+      if (pendingWorkflow?.timeEntryId === entryId) return pendingClockOutResponse(res, pendingWorkflow);
       return replayClockingRequest(res, existing, hashedPayload);
     }
 
@@ -850,23 +861,30 @@ export default async function handler(req, res) {
     const clockOutAt = eventTime.eventOccurredAt;
     const costSnapshot = labourCostSnapshot(employee, activeEntry.clockIn, clockOutAt, req.body?.breakMinutes ?? 0);
     const forms = await listFormsForBusiness(session.businessId);
-    if (forms.some((form) => form.status === 'active' && form.completionRequirement === 'required' && form.trigger?.includes('after_clock_out'))) {
+    let reminderForms = [];
+    if (forms.some((form) => form.status === 'active')) {
       if (!employee?.active) {
         return res.status(409).json({ ok: false, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' });
       }
-      const [jobs, equipment, crews, divisions, fields, customers] = await Promise.all([
+      const [jobs, equipment, crews, divisions, fields, customers, submissions, profile] = await Promise.all([
         listJobsForBusiness(session.businessId),
         listEquipmentAssetsForBusiness(session.businessId),
         listCrewsForBusiness(session.businessId),
         listDivisionsForBusiness(session.businessId),
         listFormFieldsForBusiness(session.businessId),
         listCustomersForBusiness(session.businessId),
+        listFormSubmissionsForBusiness(session.businessId),
+        getBusinessProfile(session.businessId),
       ]);
       const entryJobIds = Array.isArray(activeEntry.jobIds) && activeEntry.jobIds.length > 0
         ? activeEntry.jobIds
         : activeEntry.jobId ? [activeEntry.jobId] : [];
       const entryJobs = jobs.filter((job) => entryJobIds.includes(job.id));
-      const applicableForms = resolveAfterClockOutForms({ forms, fields, employee, crews, divisions, jobs: entryJobs, equipment, customers });
+      const applicableForms = resolveAfterClockOutForms({
+        forms, fields, submissions, employee, crews, divisions, jobs: entryJobs, equipment, customers,
+        instant: clockOutAt, timeZone: profile?.timezone,
+      });
+      reminderForms = applicableForms.reminderForms;
       if (applicableForms.requiredForms.length > 0) {
         const existingWorkflow = await getPendingClockOutWorkflowForEmployee(session.businessId, activeEntry.employeeId);
         if (existingWorkflow) {
@@ -917,8 +935,39 @@ export default async function handler(req, res) {
           },
           createdAt: eventTime.serverReceivedAt,
         };
+        const timeEntry = {
+          id: entryId,
+          employeeId: activeEntry.employeeId,
+          jobId: activeEntry.jobId,
+          jobIds: activeEntry.jobIds,
+          workType: activeEntry.workType,
+          workAreaId: activeEntry.workAreaId,
+          workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
+          clockIn: activeEntry.clockIn,
+          clockOut: clockOutAt,
+          breakMinutes: req.body?.breakMinutes ?? 0,
+          notes: req.body?.notes ?? '',
+          photoAttachmentFileIds: attachmentValidation.fileIds?.length ? attachmentValidation.fileIds : undefined,
+          clockOutPhotoFileIds: attachmentValidation.fileIds?.length ? attachmentValidation.fileIds : undefined,
+          photoAttachmentFileId: attachmentValidation.fileId ?? undefined,
+          clockOutPhotoFileId: attachmentValidation.fileId ?? undefined,
+          photoAttachmentUrl: req.body?.photoAttachmentUrl ?? undefined,
+          unbillableCategoryId: activeEntry.unbillableCategoryId,
+          unbillableCategoryName: activeEntry.unbillableCategoryName,
+          status: 'clocked_out',
+          ...costSnapshot,
+        };
+        workflow.clockOutCommitted = true;
+        workflow.timeEntry = timeEntry;
+        const clockOutTransaction = buildClockOutTransaction({
+          businessId: session.businessId, employeeId: activeEntry.employeeId, userId: session.id,
+          timeEntryId: entryId, clockOutAt, serverReceivedAt: eventTime.serverReceivedAt,
+          timestampSource: eventTime.timestampSource, requestId, idempotencyKey, payloadHash: hashedPayload,
+          source: workflow.source, auditEventId: `${session.id}:${requestId}:clock-out`,
+          ...workflow.finalizationData, employeeName: employee?.name ?? '',
+        });
         try {
-          const created = await createPendingClockOutWorkflow({ businessId: session.businessId, workflow });
+          const created = await createPendingClockOutWorkflow({ businessId: session.businessId, workflow, clockOutTransaction });
           return pendingClockOutResponse(res, created);
         } catch (error) {
           if (error?.name === 'TransactionCanceledException') {
@@ -984,7 +1033,7 @@ export default async function handler(req, res) {
         status: 'clocked_out',
         ...costSnapshot,
       };
-      return res.status(200).json({ ok: true, timeEntry });
+      return res.status(200).json({ ok: true, timeEntry, ...(reminderForms.length ? { reminderForms } : {}) });
     } catch (error) {
       const committed = await getExistingClockingIdempotency({ businessId: session.businessId, idempotencyKey });
       if (committed) return replayClockingRequest(res, committed, hashedPayload);

@@ -408,6 +408,7 @@ test('Reminder Only and before-starting-job Required forms remain non-blocking',
   ] });
   const result = await clockingRequest(context.token, { action: 'clock-in', body: clockInBody(context.employeeId) });
   assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.reminderForms.map((item) => item.formId), ['reminder']);
   assert.equal(result.body.timeEntry.status, 'clocked_in');
   assert.equal([...context.store.values()].some((item) => item.entityType === 'CLOCK_IN_WORKFLOW'), false);
 });

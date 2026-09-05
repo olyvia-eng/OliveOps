@@ -12,11 +12,12 @@ test('web store treats authoritative 202 clock-in as pending without creating an
   assert.doesNotMatch(store, /Clock-in failed \(HTTP \$\{response\.status\}\)/);
 });
 
-test('web store reconciles completed clocking without optimistic clock-out on 202', async () => {
+test('web store reconciles authoritative completed and pending clock-out entries', async () => {
   const store = await source('../src/store/index.ts');
   assert.match(store, /const incoming = result\.timeEntry[^]*timeEntries: \[/);
   assert.match(store, /parseClockingResponse\(response, 'clock-out'\)/);
   assert.match(store, /result\.kind === 'pending'[^]*pending: true/);
+  assert.match(store, /result\.workflow\.timeEntry[^]*entry\.id === result\.workflow\.timeEntry\?\.id/);
   assert.match(store, /entry\.id === result\.timeEntry\.id \? result\.timeEntry : entry/);
   const clockOutAction = store.slice(store.indexOf('clockOut: async'), store.indexOf('addTimeEntry:'));
   assert.doesNotMatch(clockOutAction, /status: 'clocked_out'/);

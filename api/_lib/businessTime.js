@@ -14,7 +14,7 @@ export function normalizeBusinessTimeZone(value) {
   return isValidTimeZone(value) ? value.trim() : DEFAULT_BUSINESS_TIME_ZONE;
 }
 
-function localDateParts(instant, timeZone) {
+export function getBusinessDateParts(instant, timeZone) {
   const date = instant instanceof Date ? instant : new Date(instant);
   if (!Number.isFinite(date.getTime())) throw new TypeError('A valid instant is required.');
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -27,7 +27,7 @@ function localDateParts(instant, timeZone) {
 }
 
 export function getBusinessPeriodKeys(instant = new Date(), timeZone = DEFAULT_BUSINESS_TIME_ZONE) {
-  const { year, month, day } = localDateParts(instant, timeZone);
+  const { year, month, day } = getBusinessDateParts(instant, timeZone);
   const dateKey = `${year}-${month}-${day}`;
   const localDate = new Date(`${dateKey}T12:00:00.000Z`);
   const mondayOffset = (localDate.getUTCDay() + 6) % 7;

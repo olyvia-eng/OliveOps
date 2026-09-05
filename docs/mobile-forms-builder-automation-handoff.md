@@ -1,47 +1,38 @@
-# Mobile Forms automation handoff
+# Mobile Forms delivery contract
 
-The web Forms builder now stores clearer automation and completion intent. The employee API exposes that configuration, but workflow enforcement remains advisory. Mobile should consume the contract below without treating it as proof that an employee action may be blocked.
+The Forms builder stores one normalized `deliveryRule` per Form. Mobile continues to use `/api/employee`; it must not infer automation from combinations of legacy trigger values.
 
-## Contract changes
-
-Each instance returned by `GET /api/employee?action=forms` includes:
+## Delivery rules
 
 ```json
 {
-  "trigger": "after_leaving_job",
-  "required": true,
-  "completionRequirement": "required",
-  "enforcement": "advisory"
+  "type": "before_clock_in",
+  "frequency": "once_daily",
+  "completionBehavior": "blocking",
+  "schedule": null,
+  "allowManualAccess": true
 }
 ```
 
-- `required` is the legacy trigger-derived flag and is `false` only for `on_demand`.
-- `completionRequirement` is `reminder` or `required`. Missing legacy values normalize to `reminder`.
-- `enforcement` is currently `advisory`. Mobile must not block clocking or job transitions based on these values.
+- `before_clock_in` and `after_clock_out` use `once_daily` or `every_occurrence`, with `blocking` or `reminder` behavior.
+- `scheduled` uses `due` behavior and a daily, weekly, monthly, or supported custom interval schedule.
+- `always_available` uses `manual` behavior and creates no automatic occurrence.
+- Manual access is a separate entry point. A generic manual submission does not satisfy a pending workflow or scheduled occurrence.
 
-## Trigger values
+The business timezone returned by bootstrap is authoritative for daily and scheduled boundaries. Device timezone is presentation-only.
 
-| Trigger | Intended mobile event |
-| --- | --- |
-| `before_clock_in` | Before clock-in |
-| `after_clock_out` | After clock-out |
-| `before_starting_job` | Before starting a job |
-| `after_leaving_job` | After leaving a job site or ending work on that job |
-| `job_completed` | When the job itself is marked complete |
-| `after_completing_job` | Legacy value; preserve and query it independently |
-| `daily`, `weekly`, `monthly` | Timezone-aware recurring workspace items |
-| `on_demand` | Employee-opened form in Available |
+## Workspace sections
 
-Do not map `after_completing_job` to either new job event. All three job-ending triggers have distinct completion scopes, so submitting one does not satisfy another.
+The mobile Forms area presents Needs attention, Scheduled, Available anytime, and Recent submissions. Use `occurrenceId` to deduplicate and to open a specific scheduled item. Send that identifier back as `deliveryOccurrenceId`. Opening a Form generically from Available anytime sends `trigger: "on_demand"` with no occurrence correlation.
 
-## Mobile work still required
+## Clock workflows
 
-1. Query `action=required` with `after_leaving_job` after a successful leave-job transition and present matching Forms.
-2. Query it with `job_completed` after a successful job-complete transition and present matching Forms.
-3. Keep querying legacy `after_completing_job` wherever the existing client currently emits that event.
-4. Display `required` completion intent more strongly than `reminder`, but respect `enforcement: advisory` and always allow the underlying workflow to continue.
-5. Refresh `action=forms` after successful submission so recurring and context instances reconcile with server state.
-6. Continue sending authorized `jobId`, `equipmentId`, and `divisionId` context when required by assignment or trigger.
-7. Generate one stable `clientSubmissionId` per logical submission and reuse it unchanged for retries.
+Blocking clock-in and clock-out Forms use the persisted workflow package and its `workflowOccurrenceId` and `requirementId`. Preserve the server snapshot and stable `clientSubmissionId` across retries and restarts.
 
-The server accepts the new trigger values and preserves them through save/reload. It does not currently emit job lifecycle events, intercept workflow transitions, or provide authoritative required-form blocking. Those capabilities need a separate integration owned by the job and clocking APIs.
+For after-clock-out workflows, the time entry is already closed before the workflow is returned. Mobile reconciles the shift as clocked out, explains that follow-up Forms remain, and recovers the pending workflow without reopening or editing the time entry. Reminder Forms may be dismissed and never authorize a client-side block.
+
+## Legacy compatibility
+
+The API retains compatibility trigger and workflow fields while clients roll forward. Unambiguous legacy Forms map to one normalized rule. Forms with mixed trigger/schedule rules or unsupported Job events are marked for admin review and create no new unsupported occurrences. Existing submissions and immutable pending clock workflows remain readable and completable.
+
+Do not map clock-out, leaving a Work Area, switching activity, or any legacy trigger to Job completion. Job closeout automation is deferred.

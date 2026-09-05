@@ -1010,6 +1010,28 @@ export type FormTrigger =
   | 'monthly'
   | 'on_demand';
 
+export type FormDeliveryType = 'before_clock_in' | 'after_clock_out' | 'scheduled' | 'always_available';
+export type FormDeliveryFrequency = 'once_daily' | 'every_occurrence' | null;
+export type FormCompletionBehavior = 'blocking' | 'reminder' | 'due' | 'manual';
+
+export interface FormSchedule {
+  cadence: 'daily' | 'weekly' | 'monthly' | 'custom';
+  weekdays?: number[];
+  dayOfMonth?: number;
+  interval?: {
+    count: number;
+    unit: 'days' | 'weeks' | 'months';
+  };
+}
+
+export interface FormDeliveryRule {
+  type: FormDeliveryType;
+  frequency: FormDeliveryFrequency;
+  completionBehavior: FormCompletionBehavior;
+  schedule: FormSchedule | null;
+  allowManualAccess: boolean;
+}
+
 export type FormFieldType =
   | 'section_header'
   | 'paragraph_text'
@@ -1039,6 +1061,8 @@ export interface FormRecord {
   assignedTo: FormAssignmentType;
   assignmentValue?: string;
   trigger: FormTrigger[];
+  deliveryRule?: FormDeliveryRule;
+  deliveryRuleVersion?: 1;
   completionRequirement?: 'reminder' | 'required';
   requiresApproval?: boolean;
   division?: string;
@@ -1076,6 +1100,8 @@ export interface FormSubmission {
   divisionId?: ID;
   trigger?: FormTrigger;
   periodKey?: string;
+  deliveryOccurrenceId?: string;
+  dueDate?: string;
   submittedAt: string;
   status: FormSubmissionStatus;
   submittedBy?: string;

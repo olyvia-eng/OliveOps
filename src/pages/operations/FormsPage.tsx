@@ -13,7 +13,6 @@ import {
   Plus,
   Save,
   Trash2,
-  X,
 } from 'lucide-react';
 import {
   Button,
@@ -30,27 +29,28 @@ import { formatDateTime } from '../../utils';
 import SignaturePad from '../../components/forms/SignaturePad';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import {
+  applyFormDeliveryRule,
+  createDefaultDeliveryRule,
   createFormBuilderDraft,
   describeFormConfiguration,
   getFormConfigurationWarnings,
-  getScheduleTriggers,
-  getWorkflowTriggers,
-  hasMultipleFormRequirements,
+  getLegacyConfigurationLabels,
+  getTemplateDeliveryRule,
   isFormBuilderDirty,
   moveFormField,
-  setFormOnDemand,
-  setFormSchedule,
-  setFormWorkflowTrigger,
 } from './formsBuilderModel.js';
+import { deliveryRuleToLegacyTriggers, validateFormDeliveryRule } from '../../utils/formDeliveryRules.js';
 import type {
   FormAssignmentType,
   FormCategory,
+  FormDeliveryRule,
+  FormDeliveryType,
   FormField,
   FormFieldType,
   FormRecord,
+  FormSchedule,
   FormStatus,
   FormSubmissionStatus,
-  FormTrigger,
 } from '../../types';
 
 type FormBuilderDraft = ReturnType<typeof createFormBuilderDraft>;
@@ -81,21 +81,16 @@ const ASSIGNMENT_OPTIONS: Array<{ value: FormAssignmentType; label: string }> = 
   { value: 'equipment', label: 'Specific Equipment' },
 ];
 
-const WORKFLOW_OPTIONS: Array<{ value: FormTrigger; label: string }> = [
-  { value: 'before_clock_in', label: 'Before Clock In' },
-  { value: 'after_clock_out', label: 'After Clock Out' },
-  { value: 'before_starting_job', label: 'Before Starting Job' },
-  { value: 'after_leaving_job', label: 'After Leaving Job' },
-  { value: 'job_completed', label: 'When Job Is Completed' },
+const DELIVERY_OPTIONS: Array<{ value: FormDeliveryType; label: string; description: string }> = [
+  { value: 'before_clock_in', label: 'Before clock-in', description: 'Prompt employees as they start work.' },
+  { value: 'after_clock_out', label: 'After clock-out', description: 'Prompt employees as they finish work.' },
+  { value: 'scheduled', label: 'On a schedule', description: 'Make the form due on a recurring cadence.' },
+  { value: 'always_available', label: 'Always available', description: 'Employees open the form from Forms when needed.' },
 ];
 
-const LEGACY_WORKFLOW_OPTION = { value: 'after_completing_job' as FormTrigger, label: 'Legacy: After Completing Job' };
-
-const SCHEDULE_OPTIONS: Array<{ value: FormTrigger | ''; label: string }> = [
-  { value: '', label: 'No recurring schedule' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
+const WEEKDAYS = [
+  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' }, { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' }, { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' }, { value: 0, label: 'Sun' },
 ];
 
 const FIELD_TYPES: Array<{ value: FormFieldType; label: string }> = [
@@ -125,6 +120,7 @@ type FormTemplate = {
   name: string;
   category: FormCategory;
   description: string;
+  deliveryRule?: FormDeliveryRule;
   fields: Array<{ type: FormFieldType; label: string; required?: boolean; options?: string[] }>;
 };
 
@@ -385,6 +381,7 @@ export default function FormsPage() {
   const [selectedFormId, setSelectedFormId] = useState('');
   const [builderDraft, setBuilderDraft] = useState<FormBuilderDraft | null>(null);
   const [builderBaseline, setBuilderBaseline] = useState<FormBuilderDraft | null>(null);
+  const [builderSaveError, setBuilderSaveError] = useState('');
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [fieldPickerOpen, setFieldPickerOpen] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -423,6 +420,7 @@ export default function FormsPage() {
     const next = createFormBuilderDraft(selectedForm, fields);
     setBuilderDraft(next);
     setBuilderBaseline(next);
+    setBuilderSaveError('');
     setEditingFieldId(null);
     setLastSavedAt(selectedForm.updatedAt);
   }, [activeTab, builderDraft?.form.id, formFields, selectedForm]);
@@ -506,6 +504,7 @@ export default function FormsPage() {
       return;
     }
 
+    const deliveryRule = createDefaultDeliveryRule();
     const created = addForm({
       name: newFormDraft.name.trim(),
       description: newFormDraft.description.trim(),
@@ -514,6 +513,8 @@ export default function FormsPage() {
       assignedTo: 'everyone',
       assignmentValue: '',
       trigger: ['on_demand'],
+      deliveryRule,
+      deliveryRuleVersion: 1,
       completionRequirement: 'reminder',
       requiresApproval: false,
       division: '',
@@ -535,7 +536,13 @@ export default function FormsPage() {
   };
 
   const updateBuilderForm = (patch: Partial<FormRecord>) => {
+    setBuilderSaveError('');
     setBuilderDraft((current) => current ? { ...current, form: { ...current.form, ...patch } } : current);
+  };
+
+  const updateDeliveryRule = (deliveryRule: FormDeliveryRule) => {
+    setBuilderSaveError('');
+    setBuilderDraft((current) => current ? { ...current, form: applyFormDeliveryRule(current.form, deliveryRule) } : current);
   };
 
   const addFieldToDraft = (fieldType: FormFieldType) => {
@@ -628,8 +635,19 @@ export default function FormsPage() {
 
   const saveBuilderChanges = async () => {
     if (!builderDraft || !builderBaseline || !isBuilderDirty || savingBuilder) return;
+    if (!builderDraft.form.deliveryRule) {
+      setBuilderSaveError('Choose one delivery rule before saving this form.');
+      return;
+    }
+    const deliveryError = validateFormDeliveryRule(builderDraft.form.deliveryRule);
+    if (deliveryError) {
+      setBuilderSaveError(deliveryError);
+      return;
+    }
     setSavingBuilder(true);
-    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...formPatch } = builderDraft.form;
+    setBuilderSaveError('');
+    const canonicalForm = applyFormDeliveryRule(builderDraft.form, builderDraft.form.deliveryRule);
+    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...formPatch } = canonicalForm;
     const writes: Array<Promise<unknown>> = [updateForm(builderDraft.form.id, formPatch)];
 
     const baselineById = new Map(builderBaseline.fields.map((field) => [field.id, field]));
@@ -646,11 +664,23 @@ export default function FormsPage() {
         writes.push(updateFormField(field.id, fieldPatch));
       }
     }
-    const results = await Promise.all(writes);
+    let results: unknown[];
+    try {
+      results = await Promise.all(writes);
+    } catch {
+      setSavingBuilder(false);
+      setBuilderSaveError('OliveOps could not save this form. Your changes are still here.');
+      return;
+    }
     setSavingBuilder(false);
-    if (results.some((result) => result === false || result === null)) return;
+    if (results.some((result) => result === false || result === null)) {
+      setBuilderSaveError('OliveOps could not save this form. Your changes are still here.');
+      return;
+    }
     const savedAt = new Date().toISOString();
-    setBuilderBaseline(createFormBuilderDraft({ ...builderDraft.form, updatedAt: savedAt }, builderDraft.fields));
+    const savedDraft = createFormBuilderDraft({ ...canonicalForm, updatedAt: savedAt }, builderDraft.fields);
+    setBuilderDraft(savedDraft);
+    setBuilderBaseline(savedDraft);
     setLastSavedAt(savedAt);
   };
 
@@ -677,6 +707,7 @@ export default function FormsPage() {
   };
 
   const handleUseTemplate = (template: FormTemplate) => {
+    const deliveryRule = template.deliveryRule ?? getTemplateDeliveryRule(template.name);
     const created = addForm({
       name: template.name,
       description: template.description,
@@ -684,8 +715,10 @@ export default function FormsPage() {
       status: 'draft',
       assignedTo: 'everyone',
       assignmentValue: '',
-      trigger: ['on_demand'],
-      completionRequirement: 'reminder',
+      trigger: deliveryRuleToLegacyTriggers(deliveryRule),
+      deliveryRule,
+      deliveryRuleVersion: 1,
+      completionRequirement: deliveryRule.completionBehavior === 'blocking' ? 'required' : 'reminder',
       requiresApproval: false,
       division: '',
     });
@@ -746,8 +779,8 @@ export default function FormsPage() {
   const builderForm = builderDraft?.form ?? null;
   const builderFields = builderDraft?.fields ?? [];
   const editingField = editingFieldId ? builderFields.find((field) => field.id === editingFieldId) ?? null : null;
-  const workflowTriggers = builderForm ? getWorkflowTriggers(builderForm.trigger) : [];
-  const scheduleTriggers = builderForm ? getScheduleTriggers(builderForm.trigger) : [];
+  const deliveryRule = builderForm?.deliveryRule ?? null;
+  const legacyConfigurationLabels = builderForm && !deliveryRule ? getLegacyConfigurationLabels(builderForm) : [];
 
   const assignmentLabel = builderForm ? (() => {
     const value = builderForm.assignmentValue;
@@ -1074,91 +1107,104 @@ export default function FormsPage() {
               </section>
 
               <section className="mt-6 border-t border-gray-200 pt-5">
-                <h3 className="text-sm font-semibold text-gray-900">Availability &amp; Automation</h3>
-                <div className="mt-4 grid gap-6 lg:grid-cols-2">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Workflow Trigger</h4>
-                    <p className="mt-1 text-xs text-gray-500">Present this form when a specific employee or job event occurs.</p>
-                    <div className="mt-3 space-y-2">
-                      {workflowTriggers.length === 0 ? (
-                        <Select label="Event" value="" onChange={(event) => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, 0, event.target.value as FormTrigger) })}>
-                          <option value="">Select an event...</option>
-                          {WORKFLOW_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </Select>
-                      ) : workflowTriggers.map((trigger, index) => {
-                        const options = trigger === 'after_completing_job' ? [...WORKFLOW_OPTIONS, LEGACY_WORKFLOW_OPTION] : WORKFLOW_OPTIONS;
-                        return (
-                          <div key={`${trigger}-${index}`} className="flex items-end gap-2">
-                            <div className="min-w-0 flex-1">
-                              <Select label={index === 0 ? 'Event' : `Event ${index + 1}`} value={trigger} onChange={(event) => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, index, event.target.value as FormTrigger) })}>
-                                {options.map((option) => <option key={option.value} value={option.value} disabled={workflowTriggers.includes(option.value) && option.value !== trigger}>{option.label}</option>)}
-                              </Select>
-                            </div>
-                            <Button type="button" variant="ghost" onClick={() => updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, index, '') })} aria-label={`Remove workflow event ${index + 1}`}><X size={16} /></Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {workflowTriggers.length > 0 && workflowTriggers.filter((trigger) => trigger !== 'after_completing_job').length < WORKFLOW_OPTIONS.length && (
-                      <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => {
-                        const next = WORKFLOW_OPTIONS.find((option) => !workflowTriggers.includes(option.value));
-                        if (next) updateBuilderForm({ trigger: setFormWorkflowTrigger(builderForm.trigger, workflowTriggers.length, next.value) });
-                      }}><Plus size={14} /> Add another trigger</Button>
-                    )}
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Schedule</h4>
-                    <p className="mt-1 text-xs text-gray-500">Create one recurring reason for this form to be due using the business timezone.</p>
-                    <div className="mt-3"><Select label="Recurring schedule" value={scheduleTriggers[0] ?? ''} onChange={(event) => updateBuilderForm({ trigger: setFormSchedule(builderForm.trigger, event.target.value as FormTrigger | '') })}>
-                      {SCHEDULE_OPTIONS.map((option) => <option key={option.value || 'none'} value={option.value}>{option.label}</option>)}
-                    </Select></div>
-                    {scheduleTriggers[0] === 'weekly' && <p className="mt-2 text-xs text-gray-500">Weekly forms reset each Monday in the configured business timezone.</p>}
-                    {scheduleTriggers[0] === 'monthly' && <p className="mt-2 text-xs text-gray-500">Monthly forms reset on the first day of each business month.</p>}
-                  </div>
-
-                  <fieldset>
-                    <legend className="text-sm font-medium text-gray-900">Completion Requirement</legend>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <label className={`cursor-pointer border px-3 py-3 ${builderForm.completionRequirement !== 'required' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
-                        <input className="sr-only" type="radio" name="completion-requirement" checked={builderForm.completionRequirement !== 'required'} onChange={() => updateBuilderForm({ completionRequirement: 'reminder' })} />
-                        <span className="block text-sm font-semibold text-gray-900">Reminder Only</span><span className="mt-1 block text-xs leading-5 text-gray-500">Employees are prompted but may continue and complete it later.</span>
-                      </label>
-                      <label className={`cursor-pointer border px-3 py-3 ${builderForm.completionRequirement === 'required' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
-                        <input className="sr-only" type="radio" name="completion-requirement" checked={builderForm.completionRequirement === 'required'} onChange={() => updateBuilderForm({ completionRequirement: 'required' })} />
-                        <span className="block text-sm font-semibold text-gray-900">Required</span><span className="mt-1 block text-xs leading-5 text-gray-500">Marks the intended policy. Workflow blocking is not yet enforced.</span>
-                      </label>
-                    </div>
-                  </fieldset>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Submission Review</h4>
-                    <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
-                      <input type="checkbox" className="mt-0.5" checked={builderForm.requiresApproval ?? false} onChange={(event) => updateBuilderForm({ requiresApproval: event.target.checked })} />
-                      <span><span className="block text-sm font-semibold text-gray-900">Require approval after submission</span><span className="mt-1 block text-xs leading-5 text-gray-500">New submissions wait for an administrator to approve or reject them.</span></span>
-                    </label>
-                  </div>
-
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Employee Access</h4>
-                    <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
-                      <input type="checkbox" className="mt-0.5" checked={builderForm.trigger.includes('on_demand')} onChange={(event) => updateBuilderForm({ trigger: setFormOnDemand(builderForm.trigger, event.target.checked) })} />
-                      <span><span className="block text-sm font-semibold text-gray-900">Allow employees to open this form anytime</span><span className="mt-1 block text-xs leading-5 text-gray-500">Employees can find and complete this form from Forms without waiting for a workflow event or scheduled requirement.</span></span>
-                    </label>
-                  </div>
-                </div>
-
-                {hasMultipleFormRequirements(builderForm.trigger) && (
-                  <div className="mt-5 flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2.5 text-sm text-amber-950" role="status">
-                    <Info size={16} className="mt-0.5 shrink-0 text-amber-700" /><div><p className="font-semibold">Multiple requirements enabled</p><p className="mt-0.5 text-xs leading-5 text-amber-900">An employee may see this form more than once when both requirements apply. For example, a Daily + After Clock Out form can require one daily submission and another after clock out.</p></div>
+                <h3 className="text-sm font-semibold text-gray-900">When should employees complete this form?</h3>
+                {!deliveryRule && (
+                  <div className="mt-3 border-l-2 border-amber-400 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status">
+                    <p className="font-semibold">Configuration needs review</p>
+                    <p className="mt-1 text-xs leading-5">This historical form used {legacyConfigurationLabels.length ? legacyConfigurationLabels.join(', ') : 'an unsupported configuration'}. OliveOps now supports one delivery rule per form. Choose one option below before saving; the historical settings remain unchanged until then.</p>
                   </div>
                 )}
+                <fieldset className="mt-4">
+                  <legend className="sr-only">When should employees complete this form?</legend>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                    {DELIVERY_OPTIONS.map((option) => (
+                      <label key={option.value} className={`cursor-pointer border px-3 py-3 ${deliveryRule?.type === option.value ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input className="sr-only" type="radio" name="delivery-rule" checked={deliveryRule?.type === option.value} onChange={() => updateDeliveryRule(createDefaultDeliveryRule(option.value))} />
+                        <span className="block text-sm font-semibold text-gray-900">{option.label}</span>
+                        <span className="mt-1 block text-xs leading-5 text-gray-500">{option.description}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {deliveryRule && (deliveryRule.type === 'before_clock_in' || deliveryRule.type === 'after_clock_out') && (
+                  <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                    <fieldset>
+                      <legend className="text-sm font-medium text-gray-900">Frequency</legend>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {([
+                          { value: 'once_daily', label: 'Once per day', helper: 'One completed occurrence covers that business day.' },
+                          { value: 'every_occurrence', label: 'Every time', helper: `Create a new occurrence at each ${deliveryRule.type === 'before_clock_in' ? 'clock-in' : 'clock-out'}.` },
+                        ] as const).map((frequency) => (
+                          <label key={frequency.value} className={`cursor-pointer border px-3 py-3 ${deliveryRule.frequency === frequency.value ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
+                            <input className="sr-only" type="radio" name="delivery-frequency" checked={deliveryRule.frequency === frequency.value} onChange={() => updateDeliveryRule({ ...deliveryRule, frequency: frequency.value })} />
+                            <span className="block text-sm font-semibold text-gray-900">{frequency.label}</span><span className="mt-1 block text-xs leading-5 text-gray-500">{frequency.helper}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <fieldset>
+                      <legend className="text-sm font-medium text-gray-900">Completion</legend>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <label className={`cursor-pointer border px-3 py-3 ${deliveryRule.completionBehavior === 'reminder' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
+                          <input className="sr-only" type="radio" name="completion-behavior" checked={deliveryRule.completionBehavior === 'reminder'} onChange={() => updateDeliveryRule({ ...deliveryRule, completionBehavior: 'reminder' })} />
+                          <span className="block text-sm font-semibold text-gray-900">Remind, but allow them to continue</span><span className="mt-1 block text-xs leading-5 text-gray-500">Employees can complete it later.</span>
+                        </label>
+                        <label className={`cursor-pointer border px-3 py-3 ${deliveryRule.completionBehavior === 'blocking' ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}>
+                          <input className="sr-only" type="radio" name="completion-behavior" checked={deliveryRule.completionBehavior === 'blocking'} onChange={() => updateDeliveryRule({ ...deliveryRule, completionBehavior: 'blocking' })} />
+                          <span className="block text-sm font-semibold text-gray-900">Block {deliveryRule.type === 'before_clock_in' ? 'clock-in' : 'clock-out'} until submitted</span><span className="mt-1 block text-xs leading-5 text-gray-500">The employee must submit this occurrence to continue.</span>
+                        </label>
+                      </div>
+                    </fieldset>
+                  </div>
+                )}
+
+                {deliveryRule?.type === 'scheduled' && deliveryRule.schedule && (
+                  <div className="mt-5 max-w-3xl space-y-4">
+                    <Select label="Schedule" value={deliveryRule.schedule.cadence} onChange={(event) => {
+                      const cadence = event.target.value as FormSchedule['cadence'];
+                      const schedule: FormSchedule = cadence === 'weekly' ? { cadence, weekdays: [1] }
+                        : cadence === 'monthly' ? { cadence, dayOfMonth: 1 }
+                          : cadence === 'custom' ? { cadence, interval: { count: 1, unit: 'weeks' } }
+                            : { cadence };
+                      updateDeliveryRule({ ...deliveryRule, schedule });
+                    }}>
+                      <option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="custom">Custom interval</option>
+                    </Select>
+                    {deliveryRule.schedule.cadence === 'weekly' && (
+                      <fieldset><legend className="text-sm font-medium text-gray-700">Weekdays <span className="text-accent-700">*</span></legend><div className="mt-2 flex flex-wrap gap-2">{WEEKDAYS.map((day) => {
+                        const weekdays = deliveryRule.schedule?.weekdays ?? [];
+                        const checked = weekdays.includes(day.value);
+                        return <label key={day.value} className={`cursor-pointer border px-3 py-2 text-sm font-medium ${checked ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-200 text-gray-700'}`}><input className="sr-only" type="checkbox" checked={checked} onChange={() => updateDeliveryRule({ ...deliveryRule, schedule: { cadence: 'weekly', weekdays: checked ? weekdays.filter((value) => value !== day.value) : [...weekdays, day.value] } })} />{day.label}</label>;
+                      })}</div></fieldset>
+                    )}
+                    {deliveryRule.schedule.cadence === 'monthly' && <div><Input label="Day of month" required type="number" min={1} max={31} step={1} value={deliveryRule.schedule.dayOfMonth ?? 1} onChange={(event) => updateDeliveryRule({ ...deliveryRule, schedule: { cadence: 'monthly', dayOfMonth: Number(event.target.value) } })} /><p className="mt-1 text-xs text-gray-500">If a month has fewer days, the form is due on the last day of that month.</p></div>}
+                    {deliveryRule.schedule.cadence === 'custom' && <div className="grid gap-3 sm:grid-cols-2"><Input label="Every" required type="number" min={1} max={365} step={1} value={deliveryRule.schedule.interval?.count ?? 1} onChange={(event) => updateDeliveryRule({ ...deliveryRule, schedule: { cadence: 'custom', interval: { count: Number(event.target.value), unit: deliveryRule.schedule?.interval?.unit ?? 'weeks' } } })} /><Select label="Interval unit" value={deliveryRule.schedule.interval?.unit ?? 'weeks'} onChange={(event) => updateDeliveryRule({ ...deliveryRule, schedule: { cadence: 'custom', interval: { count: deliveryRule.schedule?.interval?.count ?? 1, unit: event.target.value as 'days' | 'weeks' | 'months' } } })}><option value="days">Days</option><option value="weeks">Weeks</option><option value="months">Months</option></Select></div>}
+                    <p className="text-xs text-gray-500">Scheduled forms become due on this cadence. They do not block clock-in or clock-out.</p>
+                  </div>
+                )}
+
+                {deliveryRule && deliveryRule.type !== 'always_available' && (
+                  <label className="mt-5 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
+                    <input type="checkbox" className="mt-0.5" checked={deliveryRule.allowManualAccess} onChange={(event) => updateDeliveryRule({ ...deliveryRule, allowManualAccess: event.target.checked })} />
+                    <span><span className="block text-sm font-semibold text-gray-900">Also allow employees to open this form anytime</span><span className="mt-1 block text-xs leading-5 text-gray-500">A generic manual submission does not satisfy a future or pending occurrence unless the employee opens the form from that occurrence.</span></span>
+                  </label>
+                )}
+
+                <div className="mt-6">
+                  <h4 className="text-sm font-medium text-gray-900">Submission Review</h4>
+                  <label className="mt-3 flex cursor-pointer gap-3 border border-gray-200 px-3 py-3">
+                    <input type="checkbox" className="mt-0.5" checked={builderForm.requiresApproval ?? false} onChange={(event) => updateBuilderForm({ requiresApproval: event.target.checked })} />
+                    <span><span className="block text-sm font-semibold text-gray-900">Require approval after submission</span><span className="mt-1 block text-xs leading-5 text-gray-500">New submissions wait for an administrator to approve or reject them.</span></span>
+                  </label>
+                </div>
               </section>
 
               <section className="mt-6 border-t border-gray-200 pt-5">
                 <h3 className="text-sm font-semibold uppercase text-gray-500">How This Form Works</h3>
                 <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-700">{configurationSummary}</p>
                 {configurationWarnings.length > 0 && <div className="mt-4 space-y-2">{configurationWarnings.map((warning) => <div key={warning} className="flex gap-2 border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"><Info size={15} className="mt-0.5 shrink-0" /><span>{warning}</span></div>)}</div>}
+                {builderSaveError && <p className="mt-3 text-sm font-medium text-accent-700" role="alert">{builderSaveError}</p>}
               </section>
             </Card>
 

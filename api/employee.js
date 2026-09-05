@@ -20,11 +20,13 @@ import { filterRecordsForSession } from './_lib/authorization.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
   buildFormCompletionScope,
+  buildScheduledOccurrence,
   getMissingRequiredFormsForTrigger,
   isEmployeeAuthorizedForJob,
   isFormAssignedToEmployee,
   isJobOperationallyActive,
   isSubmissionSatisfiedForScope,
+  runtimeDeliveryRule,
   validateEmployeeFormResponses,
 } from './_lib/formsEngine.js';
 import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
@@ -155,14 +157,23 @@ function safeContext(context) {
   };
 }
 
-function packageFor({ form, trigger, context, data, instant }) {
-  const scope = buildFormCompletionScope({ form, trigger, instant, timeZone: data.timeZone, ...context });
+function packageFor({ form, trigger, context, data, instant, occurrence }) {
+  const requiresOccurrenceCorrelation = Boolean(form.deliveryRule && occurrence);
+  const scope = {
+    ...buildFormCompletionScope({ form, trigger, instant, timeZone: data.timeZone, ...context }),
+    ...(occurrence ? { periodKey: occurrence.periodKey } : {}),
+    ...(requiresOccurrenceCorrelation ? { deliveryOccurrenceId: occurrence.occurrenceId } : {}),
+  };
   const submission = data.submissions.filter((candidate) => candidate.employeeId === data.employee.id).find((candidate) => isSubmissionSatisfiedForScope({ submission: candidate, employeeId: data.employee.id, scope, timeZone: data.timeZone }));
+  const deliveryRule = runtimeDeliveryRule(form);
   return {
     id: form.id, name: form.name, description: form.description, category: form.category, trigger,
+    deliveryRule,
     required: trigger !== 'on_demand', completionRequirement: form.completionRequirement ?? 'reminder',
     enforcement: ['before_clock_in', 'after_clock_out'].includes(trigger) && form.completionRequirement === 'required' ? 'blocking' : 'advisory',
-    periodKey: scope.periodKey, context: safeContext(context), fields: safeFields(form.id, data),
+    periodKey: scope.periodKey, occurrenceId: occurrence?.occurrenceId, dueDate: occurrence?.dueDate,
+    occurrenceState: submission ? 'completed' : occurrence?.state,
+    context: safeContext(context), fields: safeFields(form.id, data),
     submissionState: { completed: Boolean(submission), submissionId: submission?.id, submittedAt: submission?.submittedAt, status: submission?.status },
   };
 }
@@ -170,7 +181,8 @@ function packageFor({ form, trigger, context, data, instant }) {
 function availableInstances(data, query, instant) {
   const packages = [];
   for (const form of data.forms) {
-    if (form.status !== 'active' || !form.trigger?.includes('on_demand')) continue;
+    const rule = runtimeDeliveryRule(form);
+    if (form.status !== 'active' || !rule?.allowManualAccess) continue;
     for (const context of contextsForForm(form, data)) {
       if (!contextMatchesQuery(context, query)) continue;
       if (isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) packages.push(packageFor({ form, trigger: 'on_demand', context, data, instant }));
@@ -182,14 +194,14 @@ function availableInstances(data, query, instant) {
 function toDoInstances(data, query, instant, triggerFilter) {
   const packages = [];
   for (const form of data.forms) {
-    if (form.status !== 'active') continue;
+    const rule = runtimeDeliveryRule(form);
+    if (form.status !== 'active' || rule?.type !== 'scheduled') continue;
     for (const context of contextsForForm(form, data)) {
       if (!contextMatchesQuery(context, query) || !isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) continue;
-      for (const trigger of form.trigger ?? []) {
-        if (trigger === 'on_demand' || (triggerFilter && trigger !== triggerFilter)) continue;
-        const item = packageFor({ form, trigger, context, data, instant });
-        if (!item.submissionState.completed) packages.push(item);
-      }
+      const occurrence = buildScheduledOccurrence({ form, employeeId: data.employee.id, context, instant, timeZone: data.timeZone });
+      if (!occurrence || (triggerFilter && occurrence.trigger !== triggerFilter)) continue;
+      const item = packageFor({ form, trigger: occurrence.trigger, context, data, instant, occurrence });
+      if (!item.submissionState.completed) packages.push(item);
     }
   }
   return packages;
@@ -203,6 +215,8 @@ function completedSubmissions(data) {
     .sort((left, right) => Date.parse(right.submittedAt) - Date.parse(left.submittedAt)).slice(0, 50).map((submission) => ({
       submissionId: submission.id, formId: submission.formId, formName: formsById.get(submission.formId)?.name ?? 'Archived form',
       clientSubmissionId: submission.clientSubmissionId ?? null, submittedAt: submission.submittedAt, status: submission.status, trigger: submission.trigger,
+      deliveryOccurrenceId: submission.deliveryOccurrenceId ?? null, dueDate: submission.dueDate ?? null,
+      occurrenceState: submission.deliveryOccurrenceId ? 'completed' : null,
       workflowOccurrenceId: submission.workflowOccurrenceId ?? null, workflowRequirementId: submission.workflowRequirementId ?? null,
       context: { jobId: submission.jobId, jobName: jobsById.get(submission.jobId)?.title, equipmentId: submission.equipmentId, equipmentName: equipmentById.get(submission.equipmentId)?.name, divisionId: submission.divisionId },
     }));
@@ -336,6 +350,7 @@ export default async function handler(req, res) {
     const formId = text(payload?.formId ?? req.query.formId);
     const sourceForm = data.forms.find((candidate) => candidate.id === formId);
     const requestedTrigger = text(payload?.trigger);
+    const requestedDeliveryOccurrenceId = text(payload?.deliveryOccurrenceId ?? payload?.occurrenceId);
     const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
     const workflowRequirementId = text(payload?.workflowRequirementId);
     const candidateClockInWorkflow = requestedTrigger === 'before_clock_in' && workflowOccurrenceId
@@ -347,6 +362,7 @@ export default async function handler(req, res) {
     let form = candidateClockInRequirement?.form ?? sourceForm;
     if (!form) return res.status(404).json({ ok: false, error: 'Form not found.' });
     const configuredTriggers = Array.isArray(form.trigger) ? form.trigger : [form.trigger].filter(Boolean);
+    const deliveryRule = runtimeDeliveryRule(form);
     const trigger = requestedTrigger || (configuredTriggers.includes('on_demand') ? 'on_demand' : configuredTriggers[0]);
     if (!FORM_TRIGGERS.has(trigger) || !configuredTriggers.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
     const requiresClockOutWorkflow = trigger === 'after_clock_out' && form.completionRequirement === 'required';
@@ -448,7 +464,17 @@ export default async function handler(req, res) {
       response.artifactFingerprint = `${file.id}:${file.checksumSha256 || file.etag}`;
     }
     const submittedAt = new Date().toISOString();
-    const scope = buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context });
+    const scheduledOccurrence = !workflowRequirement && trigger !== 'on_demand' && deliveryRule?.type === 'scheduled'
+      ? buildScheduledOccurrence({ form, employeeId: data.employee.id, context, instant: submittedAt, timeZone: data.timeZone })
+      : null;
+    if (form.deliveryRule && scheduledOccurrence && requestedDeliveryOccurrenceId !== scheduledOccurrence.occurrenceId) {
+      return res.status(409).json({ ok: false, code: 'delivery_occurrence_required', error: 'Submit this scheduled Form from its current due occurrence.' });
+    }
+    const scope = {
+      ...buildFormCompletionScope({ form, trigger, instant: submittedAt, timeZone: data.timeZone, ...context }),
+      ...(scheduledOccurrence ? { periodKey: scheduledOccurrence.periodKey, deliveryOccurrenceId: scheduledOccurrence.occurrenceId } : {}),
+      ...(!form.deliveryRule ? { deliveryOccurrenceId: undefined } : {}),
+    };
     const payloadFingerprint = clientSubmissionId
       ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses, workflowOccurrenceId, workflowRequirementId })
       : undefined;
@@ -477,6 +503,8 @@ export default async function handler(req, res) {
       id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope, workflowOccurrenceId, workflowRequirementId }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
       trigger, periodKey: scope.periodKey, submittedAt, status: form.requiresApproval ? 'pending_review' : 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
+      deliveryOccurrenceId: scheduledOccurrence?.occurrenceId,
+      dueDate: scheduledOccurrence?.dueDate,
       clientSubmissionId: clientSubmissionId || undefined,
       workflowOccurrenceId: workflowRequirement ? workflowOccurrenceId : undefined,
       workflowRequirementId: workflowRequirement ? workflowRequirementId : undefined,

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFormCompletionScope,
+  buildScheduledOccurrence,
   getMissingRequiredFormsForTrigger,
+  isClockDeliverySatisfied,
   isFormAssignedToEmployee,
   isJobOperationallyActive,
   isSubmissionSatisfiedForScope,
@@ -140,4 +142,39 @@ test('response validation accepts every supported answer-bearing field type', ()
     responses: [],
   });
   assert.equal(presentation.ok, true);
+});
+
+test('clock delivery frequency uses the business-local day and ignores generic submissions', () => {
+  const daily = {
+    ...form('everyone', '', ['before_clock_in']),
+    deliveryRule: { type: 'before_clock_in', frequency: 'once_daily', completionBehavior: 'blocking', schedule: null, allowManualAccess: false },
+  };
+  const submissions = [{
+    formId: daily.id, employeeId: employee.id, trigger: 'before_clock_in', periodKey: '2026-03-08', status: 'submitted',
+  }, {
+    formId: daily.id, employeeId: employee.id, trigger: 'on_demand', periodKey: '2026-03-08', status: 'submitted',
+  }];
+  assert.equal(isClockDeliverySatisfied({ form: daily, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant: '2026-03-08T05:30:00.000Z', timeZone: 'America/Toronto' }), true);
+  assert.equal(isClockDeliverySatisfied({ form: daily, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant: '2026-03-09T03:30:00.000Z', timeZone: 'America/Toronto' }), true);
+  assert.equal(isClockDeliverySatisfied({ form: daily, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant: '2026-03-09T04:30:00.000Z', timeZone: 'America/Toronto' }), false);
+  assert.equal(isClockDeliverySatisfied({ form: { ...daily, deliveryRule: { ...daily.deliveryRule, frequency: 'every_occurrence' } }, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant: '2026-03-08T05:30:00.000Z', timeZone: 'America/Toronto' }), false);
+  const afterClockOut = { ...daily, deliveryRule: { ...daily.deliveryRule, type: 'after_clock_out' } };
+  const afterSubmission = [{ ...submissions[0], trigger: 'after_clock_out' }];
+  assert.equal(isClockDeliverySatisfied({ form: afterClockOut, deliveryType: 'after_clock_out', employeeId: employee.id, submissions: afterSubmission, instant: '2026-03-08T05:30:00.000Z', timeZone: 'America/Toronto' }), true);
+  assert.equal(isClockDeliverySatisfied({ form: { ...afterClockOut, deliveryRule: { ...afterClockOut.deliveryRule, frequency: 'every_occurrence' } }, deliveryType: 'after_clock_out', employeeId: employee.id, submissions: afterSubmission, instant: '2026-03-08T05:30:00.000Z', timeZone: 'America/Toronto' }), false);
+});
+
+test('scheduled occurrences clamp month-end and calculate weekly and custom overdue dates', () => {
+  const base = { ...form('everyone', '', ['monthly']), createdAt: '2026-01-31T15:00:00.000Z' };
+  const monthly = { ...base, deliveryRule: { type: 'scheduled', frequency: null, completionBehavior: 'due', schedule: { cadence: 'monthly', dayOfMonth: 31 }, allowManualAccess: false } };
+  assert.deepEqual(buildScheduledOccurrence({ form: monthly, employeeId: employee.id, instant: '2026-02-28T17:00:00.000Z', timeZone: 'America/Toronto' }), {
+    occurrenceId: `scheduled:${monthly.id}:${employee.id}:global:2026-02-28`, dueDate: '2026-02-28', periodKey: '2026-02-28', state: 'due', trigger: 'monthly',
+  });
+  assert.equal(buildScheduledOccurrence({ form: monthly, employeeId: employee.id, instant: '2026-03-01T17:00:00.000Z', timeZone: 'America/Toronto' }).state, 'overdue');
+
+  const weekly = { ...base, deliveryRule: { ...monthly.deliveryRule, schedule: { cadence: 'weekly', weekdays: [1, 5] } } };
+  assert.equal(buildScheduledOccurrence({ form: weekly, employeeId: employee.id, instant: '2026-09-09T16:00:00.000Z', timeZone: 'America/Toronto' }).dueDate, '2026-09-07');
+
+  const custom = { ...base, deliveryRule: { ...monthly.deliveryRule, schedule: { cadence: 'custom', interval: { count: 1, unit: 'months' } } } };
+  assert.equal(buildScheduledOccurrence({ form: custom, employeeId: employee.id, instant: '2026-02-28T17:00:00.000Z', timeZone: 'America/Toronto' }).dueDate, '2026-02-28');
 });

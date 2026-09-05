@@ -1,6 +1,6 @@
 # Employee Forms API
 
-Required forms using `before_clock_in` or `after_clock_out` are server-enforced through persisted workflow occurrences. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md) for the clock-out initiation, submission correlation, recovery, and finalization contracts. Other workflow triggers remain advisory.
+Blocking Forms using `before_clock_in` or `after_clock_out` are server-enforced through persisted workflow occurrences. See [Mandatory Forms After Clock-Out](mandatory-after-clock-out-forms.md) for the clock-out initiation, submission correlation, recovery, and completion contracts. Scheduled Forms are due-list items and never interrupt clocking. Unsupported legacy Job-event configurations are retained for review but do not create new occurrences.
 
 Phase 1 exposes the existing OliveOps Forms definitions and submissions to employee clients. The Forms builder remains the source of `FormRecord` and `FormField` data. Mobile clients must use `/api/employee`; they must not read or write Forms through `/api/data`.
 
@@ -8,7 +8,7 @@ Phase 1 exposes the existing OliveOps Forms definitions and submissions to emplo
 
 `GET /api/bootstrap` returns `timezone`, an IANA timezone derived from the persisted business profile. Mobile must use this value as the business authority for business-day boundaries; it must not submit a device timezone as the business timezone.
 
-The server treats `after_completing_job` as a legacy, distinct trigger value. It is not emitted or reinterpreted by the backend as switching away, clocking out, `after_leaving_job`, or `job_completed`; clients that still use it must request it explicitly. Form workflow checks remain advisory even when `completionRequirement` is `required`. True blocking requires a future server-owned workflow transition that checks and commits Form completion atomically with the guarded action.
+The server treats `after_completing_job` and the other historical Job-event values as legacy, distinct values. They are not emitted or reinterpreted as switching activity, leaving a Work Area, clocking out, or completing a Job. Existing submissions and immutable pending clock snapshots remain readable and completable, but these legacy values do not create new occurrences.
 
 ## Authentication
 
@@ -40,7 +40,7 @@ The optional context filters narrow the returned instances. They do not grant ac
 }
 ```
 
-`toDo` contains incomplete required instances. `available` contains active on-demand instances. `completed` contains up to 50 of the employee's non-draft submissions, newest first.
+`toDo` contains server-authoritative incomplete scheduled occurrences. `available` contains only Forms whose delivery rule permits manual access. `completed` contains up to 50 of the employee's non-draft submissions, newest first. Ambiguous legacy configurations are retained for review but do not create new Job-event or schedule occurrences.
 
 Current Form discovery and Job/Customer selector choices include only operational Jobs. Jobs with status `completed`, `cancelled`, or `on_hold` are non-actionable; all other and legacy missing statuses remain actionable. Changing a Job back to an actionable status makes its assigned Forms available on the next request.
 
@@ -57,6 +57,9 @@ A renderable Form instance has this shape:
   "completionRequirement": "required",
   "enforcement": "advisory",
   "periodKey": "2026-03-20",
+  "occurrenceId": "scheduled:form-id:employee-id:job-id:2026-03-20",
+  "dueDate": "2026-03-20",
+  "occurrenceState": "due",
   "context": {
     "jobId": "job-id",
     "jobName": "Main Street",
@@ -74,30 +77,29 @@ A renderable Form instance has this shape:
 
 Missing context values and incomplete submission-state metadata are omitted from JSON.
 
+Scheduled occurrence dates use the configured business timezone. Weekly rules use their selected weekdays, monthly rules clamp deterministically to the final day of shorter months, and custom intervals are anchored to the Form creation date. An occurrence is `due` on its due date, `overdue` afterward, and its historical submission is `completed`.
+
 `required` is the existing trigger-derived workspace flag: it is `false` only for `on_demand`. `completionRequirement` is the builder policy (`reminder` or `required`) and defaults to `reminder` for legacy records. `enforcement` is `blocking` only for Required before-clock-in and after-clock-out occurrences; all other triggers are advisory.
 
 ## Check a required trigger
 
 ```http
 GET /api/employee?action=required&trigger=before_clock_in
-GET /api/employee?action=required&trigger=before_starting_job&jobId=<id>
-GET /api/employee?action=required&trigger=after_completing_job&jobId=<id>&equipmentId=<id>
-GET /api/employee?action=required&trigger=after_leaving_job&jobId=<id>
-GET /api/employee?action=required&trigger=job_completed&jobId=<id>
+GET /api/employee?action=required&trigger=after_clock_out
 ```
 
-Valid workflow triggers are `before_clock_in`, `after_clock_out`, `before_starting_job`, `after_leaving_job`, and `job_completed`. `after_completing_job` remains valid for backward compatibility and is not reinterpreted as either new event. Valid schedule triggers are `daily`, `weekly`, and `monthly`. The response contains only active, assigned Forms not already satisfied for the period and context:
+Normalized workflow delivery types are `before_clock_in` and `after_clock_out`. Legacy Job-event trigger strings remain accepted only where needed to read historical data; new required discovery returns no occurrences for them. Schedule compatibility triggers are `daily`, `weekly`, and `monthly`. The response contains only active, assigned Forms not already satisfied for the period and context:
 
 ```json
 {
   "ok": true,
-  "trigger": "before_starting_job",
+  "trigger": "before_clock_in",
   "timezone": "America/Toronto",
   "forms": []
 }
 ```
 
-This discovery endpoint is advisory and does not itself authorize a client-side block. Required before-clock-in and after-clock-out Forms are enforced only through their server-owned persisted workflow occurrences. Starting work, leaving a job, and completing a job remain advisory even when this endpoint returns Forms whose `completionRequirement` is `required`.
+This discovery endpoint does not itself authorize a client-side block. Blocking before-clock-in and after-clock-out Forms are enforced only through their server-owned persisted workflow occurrences. Unsupported Job-event values return no new requirements.
 
 ## Submit a Form
 
@@ -111,6 +113,7 @@ Content-Type: application/json
   "formId": "form-id",
   "clientSubmissionId": "018f47ac-7c42-7b35-9c79-0f4e871ca202",
   "trigger": "daily",
+  "occurrenceId": "scheduled:form-id:employee-id:job-id:2026-03-20",
   "jobId": "job-id",
   "equipmentId": "equipment-id",
   "divisionId": "division-id",
@@ -121,7 +124,7 @@ Content-Type: application/json
 }
 ```
 
-`trigger` must be configured on the active Form. Context IDs are optional unless needed by the Form assignment or trigger. A job must be directly assigned to the employee or assigned to one of their active crews. Equipment must be assigned through the supplied authorized job. Division must agree with the job context.
+`trigger` must be configured on the active Form. Normalized scheduled Forms also require the exact `occurrenceId` returned by the Forms workspace. A generic `on_demand` submission never satisfies a due occurrence. Context IDs are optional unless needed by the Form assignment or trigger. A job must be directly assigned to the employee or assigned to one of their active crews. Equipment must be assigned through the supplied authorized job. Division must agree with the job context.
 
 The server validates all answers, creates the submission and responses in one DynamoDB transaction, and returns `201`. Forms configured with `requiresApproval: true` return `status: "pending_review"`; all others return `status: "submitted"`.
 
@@ -269,7 +272,7 @@ Timestamps are stored in UTC. Period keys are calculated in the configured IANA 
 - Daily: local calendar date, for example `2026-03-20`.
 - Weekly: Monday-start local business week, represented by its Monday date.
 - Monthly: local calendar month, for example `2026-03`.
-- Job start/leaving/completion: completion is scoped to the authorized job context and exact trigger. `after_leaving_job`, `job_completed`, and legacy `after_completing_job` do not satisfy one another.
+- Historical Job-event submissions retain their original trigger and context for display and audit. They do not satisfy normalized clock or scheduled occurrences.
 
 A `submitted`, `pending_review`, or `approved` submission satisfies a required instance. A `draft` or `rejected` submission does not. Approval is a downstream office workflow and never delays clock-in or clock-out after the employee has submitted valid answers.
 

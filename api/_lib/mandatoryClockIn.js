@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { isFormAssignedToEmployee, isJobOperationallyActive } from './formsEngine.js';
+import { isClockDeliverySatisfied, isFormAssignedToEmployee, isFormDeliveredBy, isJobOperationallyActive, runtimeDeliveryRule } from './formsEngine.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 export const clockInWorkflowSk = (occurrenceId) => `CLOCK_IN_WORKFLOW#${occurrenceId}`;
@@ -54,6 +54,7 @@ function formSnapshot({ form, context, fields, employee, jobs, customers }) {
     description: form.description,
     category: form.category,
     trigger: 'before_clock_in',
+    ...(form.deliveryRule ? { deliveryRule: form.deliveryRule } : {}),
     required: true,
     completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
     requiresApproval: form.requiresApproval === true,
@@ -103,15 +104,17 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
   return isFormAssignedToEmployee({ form, employee, crews, divisions, ...context }) ? context : null;
 }
 
-export function resolveBeforeClockInForms({ forms = [], fields = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [] }) {
+export function resolveBeforeClockInForms({ forms = [], fields = [], submissions = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [], instant = new Date(), timeZone }) {
   const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
-    if (form.status !== 'active' || !form.trigger?.includes('before_clock_in')) continue;
+    if (form.status !== 'active' || !isFormDeliveredBy(form, 'before_clock_in')) continue;
+    if (isClockDeliverySatisfied({ form, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant, timeZone })) continue;
     const context = assignmentContext({ form, employee, crews, divisions, jobs: actionableJobs, equipment });
     if (!context || !isFormAssignedToEmployee({ form, employee, crews, divisions, ...context })) continue;
     const packagedContext = safeContext(context);
-    const completionRequirement = form.completionRequirement === 'required' ? 'required' : 'reminder';
+    const rule = runtimeDeliveryRule(form);
+    const completionRequirement = rule.completionBehavior === 'blocking' ? 'required' : 'reminder';
     applicable.push({
       requirementId: requirementId(form.id, packagedContext),
       formId: form.id,

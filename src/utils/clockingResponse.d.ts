@@ -20,6 +20,7 @@ export interface PendingClockingWorkflow {
   };
   timeEntryId?: string;
   intendedClockOutAt?: string;
+  timeEntry?: TimeEntry;
 }
 
 export type ClockingResponseResult =

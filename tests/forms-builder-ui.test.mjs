@@ -2,17 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  applyFormDeliveryRule,
+  createDefaultDeliveryRule,
   createFormBuilderDraft,
   describeFormConfiguration,
   getFormConfigurationWarnings,
-  getScheduleTriggers,
-  getWorkflowTriggers,
-  hasMultipleFormRequirements,
+  getLegacyConfigurationLabels,
+  getTemplateDeliveryRule,
   isFormBuilderDirty,
   moveFormField,
-  setFormOnDemand,
-  setFormSchedule,
-  setFormWorkflowTrigger,
 } from '../src/pages/operations/formsBuilderModel.js';
 
 const form = {
@@ -23,7 +21,9 @@ const form = {
   status: 'active',
   assignedTo: 'everyone',
   assignmentValue: '',
-  trigger: ['daily', 'on_demand'],
+  trigger: ['on_demand'],
+  deliveryRule: createDefaultDeliveryRule('always_available'),
+  deliveryRuleVersion: 1,
   createdAt: '2026-08-18T10:00:00.000Z',
   updatedAt: '2026-08-18T10:00:00.000Z',
 };
@@ -43,22 +43,26 @@ test('Forms builder dirty state tracks meaningful form and field changes', () =>
   const editedFields = createFormBuilderDraft(form, [{ ...fields[0], required: false }, fields[1]]);
   assert.equal(isFormBuilderDirty(baseline, editedFields), true);
 
-  const reorderedTriggers = createFormBuilderDraft({ ...form, trigger: ['on_demand', 'daily'] }, fields);
-  assert.equal(isFormBuilderDirty(baseline, reorderedTriggers), false);
-
-  const changedTriggers = createFormBuilderDraft({ ...form, trigger: ['after_clock_out', 'daily'] }, fields);
-  assert.equal(isFormBuilderDirty(baseline, changedTriggers), true);
+  const changedRule = createFormBuilderDraft(applyFormDeliveryRule(form, createDefaultDeliveryRule('after_clock_out')), fields);
+  assert.equal(isFormBuilderDirty(baseline, changedRule), true);
 
   assert.equal(isFormBuilderDirty(baseline, createFormBuilderDraft({ ...form, requiresApproval: true }, fields)), true);
   assert.equal(isFormBuilderDirty(baseline, createFormBuilderDraft(form, [{ ...fields[0], acceptedResponse: { value: '2026-08-18', message: 'Use today.' } }, fields[1]])), true);
 });
 
-test('Forms trigger groups warn only when workflow and schedule requirements overlap', () => {
-  assert.equal(hasMultipleFormRequirements(['after_clock_out']), false);
-  assert.equal(hasMultipleFormRequirements(['daily']), false);
-  assert.equal(hasMultipleFormRequirements(['on_demand']), false);
-  assert.equal(hasMultipleFormRequirements(['after_clock_out', 'daily']), true);
-  assert.equal(hasMultipleFormRequirements(['after_clock_out', 'on_demand']), false);
+test('delivery rule helpers produce canonical legacy fields and template defaults', () => {
+  const clockRule = { ...createDefaultDeliveryRule('before_clock_in'), completionBehavior: 'blocking', allowManualAccess: true };
+  const normalized = applyFormDeliveryRule(form, clockRule);
+  assert.deepEqual(normalized.trigger, ['before_clock_in', 'on_demand']);
+  assert.equal(normalized.completionRequirement, 'required');
+  assert.equal(normalized.deliveryRuleVersion, 1);
+
+  for (const name of ['Excavator Daily Inspection', 'Morning Truck Inspection', 'MTO Daily Inspection']) {
+    assert.deepEqual(getTemplateDeliveryRule(name), { type: 'before_clock_in', frequency: 'once_daily', completionBehavior: 'blocking', schedule: null, allowManualAccess: false });
+  }
+  for (const name of ['Vehicle Damage Report', 'Fuel Log', 'Toolbox Talk Attendance', 'Tailgate Safety Meeting']) {
+    assert.equal(getTemplateDeliveryRule(name).type, 'always_available');
+  }
 });
 
 test('drag ordering moves the selected field and normalizes persisted order values', () => {
@@ -68,7 +72,7 @@ test('drag ordering moves the selected field and normalizes persisted order valu
   assert.deepEqual(fields.map((field) => field.id), ['field-a', 'field-b']);
 });
 
-test('Forms editor exposes full-width setup, explicit automation concepts, and save lifecycle', async () => {
+test('Forms editor exposes one normalized delivery decision and contextual controls', async () => {
   const source = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
   assert.match(source, /Save Changes/);
   assert.match(source, /Unsaved changes/);
@@ -81,25 +85,30 @@ test('Forms editor exposes full-width setup, explicit automation concepts, and s
   assert.match(source, /Form Setup/);
   assert.match(source, /Form Details/);
   assert.match(source, /Who Should Complete This Form\?/);
-  assert.match(source, /Availability &amp; Automation/);
-  assert.match(source, /Workflow Trigger/);
-  assert.match(source, /After Leaving Job/);
-  assert.match(source, /When Job Is Completed/);
-  assert.match(source, /Add another trigger/);
-  assert.match(source, /No recurring schedule/);
-  assert.match(source, /Completion Requirement/);
+  assert.match(source, /When should employees complete this form\?/);
+  assert.match(source, /Before clock-in/);
+  assert.match(source, /After clock-out/);
+  assert.match(source, /On a schedule/);
+  assert.match(source, /Always available/);
+  assert.match(source, /Once per day/);
+  assert.match(source, /Every time/);
+  assert.match(source, /Custom interval/);
+  assert.match(source, /Day of month/);
+  assert.match(source, /last day of that month/);
+  assert.match(source, /Scheduled forms become due/);
+  assert.match(source, /Block \{deliveryRule\.type === 'before_clock_in' \? 'clock-in' : 'clock-out'\} until submitted/);
   assert.match(source, /Require approval after submission/);
-  assert.match(source, /Reminder Only/);
-  assert.match(source, /Allow employees to open this form anytime/);
+  assert.match(source, /Also allow employees to open this form anytime/);
+  assert.match(source, /generic manual submission does not satisfy a future or pending occurrence unless the employee opens the form from that occurrence/);
   assert.match(source, /How This Form Works/);
-  assert.match(source, /Multiple requirements enabled/);
-  assert.match(source, /Daily \+ After Clock Out/);
+  assert.match(source, /Configuration needs review/);
+  assert.match(source, /historical settings remain unchanged until then/);
   assert.match(source, /setFieldPickerOpen\(true\)/);
   assert.doesNotMatch(source, /xl:grid-cols-\[minmax\(0,1fr\)_380px\]/);
-  assert.doesNotMatch(source, /When should this form appear\?/);
-  assert.doesNotMatch(source, /label="Active Form"/);
-  assert.doesNotMatch(source, /label="Order"/);
-  assert.doesNotMatch(source, /Trigger Rules \(Clock In\/Out/);
+  assert.doesNotMatch(source, /Add another trigger/);
+  assert.doesNotMatch(source, /Before Starting Job/);
+  assert.doesNotMatch(source, /After Leaving Job/);
+  assert.doesNotMatch(source, /When Job Is Completed/);
 });
 
 test('Forms save waits for persistence and session loss clears cached business data', async () => {
@@ -110,39 +119,48 @@ test('Forms save waits for persistence and session loss clears cached business d
   assert.match(formsSource, /await Promise\.all\(writes\)/);
   assert.match(formsSource, /savingBuilder \? 'Saving\.\.\.' : 'Save Changes'/);
   assert.match(formsSource, /updateForm\(builderDraft\.form\.id, formPatch\)/);
-  assert.match(formsSource, /setBuilderBaseline\(createFormBuilderDraft/);
+  assert.match(formsSource, /applyFormDeliveryRule\(builderDraft\.form, builderDraft\.form\.deliveryRule\)/);
+  assert.match(formsSource, /Your changes are still here/);
+  assert.match(formsSource, /setBuilderBaseline\(savedDraft\)/);
   assert.match(storeSource, /updateForm: async/);
   assert.match(storeSource, /addFormField: async/);
   assert.match(appSource, /if \(!sessionUser\) \{[\s\S]*clearBusinessDataStore\(\)/);
 });
 
-test('builder automation helpers preserve legacy values until the admin changes that concept', () => {
-  const legacy = ['after_completing_job', 'daily', 'weekly', 'on_demand'];
-  assert.deepEqual(getWorkflowTriggers(legacy), ['after_completing_job']);
-  assert.deepEqual(getScheduleTriggers(legacy), ['daily', 'weekly']);
-  assert.deepEqual(setFormOnDemand(legacy, false), ['after_completing_job', 'daily', 'weekly']);
-  assert.deepEqual(setFormSchedule(legacy, 'monthly'), ['after_completing_job', 'on_demand', 'monthly']);
-  assert.deepEqual(setFormWorkflowTrigger(legacy, 0, 'after_leaving_job'), ['after_leaving_job', 'daily', 'weekly', 'on_demand']);
+test('ambiguous historical automation is preserved for review until one rule is selected', () => {
+  const historical = { ...form, deliveryRule: undefined, deliveryRuleVersion: undefined, trigger: ['after_completing_job', 'daily', 'on_demand'] };
+  const draft = createFormBuilderDraft(historical, fields);
+  assert.equal(draft.form.deliveryRule, undefined);
+  assert.deepEqual(draft.form.trigger, historical.trigger);
+  assert.deepEqual(getLegacyConfigurationLabels(draft.form), ['After Completing Job', 'Daily', 'Always Available']);
+  assert.match(getFormConfigurationWarnings(draft.form).join(' '), /Configuration needs review/);
+  assert.match(describeFormConfiguration(draft.form), /historical delivery settings need review/);
+
+  const selected = applyFormDeliveryRule(draft.form, createDefaultDeliveryRule('scheduled'));
+  assert.deepEqual(selected.trigger, ['daily']);
+  assert.equal(getFormConfigurationWarnings(selected).length, 0);
 });
 
-test('legacy forms default to reminder and generated guidance reflects draft configuration', () => {
-  const legacy = createFormBuilderDraft({ ...form, completionRequirement: undefined }, fields);
-  assert.equal(legacy.form.completionRequirement, 'reminder');
-  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /after clocking out/);
-  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /daily schedule/);
-  assert.match(describeFormConfiguration({ ...legacy.form, trigger: ['after_clock_out', 'daily', 'on_demand'] }), /open it manually/);
+test('unambiguous legacy schedules retain their historical due day when normalized for editing', () => {
+  const weekly = createFormBuilderDraft({ ...form, deliveryRule: undefined, deliveryRuleVersion: undefined, trigger: ['weekly'] }, fields);
+  assert.deepEqual(weekly.form.deliveryRule.schedule, { cadence: 'weekly', weekdays: [1] });
+  assert.deepEqual(weekly.form.trigger, ['weekly']);
 
-  const inaccessible = { ...legacy.form, trigger: [], assignedTo: 'division', assignmentValue: '', completionRequirement: 'required' };
-  assert.equal(getFormConfigurationWarnings(inaccessible).length, 2);
-  for (const trigger of ['before_clock_in', 'after_clock_out']) {
-    assert.doesNotMatch(getFormConfigurationWarnings({ ...inaccessible, assignedTo: 'everyone', trigger: [trigger] }).join(' '), /enforcement is not yet available/);
-  }
-  for (const trigger of ['before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed']) {
-    assert.match(getFormConfigurationWarnings({ ...inaccessible, assignedTo: 'everyone', trigger: [trigger] }).join(' '), /enforcement is not yet available/);
-  }
-  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['after_clock_out'] }), /must submit it before clock-out can be finalized/);
-  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['before_clock_in'] }), /must submit it before clock-in can be finalized/);
-  assert.match(describeFormConfiguration({ ...legacy.form, completionRequirement: 'required', trigger: ['before_starting_job'] }), /advisory for workflow triggers other than Before Clock In and After Clock Out/);
+  const monthly = createFormBuilderDraft({ ...form, deliveryRule: undefined, deliveryRuleVersion: undefined, trigger: ['monthly'] }, fields);
+  assert.deepEqual(monthly.form.deliveryRule.schedule, { cadence: 'monthly', dayOfMonth: 1 });
+  assert.deepEqual(monthly.form.trigger, ['monthly']);
+});
+
+test('configuration summaries cover audience, timing, frequency, blocking, and manual access in at most two sentences', () => {
+  const configured = applyFormDeliveryRule(form, {
+    type: 'after_clock_out', frequency: 'every_occurrence', completionBehavior: 'blocking', schedule: null, allowManualAccess: true,
+  });
+  const summary = describeFormConfiguration(configured);
+  assert.match(summary, /all employees/);
+  assert.match(summary, /after clock-out, every time/);
+  assert.match(summary, /blocks clock-out/);
+  assert.match(summary, /generic manual submission/);
+  assert.ok(summary.split('.').filter((sentence) => sentence.trim()).length <= 2);
 });
 
 test('field configuration is contextual and option editing is structured', async () => {

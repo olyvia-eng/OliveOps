@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { GetCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { isFormAssignedToEmployee, isJobOperationallyActive } from './formsEngine.js';
+import { isClockDeliverySatisfied, isFormAssignedToEmployee, isFormDeliveredBy, isJobOperationallyActive, runtimeDeliveryRule } from './formsEngine.js';
 
 const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'pending_review', 'approved']);
 
@@ -56,6 +56,7 @@ function formSnapshot({ form, context, fields, employee, jobs, customers }) {
     description: form.description,
     category: form.category,
     trigger: 'after_clock_out',
+    ...(form.deliveryRule ? { deliveryRule: form.deliveryRule } : {}),
     required: true,
     completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
     requiresApproval: form.requiresApproval === true,
@@ -105,14 +106,16 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
   return isFormAssignedToEmployee({ form, employee, crews, divisions, ...context }) ? context : null;
 }
 
-export function resolveAfterClockOutForms({ forms = [], fields = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [] }) {
+export function resolveAfterClockOutForms({ forms = [], fields = [], submissions = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [], instant = new Date(), timeZone }) {
   const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
-    if (form.status !== 'active' || !form.trigger?.includes('after_clock_out')) continue;
+    if (form.status !== 'active' || !isFormDeliveredBy(form, 'after_clock_out')) continue;
+    if (isClockDeliverySatisfied({ form, deliveryType: 'after_clock_out', employeeId: employee.id, submissions, instant, timeZone })) continue;
     const context = assignmentContext({ form, employee, crews, divisions, jobs: actionableJobs, equipment });
     if (!context || !isFormAssignedToEmployee({ form, employee, crews, divisions, ...context })) continue;
     const packagedContext = safeContext(context);
+    const rule = runtimeDeliveryRule(form);
     applicable.push({
       requirementId: requirementId(form.id, packagedContext),
       formId: form.id,
@@ -122,7 +125,7 @@ export function resolveAfterClockOutForms({ forms = [], fields = [], employee, c
       trigger: 'after_clock_out',
       order: applicable.length,
       context: packagedContext,
-      completionRequirement: form.completionRequirement === 'required' ? 'required' : 'reminder',
+      completionRequirement: rule.completionBehavior === 'blocking' ? 'required' : 'reminder',
       form: formSnapshot({ form, context: packagedContext, fields, employee, jobs: actionableJobs, customers }),
     });
   }
@@ -133,7 +136,7 @@ export function resolveAfterClockOutForms({ forms = [], fields = [], employee, c
   };
 }
 
-export async function createPendingClockOutWorkflow({ businessId, workflow }) {
+export async function createPendingClockOutWorkflow({ businessId, workflow, clockOutTransaction }) {
   const createdAt = workflow.createdAt;
   const workflowItem = {
     PK: businessPk(businessId),
@@ -159,9 +162,12 @@ export async function createPendingClockOutWorkflow({ businessId, workflow }) {
   };
 
   await ddb.send(new TransactWriteCommand({
-    TransactItems: [workflowItem, pointerItem].map((Item) => ({
-      Put: { TableName: tableName, Item, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' },
-    })),
+    TransactItems: [
+      ...(clockOutTransaction?.TransactItems ?? []),
+      ...[workflowItem, pointerItem].map((Item) => ({
+        Put: { TableName: tableName, Item, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' },
+      })),
+    ],
   }));
   return workflowItem;
 }

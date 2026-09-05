@@ -9,7 +9,7 @@ test('authoritative filtered Time Entries open the shared detail view', async ()
     source('../src/pages/reports/TimeReportsPage.tsx'),
     source('../src/components/time/TimeEntryDetailModal.tsx'),
   ]);
-  const entries = reports.slice(reports.indexOf('<h2 className="font-semibold text-gray-800">Time Entries</h2>'), reports.indexOf('non-billable-breakdown-heading'));
+  const entries = reports.slice(reports.indexOf('id="time-entries-heading"'), reports.indexOf('non-billable-breakdown-heading'));
   assert.match(entries, /timeEntryPage\.items\.map\(\(entry\)/);
   assert.match(entries, /setSelectedTimeEntryId\(entry\.id\)/);
   assert.match(entries, /role="button"/);

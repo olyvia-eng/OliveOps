@@ -146,6 +146,7 @@ import {
 import { findQuickBooksInvoiceMapping } from './_lib/quickBooksRepo.js';
 import { isCanonicalCustomerStatus, isCustomerLeadSource, normalizeCustomerAcquisition } from '../src/config/customer.js';
 import { enforceEstimateWorkAreaDivisionModel, ensureDefaultEstimateWorkAreaModel } from '../src/utils/estimateWorkAreaIdentity.js';
+import { normalizeFormDeliveryRecord, validateFormDeliveryRule } from '../src/utils/formDeliveryRules.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
@@ -1507,6 +1508,10 @@ function validateFormRecord(record) {
   }
   if (!Array.isArray(record.trigger)) return 'Form trigger must be an array.';
   if (record.trigger.some((value) => !FORM_TRIGGERS.has(value))) return 'Form trigger includes invalid values.';
+  if (record.deliveryRule !== undefined) {
+    const deliveryRuleError = validateFormDeliveryRule(record.deliveryRule);
+    if (deliveryRuleError) return deliveryRuleError;
+  }
   if (record.completionRequirement !== undefined && !['reminder', 'required'].includes(record.completionRequirement)) {
     return 'Form completion requirement is invalid.';
   }
@@ -1936,6 +1941,9 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'forms') {
+      const normalized = normalizeFormDeliveryRecord(record);
+      if (!normalized.ok) return res.status(400).json({ ok: false, code: 'form_delivery_rule_invalid', error: normalized.error });
+      record = normalized.form;
       const validationError = validateFormRecord(record) ?? await validateFormRelationships({ businessId: session.businessId, record });
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
@@ -2280,6 +2288,9 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'forms') {
+        const normalized = normalizeFormDeliveryRecord(next);
+        if (!normalized.ok) return res.status(409).json({ ok: false, code: 'form_configuration_needs_review', error: normalized.error });
+        next = normalized.form;
         const validationError = validateFormRecord(next) ?? await validateFormRelationships({ businessId: session.businessId, record: next });
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });

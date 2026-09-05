@@ -658,7 +658,12 @@ test('Form configuration persists supported assignments and rejects foreign targ
   for (const [assignedTo, assignmentValue] of assignments) {
     const id = `form-${assignedTo}`;
     const res = createMockRes();
-    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id, name: id, description: '', category: 'operations', status: 'active', assignedTo, assignmentValue, trigger: ['after_leaving_job', 'daily', 'on_demand'], completionRequirement: 'required', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), res);
+    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: {
+      id, name: id, description: '', category: 'operations', status: 'active', assignedTo, assignmentValue,
+      trigger: ['before_clock_in', 'on_demand'], completionRequirement: 'required',
+      deliveryRule: { type: 'before_clock_in', frequency: 'every_occurrence', completionBehavior: 'blocking', schedule: null, allowManualAccess: true },
+      createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z',
+    } }), res);
     assert.equal(res.statusCode, 200, assignedTo);
   }
 
@@ -669,20 +674,35 @@ test('Form configuration persists supported assignments and rejects foreign targ
   assert.equal(listRes.body.items.every((item) => item.completionRequirement === 'required'), true);
 
   const patchRes = createMockRes();
-  await dataHandler(requestWithToken('token-admin-forms', 'PATCH', 'forms', { data: { trigger: ['job_completed', 'monthly'], completionRequirement: 'reminder' } }, 'form-everyone'), patchRes);
+  await dataHandler(requestWithToken('token-admin-forms', 'PATCH', 'forms', { data: {
+    deliveryRule: { type: 'scheduled', frequency: null, completionBehavior: 'due', schedule: { cadence: 'monthly', dayOfMonth: 31 }, allowManualAccess: false },
+  } }, 'form-everyone'), patchRes);
   assert.equal(patchRes.statusCode, 200);
   const updated = store.get(mapKey('BUSINESS#biz-1', 'FORM#form-everyone'));
-  assert.deepEqual(updated.trigger, ['job_completed', 'monthly']);
+  assert.deepEqual(updated.trigger, ['monthly']);
   assert.equal(updated.completionRequirement, 'reminder');
+
+  const ambiguousRes = createMockRes();
+  await dataHandler(requestWithToken('token-admin-forms', 'PATCH', 'forms', { data: {
+    deliveryRule: undefined,
+    trigger: ['job_completed', 'monthly'],
+  } }, 'form-everyone'), ambiguousRes);
+  assert.equal(ambiguousRes.statusCode, 409);
+  assert.equal(ambiguousRes.body.code, 'form_configuration_needs_review');
 
   const invalidRequirementRes = createMockRes();
   await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id: 'invalid-requirement', name: 'Invalid requirement', description: '', category: 'operations', status: 'active', assignedTo: 'everyone', assignmentValue: '', trigger: ['on_demand'], completionRequirement: 'blocking', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), invalidRequirementRes);
   assert.equal(invalidRequirementRes.statusCode, 400);
-  assert.match(invalidRequirementRes.body.error, /completion requirement/i);
+  assert.match(invalidRequirementRes.body.error, /delivery rule/i);
 
   for (const [assignedTo, assignmentValue] of [['employee', 'employee-foreign'], ['division', 'division-foreign'], ['job', 'job-foreign'], ['equipment', 'equipment-foreign']]) {
     const res = createMockRes();
-    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: { id: `foreign-${assignedTo}`, name: 'Foreign target', description: '', category: 'operations', status: 'active', assignedTo, assignmentValue, trigger: ['on_demand'], completionRequirement: 'reminder', createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z' } }), res);
+    await dataHandler(requestWithToken('token-admin-forms', 'POST', 'forms', { data: {
+      id: `foreign-${assignedTo}`, name: 'Foreign target', description: '', category: 'operations', status: 'active', assignedTo, assignmentValue,
+      trigger: ['on_demand'], completionRequirement: 'reminder',
+      deliveryRule: { type: 'always_available', frequency: null, completionBehavior: 'manual', schedule: null, allowManualAccess: true },
+      createdAt: '2026-08-19T00:00:00.000Z', updatedAt: '2026-08-19T00:00:00.000Z',
+    } }), res);
     assert.equal(res.statusCode, 400, assignedTo);
     assert.match(res.body.error, /belong to this business/);
   }

@@ -23,9 +23,9 @@ Content-Type: application/json
 
 The server validates `clientOccurredAt` using the existing offline clocking window and skew rules. The resulting event instant becomes the authoritative intended clock-out time.
 
-When no applicable Required forms exist, the endpoint retains its existing `200` response and immediately returns the completed `timeEntry`. Reminder-only forms do not change this behavior and do not create workflow records.
+When no applicable blocking forms exist, the endpoint retains its existing `200` response and immediately returns the completed `timeEntry`. Reminder forms are returned in `reminderForms`, are dismissible, and do not create workflow records.
 
-When Required forms apply, the endpoint does not close the time entry. It returns `202`:
+When blocking forms apply, the server closes the time entry and clears the active shift in the same transaction that creates the recoverable workflow. It then returns `202`; a pending Form never keeps or reopens the shift:
 
 ```json
 {
@@ -86,14 +86,7 @@ POST /api/clocking?action=clock-out-finalize
 
 Clients do not need to start a second workflow after the final required form. This endpoint is the authoritative retry and recovery path when a form response was interrupted or a concurrent clock-state change prevented immediate finalization.
 
-If requirements remain, the server returns `409` with `code: "required_forms_outstanding"` and the current workflow counts/lists. Once all requirements are complete, the clock-out transaction atomically:
-
-- writes the existing clocking idempotency record;
-- closes the original time entry at `intendedClockOutAt`;
-- deletes the active-shift lock;
-- writes the existing clock-out audit event;
-- marks the workflow occurrence finalized; and
-- deletes the employee pending pointer.
+If requirements remain, the server returns `409` with `code: "required_forms_outstanding"` and the current workflow counts/lists. The initial clock-out transaction has already written clocking idempotency and audit records, closed the original time entry at `intendedClockOutAt`, and cleared the active-shift lock. Once all requirements are complete, finalization atomically marks the workflow occurrence finalized and deletes the employee pending pointer. Legacy workflow records created under the earlier deferred-clock-out behavior remain completable through their saved immutable data.
 
 A repeated finalization returns `200` with `status: "clock_out_already_finalized"` and the original time entry. It does not create another time entry or audit transition.
 

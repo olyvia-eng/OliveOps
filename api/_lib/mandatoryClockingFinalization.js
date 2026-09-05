@@ -193,6 +193,20 @@ export async function finalizePendingClockOut({ session, workflowOccurrenceId })
     return { ok: false, status: 409, code: 'required_forms_outstanding', workflow: workflowState };
   }
 
+  if (workflow.clockOutCommitted === true) {
+    const timeEntry = workflow.timeEntry;
+    try {
+      await ddb.send(new TransactWriteCommand({
+        TransactItems: buildWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt: nowIso(), timeEntry }),
+      }));
+      return { ok: true, status: 'clock_out_completed', timeEntry };
+    } catch {
+      const current = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+      if (current?.status === 'finalized') return { ok: true, status: 'clock_out_already_finalized', timeEntry: current.timeEntry };
+      return { ok: false, status: 409, code: 'clock_out_workflow_conflict', error: 'Clock-out form workflow changed. Refresh and try again.' };
+    }
+  }
+
   const activeEntry = await getTimeEntryForBusiness(session.businessId, workflow.timeEntryId);
   if (!activeEntry || activeEntry.employeeId !== workflow.employeeId) {
     return { ok: false, status: 404, code: 'clock_out_workflow_not_found', error: 'Clock-out workflow not found.' };

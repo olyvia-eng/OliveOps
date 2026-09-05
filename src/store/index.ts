@@ -1384,6 +1384,11 @@ export const useStore = create<AppState>()((set, get) => ({
           const result = await parseClockingResponse(response, 'clock-out');
           if (result.kind === 'failed') throw new Error(result.message);
           if (result.kind === 'pending') {
+            if (result.workflow.timeEntry) {
+              set((state) => ({
+                timeEntries: state.timeEntries.map((entry) => entry.id === result.workflow.timeEntry?.id ? result.workflow.timeEntry : entry),
+              }));
+            }
             return { ok: true, pending: true, workflow: result.workflow };
           }
           set((state) => ({

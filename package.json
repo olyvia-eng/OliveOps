@@ -10,6 +10,7 @@
     "dev:full": "vercel dev --listen 5173",
     "dev:full:clean": "npm run dev:clean && npm run dev:full",
     "dev:vite": "vite --port 5174 --strictPort",
+    "migrate:form-delivery-rules": "node scripts/form-delivery-rule-migrate.mjs",
     "migrate:time-entry-pagination": "node scripts/time-entry-pagination-migrate.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
