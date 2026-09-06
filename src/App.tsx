@@ -654,6 +654,7 @@ export default function App() {
               <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
+              <Route path="jobs/:id/sops/:sopId" element={<SopDetailPage jobContext />} />
               <Route path="jobs/:id/schedule" element={<JobSchedulePage currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id/work-areas/:workAreaId" element={<JobWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />

@@ -15,6 +15,7 @@ import JobAnalysisSummary from '../../components/jobs/JobAnalysisSummary';
 import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
+import JobSopsCard from '../../components/jobs/JobSopsCard';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -565,6 +566,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             onDelete={async (taskId) => { await deleteTask(taskId); }}
             onDismissCompletedToday={() => undefined}
           />
+
+          <JobSopsCard jobId={job.id} canManage={canManageSchedule} />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-4">

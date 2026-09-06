@@ -18,6 +18,7 @@ import {
   timeEntryOrderKey,
   timeEntryIndexAttributes,
 } from './timeEntryPagination.js';
+import { removeJobSopAssociationsForJob } from './jobSopRepo.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -1565,6 +1566,7 @@ export async function deleteJobForBusiness(businessId, jobId) {
   await Promise.all(headings
     .filter((heading) => heading.jobId === jobId)
     .map((heading) => deleteJobTaskHeadingForBusiness(businessId, heading.id)));
+  await removeJobSopAssociationsForJob(businessId, jobId);
   await ddb.send(
     new DeleteCommand({
       TableName: tableName,

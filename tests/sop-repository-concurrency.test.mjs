@@ -71,6 +71,7 @@ test('permanent SOP deletion removes owned records and retains an audit event', 
       { PK: 'BUSINESS#biz-a', SK: 'FILE#other', entityType: 'sop', entityId: 'sop-b' },
     ] } },
     { command: 'TransactWriteCommand' },
+    { command: 'QueryCommand', result: { Items: [] } },
     { command: 'TransactWriteCommand' },
   ]);
 
@@ -78,6 +79,7 @@ test('permanent SOP deletion removes owned records and retains an audit event', 
   assert.equal(result.deletedRecordCount, 4);
   const deletes = seen[4].input.TransactItems.map((entry) => entry.Delete.Key.SK);
   assert.deepEqual(deletes, ['SOP_VERSION#sop-a#00000001', 'SOP_PUBLISH_REQUEST#sop-a#hash', 'FILE#owned']);
-  assert.equal(seen[5].input.TransactItems[0].Delete.Key.SK, 'SOP#sop-a');
-  assert.equal(seen[5].input.TransactItems[1].Put.Item.action, 'sop_deleted');
+  assert.equal(seen[5].input.ExpressionAttributeValues[':prefix'], 'SOP_JOB#sop-a#');
+  assert.equal(seen[6].input.TransactItems[0].Delete.Key.SK, 'SOP#sop-a');
+  assert.equal(seen[6].input.TransactItems[1].Put.Item.action, 'sop_deleted');
 });

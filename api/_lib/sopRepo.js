@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { GetCommand, QueryCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { removeJobSopAssociationsForSop } from './jobSopRepo.js';
 import { normalizeSopDraft, validateSopForPublish } from './sopModel.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
@@ -162,12 +163,13 @@ export async function deleteSopForBusiness({ businessId, sopId, actor }) {
   const records = [...versions, ...publishRequests, ...ownedFiles];
   const childKeys = [...new Map(records.map((item) => [item.SK, { PK: businessPk(businessId), SK: item.SK }])).values()];
   await deleteKeysInBatches(childKeys);
+  const deletedAssociationCount = await removeJobSopAssociationsForSop(businessId, sopId);
   const deletedAt = nowIso();
   await ddb.send(new TransactWriteCommand({ TransactItems: [
     { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: definitionSk(sopId) }, ConditionExpression: 'attribute_exists(PK)' } },
-    { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'sop_deleted', actor, metadata: { sopId, title: definition.title, deletedRecordCount: childKeys.length + 1 }, createdAt: deletedAt }) } },
+    { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'sop_deleted', actor, metadata: { sopId, title: definition.title, deletedRecordCount: childKeys.length + 1, deletedAssociationCount }, createdAt: deletedAt }) } },
   ] }));
-  return { ok: true, deletedRecordCount: childKeys.length + 1, deletedFileKeys: ownedFiles.map((item) => item.objectKey ?? item.key).filter(Boolean) };
+  return { ok: true, deletedRecordCount: childKeys.length + 1, deletedAssociationCount, deletedFileKeys: ownedFiles.map((item) => item.objectKey ?? item.key).filter(Boolean) };
 }
 
 export async function duplicateSopForBusiness({ businessId, sopId, actor, requestId }) {
