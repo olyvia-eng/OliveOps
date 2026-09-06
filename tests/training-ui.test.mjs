@@ -42,6 +42,9 @@ test('Training menu actions follow status rules and preserve immutable history',
   assert.match(library, /Existing completion history and immutable version records remain unchanged/);
   assert.match(library, /statusRequestInFlight\.current/);
   assert.match(library, /duplicateRequestInFlight\.current/);
+  assert.match(library, /Delete Training/);
+  assert.match(library, /all assignments, all completion history/);
+  assert.match(library, /trainingRequest\('delete', \{ method: 'POST', body: \{ trainingId: deleteConfirmation\.id \} \}\)/);
   assert.match(library, /training: \{ \.\.\.training, title: `\$\{training\.title\} Copy`, attachmentFileId: null, document: null \}/);
 });
 

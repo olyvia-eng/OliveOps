@@ -9,6 +9,7 @@ const versionSk = (sopId, version) => `SOP_VERSION#${sopId}#${String(version).pa
 const auditSk = (eventId) => `AUDIT#${eventId}`;
 const publishRequestSk = (sopId, requestId) => `SOP_PUBLISH_REQUEST#${sopId}#${createHash('sha256').update(requestId).digest('hex')}`;
 const nowIso = () => new Date().toISOString();
+const MAX_TRANSACTION_ITEMS = 100;
 
 function withoutKeys(item) {
   if (!item) return null;
@@ -37,6 +38,30 @@ async function queryPrefix(businessId, prefix) {
     ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': prefix },
   }));
   return (result.Items ?? []).map(withoutKeys);
+}
+
+async function queryRawPrefix(businessId, prefix) {
+  const items = [];
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': prefix },
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    items.push(...(result.Items ?? []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return items;
+}
+
+async function deleteKeysInBatches(keys) {
+  for (let index = 0; index < keys.length; index += MAX_TRANSACTION_ITEMS) {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: keys.slice(index, index + MAX_TRANSACTION_ITEMS).map((Key) => ({ Delete: { TableName: tableName, Key } })),
+    }));
+  }
 }
 
 export const getSopDefinitionForBusiness = (businessId, sopId) => getItem(businessId, definitionSk(sopId));
@@ -124,6 +149,26 @@ async function setSopActiveForBusiness({ businessId, sopId, active, actor }) {
 
 export const archiveSopForBusiness = (input) => setSopActiveForBusiness({ ...input, active: false });
 export const reactivateSopForBusiness = (input) => setSopActiveForBusiness({ ...input, active: true });
+
+export async function deleteSopForBusiness({ businessId, sopId, actor }) {
+  const definition = await getSopDefinitionForBusiness(businessId, sopId);
+  if (!definition) return null;
+  const [versions, publishRequests, files] = await Promise.all([
+    queryRawPrefix(businessId, `SOP_VERSION#${sopId}#`),
+    queryRawPrefix(businessId, `SOP_PUBLISH_REQUEST#${sopId}#`),
+    queryRawPrefix(businessId, 'FILE#'),
+  ]);
+  const ownedFiles = files.filter((item) => item.entityType === 'sop' && item.entityId === sopId);
+  const records = [...versions, ...publishRequests, ...ownedFiles];
+  const childKeys = [...new Map(records.map((item) => [item.SK, { PK: businessPk(businessId), SK: item.SK }])).values()];
+  await deleteKeysInBatches(childKeys);
+  const deletedAt = nowIso();
+  await ddb.send(new TransactWriteCommand({ TransactItems: [
+    { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: definitionSk(sopId) }, ConditionExpression: 'attribute_exists(PK)' } },
+    { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'sop_deleted', actor, metadata: { sopId, title: definition.title, deletedRecordCount: childKeys.length + 1 }, createdAt: deletedAt }) } },
+  ] }));
+  return { ok: true, deletedRecordCount: childKeys.length + 1, deletedFileKeys: ownedFiles.map((item) => item.objectKey ?? item.key).filter(Boolean) };
+}
 
 export async function duplicateSopForBusiness({ businessId, sopId, actor, requestId }) {
   const source = await getSopDefinitionForBusiness(businessId, sopId);

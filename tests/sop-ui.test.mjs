@@ -28,10 +28,12 @@ test('SOP API client follows the administration contract', () => {
 });
 
 test('SOP Library exposes search, category, status, version, and lifecycle actions', () => {
-  for (const text of ['Search SOPs', 'Filter SOP category', 'Filter SOP status', 'Version', 'Updated', 'Duplicate SOP', 'Archive SOP', 'Reactivate SOP']) {
+  for (const text of ['Search SOPs', 'Filter SOP category', 'Filter SOP status', 'Version', 'Updated', 'Duplicate SOP', 'Archive SOP', 'Reactivate SOP', 'Delete SOP']) {
     assert.match(library, new RegExp(text));
   }
-  assert.match(library, /status === 'archived' && sop\.status === 'published' && !sop\.active/);
+  assert.match(library, /status === ["']archived["'] &&\s*sop\.status === ["']published["'] &&\s*!sop\.active/);
+  assert.match(library, /This action cannot be undone\. Archive the SOP instead/);
+  assert.match(library, /await deleteSop\(deleteConfirmation\.id\)/);
 });
 
 test('SOP editor supports required content and multiple private document attachments', () => {

@@ -1,9 +1,11 @@
 import { requireSession } from './_lib/session.js';
 import { getEmployeeForBusiness, getFileForBusiness } from './_lib/authRepo.js';
 import { documentFromFileRecord } from './_lib/documentContent.js';
+import { removeStoredFile } from './_lib/storage.js';
 import {
   archiveSopForBusiness,
   createSopDraftForBusiness,
+  deleteSopForBusiness,
   duplicateSopForBusiness,
   getSopDefinitionForBusiness,
   getSopVersionForBusiness,
@@ -24,9 +26,9 @@ const isEmployeeVisible = (definition) => definition?.status === 'published' && 
 
 const defaultDeps = {
   requireSession, getEmployeeForBusiness, getFileForBusiness, archiveSopForBusiness, createSopDraftForBusiness,
-  duplicateSopForBusiness, getSopDefinitionForBusiness, getSopVersionForBusiness,
+  deleteSopForBusiness, duplicateSopForBusiness, getSopDefinitionForBusiness, getSopVersionForBusiness,
   listSopDefinitionsForBusiness, listSopVersionsForBusiness, publishSopVersionForBusiness,
-  reactivateSopForBusiness, updateSopDraftForBusiness,
+  reactivateSopForBusiness, removeStoredFile, updateSopDraftForBusiness,
 };
 
 function errorResponse(res, error) {
@@ -108,6 +110,13 @@ export function createSopsHandler(overrides = {}) {
       if (action === 'duplicate') {
         const definition = await deps.duplicateSopForBusiness({ businessId: session.businessId, sopId: body.sopId, actor, requestId: body.requestId });
         return definition ? res.status(201).json({ ok: true, definition }) : res.status(404).json({ ok: false, error: 'SOP was not found.' });
+      }
+      if (action === 'delete') {
+        const result = await deps.deleteSopForBusiness({ businessId: session.businessId, sopId: body.sopId, actor });
+        if (!result) return res.status(404).json({ ok: false, error: 'SOP was not found.' });
+        const { deletedFileKeys, ...publicResult } = result;
+        await Promise.allSettled(deletedFileKeys.map((key) => deps.removeStoredFile({ businessId: session.businessId, key })));
+        return res.status(200).json({ ok: true, ...publicResult });
       }
       if (action === 'archive' || action === 'reactivate') {
         const mutation = action === 'archive' ? deps.archiveSopForBusiness : deps.reactivateSopForBusiness;

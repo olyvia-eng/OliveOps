@@ -1,6 +1,6 @@
 import type { SopContent, SopDefinition, SopVersion } from '../../types/sop';
 
-type SopAction = 'list' | 'detail' | 'create' | 'update-draft' | 'publish' | 'duplicate' | 'archive' | 'reactivate';
+type SopAction = 'list' | 'detail' | 'create' | 'update-draft' | 'publish' | 'duplicate' | 'archive' | 'reactivate' | 'delete';
 type SopRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH';
   query?: Record<string, string>;
@@ -41,5 +41,8 @@ export const archiveSop = (sopId: string) => sopRequest<{ ok: true; definition: 
   method: 'POST', body: { sopId },
 });
 export const reactivateSop = (sopId: string) => sopRequest<{ ok: true; definition: SopDefinition }>('reactivate', {
+  method: 'POST', body: { sopId },
+});
+export const deleteSop = (sopId: string) => sopRequest<{ ok: true; deletedRecordCount: number }>('delete', {
   method: 'POST', body: { sopId },
 });

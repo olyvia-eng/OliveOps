@@ -2,12 +2,14 @@ import { requireSession } from './_lib/session.js';
 import { getBusinessProfile, getEmployeeForBusiness, listEmployeesForBusiness } from './_lib/authRepo.js';
 import { getFileForBusiness } from './_lib/authRepo.js';
 import { documentFromFileRecord } from './_lib/documentContent.js';
+import { removeStoredFile } from './_lib/storage.js';
 import { calculateTrainingCompliance } from './_lib/trainingModel.js';
 import {
   changeTrainingAssignmentDueDate,
   completeTrainingAssignmentForBusiness,
   createTrainingAssignmentForBusiness,
   createTrainingDraftForBusiness,
+  deleteTrainingForBusiness,
   getTrainingAssignmentForBusiness,
   getTrainingDefinitionForBusiness,
   getTrainingVersionForBusiness,
@@ -33,11 +35,11 @@ const parseBody = (req) => {
 const defaultDeps = {
   requireSession, getBusinessProfile, getEmployeeForBusiness, listEmployeesForBusiness, getFileForBusiness,
   changeTrainingAssignmentDueDate, completeTrainingAssignmentForBusiness, createTrainingAssignmentForBusiness,
-  createTrainingDraftForBusiness, getTrainingAssignmentForBusiness, getTrainingDefinitionForBusiness,
+  createTrainingDraftForBusiness, deleteTrainingForBusiness, getTrainingAssignmentForBusiness, getTrainingDefinitionForBusiness,
   getTrainingVersionForBusiness, listTrainingAssignmentsForBusiness, listTrainingCompletionsForBusiness,
   listTrainingDefinitionsForBusiness, listTrainingVersionsForBusiness, presentTrainingAssignments,
   publishTrainingVersionForBusiness, requireTrainingVersionForAssignment, revokeTrainingAssignmentForBusiness,
-  setTrainingActiveForBusiness, startTrainingDraftForBusiness, updateTrainingDraftForBusiness,
+  removeStoredFile, setTrainingActiveForBusiness, startTrainingDraftForBusiness, updateTrainingDraftForBusiness,
 };
 
 function actorFrom(session) {
@@ -167,6 +169,13 @@ export function createTrainingHandler(overrides = {}) {
       if (action === 'set-active') {
         const definition = await deps.setTrainingActiveForBusiness({ businessId: session.businessId, trainingId: body.trainingId, active: body.active, actor });
         return definition ? res.status(200).json({ ok: true, definition }) : res.status(404).json({ ok: false, error: 'Training was not found.' });
+      }
+      if (action === 'delete') {
+        const result = await deps.deleteTrainingForBusiness({ businessId: session.businessId, trainingId: body.trainingId, actor });
+        if (!result) return res.status(404).json({ ok: false, error: 'Training was not found.' });
+        const { deletedFileKeys, ...publicResult } = result;
+        await Promise.allSettled(deletedFileKeys.map((key) => deps.removeStoredFile({ businessId: session.businessId, key })));
+        return res.status(200).json({ ok: true, ...publicResult });
       }
       return res.status(400).json({ ok: false, error: 'Unsupported training action.' });
     } catch (error) {

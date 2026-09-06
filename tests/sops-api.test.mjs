@@ -22,6 +22,8 @@ function harness({
     updateSopDraftForBusiness: async (input) => { calls.push(['update', input]); return { id: input.sopId }; },
     publishSopVersionForBusiness: async (input) => { calls.push(['publish', input]); return { sopId: input.sopId, version: 2 }; },
     duplicateSopForBusiness: async (input) => { calls.push(['duplicate', input]); return { id: 'sop-copy' }; },
+    deleteSopForBusiness: async (input) => { calls.push(['delete', input]); return { ok: true, deletedRecordCount: 4, deletedFileKeys: ['biz-a/file-a/procedure.pdf'] }; },
+    removeStoredFile: async (input) => { calls.push(['remove-file', input]); return { ok: true }; },
     archiveSopForBusiness: async (input) => { calls.push(['archive', input]); return { id: input.sopId, active: false }; },
     reactivateSopForBusiness: async (input) => { calls.push(['reactivate', input]); return { id: input.sopId, active: true }; },
   });
@@ -49,6 +51,18 @@ test('non-admin users cannot access SOP administration', async () => {
   const { handler } = harness();
   assert.equal((await call(handler, 'GET', 'list')).statusCode, 403);
   assert.equal((await call(handler, 'POST', 'archive', { body: { sopId: 'sop-a' } })).statusCode, 403);
+  assert.equal((await call(handler, 'POST', 'delete', { body: { sopId: 'sop-a' } })).statusCode, 403);
+});
+
+test('admin can permanently delete an SOP and its tenant-scoped stored files', async () => {
+  const session = { id: 'admin-a', businessId: 'biz-a', role: 'admin', name: 'Admin', email: 'admin@example.com' };
+  const { handler, calls } = harness({ session });
+  const result = await call(handler, 'POST', 'delete', { body: { businessId: 'biz-b', sopId: 'sop-a' } });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.deletedRecordCount, 4);
+  assert.equal('deletedFileKeys' in result.body, false);
+  assert.equal(calls.find(([name]) => name === 'delete')[1].businessId, 'biz-a');
+  assert.deepEqual(calls.find(([name]) => name === 'remove-file')[1], { businessId: 'biz-a', key: 'biz-a/file-a/procedure.pdf' });
 });
 
 test('employee list exposes only active published current versions', async () => {

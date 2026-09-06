@@ -35,6 +35,8 @@ function harness({
     getTrainingVersionForBusiness: async () => version,
     presentTrainingAssignments: (items) => items.map((item) => ({ ...item, presentationStatus: item.presentationStatus ?? 'not_started' })),
     publishTrainingVersionForBusiness: async (input) => { calls.push(['publish', input]); return { trainingId: input.trainingId, version: 1 }; },
+    deleteTrainingForBusiness: async (input) => { calls.push(['delete', input]); return { ok: true, deletedRecordCount: 8, deletedFileKeys: ['biz-a/file-a/training.pdf'] }; },
+    removeStoredFile: async (input) => { calls.push(['remove-file', input]); return { ok: true }; },
     completeTrainingAssignmentForBusiness: async (input) => { calls.push(['complete', input]); return { completion: { id: 'completion-a' }, replayed: false }; },
   });
   return { handler, calls };
@@ -57,6 +59,18 @@ test('foreman cannot access training administration', async () => {
   const { handler } = harness({ session: { id: 'foreman-a', businessId: 'biz-a', employeeId: 'emp-a', role: 'foreman', name: 'Foreman', email: 'foreman@example.com' } });
   assert.equal((await call(handler, 'GET', 'list')).statusCode, 403);
   assert.equal((await call(handler, 'POST', 'publish', { body: { trainingId: 'training-a', requestId: 'publish-a' } })).statusCode, 403);
+  assert.equal((await call(handler, 'POST', 'delete', { body: { trainingId: 'training-a' } })).statusCode, 403);
+});
+
+test('owner can permanently delete Training and its tenant-scoped stored files', async () => {
+  const session = { id: 'owner-a', businessId: 'biz-a', role: 'owner', name: 'Owner', email: 'owner@example.com' };
+  const { handler, calls } = harness({ session });
+  const result = await call(handler, 'POST', 'delete', { body: { businessId: 'biz-b', trainingId: 'training-a' } });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.deletedRecordCount, 8);
+  assert.equal('deletedFileKeys' in result.body, false);
+  assert.equal(calls.find(([name]) => name === 'delete')[1].businessId, 'biz-a');
+  assert.deepEqual(calls.find(([name]) => name === 'remove-file')[1], { businessId: 'biz-a', key: 'biz-a/file-a/training.pdf' });
 });
 
 test('employee endpoints require an active employee linked to the session user', async () => {

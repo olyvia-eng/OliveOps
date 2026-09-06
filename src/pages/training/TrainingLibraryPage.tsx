@@ -18,10 +18,13 @@ export default function TrainingLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [menuTrainingId, setMenuTrainingId] = useState<string | null>(null);
   const [statusConfirmation, setStatusConfirmation] = useState<TrainingDefinition | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<TrainingDefinition | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const [duplicateSavingId, setDuplicateSavingId] = useState<string | null>(null);
   const statusRequestInFlight = useRef(false);
   const duplicateRequestInFlight = useRef(false);
+  const deleteRequestInFlight = useRef(false);
 
   const load = useCallback(() => trainingRequest<TrainingListPayload>('list').then((payload) => { setDefinitions(payload.definitions); setAssignments(payload.assignments); setError(''); }).catch((reason) => setError(reason instanceof Error ? reason.message : 'Training could not be loaded.')).finally(() => setLoading(false)), []);
   useEffect(() => { void load(); }, [load]);
@@ -65,6 +68,25 @@ export default function TrainingLibraryPage() {
       setStatusSaving(false);
     }
   };
+  const permanentlyDelete = async () => {
+    if (!deleteConfirmation || deleteRequestInFlight.current) return;
+    deleteRequestInFlight.current = true;
+    setDeleteSaving(true);
+    setError('');
+    try {
+      await trainingRequest('delete', { method: 'POST', body: { trainingId: deleteConfirmation.id } });
+      setDeleteConfirmation(null);
+      await load();
+      emitAppToast({ tone: 'success', message: 'Training permanently deleted.' });
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Training could not be deleted.';
+      setError(message);
+      emitAppToast({ tone: 'error', message });
+    } finally {
+      deleteRequestInFlight.current = false;
+      setDeleteSaving(false);
+    }
+  };
   const menuTraining = definitions.find((item) => item.id === menuTrainingId) ?? null;
 
   return <div className="space-y-5">
@@ -86,14 +108,17 @@ export default function TrainingLibraryPage() {
         return <tr key={training.id} className="hover:bg-gray-50"><td className="px-4 py-3"><button className="font-semibold text-brand-700" onClick={() => navigate(`/training/${training.id}`)}>{training.title}</button><div className="mt-1"><Badge label={training.status === 'draft' ? 'Draft' : training.active ? 'Active' : 'Inactive'} className={training.status === 'draft' ? 'bg-amber-50 text-amber-700' : training.active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'} /></div></td><td className="px-4 py-3">{recurrenceLabel(training)}</td><td className="px-4 py-3">v{training.currentVersion || '—'}</td><td className="px-4 py-3">{scoped.length}</td><td className="px-4 py-3">{scoped.filter((item) => item.presentationStatus === 'current').length} / {scoped.filter((item) => item.presentationStatus === 'due_soon').length} / {scoped.filter((item) => item.presentationStatus === 'overdue').length}</td><td className="px-4 py-3">{new Date(training.updatedAt).toLocaleDateString()}</td><td className="px-4 py-3 text-right"><button id={`training-actions-trigger-${training.id}`} type="button" aria-label={`Actions for ${training.title}`} aria-haspopup="menu" aria-expanded={menuTrainingId === training.id} onClick={() => setMenuTrainingId((current) => current === training.id ? null : training.id)} className="h-9 w-9 rounded-md text-gray-500 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"><Ellipsis className="mx-auto" size={17} /></button></td></tr>;
       })}</tbody></table></div>}
     </Card>
-    {menuTraining ? <TrainingActionsMenu training={menuTraining} duplicateSaving={duplicateSavingId === menuTraining.id} onClose={() => setMenuTrainingId(null)} onNavigate={(target) => navigate(target)} onDuplicate={() => void duplicate(menuTraining)} onChangeActive={() => setStatusConfirmation(menuTraining)} /> : null}
+    {menuTraining ? <TrainingActionsMenu training={menuTraining} duplicateSaving={duplicateSavingId === menuTraining.id} onClose={() => setMenuTrainingId(null)} onNavigate={(target) => navigate(target)} onDuplicate={() => void duplicate(menuTraining)} onChangeActive={() => setStatusConfirmation(menuTraining)} onDelete={() => setDeleteConfirmation(menuTraining)} /> : null}
     <Modal open={Boolean(statusConfirmation)} onClose={() => { if (!statusSaving) setStatusConfirmation(null); }} title={statusConfirmation?.active ? 'Deactivate Training?' : 'Reactivate Training?'} footer={<><Button variant="secondary" disabled={statusSaving} onClick={() => setStatusConfirmation(null)}>Cancel</Button><Button variant={statusConfirmation?.active ? 'danger' : 'primary'} disabled={statusSaving} onClick={() => void setActive()}>{statusSaving ? 'Saving...' : statusConfirmation?.active ? 'Deactivate Training' : 'Reactivate Training'}</Button></>}>
       {statusConfirmation?.active ? <div className="space-y-3 text-sm text-gray-600"><p>This Training will no longer be available for new assignments.</p><p>Current incomplete assignments remain active and accessible. They are not revoked or changed.</p><p>Existing completion history and immutable version records remain unchanged.</p></div> : <div className="space-y-3 text-sm text-gray-600"><p>This Training will become available for new assignments using its current published version.</p><p>Existing assignments, completion history, and immutable version records will not be changed.</p></div>}
+    </Modal>
+    <Modal open={Boolean(deleteConfirmation)} onClose={() => { if (!deleteSaving) setDeleteConfirmation(null); }} title={`Delete ${deleteConfirmation?.title ?? 'Training'}?`} footer={<><Button variant="secondary" disabled={deleteSaving} onClick={() => setDeleteConfirmation(null)}>Cancel</Button><Button variant="danger" disabled={deleteSaving} onClick={() => void permanentlyDelete()}>{deleteSaving ? 'Deleting...' : 'Delete Training'}</Button></>}>
+      <div className="space-y-3 text-sm text-gray-600"><p>This permanently deletes the Training, every published version, all assignments, all completion history, and its uploaded files.</p><p>This action cannot be undone. Deactivate the Training instead if employee records and history should remain available.</p></div>
     </Modal>
   </div>;
 }
 
-function TrainingActionsMenu({ training, duplicateSaving, onClose, onNavigate, onDuplicate, onChangeActive }: { training: TrainingDefinition; duplicateSaving: boolean; onClose: () => void; onNavigate: (target: string) => void; onDuplicate: () => void; onChangeActive: () => void }) {
+function TrainingActionsMenu({ training, duplicateSaving, onClose, onNavigate, onDuplicate, onChangeActive, onDelete }: { training: TrainingDefinition; duplicateSaving: boolean; onClose: () => void; onNavigate: (target: string) => void; onDuplicate: () => void; onChangeActive: () => void; onDelete: () => void }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({ left: 8, top: 8, visibility: 'hidden' });
@@ -150,5 +175,6 @@ function TrainingActionsMenu({ training, duplicateSaving, onClose, onNavigate, o
     </>}
     <button type="button" role="menuitem" disabled={duplicateSaving} className={itemClass} onClick={() => select(onDuplicate)}>{duplicateSaving ? 'Duplicating...' : 'Duplicate'}</button>
     {!isDraft ? <div className="mt-1 border-t border-gray-200 pt-1"><button type="button" role="menuitem" className={`${itemClass} ${training.active ? 'text-red-700 hover:bg-red-50' : 'text-brand-700'}`} onClick={() => select(onChangeActive)}>{training.active ? 'Deactivate Training' : 'Reactivate Training'}</button></div> : null}
+    <div className="mt-1 border-t border-gray-200 pt-1"><button type="button" role="menuitem" className={`${itemClass} text-red-700 hover:bg-red-50`} onClick={() => select(onDelete)}>Delete Training</button></div>
   </div>, document.body);
 }

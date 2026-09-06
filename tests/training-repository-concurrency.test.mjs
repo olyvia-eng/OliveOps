@@ -5,6 +5,7 @@ import {
   completeTrainingAssignmentForBusiness,
   createTrainingAssignmentForBusiness,
   createTrainingDraftForBusiness,
+  deleteTrainingForBusiness,
   publishTrainingVersionForBusiness,
 } from '../api/_lib/trainingRepo.js';
 
@@ -112,4 +113,40 @@ test('different completion request losing the cycle race returns a stable confli
     completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-b', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' }),
     (error) => error.statusCode === 409 && error.code === 'cycle_complete',
   );
+});
+
+test('permanent Training deletion removes all owned employee records and retains an audit event', async (t) => {
+  const seen = installSequence(t, [
+    { command: 'GetCommand', result: item({ id: 'training-a', title: 'WHMIS' }, 'TRAINING#training-a') },
+    { command: 'QueryCommand', result: { Items: [{ PK: 'BUSINESS#biz-a', SK: 'TRAINING_VERSION#training-a#00000001' }] } },
+    { command: 'QueryCommand', result: { Items: [{ PK: 'BUSINESS#biz-a', SK: 'TRAINING_PUBLISH_REQUEST#training-a#hash' }] } },
+    { command: 'QueryCommand', result: { Items: [
+      { PK: 'BUSINESS#biz-a', SK: 'TRAINING_ASSIGNMENT#assignment-a', id: 'assignment-a', trainingId: 'training-a' },
+      { PK: 'BUSINESS#biz-a', SK: 'TRAINING_ASSIGNMENT#assignment-b', id: 'assignment-b', trainingId: 'training-b' },
+    ] } },
+    { command: 'QueryCommand', result: { Items: [
+      { PK: 'BUSINESS#biz-a', SK: 'TRAINING_COMPLETION#completion-a', trainingId: 'training-a' },
+      { PK: 'BUSINESS#biz-a', SK: 'TRAINING_COMPLETION#completion-b', trainingId: 'training-b' },
+    ] } },
+    { command: 'QueryCommand', result: { Items: [{ PK: 'BUSINESS#biz-a', SK: 'FILE#training-a', entityType: 'training', entityId: 'training-a' }] } },
+    { command: 'QueryCommand', result: { Items: [{ PK: 'BUSINESS#biz-a', SK: 'TRAINING_ASSIGNMENT_UNIQUE#emp-a#training-a', trainingId: 'training-a' }] } },
+    { command: 'QueryCommand', result: { Items: [{ PK: 'BUSINESS#biz-a', SK: 'TRAINING_COMPLETION_IDEMPOTENCY#hash', assignmentId: 'assignment-a' }] } },
+    { command: 'TransactWriteCommand' },
+    { command: 'TransactWriteCommand' },
+  ]);
+
+  const result = await deleteTrainingForBusiness({ businessId: 'biz-a', trainingId: 'training-a', actor });
+  assert.equal(result.deletedRecordCount, 8);
+  const deletes = seen[8].input.TransactItems.map((entry) => entry.Delete.Key.SK);
+  assert.deepEqual(deletes, [
+    'TRAINING_VERSION#training-a#00000001',
+    'TRAINING_PUBLISH_REQUEST#training-a#hash',
+    'TRAINING_ASSIGNMENT#assignment-a',
+    'TRAINING_ASSIGNMENT_UNIQUE#emp-a#training-a',
+    'TRAINING_COMPLETION#completion-a',
+    'TRAINING_COMPLETION_IDEMPOTENCY#hash',
+    'FILE#training-a',
+  ]);
+  assert.equal(seen[9].input.TransactItems[0].Delete.Key.SK, 'TRAINING#training-a');
+  assert.equal(seen[9].input.TransactItems[1].Put.Item.action, 'training_deleted');
 });

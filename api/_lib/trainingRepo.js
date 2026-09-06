@@ -14,6 +14,7 @@ const auditSk = (eventId) => `AUDIT#${eventId}`;
 const idempotencySk = (employeeId, assignmentId, submissionId) => `TRAINING_COMPLETION_IDEMPOTENCY#${createHash('sha256').update(`${employeeId}\0${assignmentId}\0${submissionId}`).digest('hex')}`;
 const publishRequestSk = (trainingId, requestId) => `TRAINING_PUBLISH_REQUEST#${trainingId}#${createHash('sha256').update(requestId).digest('hex')}`;
 const nowIso = () => new Date().toISOString();
+const MAX_TRANSACTION_ITEMS = 100;
 
 function withoutKeys(item) {
   if (!item) return null;
@@ -37,6 +38,30 @@ async function queryPrefix(businessId, prefix) {
     ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': prefix },
   }));
   return (result.Items ?? []).map(withoutKeys);
+}
+
+async function queryRawPrefix(businessId, prefix) {
+  const items = [];
+  let exclusiveStartKey;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: { ':pk': businessPk(businessId), ':prefix': prefix },
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+    items.push(...(result.Items ?? []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+  return items;
+}
+
+async function deleteKeysInBatches(keys) {
+  for (let index = 0; index < keys.length; index += MAX_TRANSACTION_ITEMS) {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: keys.slice(index, index + MAX_TRANSACTION_ITEMS).map((Key) => ({ Delete: { TableName: tableName, Key } })),
+    }));
+  }
 }
 
 async function getItem(businessId, sk) {
@@ -135,6 +160,42 @@ export async function setTrainingActiveForBusiness({ businessId, trainingId, act
     ConditionExpression: 'attribute_exists(PK)', ExpressionAttributeValues: { ':active': Boolean(active), ':now': updatedAt, ':actor': actor.id }, ReturnValues: 'ALL_NEW',
   }));
   return withoutKeys(result.Attributes);
+}
+
+export async function deleteTrainingForBusiness({ businessId, trainingId, actor }) {
+  const definition = await getTrainingDefinitionForBusiness(businessId, trainingId);
+  if (!definition) return null;
+  const [versions, publishRequests, assignments, completions, files] = await Promise.all([
+    queryRawPrefix(businessId, `TRAINING_VERSION#${trainingId}#`),
+    queryRawPrefix(businessId, `TRAINING_PUBLISH_REQUEST#${trainingId}#`),
+    queryRawPrefix(businessId, 'TRAINING_ASSIGNMENT#'),
+    queryRawPrefix(businessId, 'TRAINING_COMPLETION#'),
+    queryRawPrefix(businessId, 'FILE#'),
+  ]);
+  const ownedAssignments = assignments.filter((item) => item.trainingId === trainingId);
+  const assignmentIds = new Set(ownedAssignments.map((item) => item.assignmentId ?? item.id));
+  const [assignmentMarkers, completionMarkers] = await Promise.all([
+    queryRawPrefix(businessId, 'TRAINING_ASSIGNMENT_UNIQUE#'),
+    queryRawPrefix(businessId, 'TRAINING_COMPLETION_IDEMPOTENCY#'),
+  ]);
+  const ownedFiles = files.filter((item) => item.entityType === 'training' && item.entityId === trainingId);
+  const records = [
+    ...versions,
+    ...publishRequests,
+    ...ownedAssignments,
+    ...assignmentMarkers.filter((item) => item.trainingId === trainingId),
+    ...completions.filter((item) => item.trainingId === trainingId),
+    ...completionMarkers.filter((item) => assignmentIds.has(item.assignmentId)),
+    ...ownedFiles,
+  ];
+  const childKeys = [...new Map(records.map((item) => [item.SK, { PK: businessPk(businessId), SK: item.SK }])).values()];
+  await deleteKeysInBatches(childKeys);
+  const deletedAt = nowIso();
+  await ddb.send(new TransactWriteCommand({ TransactItems: [
+    { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: definitionSk(trainingId) }, ConditionExpression: 'attribute_exists(PK)' } },
+    { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'training_deleted', actor, metadata: { trainingId, title: definition.title, deletedRecordCount: childKeys.length + 1 }, createdAt: deletedAt }) } },
+  ] }));
+  return { ok: true, deletedRecordCount: childKeys.length + 1, deletedFileKeys: ownedFiles.map((item) => item.objectKey ?? item.key).filter(Boolean) };
 }
 
 export async function createTrainingAssignmentForBusiness({ businessId, actor, employee, trainingId, initialDueDate, requestId }) {
