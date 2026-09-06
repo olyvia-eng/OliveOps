@@ -89,7 +89,7 @@ export function normalizeTimeEntryPageQuery(query = {}, { surface, businessId, e
     startAt: optionalDate(query.startDate),
     endAt: optionalDate(query.endDate, true),
     employeeIds: sortedUnique(employeeIds),
-    employeeFilterApplied: restrictToEmployeeIds || Boolean(stringValue(query.employeeSearch)),
+    employeeFilterApplied: restrictToEmployeeIds || Boolean(stringValue(query.employeeId)),
     jobId: jobId || null,
     workAreaId: stringValue(query.workAreaId) || null,
     workType: workType && workType !== 'all' ? workType : null,

@@ -49,10 +49,10 @@ function harness(overrides = {}) {
   return { handler: createTimeEntriesHandler(dependencies), calls };
 }
 
-test('reports page is tenant scoped and resolves employee search before repository filtering', async () => {
+test('reports page filters by a tenant-scoped stable employee ID', async () => {
   const context = harness();
   const res = response();
-  await context.handler({ method: 'GET', query: { surface: 'reports', employeeSearch: 'ADA', limit: '25' } }, res);
+  await context.handler({ method: 'GET', query: { surface: 'reports', employeeId: 'employee-1', limit: '25' } }, res);
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
@@ -62,6 +62,49 @@ test('reports page is tenant scoped and resolves employee search before reposito
   assert.equal(context.calls[0].businessId, 'business-1');
   assert.deepEqual(context.calls[0].filters.employeeIds, ['employee-1']);
   assert.equal(context.calls[0].filters.employeeFilterApplied, true);
+});
+
+test('reports page rejects employee IDs outside the authenticated business', async () => {
+  const context = harness();
+  const res = response();
+  await context.handler({ method: 'GET', query: { surface: 'reports', employeeId: 'other-business-employee', limit: '25' } }, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.code, 'time_entry_employee_invalid');
+  assert.equal(context.calls.length, 0);
+});
+
+test('legacy employeeSearch query values are ignored without failing', async () => {
+  const context = harness();
+  const res = response();
+  await context.handler({ method: 'GET', query: { surface: 'reports', employeeSearch: 'Ada', limit: '25' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(context.calls[0].filters.employeeIds, []);
+  assert.equal(context.calls[0].filters.employeeFilterApplied, false);
+});
+
+test('employee ID combines with date, Job, work type, and unbillable category filters', async () => {
+  const context = harness();
+  const res = response();
+  await context.handler({ method: 'GET', query: {
+    surface: 'reports',
+    employeeId: 'employee-2',
+    startDate: '2026-01-01',
+    endDate: '2026-01-31',
+    jobId: 'job-1',
+    workType: 'non_billable',
+    unbillableCategoryId: 'category-1',
+    limit: '25',
+  } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(context.calls[0].filters.employeeIds, ['employee-2']);
+  assert.equal(context.calls[0].filters.startAt, '2026-01-01T00:00:00.000Z');
+  assert.equal(context.calls[0].filters.endAt, '2026-01-31T23:59:59.999Z');
+  assert.equal(context.calls[0].filters.jobId, 'job-1');
+  assert.equal(context.calls[0].filters.workType, 'non_billable');
+  assert.equal(context.calls[0].filters.unbillableCategoryId, 'category-1');
 });
 
 test('reports page rejects non-admin sessions', async () => {
@@ -110,6 +153,18 @@ test('Bookkeeper export traverses every matching page and ignores a supplied UI 
   assert.equal(context.calls.length, 2);
   assert.equal(context.calls[0].exclusiveStartKey, undefined);
   assert.deepEqual(context.calls[1].exclusiveStartKey, { PK: 'next' });
+});
+
+test('Bookkeeper export uses the selected employee ID and reports the employee name', async () => {
+  const context = harness({ page: () => ({ items: [entry('entry-1', 'employee-2')], hasMore: false, lastEvaluatedKey: null }) });
+  const res = response();
+  await context.handler({ method: 'GET', query: { surface: 'reports', action: 'export', employeeId: 'employee-2', limit: '100' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(context.calls[0].filters.employeeIds, ['employee-2']);
+  assert.match(res.body, /Employee,Grace Hopper/);
+  assert.match(res.body, /Grace Hopper,1\.00/);
+  assert.doesNotMatch(res.body, /Ada Lovelace/);
 });
 
 test('authorized crew members remain restricted to their own Time Entries', async () => {

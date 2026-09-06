@@ -109,9 +109,14 @@ test('Time Tracking uses one filtered table with responsive controls and compact
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
   assert.match(reports, /title="Time Tracking"/);
   assert.match(reports, /sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7/);
-  for (const label of ['Payroll Period', 'Start Date', 'End Date', 'Work Type', 'Job', 'Unbillable Category', 'Employee Search']) {
+  for (const label of ['Payroll Period', 'Start Date', 'End Date', 'Work Type', 'Job', 'Unbillable Category', 'Employee']) {
     assert.match(reports, new RegExp(`(?:label=|>)["']?${label}`));
   }
+  assert.match(reports, /<option value="all">All Employees<\/option>/);
+  assert.match(reports, /employeesSorted\.map\(\(employee\)/);
+  assert.match(reports, /<option key=\{employee\.id\} value=\{employee\.id\}>/);
+  assert.match(reports, /employee\.active \? '' : ' \(Inactive\)'/);
+  assert.doesNotMatch(reports, /Employee Search|Search by employee name|employeeSearchValue|setEmployeeSearch/);
   assert.equal(reports.match(/timeEntryPage\.items\.map\(\(entry\)/g)?.length, 1);
   assert.doesNotMatch(reports, /Recent Time Entries|Time Entry Detail|No focused employee|No focused job/);
   assert.match(reports, /Showing \{timeEntryPage\.showingStart\}/);
@@ -124,7 +129,7 @@ test('Time Tracking uses one filtered table with responsive controls and compact
 test('all report filters drive the server page and full Bookkeeper Export', async () => {
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
   const filtered = reports.slice(reports.indexOf('const filteredEntries'), reports.indexOf('const totalsByType'));
-  for (const value of ['startDate', 'endDate', 'employeeSearchValue', 'jobFilter', 'unbillableCategoryFilter', 'workTypeFilter']) {
+  for (const value of ['startDate', 'endDate', 'employeeFilter', 'jobFilter', 'unbillableCategoryFilter', 'workTypeFilter']) {
     assert.match(filtered, new RegExp(value));
   }
   const exportAction = reports.slice(reports.indexOf('const handleExportSummaryCsv'), reports.indexOf('return (', reports.indexOf('const handleExportSummaryCsv')));
@@ -132,6 +137,13 @@ test('all report filters drive the server page and full Bookkeeper Export', asyn
   assert.match(exportAction, /\/api\/time-entries/);
   assert.match(exportAction, /timeEntryPageFilters/);
   assert.match(reports, /Bookkeeper Export/);
+  assert.match(reports, /employeeId: employeeFilter === 'all' \? undefined : employeeFilter/);
+  assert.match(reports, /entry\.employeeId !== employeeFilter/);
+  assert.match(reports, /next\.delete\('employeeSearch'\)/);
+  assert.match(reports, /const totalHours = filteredEntries\.reduce/);
+  assert.match(reports, /filteredEntries\.forEach\(\(entry\)/);
+  assert.match(reports, /\{filteredEntries\.length\} time/);
+  assert.match(reports, /const nonBillableCategoryTotals = useMemo/);
 });
 
 test('correction requests retain review workflow under a status tab', async () => {

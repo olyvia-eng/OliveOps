@@ -26,14 +26,6 @@ function normalizedQuery(query = {}) {
   return Object.fromEntries(Object.entries(query).map(([key, value]) => [key, queryValue(value)]));
 }
 
-function employeeIdsMatching(employees, search) {
-  const value = typeof search === 'string' ? search.trim().toLocaleLowerCase() : '';
-  if (!value) return [];
-  return employees
-    .filter((employee) => `${employee.name ?? ''} ${employee.email ?? ''}`.toLocaleLowerCase().includes(value))
-    .map((employee) => employee.id);
-}
-
 function effectiveEntryTransform(corrections) {
   return (entry) => buildEffectiveTimeEntries([entry], corrections.filter((correction) => correction.timeEntryId === entry.id))[0] ?? entry;
 }
@@ -69,7 +61,7 @@ function exportCsv(entries, employees, query) {
     ['End Date', query.endDate ?? ''],
     ['Activity', query.workType || 'All Types'],
     ['Job', query.jobId || 'All Jobs'],
-    ['Employee Search', query.employeeSearch || 'All Employees'],
+    ['Employee', query.employeeId ? employeeNames.get(query.employeeId) ?? 'Unknown' : 'All Employees'],
     ['Matching Entries', entries.length],
     [],
   ];
@@ -118,12 +110,15 @@ export function createTimeEntriesHandler(dependencyOverrides = {}) {
         dependencies.listEmployeesForBusiness(session.businessId),
         dependencies.listTimeCorrectionsForBusiness(session.businessId),
       ]);
-      const searchedEmployeeIds = employeeIdsMatching(employees, query.employeeSearch);
+      const requestedEmployeeId = typeof query.employeeId === 'string' ? query.employeeId.trim() : '';
+      if (requestedEmployeeId && !employees.some((employee) => employee.id === requestedEmployeeId)) {
+        throw new TimeEntryPageError('time_entry_employee_invalid', 'Employee filter is invalid.');
+      }
       const canReadAllEmployees = session.role === 'owner' || session.role === 'admin' || session.role === 'foreman';
       const employeeIds = canReadAllEmployees
-        ? searchedEmployeeIds
-        : searchedEmployeeIds.length > 0
-          ? searchedEmployeeIds.filter((employeeId) => employeeId === session.employeeId)
+        ? requestedEmployeeId ? [requestedEmployeeId] : []
+        : requestedEmployeeId
+          ? requestedEmployeeId === session.employeeId ? [requestedEmployeeId] : []
           : session.employeeId ? [session.employeeId] : [];
       const pageQuery = normalizeTimeEntryPageQuery(query, {
         surface,

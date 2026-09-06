@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { endOfWeek, format, startOfMonth, startOfWeek, subWeeks } from 'date-fns';
 import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Card, PageHeader, StatCard, Button, Select, Input } from '../../components/ui';
+import { Card, PageHeader, StatCard, Button, Select } from '../../components/ui';
 import { durationHours, formatDateTime } from '../../utils';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
 import type { BusinessUserRole } from '../../auth/types';
@@ -21,6 +21,7 @@ interface TimeReportsPageProps {
 }
 
 type WorkTypeFilter = 'all' | TimeEntryWorkType;
+type EmployeeFilter = 'all' | string;
 type JobFilter = 'all' | string;
 type UnbillableCategoryFilter = 'all' | 'uncategorized' | string;
 type PayrollPeriodPreset = 'custom' | 'this_week' | 'last_week' | 'this_month';
@@ -64,7 +65,7 @@ export default function TimeReportsPage({
   const [endDate, setEndDate] = useState(searchParams.get('endDate') || format(new Date(), 'yyyy-MM-dd'));
   const [payrollPeriodPreset, setPayrollPeriodPreset] = useState<PayrollPeriodPreset>('this_month');
   const [workTypeFilter, setWorkTypeFilter] = useState<WorkTypeFilter>((searchParams.get('workType') as WorkTypeFilter) || 'all');
-  const [employeeSearch, setEmployeeSearch] = useState(searchParams.get('employeeSearch') || '');
+  const [employeeFilter, setEmployeeFilter] = useState<EmployeeFilter>(searchParams.get('employeeId') || 'all');
   const [jobFilter, setJobFilter] = useState<JobFilter>(searchParams.get('jobId') || 'all');
   const [unbillableCategoryFilter, setUnbillableCategoryFilter] = useState<UnbillableCategoryFilter>(searchParams.get('unbillableCategoryId') || 'all');
   const [reviewingCorrectionId, setReviewingCorrectionId] = useState<string | null>(null);
@@ -96,7 +97,10 @@ export default function TimeReportsPage({
     () => buildEffectiveTimeEntries(timeEntries, timeCorrections),
     [timeEntries, timeCorrections]
   );
-  const employeeSearchValue = employeeSearch.trim().toLowerCase();
+  const employeesSorted = useMemo(() => [...employees].sort((left, right) => {
+    if (left.active !== right.active) return left.active ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  }), [employees]);
   const jobsSorted = useMemo(() => [...jobs].sort((a, b) => a.title.localeCompare(b.title)), [jobs]);
   const unbillableCategoriesSorted = useMemo(
     () => [...unbillableTimeCategories].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
@@ -120,12 +124,12 @@ export default function TimeReportsPage({
   const timeEntryPageFilters = useMemo(() => ({
     startDate,
     endDate,
-    employeeSearch: employeeSearch.trim(),
+    employeeId: employeeFilter === 'all' ? undefined : employeeFilter,
     jobId: jobFilter === 'all' ? undefined : jobFilter,
     workType: workTypeFilter === 'all' ? undefined : workTypeFilter,
     unbillableCategoryId: unbillableCategoryFilter === 'all' ? undefined : unbillableCategoryFilter,
     includeZero: true,
-  }), [employeeSearch, endDate, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
+  }), [employeeFilter, endDate, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
   const requestedPageSize = Number(searchParams.get('timeEntryPageSize'));
   const timeEntryPage = useTimeEntryPage({ surface: 'reports', defaultPageSize: [25, 50, 100].includes(requestedPageSize) ? requestedPageSize : 25, filters: timeEntryPageFilters });
   const lastScrolledPageVersion = useRef(timeEntryPage.loadedVersion);
@@ -150,7 +154,7 @@ export default function TimeReportsPage({
       const values = {
         startDate,
         endDate,
-        employeeSearch: employeeSearch.trim(),
+        employeeId: employeeFilter === 'all' ? '' : employeeFilter,
         jobId: jobFilter === 'all' ? '' : jobFilter,
         workType: workTypeFilter === 'all' ? '' : workTypeFilter,
         unbillableCategoryId: unbillableCategoryFilter === 'all' ? '' : unbillableCategoryFilter,
@@ -160,9 +164,10 @@ export default function TimeReportsPage({
         if (value) next.set(key, value);
         else next.delete(key);
       }
+      next.delete('employeeSearch');
       return next;
     }, { replace: true });
-  }, [employeeSearch, endDate, jobFilter, setSearchParams, startDate, timeEntryPage.pageSize, unbillableCategoryFilter, workTypeFilter]);
+  }, [employeeFilter, endDate, jobFilter, setSearchParams, startDate, timeEntryPage.pageSize, unbillableCategoryFilter, workTypeFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,10 +227,7 @@ export default function TimeReportsPage({
         if (Number.isNaN(clockInDate.getTime())) return false;
         if (clockInDate < start || clockInDate > end) return false;
 
-        if (employeeSearchValue) {
-          const employeeName = getEmployeeName(entry.employeeId).toLowerCase();
-          if (!employeeName.includes(employeeSearchValue)) return false;
-        }
+        if (employeeFilter !== 'all' && entry.employeeId !== employeeFilter) return false;
 
         if (jobFilter !== 'all') {
           const workType = normalizeWorkType(entry);
@@ -250,7 +252,7 @@ export default function TimeReportsPage({
         if (workTypeFilter !== 'all' && workType !== workTypeFilter) return false;
         return true;
       }));
-  }, [effectiveTimeEntries, employeeSearchValue, endDate, getEmployeeName, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
+  }, [effectiveTimeEntries, employeeFilter, endDate, jobFilter, startDate, unbillableCategoryFilter, workTypeFilter]);
 
   const totalsByType = useMemo(() => {
     const totals: Record<TimeEntryWorkType, number> = {
@@ -443,12 +445,12 @@ export default function TimeReportsPage({
             </Select>
           </div>
           <div>
-            <Input
-              label="Employee Search"
-              value={employeeSearch}
-              onChange={(event) => setEmployeeSearch(event.target.value)}
-              placeholder="Search by employee name"
-            />
+            <Select label="Employee" value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value as EmployeeFilter)}>
+              <option value="all">All Employees</option>
+              {employeesSorted.map((employee) => (
+                <option key={employee.id} value={employee.id}>{employee.name}{employee.active ? '' : ' (Inactive)'}</option>
+              ))}
+            </Select>
           </div>
         </div>
         <p className="mt-3 text-sm text-gray-500">{filteredEntries.length} time {filteredEntries.length === 1 ? 'entry' : 'entries'}</p>

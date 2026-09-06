@@ -74,6 +74,27 @@ test('server filters include multi-Job and zero-duration entries before page sel
   assert.equal(matchesTimeEntryFilters({ ...zeroDuration, jobIds: ['job-1'] }, page.filters), false);
 });
 
+test('employee ID filtering switches employees and All Employees restores matching records', async () => {
+  const { matchesTimeEntryFilters } = await import('../api/_lib/timeEntryPagination.js');
+  const janeEntry = {
+    id: 'entry-jane', employeeId: 'employee-jane', workType: 'non_billable', unbillableCategoryId: 'weather',
+    clockIn: '2026-01-15T10:00:00.000Z', clockOut: '2026-01-15T11:00:00.000Z', breakMinutes: 0, status: 'clocked_out',
+  };
+  const johnEntry = { ...janeEntry, id: 'entry-john', employeeId: 'employee-john' };
+  const janePage = normalizeTimeEntryPageQuery({
+    employeeId: 'employee-jane', startDate: '2026-01-01', endDate: '2026-01-31', workType: 'non_billable', unbillableCategoryId: 'weather',
+  }, { surface: 'reports', businessId: 'business-1', employeeIds: ['employee-jane'] });
+  const johnPage = normalizeTimeEntryPageQuery({ employeeId: 'employee-john' }, { surface: 'reports', businessId: 'business-1', employeeIds: ['employee-john'] });
+  const allEmployeesPage = normalizeTimeEntryPageQuery({}, { surface: 'reports', businessId: 'business-1' });
+
+  assert.equal(matchesTimeEntryFilters(janeEntry, janePage.filters), true);
+  assert.equal(matchesTimeEntryFilters(johnEntry, janePage.filters), false);
+  assert.equal(matchesTimeEntryFilters(janeEntry, johnPage.filters), false);
+  assert.equal(matchesTimeEntryFilters(johnEntry, johnPage.filters), true);
+  assert.equal(matchesTimeEntryFilters(janeEntry, allEmployeesPage.filters), true);
+  assert.equal(matchesTimeEntryFilters(johnEntry, allEmployeesPage.filters), true);
+});
+
 test('server filters retain open activities and legacy single-Job records', async () => {
   const { matchesTimeEntryFilters } = await import('../api/_lib/timeEntryPagination.js');
   const page = normalizeTimeEntryPageQuery({ jobId: 'job-1', status: 'clocked_in' }, { surface: 'job', businessId: 'business-1' });

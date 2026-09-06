@@ -17,7 +17,7 @@ The API cursor contains a signed logical order key rather than a DynamoDB index 
 
 - `surface=reports`: Owner/Admin; default 25; allowed 25, 50, 100.
 - `surface=job&jobId=...`: users with access to that Job; default 10; allowed 10, 25, 50.
-- Filters: `startDate`, `endDate`, `employeeSearch`, `jobId`, `workAreaId`, `workType`, `unbillableCategoryId`, `status`, `includeZero`.
+- Filters: `startDate`, `endDate`, `employeeId`, `jobId`, `workAreaId`, `workType`, `unbillableCategoryId`, `status`, `includeZero`.
 - Response: `{ ok, items, hasMore, nextCursor }`.
 - `nextCursor` is HMAC-signed with `JWT_SECRET` and bound to API version, surface, authenticated business, Job, resolved employee IDs, and all filters. Raw DynamoDB keys are not exposed as usable URL state.
 - `includeZero` defaults to true.
