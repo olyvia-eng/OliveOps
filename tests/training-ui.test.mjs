@@ -10,8 +10,7 @@ const detail = readFileSync('src/pages/training/TrainingDetailPage.tsx', 'utf8')
 const employeeTraining = readFileSync('src/components/employees/EmployeeTrainingSection.tsx', 'utf8');
 const documentControls = readFileSync('src/components/documents/PdfDocumentControls.tsx', 'utf8');
 const upload = readFileSync('src/utils/fileUpload.ts', 'utf8');
-const richTextEditor = readFileSync('src/components/rich-text/RichTextEditor.tsx', 'utf8');
-const richTextViewer = readFileSync('src/components/rich-text/RichTextViewer.tsx', 'utf8');
+const sectionsViewer = readFileSync('src/components/training/TrainingSectionsViewer.tsx', 'utf8');
 
 test('Training administration uses protected full-page routes and owner/admin navigation', () => {
   for (const route of ['training', 'training/new', 'training/:trainingId', 'training/:trainingId/edit']) {
@@ -50,8 +49,11 @@ test('Training menu actions follow status rules and preserve immutable history',
   assert.match(library, /training: \{ \.\.\.training, title: `\$\{training\.title\} Copy`, attachmentFileId: null, document: null \}/);
 });
 
-test('Training builder supports immutable publish choices and stable checklist editing', () => {
+test('Training builder supports immutable publish choices and stable section editing', () => {
   assert.match(builder, /crypto\.randomUUID\(\)/);
+  for (const operation of ['addSection', 'updateSection', 'removeSection', 'moveSection', 'addItem', 'updateItem', 'removeItem', 'moveItem']) assert.match(builder, new RegExp(`const ${operation}`));
+  assert.match(builder, /trainingSections: current\.trainingSections\.map/);
+  assert.match(builder, /checklistItems: section\.checklistItems/);
   assert.match(builder, /start-draft/);
   assert.match(builder, /Keep current assignments valid/);
   assert.match(builder, /Require selected employees to complete this version/);
@@ -68,7 +70,6 @@ test('Training document authoring is PDF-only and retains completion controls', 
   assert.match(documentControls, /<iframe/);
   assert.match(upload, /PDF files are supported/);
   assert.match(upload, /XMLHttpRequest/);
-  assert.match(builder, /Completion checklist/);
   assert.match(builder, /Acknowledgement/);
   assert.match(builder, /Renewal/);
 });
@@ -87,8 +88,9 @@ test('Training new routing derives durable isolated mode state from the URL', ()
 });
 
 test('Training document mode hides structured content and requires a ready PDF', () => {
-  assert.match(builder, /\{!isDocument \? \([\s\S]*<RichTextEditor/);
+  assert.match(builder, /\{!isDocument \? \([\s\S]*Training Sections/);
   assert.doesNotMatch(builder, /label="Employee instructions"/);
+  assert.doesNotMatch(builder, /RichTextEditor|Training content/);
   assert.match(builder, /\{isDocument \? \([\s\S]*<PdfDropzone/);
   assert.match(builder, /onRemove=\{\(\) => \{[\s\S]*document: null[\s\S]*update-draft/);
   assert.match(builder, /isDocument && draft\.document\?\.status !== "ready"/);
@@ -96,15 +98,16 @@ test('Training document mode hides structured content and requires a ready PDF',
   assert.match(builder, /attachmentFileId: null,\s*document: null/);
 });
 
-test('Training uses rich-text authoring and immutable read-only content views', () => {
-  assert.match(builder, /ariaLabel="Training content"/);
-  assert.match(builder, /trainingRichTextContent\(editable\)/);
-  assert.match(detail, /RichTextViewer document=\{trainingRichTextContent\(definition\)\}/);
-  assert.match(detail, /item\.richTextContent \? <RichTextViewer document=\{item\.richTextContent\}/);
-  assert.match(detail, /RichTextViewer document=\{trainingRichTextContent\(item\)\}/);
-  assert.match(richTextEditor, /EditorContent/);
-  assert.match(richTextViewer, /normalizeRichTextDocument\(document\)/);
-  assert.doesNotMatch(richTextViewer, /dangerouslySetInnerHTML|contentEditable/);
+test('Training Sections render in order with nested checklist items', () => {
+  assert.match(builder, /Build the training using sections\. Each section can include instructions and required checklist items\./);
+  assert.match(builder, /Add Section/);
+  assert.match(builder, /label="Heading"/);
+  assert.match(builder, /label="Description"/);
+  assert.match(builder, /Add checklist item/);
+  assert.match(detail, /TrainingSectionsViewer sections=\{trainingSectionsFor\(definition\)\}/);
+  assert.match(detail, /TrainingSectionsViewer sections=\{item\.trainingSections\}/);
+  assert.match(sectionsViewer, /sort\(\(left, right\) => left\.sortOrder - right\.sortOrder\)/);
+  assert.match(sectionsViewer, /section\.checklistItems/);
 });
 
 test('Training detail and employee profile expose assignment operations and transparent compliance', () => {

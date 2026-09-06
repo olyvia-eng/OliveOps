@@ -12,9 +12,8 @@ import {
 const actor = { id: 'admin-a', name: 'Admin', email: 'admin@example.com' };
 const employee = { id: 'emp-a', userId: 'user-a', name: 'Alex', email: 'alex@example.com' };
 const draft = {
-  title: 'WHMIS', instructions: 'Read the safety information.',
-  richTextContent: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Immutable training content.' }] }] },
-  checklist: [{ itemId: 'item-a', text: 'I reviewed the information.' }],
+  title: 'WHMIS', instructions: '',
+  trainingSections: [{ sectionId: 'section-a', title: 'Safety Information', description: 'Read the safety information.', sortOrder: 0, checklistItems: [{ itemId: 'item-a', text: 'I reviewed the information.', required: true, sortOrder: 0 }] }],
   acknowledgementStatement: 'I understand.', recurrenceType: 'annual', dueSoonDays: 30,
 };
 
@@ -66,16 +65,18 @@ test('concurrent publish retry returns the immutable version claimed by its requ
   assert.equal(result.title, 'WHMIS');
 });
 
-test('publishing snapshots normalized rich-text content into the immutable version', async (t) => {
-  const definition = { id: 'training-a', currentVersion: 0, status: 'draft', ...draft };
+test('publishing snapshots the complete ordered Training Section structure', async (t) => {
+  const definition = { id: 'training-a', currentVersion: 0, status: 'draft', ...draft, trainingSections: structuredClone(draft.trainingSections) };
   const seen = installSequence(t, [
     { command: 'GetCommand', result: {} },
     { command: 'GetCommand', result: item(definition, 'TRAINING#training-a') },
     { command: 'TransactWriteCommand' },
   ]);
   const version = await publishTrainingVersionForBusiness({ businessId: 'biz-a', trainingId: 'training-a', actor, requestId: 'publish-rich-text' });
-  assert.deepEqual(version.richTextContent, draft.richTextContent);
-  assert.deepEqual(seen[2].input.TransactItems[0].Put.Item.richTextContent, draft.richTextContent);
+  assert.deepEqual(version.trainingSections, draft.trainingSections);
+  assert.deepEqual(seen[2].input.TransactItems[0].Put.Item.trainingSections, draft.trainingSections);
+  definition.trainingSections[0].title = 'Changed after publish';
+  assert.equal(version.trainingSections[0].title, 'Safety Information');
 });
 
 test('concurrent assignment creation returns the unique committed assignment', async (t) => {
@@ -111,7 +112,7 @@ test('concurrent identical completion returns the original immutable completion'
   assert.equal(result.completion.id, 'completion-winner');
 });
 
-test('completion snapshots the exact assigned Training version content', async (t) => {
+test('completion snapshots the exact assigned Training Section content', async (t) => {
   const assignment = { id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 1, currentDueDate: '2026-08-31' };
   const version = { trainingId: 'training-a', version: 1, ...draft };
   const seen = installSequence(t, [
@@ -120,9 +121,26 @@ test('completion snapshots the exact assigned Training version content', async (
     { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
     { command: 'TransactWriteCommand' },
   ]);
-  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-rich-text', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' });
-  assert.deepEqual(result.completion.richTextContent, version.richTextContent);
-  assert.deepEqual(seen[3].input.TransactItems[0].Put.Item.richTextContent, version.richTextContent);
+  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' });
+  assert.deepEqual(result.completion.trainingSections, version.trainingSections);
+  assert.deepEqual(seen[3].input.TransactItems[0].Put.Item.trainingSections, version.trainingSections);
+});
+
+test('completion is blocked until every checklist item across every section is checked', async (t) => {
+  const assignment = { id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 1, currentDueDate: '2026-08-31' };
+  const version = { trainingId: 'training-a', version: 1, ...draft, trainingSections: [
+    draft.trainingSections[0],
+    { sectionId: 'section-b', title: 'Operation', description: '', sortOrder: 1, checklistItems: [{ itemId: 'item-b', text: 'Wear seatbelt', required: true, sortOrder: 0 }] },
+  ] };
+  installSequence(t, [
+    { command: 'GetCommand', result: {} },
+    { command: 'GetCommand', result: item(assignment, 'TRAINING_ASSIGNMENT#assignment-a') },
+    { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
+  ]);
+  await assert.rejects(
+    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'partial-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' }),
+    (error) => error.statusCode === 400 && /Every required checklist item/.test(error.message),
+  );
 });
 
 test('different completion request losing the cycle race returns a stable conflict', async (t) => {

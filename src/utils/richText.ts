@@ -97,10 +97,3 @@ export function sopRichTextContent(value: { richTextContent?: unknown; purpose?:
   });
   return content.length ? { type: "doc", content } : EMPTY_RICH_TEXT_DOCUMENT;
 }
-
-export function trainingRichTextContent(value: { richTextContent?: unknown; instructions?: string; employeeInstructions?: string }): RichTextDocument {
-  const normalized = normalizeRichTextDocument(value.richTextContent);
-  if (normalized) return normalized;
-  const content = legacyParagraphs(value.instructions ?? value.employeeInstructions);
-  return content.length ? { type: "doc", content } : EMPTY_RICH_TEXT_DOCUMENT;
-}

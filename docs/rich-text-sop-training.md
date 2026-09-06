@@ -1,19 +1,16 @@
-# SOP and Training rich-text contract
+# SOP rich-text contract
 
-Structured SOPs and Training modules use a single `richTextContent` JSON document. PDF-backed records continue to use `contentMode: "document"` and the existing private document flow.
+Structured SOPs use a single `richTextContent` JSON document. Training intentionally uses ordered Training Sections instead; see [Training Sections](training-sections.md). PDF-backed records continue to use `contentMode: "document"` and the existing private document flow.
 
 ## Authoring behavior
 
 - SOPs keep title, category, and short description, followed by one **Procedure content** editor.
-- Training keeps title, category, and short description, followed by one **Training content** editor.
-- Training completion checklist, acknowledgement, renewal, and supplemental attachment remain separate controls.
 - The editor supports paragraphs, headings 1-3, bold, italic, bullet lists, numbered lists, links, clear formatting, undo, and redo.
-- Published SOP and Training versions contain immutable copies of `richTextContent`.
-- Training completions contain the exact `richTextContent` copied from the completed Training version.
+- Published SOP versions contain immutable copies of `richTextContent`.
 
 ## API shape
 
-`richTextContent` is an additive field on structured SOP and Training definitions and versions. It is also returned on Training completion snapshots.
+`richTextContent` is an additive field on structured SOP definitions and versions.
 
 ```ts
 type RichTextMark =
@@ -58,9 +55,7 @@ The field is server-normalized before persistence. API clients must treat unknow
 No data migration is required. Records without `contentMode` remain structured. Records without `richTextContent` are converted at read/normalization time:
 
 - SOP `purpose`, `instructions`, and `safetyInformation` become labeled sections in one document.
-- Training `instructions` or `employeeInstructions` becomes paragraph content.
-
-The API continues returning and accepting the legacy plain-text fields during the compatibility period. Clients should prefer `richTextContent` when present and fall back to those fields when absent. This permits web and mobile releases to roll out independently.
+The API continues returning and accepting the legacy SOP plain-text fields during the compatibility period. Clients should prefer `richTextContent` when present and fall back to those fields when absent.
 
 ## Security
 
@@ -87,12 +82,7 @@ Update these existing mobile files:
    - Add `richTextContent?: RichTextDocument` to the published SOP type.
    - Keep `purpose`, `instructions`, and `safetyInformation` during the compatibility period.
 
-2. `src/types/training.ts`
-   - Add `richTextContent?: RichTextDocument` to `TrainingVersion`.
-   - Add `richTextContent?: RichTextDocument` to `TrainingCompletion` if completion history displays completed content.
-   - Keep `instructions` during the compatibility period.
-
-3. Add a shared native read-only rich-text renderer.
+2. Add a shared native read-only rich-text renderer.
    - Render paragraph and heading nodes with React Native `Text`.
    - Render bullet and ordered lists with nested `View`/`Text` rows.
    - Apply bold and italic marks through text styles.
@@ -100,21 +90,14 @@ Update these existing mobile files:
    - Ignore unknown nodes, marks, and attributes.
    - Do not use a WebView or inject HTML.
 
-4. `app/sop-detail.tsx`
+3. `app/sop-detail.tsx`
    - For structured SOPs, render `richTextContent` with the native reader.
    - Fall back to the existing Purpose, Instructions, and Safety information sections when the field is absent.
    - Keep `AuthorizedPdfViewer` unchanged for document mode.
 
-5. `app/training-detail.tsx`
-   - For structured Training, render the assigned immutable version's `richTextContent`.
-   - Fall back to `version.instructions` when the field is absent.
-   - Keep the checklist and acknowledgement separate from document content.
-   - Keep `AuthorizedPdfViewer` unchanged for document mode.
-
-6. Mobile tests
+4. Mobile tests
    - Add renderer tests for headings, paragraphs, bullet/ordered lists, bold, italic, links, unsupported nodes, and unsafe links.
-   - Extend `tests/app/training-detail.screen.test.tsx` for rich content and legacy fallback.
    - Extend the SOP detail screen tests for rich content and legacy fallback.
    - Keep the existing PDF viewer tests.
 
-The existing `loadMyTrainingDetail` response already returns a `TrainingVersion`, so no endpoint or navigation change is required. The web API remains backward-compatible while the mobile renderer is delivered.
+Training mobile changes are documented separately in [Training Sections](training-sections.md).

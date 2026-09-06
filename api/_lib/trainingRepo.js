@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 import { getBusinessPeriodKeys, normalizeBusinessTimeZone } from './businessTime.js';
-import { nextDueDateForCompletion, trainingPresentationStatus, validateTrainingForPublish } from './trainingModel.js';
+import { nextDueDateForCompletion, normalizeTrainingSections, trainingPresentationStatus, validateTrainingForPublish } from './trainingModel.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const definitionSk = (trainingId) => `TRAINING#${trainingId}`;
@@ -69,12 +69,18 @@ async function getItem(businessId, sk) {
   return withoutKeys(result.Item);
 }
 
-export const getTrainingDefinitionForBusiness = (businessId, trainingId) => getItem(businessId, definitionSk(trainingId));
-export const getTrainingVersionForBusiness = (businessId, trainingId, version) => getItem(businessId, versionSk(trainingId, version));
+function withTrainingSections(record) {
+  if (!record) return null;
+  const trainingSections = normalizeTrainingSections(record);
+  return { ...record, trainingSections, checklist: trainingSections.flatMap((section) => section.checklistItems) };
+}
+
+export const getTrainingDefinitionForBusiness = async (businessId, trainingId) => withTrainingSections(await getItem(businessId, definitionSk(trainingId)));
+export const getTrainingVersionForBusiness = async (businessId, trainingId, version) => withTrainingSections(await getItem(businessId, versionSk(trainingId, version)));
 export const getTrainingAssignmentForBusiness = (businessId, assignmentId) => getItem(businessId, assignmentSk(assignmentId));
 export const getTrainingCompletionForBusiness = (businessId, completionId) => getItem(businessId, completionSk(completionId));
-export const listTrainingDefinitionsForBusiness = (businessId) => queryPrefix(businessId, 'TRAINING#');
-export const listTrainingVersionsForBusiness = (businessId, trainingId) => queryPrefix(businessId, `TRAINING_VERSION#${trainingId}#`);
+export const listTrainingDefinitionsForBusiness = async (businessId) => (await queryPrefix(businessId, 'TRAINING#')).map(withTrainingSections);
+export const listTrainingVersionsForBusiness = async (businessId, trainingId) => (await queryPrefix(businessId, `TRAINING_VERSION#${trainingId}#`)).map(withTrainingSections);
 export const listTrainingAssignmentsForBusiness = (businessId) => queryPrefix(businessId, 'TRAINING_ASSIGNMENT#');
 export const listTrainingCompletionsForBusiness = (businessId) => queryPrefix(businessId, 'TRAINING_COMPLETION#');
 
@@ -122,8 +128,7 @@ export async function publishTrainingVersionForBusiness({ businessId, trainingId
   const createdAt = nowIso();
   const snapshot = {
     trainingId, businessId, version, contentMode: validation.draft.contentMode, title: validation.draft.title, category: validation.draft.category, shortDescription: validation.draft.shortDescription,
-    richTextContent: validation.draft.richTextContent,
-    instructions: validation.draft.instructions, checklist: validation.draft.checklist,
+    instructions: validation.draft.instructions, trainingSections: validation.draft.trainingSections, checklist: validation.draft.checklist,
     acknowledgementStatement: validation.draft.acknowledgementStatement, attachmentFileId: validation.draft.attachmentFileId,
     recurrenceType: validation.draft.recurrenceType, recurrenceMonths: validation.draft.recurrenceMonths,
     dueSoonDays: validation.draft.dueSoonDays, document: validation.draft.document ? { ...validation.draft.document, version } : null, createdAt, createdBy: actor.id,
@@ -300,7 +305,7 @@ export async function completeTrainingAssignmentForBusiness({ businessId, employ
     id: completionId, completionId, businessId, assignmentId, employeeId: employee.id, trainingId: assignment.trainingId,
     completedVersion: version.version, trainingTitle: version.title,
     checklistItems: version.checklist.map((item) => ({ itemId: item.itemId, text: item.text, required: true, checked: true })),
-    contentMode: version.contentMode ?? 'structured', richTextContent: version.richTextContent, document: version.document ?? null,
+    contentMode: version.contentMode ?? 'structured', trainingSections: version.trainingSections, document: version.document ?? null,
     acknowledgementStatement: version.acknowledgementStatement, acknowledged: true, completedAt, nextDueDate, submissionId,
   };
   try {

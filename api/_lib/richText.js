@@ -87,12 +87,6 @@ const textNode = (text) => ({ type: 'text', text: cleanText(text) });
 const cleanLegacyText = (value) => cleanText(value).replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ');
 const paragraphNodes = (value) => cleanLegacyText(value).split(/\r?\n/).filter((line) => line.trim()).map((line) => ({ type: 'paragraph', content: [textNode(line.trim())] }));
 
-export function richTextFromLegacyTraining(input = {}) {
-  const instructions = input.instructions ?? input.employeeInstructions;
-  const content = paragraphNodes(instructions);
-  return content.length ? { type: 'doc', content } : emptyRichTextDocument();
-}
-
 export function richTextFromLegacySop(input = {}) {
   const sections = [
     ['Purpose', input.purpose],
@@ -108,8 +102,4 @@ export function richTextFromLegacySop(input = {}) {
 
 export function normalizeSopRichText(input = {}) {
   return normalizeRichTextDocument(input.richTextContent) ?? richTextFromLegacySop(input);
-}
-
-export function normalizeTrainingRichText(input = {}) {
-  return normalizeRichTextDocument(input.richTextContent) ?? richTextFromLegacyTraining(input);
 }

@@ -108,6 +108,19 @@ test('employee detail and history preserve immutable document mode metadata', as
   assert.deepEqual(history.body.completions[0].document, document);
 });
 
+test('employee detail exposes ordered Training Sections from the assigned immutable version', async () => {
+  const trainingSections = [
+    { sectionId: 'section-a', title: 'Inspection', description: 'Check first.', sortOrder: 0, checklistItems: [{ itemId: 'item-a', text: 'Check oil', required: true, sortOrder: 0 }] },
+    { sectionId: 'section-b', title: 'Operation', description: 'Operate safely.', sortOrder: 1, checklistItems: [{ itemId: 'item-b', text: 'Wear seatbelt', required: true, sortOrder: 0 }] },
+  ];
+  const version = { businessId: 'biz-a', trainingId: 'training-a', version: 4, trainingSections, checklist: trainingSections.flatMap((section) => section.checklistItems) };
+  const assignments = [{ id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 4 }];
+  const { handler } = harness({ assignments, version });
+  const detail = await call(handler, 'GET', 'my-detail', { query: { assignmentId: 'assignment-a' } });
+  assert.equal(detail.statusCode, 200);
+  assert.deepEqual(detail.body.version.trainingSections, trainingSections);
+});
+
 test('completion derives business and employee identity from the session', async () => {
   const { handler, calls } = harness();
   const body = { assignmentId: 'assignment-a', submissionId: 'submission-a', checklistResponses: [], acknowledged: true, businessId: 'biz-b', employeeId: 'emp-b' };

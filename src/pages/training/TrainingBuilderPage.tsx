@@ -20,16 +20,14 @@ import {
   CreationMethodChoice,
   PdfDropzone,
 } from "../../components/documents/PdfDocumentControls";
-import RichTextEditor from "../../components/rich-text/RichTextEditor";
 import type {
   TrainingAssignment,
-  TrainingChecklistItem,
   TrainingDefinition,
   TrainingRecurrenceType,
+  TrainingSection,
 } from "../../types/training";
-import { EMPTY_RICH_TEXT_DOCUMENT } from "../../types/richText";
 import { uploadFileToStorage } from "../../utils/fileUpload";
-import { trainingRichTextContent } from "../../utils/richText";
+import { trainingSectionsFor } from "../../utils/trainingSections";
 import { trainingRequest, type TrainingDetailPayload } from "./trainingApi";
 
 const DEFAULT_ACKNOWLEDGEMENT =
@@ -40,11 +38,10 @@ type Draft = Pick<
   | "title"
   | "category"
   | "shortDescription"
-  | "richTextContent"
   | "instructions"
   | "attachmentFileId"
   | "document"
-  | "checklist"
+  | "trainingSections"
   | "acknowledgementStatement"
   | "recurrenceType"
   | "recurrenceMonths"
@@ -57,11 +54,13 @@ const emptyDraft = (
   title: "",
   category: "",
   shortDescription: "",
-  richTextContent: EMPTY_RICH_TEXT_DOCUMENT,
   instructions: "",
   attachmentFileId: null,
   document: null,
-  checklist: [],
+  trainingSections:
+    contentMode === "structured"
+      ? [{ sectionId: crypto.randomUUID(), title: "", description: "", sortOrder: 0, checklistItems: [] }]
+      : [],
   acknowledgementStatement:
     contentMode === "document"
       ? "I confirm that I have reviewed and understood this Training document."
@@ -136,7 +135,7 @@ function TrainingBuilder({
           ...editable,
           contentMode: editable.contentMode ?? "structured",
           category: editable.category ?? "",
-          richTextContent: trainingRichTextContent(editable),
+          trainingSections: trainingSectionsFor(editable),
           document: editable.document ?? null,
         });
       })
@@ -226,45 +225,77 @@ function TrainingBuilder({
       setSaving(false);
     }
   };
-  const addItem = () =>
+  const addSection = () =>
     setDraft((current) => ({
       ...current,
-      checklist: [
-        ...current.checklist,
-        {
-          itemId: crypto.randomUUID(),
-          text: "",
-          required: true,
-          sortOrder: current.checklist.length,
-        },
+      trainingSections: [
+        ...current.trainingSections,
+        { sectionId: crypto.randomUUID(), title: "", description: "", sortOrder: current.trainingSections.length, checklistItems: [] },
       ],
     }));
-  const updateItem = (itemId: string, text: string) =>
+  const updateSection = (sectionId: string, changes: Partial<TrainingSection>) =>
     setDraft((current) => ({
       ...current,
-      checklist: current.checklist.map((item) =>
-        item.itemId === itemId ? { ...item, text } : item,
+      trainingSections: current.trainingSections.map((section) =>
+        section.sectionId === sectionId ? { ...section, ...changes } : section,
       ),
     }));
-  const removeItem = (itemId: string) =>
+  const removeSection = (sectionId: string) =>
     setDraft((current) => ({
       ...current,
-      checklist: current.checklist
-        .filter((item) => item.itemId !== itemId)
-        .map((item, sortOrder) => ({ ...item, sortOrder })),
+      trainingSections: current.trainingSections
+        .filter((section) => section.sectionId !== sectionId)
+        .map((section, sortOrder) => ({ ...section, sortOrder })),
     }));
-  const moveItem = (index: number, offset: number) =>
+  const moveSection = (index: number, offset: number) =>
     setDraft((current) => {
-      const next = [...current.checklist];
+      const next = [...current.trainingSections];
       const target = index + offset;
       if (target < 0 || target >= next.length) return current;
       const [moved] = next.splice(index, 1);
       next.splice(target, 0, moved);
       return {
         ...current,
-        checklist: next.map((item, sortOrder) => ({ ...item, sortOrder })),
+        trainingSections: next.map((section, sortOrder) => ({ ...section, sortOrder })),
       };
     });
+  const addItem = (sectionId: string) =>
+    setDraft((current) => ({
+      ...current,
+      trainingSections: current.trainingSections.map((section) => section.sectionId === sectionId ? {
+        ...section,
+        checklistItems: [...section.checklistItems, { itemId: crypto.randomUUID(), text: "", required: true, sortOrder: section.checklistItems.length }],
+      } : section),
+    }));
+  const updateItem = (sectionId: string, itemId: string, text: string) =>
+    setDraft((current) => ({
+      ...current,
+      trainingSections: current.trainingSections.map((section) => section.sectionId === sectionId ? {
+        ...section,
+        checklistItems: section.checklistItems.map((item) => item.itemId === itemId ? { ...item, text } : item),
+      } : section),
+    }));
+  const removeItem = (sectionId: string, itemId: string) =>
+    setDraft((current) => ({
+      ...current,
+      trainingSections: current.trainingSections.map((section) => section.sectionId === sectionId ? {
+        ...section,
+        checklistItems: section.checklistItems.filter((item) => item.itemId !== itemId).map((item, sortOrder) => ({ ...item, sortOrder })),
+      } : section),
+    }));
+  const moveItem = (sectionId: string, index: number, offset: number) =>
+    setDraft((current) => ({
+      ...current,
+      trainingSections: current.trainingSections.map((section) => {
+        if (section.sectionId !== sectionId) return section;
+        const next = [...section.checklistItems];
+        const target = index + offset;
+        if (target < 0 || target >= next.length) return section;
+        const [moved] = next.splice(index, 1);
+        next.splice(target, 0, moved);
+        return { ...section, checklistItems: next.map((item, sortOrder) => ({ ...item, sortOrder })) };
+      }),
+    }));
   const publish = async () => {
     setPublishing(true);
     setError("");
@@ -305,6 +336,7 @@ function TrainingBuilder({
               ...definition,
               contentMode: definition.contentMode ?? "structured",
               category: definition.category ?? "",
+              trainingSections: trainingSectionsFor(definition),
               document: definition.document ?? null,
             }))
       )
@@ -369,22 +401,55 @@ function TrainingBuilder({
         />
       </Card>
       {!isDocument ? (
-        <Card className="space-y-4 p-5">
-          <div>
-            <h2 className="font-semibold">Training content</h2>
-            <p className="text-sm text-gray-500">
-              Teach the topic with clear sections, steps, lists, and emphasis.
-            </p>
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">Training Sections</h2>
+              <p className="text-sm text-gray-500">
+                Build the training using sections. Each section can include instructions and required checklist items.
+              </p>
+            </div>
+            <Button variant="secondary" onClick={addSection}>
+              <Plus size={15} /> Add Section
+            </Button>
           </div>
-          <RichTextEditor
-            ariaLabel="Training content"
-            value={draft.richTextContent}
-            disabled={saving || publishing}
-            onChange={(richTextContent) =>
-              setDraft({ ...draft, richTextContent })
-            }
-          />
-        </Card>
+          {draft.trainingSections.map((section, sectionIndex) => (
+            <Card key={section.sectionId} className="space-y-4 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-semibold">Section {sectionIndex + 1}</h3>
+                <div className="flex gap-1">
+                  <Button type="button" title="Move section up" aria-label={`Move section ${sectionIndex + 1} up`} variant="ghost" size="sm" disabled={sectionIndex === 0} onClick={() => moveSection(sectionIndex, -1)}><ArrowUp size={15} /></Button>
+                  <Button type="button" title="Move section down" aria-label={`Move section ${sectionIndex + 1} down`} variant="ghost" size="sm" disabled={sectionIndex === draft.trainingSections.length - 1} onClick={() => moveSection(sectionIndex, 1)}><ArrowDown size={15} /></Button>
+                  <Button type="button" title="Delete section" aria-label={`Delete section ${sectionIndex + 1}`} variant="ghost" size="sm" onClick={() => removeSection(section.sectionId)}><Trash2 size={15} /></Button>
+                </div>
+              </div>
+              <Input label="Heading" required value={section.title} onChange={(event) => updateSection(section.sectionId, { title: event.target.value })} />
+              <TextArea label="Description" rows={3} value={section.description} onChange={(event) => updateSection(section.sectionId, { description: event.target.value })} />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold">Checklist</h4>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => addItem(section.sectionId)}><Plus size={14} /> Add checklist item</Button>
+                </div>
+                {section.checklistItems.map((item, itemIndex) => (
+                  <div key={item.itemId} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                    <Input label={`Item ${itemIndex + 1}`} value={item.text} onChange={(event) => updateItem(section.sectionId, item.itemId, event.target.value)} />
+                    <div className="flex pb-0.5">
+                      <Button type="button" title="Move item up" aria-label={`Move item ${itemIndex + 1} up in section ${sectionIndex + 1}`} variant="ghost" size="sm" disabled={itemIndex === 0} onClick={() => moveItem(section.sectionId, itemIndex, -1)}><ArrowUp size={14} /></Button>
+                      <Button type="button" title="Move item down" aria-label={`Move item ${itemIndex + 1} down in section ${sectionIndex + 1}`} variant="ghost" size="sm" disabled={itemIndex === section.checklistItems.length - 1} onClick={() => moveItem(section.sectionId, itemIndex, 1)}><ArrowDown size={14} /></Button>
+                      <Button type="button" title="Delete item" aria-label={`Delete item ${itemIndex + 1} from section ${sectionIndex + 1}`} variant="ghost" size="sm" onClick={() => removeItem(section.sectionId, item.itemId)}><Trash2 size={14} /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ))}
+          {draft.trainingSections.length === 0 ? (
+            <Card className="p-5 text-sm text-gray-500">Add a section to begin building this Training.</Card>
+          ) : null}
+          <Button variant="secondary" onClick={addSection}>
+            <Plus size={15} /> Add Section
+          </Button>
+        </section>
       ) : null}
       {isDocument ? (
         definition ? (
@@ -457,58 +522,6 @@ function TrainingBuilder({
           </Card>
         )
       ) : null}
-      <Card className="space-y-4 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">Completion checklist</h2>
-            <p className="text-sm text-gray-500">
-              Every item is required before acknowledgement.
-            </p>
-          </div>
-          <Button variant="secondary" onClick={addItem}>
-            <Plus size={15} /> Add item
-          </Button>
-        </div>
-        {draft.checklist.map((item: TrainingChecklistItem, index) => (
-          <div
-            key={item.itemId}
-            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2"
-          >
-            <div className="flex">
-              <Button
-                title="Move up"
-                variant="ghost"
-                size="sm"
-                disabled={index === 0}
-                onClick={() => moveItem(index, -1)}
-              >
-                <ArrowUp size={14} />
-              </Button>
-              <Button
-                title="Move down"
-                variant="ghost"
-                size="sm"
-                disabled={index === draft.checklist.length - 1}
-                onClick={() => moveItem(index, 1)}
-              >
-                <ArrowDown size={14} />
-              </Button>
-            </div>
-            <Input
-              label={`Required item ${index + 1}`}
-              value={item.text}
-              onChange={(event) => updateItem(item.itemId, event.target.value)}
-            />
-            <Button
-              title="Delete item"
-              variant="ghost"
-              onClick={() => removeItem(item.itemId)}
-            >
-              <Trash2 size={15} />
-            </Button>
-          </div>
-        ))}
-      </Card>
       <Card className="space-y-4 p-5">
         <h2 className="font-semibold">Acknowledgement</h2>
         <TextArea

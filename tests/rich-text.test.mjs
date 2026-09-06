@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   normalizeRichTextDocument,
   richTextFromLegacySop,
-  richTextFromLegacyTraining,
   richTextHasText,
 } from '../api/_lib/richText.js';
 
@@ -49,13 +48,11 @@ test('rich-text normalization removes unsupported nodes, marks, hierarchy, and u
   assert.equal(richTextHasText({ type: 'doc', content: [{ type: 'paragraph' }] }), false);
 });
 
-test('legacy SOP and Training fields remain readable without migration', () => {
+test('legacy SOP fields remain readable without migration', () => {
   const sop = richTextFromLegacySop({ purpose: '<b>Prevent startup</b>', instructions: 'Stop\nIsolate', safetyInformation: 'Wear PPE' });
-  const training = richTextFromLegacyTraining({ employeeInstructions: '<script>bad()</script>Read the policy' });
 
   assert.deepEqual(sop.content.map((node) => node.type), ['heading', 'paragraph', 'heading', 'paragraph', 'paragraph', 'heading', 'paragraph']);
   assert.equal(sop.content[1].content[0].text, 'Prevent startup');
-  assert.equal(training.content[0].content[0].text, 'bad() Read the policy');
 });
 
 test('oversized and malformed rich-text payloads are rejected', () => {

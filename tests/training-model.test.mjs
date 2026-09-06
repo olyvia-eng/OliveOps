@@ -27,18 +27,42 @@ test('status is derived from business dates and recurrence state', () => {
   assert.equal(trainingPresentationStatus({ assignment: { ...base, revokedAt: '2026-01-01T12:00:00Z' }, now, timeZone: 'America/Toronto' }), 'revoked');
 });
 
-test('publish validation normalizes required checklist content', () => {
-  const result = validateTrainingForPublish({ title: ' Saw <b>Safety</b> ', instructions: 'Read this.', checklist: [{ itemId: 'stable', text: ' Guard fitted ' }], recurrenceType: 'annual' });
+test('publish validation normalizes ordered Training Sections and nested checklist items', () => {
+  const result = validateTrainingForPublish({
+    title: ' Saw <b>Safety</b> ', recurrenceType: 'annual',
+    trainingSections: [
+      { id: 'section-a', heading: ' Inspection ', description: 'First line\nSecond line', checklistItems: [{ id: 'item-a', text: ' Guard fitted ' }, { id: 'blank', text: '   ' }] },
+      { sectionId: 'section-b', title: 'Operation', description: '', checklistItems: [{ itemId: 'item-b', text: 'Wear seatbelt' }] },
+    ],
+  });
   assert.equal(result.ok, true);
   assert.equal(result.draft.title, 'Saw Safety');
-  assert.deepEqual(result.draft.checklist, [{ itemId: 'stable', text: 'Guard fitted', required: true, sortOrder: 0 }]);
-  assert.equal(validateTrainingForPublish({ title: '', checklist: [], recurrenceType: 'custom_months', recurrenceMonths: 0 }).ok, false);
+  assert.deepEqual(result.draft.trainingSections, [
+    { sectionId: 'section-a', title: 'Inspection', description: 'First line\nSecond line', sortOrder: 0, checklistItems: [{ itemId: 'item-a', text: 'Guard fitted', required: true, sortOrder: 0 }] },
+    { sectionId: 'section-b', title: 'Operation', description: '', sortOrder: 1, checklistItems: [{ itemId: 'item-b', text: 'Wear seatbelt', required: true, sortOrder: 0 }] },
+  ]);
+  assert.deepEqual(result.draft.checklist.map((item) => item.itemId), ['item-a', 'item-b']);
+  assert.equal(validateTrainingForPublish({ title: '', trainingSections: [], recurrenceType: 'custom_months', recurrenceMonths: 0 }).ok, false);
   assert.equal(normalizeTrainingDraft({}).dueSoonDays, 30);
   assert.equal(normalizeTrainingDraft({}).contentMode, 'structured');
-  assert.deepEqual(result.draft.richTextContent, {
-    type: 'doc',
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Read this.' }] }],
-  });
+});
+
+test('Training Sections require headings, permit informational sections, and require unique stable IDs', () => {
+  assert.equal(validateTrainingForPublish({ title: 'Empty', trainingSections: [] }).errors.trainingSections, 'Add at least one Training Section.');
+  assert.equal(validateTrainingForPublish({ title: 'Blank', trainingSections: [{ sectionId: 'a', title: ' ', description: 'Info', checklistItems: [] }] }).errors.trainingSections, 'Every Training Section needs a heading.');
+  assert.equal(validateTrainingForPublish({ title: 'Info', trainingSections: [{ sectionId: 'a', title: 'Policy', description: 'Read this', checklistItems: [] }] }).ok, true);
+  assert.equal(validateTrainingForPublish({ title: 'Duplicate', trainingSections: [
+    { sectionId: 'a', title: 'One', checklistItems: [{ itemId: 'same', text: 'First' }] },
+    { sectionId: 'b', title: 'Two', checklistItems: [{ itemId: 'same', text: 'Second' }] },
+  ] }).errors.trainingSections, 'Training Section and checklist item IDs must be unique.');
+});
+
+test('legacy flat Training content becomes one non-destructive compatibility section', () => {
+  const draft = normalizeTrainingDraft({ instructions: 'Read the safety information.', checklist: [{ itemId: 'legacy-a', text: 'Confirm review' }] });
+  assert.deepEqual(draft.trainingSections, [{
+    sectionId: 'legacy-training-section', title: 'Training Checklist', description: 'Read the safety information.', sortOrder: 0,
+    checklistItems: [{ itemId: 'legacy-a', text: 'Confirm review', required: true, sortOrder: 0 }],
+  }]);
 });
 
 test('document Training requires a validated PDF and permits an optional checklist', () => {

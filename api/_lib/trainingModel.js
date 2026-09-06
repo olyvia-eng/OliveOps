@@ -1,14 +1,49 @@
 import { getBusinessPeriodKeys, normalizeBusinessTimeZone } from './businessTime.js';
 import { normalizeContentMode, normalizePdfDocument, validateReadyPdfDocument } from './documentContent.js';
-import { normalizeTrainingRichText, richTextHasText } from './richText.js';
 
 export const TRAINING_RECURRENCE_TYPES = new Set(['one_time', 'annual', 'custom_months']);
 export const DEFAULT_TRAINING_ACKNOWLEDGEMENT = 'I confirm that I have read and understood this training and completed each required checklist item.';
 export const DEFAULT_DOCUMENT_TRAINING_ACKNOWLEDGEMENT = 'I confirm that I have reviewed and understood this Training document.';
 
+function normalizeChecklist(items, sectionIndex = 0) {
+  return Array.isArray(items) ? items.map((item, itemIndex) => ({
+    itemId: cleanText(item?.itemId ?? item?.id, 100) || `section-${sectionIndex + 1}-item-${itemIndex + 1}`,
+    text: cleanText(item?.text, 500),
+    required: true,
+    sortOrder: itemIndex,
+  })).filter((item) => item.text) : [];
+}
+
+export function normalizeTrainingSections(input = {}) {
+  if (Array.isArray(input.trainingSections)) {
+    return input.trainingSections.slice(0, 100).map((section, sectionIndex) => ({
+      sectionId: cleanText(section?.sectionId ?? section?.id, 100) || `section-${sectionIndex + 1}`,
+      title: cleanText(section?.title ?? section?.heading, 160),
+      description: cleanMultiline(section?.description, 4_000),
+      sortOrder: sectionIndex,
+      checklistItems: normalizeChecklist(section?.checklistItems, sectionIndex),
+    }));
+  }
+  const checklistItems = normalizeChecklist(input.checklist);
+  const description = cleanText(input.instructions ?? input.employeeInstructions, 4_000);
+  if (!checklistItems.length && !description) return [];
+  return [{
+    sectionId: 'legacy-training-section',
+    title: 'Training Checklist',
+    description,
+    sortOrder: 0,
+    checklistItems,
+  }];
+}
+
 function cleanText(value, maxLength) {
   if (typeof value !== 'string') return '';
   return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function cleanMultiline(value, maxLength) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/<[^>]*>/g, ' ').replace(/\r\n?/g, '\n').replace(/[\t ]+/g, ' ').replace(/ *\n */g, '\n').trim().slice(0, maxLength);
 }
 
 function validDateKey(value) {
@@ -63,21 +98,17 @@ export function trainingPresentationStatus({ assignment, now = new Date(), timeZ
 export function normalizeTrainingDraft(input = {}) {
   const contentMode = normalizeContentMode(input.contentMode);
   const recurrenceType = TRAINING_RECURRENCE_TYPES.has(input.recurrenceType) ? input.recurrenceType : 'one_time';
-  const checklist = Array.isArray(input.checklist) ? input.checklist.map((item, index) => ({
-    itemId: cleanText(item?.itemId, 100) || `item-${index + 1}`,
-    text: cleanText(item?.text, 500),
-    required: true,
-    sortOrder: index,
-  })).filter((item) => item.text) : [];
+  const trainingSections = normalizeTrainingSections(input);
+  const checklist = trainingSections.flatMap((section) => section.checklistItems);
   return {
     contentMode,
     title: cleanText(input.title, 160),
     category: cleanText(input.category, 100),
     shortDescription: cleanText(input.shortDescription, 500),
-    richTextContent: normalizeTrainingRichText(input),
     instructions: cleanText(input.instructions, 20_000),
     attachmentFileId: cleanText(input.attachmentFileId, 160) || null,
     checklist,
+    trainingSections,
     acknowledgementStatement: cleanText(input.acknowledgementStatement, 1_000) || (contentMode === 'document' ? DEFAULT_DOCUMENT_TRAINING_ACKNOWLEDGEMENT : DEFAULT_TRAINING_ACKNOWLEDGEMENT),
     document: contentMode === 'document' ? normalizePdfDocument(input.document) : null,
     recurrenceType,
@@ -95,8 +126,11 @@ export function validateTrainingForPublish(input) {
     const documentError = validateReadyPdfDocument(draft.document);
     if (documentError) errors.document = documentError;
   } else {
-    if (!richTextHasText(draft.richTextContent) && !draft.attachmentFileId) errors.content = 'Training content or an attachment is required.';
-    if (draft.checklist.length === 0) errors.checklist = 'Add at least one required checklist item.';
+    if (draft.trainingSections.length === 0) errors.trainingSections = 'Add at least one Training Section.';
+    if (draft.trainingSections.some((section) => !section.title)) errors.trainingSections = 'Every Training Section needs a heading.';
+    const sectionIds = draft.trainingSections.map((section) => section.sectionId);
+    const itemIds = draft.trainingSections.flatMap((section) => section.checklistItems.map((item) => item.itemId));
+    if (new Set(sectionIds).size !== sectionIds.length || new Set(itemIds).size !== itemIds.length) errors.trainingSections = 'Training Section and checklist item IDs must be unique.';
   }
   try {
     recurrenceMonthsFor(draft.recurrenceType, draft.recurrenceMonths);
