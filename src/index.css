@@ -14,6 +14,7 @@ table button[aria-label^='Actions for'] + div {
   --sidebar-surface: #ffffff;
   --modal-surface: #ffffff;
   --toolbar-surface: #ffffff;
+  --toolbar-fallback: #ffffff;
   --border-subtle: #e4ebe6;
   --glass-border: #e4ebe6;
   --glass-blur: 0px;
@@ -30,6 +31,7 @@ table button[aria-label^='Actions for'] + div {
   --sidebar-surface: #183526;
   --modal-surface: #183526;
   --toolbar-surface: #183526;
+  --toolbar-fallback: #183526;
   --border-subtle: #315440;
   --glass-border: #315440;
   --shadow-elevated: 0 20px 50px rgb(0 0 0 / 0.38);
@@ -41,7 +43,8 @@ table button[aria-label^='Actions for'] + div {
   --surface-glass-tinted: rgb(222 239 226 / 0.88);
   --sidebar-surface: rgb(231 243 234 / 0.88);
   --modal-surface: rgb(244 249 245 / 0.91);
-  --toolbar-surface: rgb(238 247 240 / 0.86);
+  --toolbar-surface: rgb(255 255 255 / 0.9);
+  --toolbar-fallback: #ffffff;
   --glass-border: rgb(72 117 87 / 0.24);
   --glass-blur: 18px;
   --glass-saturation: 125%;
@@ -54,6 +57,7 @@ table button[aria-label^='Actions for'] + div {
   --sidebar-surface: rgb(18 50 33 / 0.91);
   --modal-surface: rgb(24 55 38 / 0.94);
   --toolbar-surface: rgb(21 51 35 / 0.9);
+  --toolbar-fallback: #153a27;
   --glass-border: rgb(171 210 181 / 0.19);
   --glass-saturation: 112%;
   --glass-fallback: #153a27;
@@ -65,6 +69,7 @@ table button[aria-label^='Actions for'] + div {
   --sidebar-surface: rgb(255 255 255 / 0.79);
   --modal-surface: rgb(255 255 255 / 0.87);
   --toolbar-surface: rgb(255 255 255 / 0.78);
+  --toolbar-fallback: #f8faf8;
   --glass-border: rgb(61 86 69 / 0.2);
   --glass-blur: 22px;
   --glass-saturation: 118%;
@@ -77,6 +82,7 @@ table button[aria-label^='Actions for'] + div {
   --sidebar-surface: rgb(20 30 24 / 0.88);
   --modal-surface: rgb(28 39 32 / 0.92);
   --toolbar-surface: rgb(23 34 27 / 0.88);
+  --toolbar-fallback: #1b2b21;
   --glass-border: rgb(225 238 229 / 0.16);
   --glass-saturation: 105%;
   --glass-fallback: #1b2b21;
@@ -190,10 +196,13 @@ table button[aria-label^='Actions for'] + div {
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .sidebar-surface,
-  .app-header-surface,
   .modal-surface,
   .detail-panel-surface {
     background: var(--glass-fallback);
+  }
+
+  .app-header-surface {
+    background: var(--toolbar-fallback);
   }
 }
 
@@ -203,10 +212,13 @@ table button[aria-label^='Actions for'] + div {
   }
 
   .sidebar-surface,
-  .app-header-surface,
   .modal-surface,
   .detail-panel-surface {
     background: var(--glass-fallback);
+  }
+
+  .app-header-surface {
+    background: var(--toolbar-fallback);
   }
 }
 

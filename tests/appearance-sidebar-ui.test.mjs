@@ -24,7 +24,7 @@ test('theme and interface style are personal profile preferences', async () => {
 
 test('appearance tokens cover standard, tinted, clear, dark, and accessibility fallbacks', async () => {
   const css = await read('../src/index.css');
-  for (const token of ['--surface', '--surface-elevated', '--surface-glass', '--surface-glass-tinted', '--sidebar-surface', '--modal-surface', '--toolbar-surface', '--border-subtle', '--glass-border', '--glass-blur', '--glass-saturation', '--shadow-elevated']) {
+  for (const token of ['--surface', '--surface-elevated', '--surface-glass', '--surface-glass-tinted', '--sidebar-surface', '--modal-surface', '--toolbar-surface', '--toolbar-fallback', '--border-subtle', '--glass-border', '--glass-blur', '--glass-saturation', '--shadow-elevated']) {
     assert.match(css, new RegExp(token));
   }
   assert.match(css, /\[data-appearance='tinted-glass'\]/);
@@ -34,6 +34,28 @@ test('appearance tokens cover standard, tinted, clear, dark, and accessibility f
   assert.match(css, /@supports not \(\(-webkit-backdrop-filter/);
   assert.match(css, /prefers-reduced-transparency: reduce/);
   assert.match(css, /prefers-reduced-motion: reduce/);
+});
+
+test('Tinted Glass uses a white app header without changing other modes or green accents', async () => {
+  const [css, layout, tailwind] = await Promise.all([
+    read('../src/index.css'),
+    read('../src/components/layout/AppLayout.tsx'),
+    read('../tailwind.config.js'),
+  ]);
+  const tinted = css.match(/\[data-appearance='tinted-glass'\] \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const darkTinted = css.match(/\.dark\[data-appearance='tinted-glass'\] \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const clear = css.match(/\[data-appearance='clear-glass'\] \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+  assert.match(tinted, /--toolbar-surface: rgb\(255 255 255 \/ 0\.9\)/);
+  assert.match(tinted, /--toolbar-fallback: #ffffff/);
+  assert.doesNotMatch(tinted, /--toolbar-surface: rgb\(238 247 240/);
+  assert.match(tinted, /--sidebar-surface: rgb\(231 243 234 \/ 0\.88\)/);
+  assert.match(darkTinted, /--toolbar-surface: rgb\(21 51 35 \/ 0\.9\)/);
+  assert.match(clear, /--toolbar-surface: rgb\(255 255 255 \/ 0\.78\)/);
+  assert.match(css, /\.app-header-surface \{\s*background: var\(--toolbar-surface\)/);
+  assert.match(css, /\.app-header-surface \{\s*background: var\(--toolbar-fallback\)/);
+  assert.match(layout, /className="app-header-surface border-b"[\s\S]*<NotificationBell \/>/);
+  assert.match(tailwind, /accent:[\s\S]*500:\s*'#6B8E23'/);
 });
 
 test('glass is limited to chrome while dense tables and forms stay opaque', async () => {
