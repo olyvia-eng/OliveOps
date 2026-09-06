@@ -35,6 +35,10 @@ test('publish validation normalizes required checklist content', () => {
   assert.equal(validateTrainingForPublish({ title: '', checklist: [], recurrenceType: 'custom_months', recurrenceMonths: 0 }).ok, false);
   assert.equal(normalizeTrainingDraft({}).dueSoonDays, 30);
   assert.equal(normalizeTrainingDraft({}).contentMode, 'structured');
+  assert.deepEqual(result.draft.richTextContent, {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Read this.' }] }],
+  });
 });
 
 test('document Training requires a validated PDF and permits an optional checklist', () => {

@@ -12,8 +12,11 @@ import {
   CreationMethodChoice,
   PdfDropzone,
 } from "../../components/documents/PdfDocumentControls";
+import RichTextEditor from "../../components/rich-text/RichTextEditor";
 import type { SopContent, SopDefinition } from "../../types/sop";
+import { EMPTY_RICH_TEXT_DOCUMENT } from "../../types/richText";
 import { uploadFileToStorage } from "../../utils/fileUpload";
+import { sopRichTextContent } from "../../utils/richText";
 import { createSop, getSop, publishSop, updateSopDraft } from "./sopApi";
 
 const emptySop = (
@@ -23,6 +26,7 @@ const emptySop = (
   title: "",
   category: "",
   shortDescription: "",
+  richTextContent: EMPTY_RICH_TEXT_DOCUMENT,
   purpose: "",
   instructions: "",
   safetyInformation: "",
@@ -68,6 +72,7 @@ function SopEditor({
         setDraft({
           ...payload.definition,
           contentMode: payload.definition.contentMode ?? "structured",
+          richTextContent: sopRichTextContent(payload.definition),
           document: payload.definition.document ?? null,
         });
         setError("");
@@ -272,33 +277,16 @@ function SopEditor({
           <div>
             <h2 className="font-semibold">Procedure content</h2>
             <p className="text-sm text-gray-500">
-              Explain the outcome, the steps, and safety information employees
-              need.
+              Organize the procedure with clear headings, steps, and safety
+              requirements.
             </p>
           </div>
-          <TextArea
-            label="Purpose"
-            rows={5}
-            value={draft.purpose}
-            onChange={(event) =>
-              setDraft({ ...draft, purpose: event.target.value })
-            }
-          />
-          <TextArea
-            label="Instructions"
-            required
-            rows={12}
-            value={draft.instructions}
-            onChange={(event) =>
-              setDraft({ ...draft, instructions: event.target.value })
-            }
-          />
-          <TextArea
-            label="Safety information"
-            rows={7}
-            value={draft.safetyInformation}
-            onChange={(event) =>
-              setDraft({ ...draft, safetyInformation: event.target.value })
+          <RichTextEditor
+            ariaLabel="Procedure content"
+            value={draft.richTextContent}
+            disabled={saving || publishing}
+            onChange={(richTextContent) =>
+              setDraft({ ...draft, richTextContent })
             }
           />
         </Card>

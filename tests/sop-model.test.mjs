@@ -21,6 +21,14 @@ test('SOP drafts contain reference content without Training semantics', () => {
     title: 'Lockout Procedure',
     category: 'Safety',
     shortDescription: 'Safely isolate equipment.',
+    richTextContent: { type: 'doc', content: [
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Purpose' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Prevent unexpected startup.' }] },
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Instructions' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Shut down and isolate.' }] },
+      { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Safety Information' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Wear required PPE.' }] },
+    ] },
     purpose: 'Prevent unexpected startup.',
     instructions: 'Shut down and isolate.',
     safetyInformation: 'Wear required PPE.',
@@ -35,13 +43,14 @@ test('SOP drafts contain reference content without Training semantics', () => {
 test('published SOPs require employee-readable reference content', () => {
   const invalid = validateSopForPublish({ title: 'Incomplete' });
   assert.equal(invalid.ok, false);
-  assert.deepEqual(Object.keys(invalid.errors).sort(), ['category', 'instructions', 'purpose', 'shortDescription']);
+  assert.deepEqual(Object.keys(invalid.errors).sort(), ['category', 'richTextContent', 'shortDescription']);
 
   const valid = validateSopForPublish({
     title: 'Lockout Procedure', category: 'Safety', shortDescription: 'Isolation steps',
     purpose: 'Prevent unexpected startup', instructions: 'Stop, isolate, and verify.',
   });
   assert.equal(valid.ok, true);
+  assert.equal(valid.draft.richTextContent.content[0].type, 'heading');
 });
 
 test('document SOP requires a ready PDF without structured-only fields', () => {

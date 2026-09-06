@@ -122,6 +122,7 @@ export async function publishTrainingVersionForBusiness({ businessId, trainingId
   const createdAt = nowIso();
   const snapshot = {
     trainingId, businessId, version, contentMode: validation.draft.contentMode, title: validation.draft.title, category: validation.draft.category, shortDescription: validation.draft.shortDescription,
+    richTextContent: validation.draft.richTextContent,
     instructions: validation.draft.instructions, checklist: validation.draft.checklist,
     acknowledgementStatement: validation.draft.acknowledgementStatement, attachmentFileId: validation.draft.attachmentFileId,
     recurrenceType: validation.draft.recurrenceType, recurrenceMonths: validation.draft.recurrenceMonths,
@@ -299,7 +300,7 @@ export async function completeTrainingAssignmentForBusiness({ businessId, employ
     id: completionId, completionId, businessId, assignmentId, employeeId: employee.id, trainingId: assignment.trainingId,
     completedVersion: version.version, trainingTitle: version.title,
     checklistItems: version.checklist.map((item) => ({ itemId: item.itemId, text: item.text, required: true, checked: true })),
-    contentMode: version.contentMode ?? 'structured', document: version.document ?? null,
+    contentMode: version.contentMode ?? 'structured', richTextContent: version.richTextContent, document: version.document ?? null,
     acknowledgementStatement: version.acknowledgementStatement, acknowledged: true, completedAt, nextDueDate, submissionId,
   };
   try {

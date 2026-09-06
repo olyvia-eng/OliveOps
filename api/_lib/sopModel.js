@@ -1,4 +1,5 @@
 import { normalizeContentMode, normalizePdfDocument, validateReadyPdfDocument } from './documentContent.js';
+import { normalizeSopRichText, richTextHasText } from './richText.js';
 
 const MAX_ATTACHMENTS = 10;
 
@@ -20,6 +21,7 @@ export function normalizeSopDraft(input = {}) {
     title: cleanText(input.title, 160),
     category: cleanText(input.category, 100),
     shortDescription: cleanText(input.shortDescription, 500),
+    richTextContent: normalizeSopRichText(input),
     purpose: cleanText(input.purpose, 4_000),
     instructions: cleanText(input.instructions, 30_000),
     safetyInformation: cleanText(input.safetyInformation, 8_000),
@@ -38,8 +40,7 @@ export function validateSopForPublish(input) {
     const documentError = validateReadyPdfDocument(draft.document);
     if (documentError) errors.document = documentError;
   } else {
-    if (!draft.purpose) errors.purpose = 'Purpose is required.';
-    if (!draft.instructions) errors.instructions = 'Procedure or instructions are required.';
+    if (!richTextHasText(draft.richTextContent)) errors.richTextContent = 'Procedure content is required.';
   }
   return { ok: Object.keys(errors).length === 0, errors, draft };
 }

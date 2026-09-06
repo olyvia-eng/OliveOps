@@ -1,5 +1,6 @@
 import { getBusinessPeriodKeys, normalizeBusinessTimeZone } from './businessTime.js';
 import { normalizeContentMode, normalizePdfDocument, validateReadyPdfDocument } from './documentContent.js';
+import { normalizeTrainingRichText, richTextHasText } from './richText.js';
 
 export const TRAINING_RECURRENCE_TYPES = new Set(['one_time', 'annual', 'custom_months']);
 export const DEFAULT_TRAINING_ACKNOWLEDGEMENT = 'I confirm that I have read and understood this training and completed each required checklist item.';
@@ -73,6 +74,7 @@ export function normalizeTrainingDraft(input = {}) {
     title: cleanText(input.title, 160),
     category: cleanText(input.category, 100),
     shortDescription: cleanText(input.shortDescription, 500),
+    richTextContent: normalizeTrainingRichText(input),
     instructions: cleanText(input.instructions, 20_000),
     attachmentFileId: cleanText(input.attachmentFileId, 160) || null,
     checklist,
@@ -93,7 +95,7 @@ export function validateTrainingForPublish(input) {
     const documentError = validateReadyPdfDocument(draft.document);
     if (documentError) errors.document = documentError;
   } else {
-    if (!draft.instructions && !draft.attachmentFileId) errors.content = 'Instructions or an attachment is required.';
+    if (!richTextHasText(draft.richTextContent) && !draft.attachmentFileId) errors.content = 'Training content or an attachment is required.';
     if (draft.checklist.length === 0) errors.checklist = 'Add at least one required checklist item.';
   }
   try {

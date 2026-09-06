@@ -10,6 +10,8 @@ const detail = readFileSync('src/pages/training/TrainingDetailPage.tsx', 'utf8')
 const employeeTraining = readFileSync('src/components/employees/EmployeeTrainingSection.tsx', 'utf8');
 const documentControls = readFileSync('src/components/documents/PdfDocumentControls.tsx', 'utf8');
 const upload = readFileSync('src/utils/fileUpload.ts', 'utf8');
+const richTextEditor = readFileSync('src/components/rich-text/RichTextEditor.tsx', 'utf8');
+const richTextViewer = readFileSync('src/components/rich-text/RichTextViewer.tsx', 'utf8');
 
 test('Training administration uses protected full-page routes and owner/admin navigation', () => {
   for (const route of ['training', 'training/new', 'training/:trainingId', 'training/:trainingId/edit']) {
@@ -84,13 +86,25 @@ test('Training new routing derives durable isolated mode state from the URL', ()
   assert.match(builder, /contentMode: editable\.contentMode \?\? "structured"/);
 });
 
-test('Training document mode hides structured instructions and requires a ready PDF', () => {
-  assert.match(builder, /\{!isDocument \? \([\s\S]*label="Employee instructions"/);
+test('Training document mode hides structured content and requires a ready PDF', () => {
+  assert.match(builder, /\{!isDocument \? \([\s\S]*<RichTextEditor/);
+  assert.doesNotMatch(builder, /label="Employee instructions"/);
   assert.match(builder, /\{isDocument \? \([\s\S]*<PdfDropzone/);
   assert.match(builder, /onRemove=\{\(\) => \{[\s\S]*document: null[\s\S]*update-draft/);
   assert.match(builder, /isDocument && draft\.document\?\.status !== "ready"/);
   assert.match(builder, /to=\{definition \? `\/training\/\$\{definition\.id\}` : "\/training\/new"\}/);
   assert.match(builder, /attachmentFileId: null,\s*document: null/);
+});
+
+test('Training uses rich-text authoring and immutable read-only content views', () => {
+  assert.match(builder, /ariaLabel="Training content"/);
+  assert.match(builder, /trainingRichTextContent\(editable\)/);
+  assert.match(detail, /RichTextViewer document=\{trainingRichTextContent\(definition\)\}/);
+  assert.match(detail, /item\.richTextContent \? <RichTextViewer document=\{item\.richTextContent\}/);
+  assert.match(detail, /RichTextViewer document=\{trainingRichTextContent\(item\)\}/);
+  assert.match(richTextEditor, /EditorContent/);
+  assert.match(richTextViewer, /normalizeRichTextDocument\(document\)/);
+  assert.doesNotMatch(richTextViewer, /dangerouslySetInnerHTML|contentEditable/);
 });
 
 test('Training detail and employee profile expose assignment operations and transparent compliance', () => {

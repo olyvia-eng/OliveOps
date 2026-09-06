@@ -20,13 +20,16 @@ import {
   CreationMethodChoice,
   PdfDropzone,
 } from "../../components/documents/PdfDocumentControls";
+import RichTextEditor from "../../components/rich-text/RichTextEditor";
 import type {
   TrainingAssignment,
   TrainingChecklistItem,
   TrainingDefinition,
   TrainingRecurrenceType,
 } from "../../types/training";
+import { EMPTY_RICH_TEXT_DOCUMENT } from "../../types/richText";
 import { uploadFileToStorage } from "../../utils/fileUpload";
+import { trainingRichTextContent } from "../../utils/richText";
 import { trainingRequest, type TrainingDetailPayload } from "./trainingApi";
 
 const DEFAULT_ACKNOWLEDGEMENT =
@@ -37,6 +40,7 @@ type Draft = Pick<
   | "title"
   | "category"
   | "shortDescription"
+  | "richTextContent"
   | "instructions"
   | "attachmentFileId"
   | "document"
@@ -53,6 +57,7 @@ const emptyDraft = (
   title: "",
   category: "",
   shortDescription: "",
+  richTextContent: EMPTY_RICH_TEXT_DOCUMENT,
   instructions: "",
   attachmentFileId: null,
   document: null,
@@ -131,6 +136,7 @@ function TrainingBuilder({
           ...editable,
           contentMode: editable.contentMode ?? "structured",
           category: editable.category ?? "",
+          richTextContent: trainingRichTextContent(editable),
           document: editable.document ?? null,
         });
       })
@@ -361,17 +367,25 @@ function TrainingBuilder({
             setDraft({ ...draft, shortDescription: event.target.value })
           }
         />
-        {!isDocument ? (
-          <TextArea
-            label="Employee instructions"
-            rows={8}
-            value={draft.instructions}
-            onChange={(event) =>
-              setDraft({ ...draft, instructions: event.target.value })
+      </Card>
+      {!isDocument ? (
+        <Card className="space-y-4 p-5">
+          <div>
+            <h2 className="font-semibold">Training content</h2>
+            <p className="text-sm text-gray-500">
+              Teach the topic with clear sections, steps, lists, and emphasis.
+            </p>
+          </div>
+          <RichTextEditor
+            ariaLabel="Training content"
+            value={draft.richTextContent}
+            disabled={saving || publishing}
+            onChange={(richTextContent) =>
+              setDraft({ ...draft, richTextContent })
             }
           />
-        ) : null}
-      </Card>
+        </Card>
+      ) : null}
       {isDocument ? (
         definition ? (
           <>
@@ -442,57 +456,7 @@ function TrainingBuilder({
             </Button>
           </Card>
         )
-      ) : (
-        <Card className="space-y-4 p-5">
-          <div>
-            <h2 className="font-semibold">Attachment</h2>
-            <p className="text-sm text-gray-500">
-              Optional PDF, DOC, or DOCX. Files stay private and open through
-              short-lived links.
-            </p>
-          </div>
-          {draft.attachmentFileId ? (
-            <div className="flex items-center justify-between rounded-md border p-3">
-              <div className="flex items-center gap-3">
-                <FileText size={18} />
-                <div>
-                  <p className="text-sm font-medium">
-                    {attachment?.name ?? "Attached document"}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {attachment
-                      ? `${attachment.type} · ${(attachment.size / 1024).toFixed(1)} KB`
-                      : "Saved attachment"}
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setDraft({ ...draft, attachmentFileId: null });
-                  setAttachment(null);
-                }}
-              >
-                Remove
-              </Button>
-            </div>
-          ) : null}
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold">
-            <Upload size={15} />{" "}
-            {draft.attachmentFileId
-              ? "Replace attachment"
-              : "Choose attachment"}
-            <input
-              className="sr-only"
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              onChange={(event) =>
-                void selectAttachment(event.target.files?.[0])
-              }
-            />
-          </label>
-        </Card>
-      )}
+      ) : null}
       <Card className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -600,6 +564,57 @@ function TrainingBuilder({
           />
         </div>
       </Card>
+      {!isDocument ? (
+        <Card className="space-y-4 p-5">
+          <div>
+            <h2 className="font-semibold">Attachment</h2>
+            <p className="text-sm text-gray-500">
+              Optional PDF, DOC, or DOCX. Files stay private and open through
+              short-lived links.
+            </p>
+          </div>
+          {draft.attachmentFileId ? (
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="flex items-center gap-3">
+                <FileText size={18} />
+                <div>
+                  <p className="text-sm font-medium">
+                    {attachment?.name ?? "Attached document"}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {attachment
+                      ? `${attachment.type} · ${(attachment.size / 1024).toFixed(1)} KB`
+                      : "Saved attachment"}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setDraft({ ...draft, attachmentFileId: null });
+                  setAttachment(null);
+                }}
+              >
+                Remove
+              </Button>
+            </div>
+          ) : null}
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold">
+            <Upload size={15} />{" "}
+            {draft.attachmentFileId
+              ? "Replace attachment"
+              : "Choose attachment"}
+            <input
+              className="sr-only"
+              type="file"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={(event) =>
+                void selectAttachment(event.target.files?.[0])
+              }
+            />
+          </label>
+        </Card>
+      ) : null}
       {error ? (
         <p
           role="alert"

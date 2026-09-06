@@ -1,4 +1,5 @@
 import type { ContentMode, PdfDocumentMetadata } from './training';
+import type { RichTextDocument } from './richText';
 
 export type SopStatus = 'draft' | 'published';
 
@@ -7,6 +8,7 @@ export interface SopContent {
   title: string;
   category: string;
   shortDescription: string;
+  richTextContent: RichTextDocument;
   purpose: string;
   instructions: string;
   safetyInformation: string;

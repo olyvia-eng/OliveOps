@@ -192,6 +192,42 @@ table button[aria-label^='Actions for'] + div {
   .table-cell {
     @apply px-4 py-3;
   }
+
+  .olive-rich-text {
+    @apply text-sm leading-7 text-brand-800 dark:text-brand-100;
+  }
+
+  .olive-rich-text > * + * {
+    @apply mt-3;
+  }
+
+  .olive-rich-text h1 {
+    @apply mt-7 text-xl font-semibold first:mt-0;
+  }
+
+  .olive-rich-text h2 {
+    @apply mt-6 text-lg font-semibold first:mt-0;
+  }
+
+  .olive-rich-text h3 {
+    @apply mt-5 text-base font-semibold first:mt-0;
+  }
+
+  .olive-rich-text ul {
+    @apply list-disc space-y-1 pl-6;
+  }
+
+  .olive-rich-text ol {
+    @apply list-decimal space-y-1 pl-6;
+  }
+
+  .olive-rich-text li > p {
+    @apply inline;
+  }
+
+  .olive-rich-text-viewer {
+    @apply max-w-none;
+  }
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
