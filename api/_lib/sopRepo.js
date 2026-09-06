@@ -132,7 +132,7 @@ export async function duplicateSopForBusiness({ businessId, sopId, actor, reques
   const existing = await getSopDefinitionForBusiness(businessId, duplicateId);
   if (existing) return existing;
   const duplicatedAt = nowIso();
-  const draft = normalizeSopDraft({ ...source, title: `${source.title} Copy`, attachmentFileIds: source.attachmentFileIds ?? [] });
+  const draft = normalizeSopDraft({ ...source, title: `${source.title} Copy`, attachmentFileIds: source.attachmentFileIds ?? [], document: null });
   const duplicate = {
     id: duplicateId, businessId, ...draft, status: 'draft', active: false, currentVersion: 0,
     createdAt: duplicatedAt, createdBy: actor.id, updatedAt: duplicatedAt, updatedBy: actor.id,

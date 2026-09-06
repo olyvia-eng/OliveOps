@@ -18,6 +18,7 @@ function harness({
   employee = { id: 'emp-a', userId: 'user-a', name: 'Alex', email: 'alex@example.com', active: true },
   assignments = [],
   completions = [],
+  version = { businessId: 'biz-a', trainingId: 'training-a', version: 1, checklist: [] },
 } = {}) {
   const calls = [];
   const handler = createTrainingHandler({
@@ -31,7 +32,7 @@ function harness({
     listTrainingVersionsForBusiness: async () => [],
     getTrainingDefinitionForBusiness: async () => ({ id: 'training-a' }),
     getTrainingAssignmentForBusiness: async (businessId, assignmentId) => { calls.push(['assignment', businessId, assignmentId]); return assignments.find((item) => item.id === assignmentId) ?? null; },
-    getTrainingVersionForBusiness: async (businessId, trainingId, version) => ({ businessId, trainingId, version, checklist: [] }),
+    getTrainingVersionForBusiness: async () => version,
     presentTrainingAssignments: (items) => items.map((item) => ({ ...item, presentationStatus: item.presentationStatus ?? 'not_started' })),
     publishTrainingVersionForBusiness: async (input) => { calls.push(['publish', input]); return { trainingId: input.trainingId, version: 1 }; },
     completeTrainingAssignmentForBusiness: async (input) => { calls.push(['complete', input]); return { completion: { id: 'completion-a' }, replayed: false }; },
@@ -77,6 +78,20 @@ test('revoked employee assignment returns a stable stale-assignment conflict', a
   const result = await call(handler, 'GET', 'my-detail', { query: { assignmentId: 'assignment-a' } });
   assert.equal(result.statusCode, 409);
   assert.equal(result.body.code, 'stale_assignment');
+});
+
+test('employee detail and history preserve immutable document mode metadata', async () => {
+  const document = { fileId: 'file-pdf', originalFileName: 'training.pdf', mimeType: 'application/pdf', sizeBytes: 2048, status: 'ready', version: 3 };
+  const version = { businessId: 'biz-a', trainingId: 'training-a', version: 3, checklist: [], contentMode: 'document', document };
+  const completion = { id: 'completion-a', employeeId: 'emp-a', trainingId: 'training-a', completedVersion: 3, contentMode: 'document', document, completedAt: '2026-08-01T00:00:00.000Z' };
+  const assignments = [{ id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 3 }];
+  const { handler } = harness({ assignments, completions: [completion], version });
+  const detail = await call(handler, 'GET', 'my-detail', { query: { assignmentId: 'assignment-a' } });
+  const history = await call(handler, 'GET', 'my-history');
+  assert.equal(detail.body.version.contentMode, 'document');
+  assert.deepEqual(detail.body.version.document, document);
+  assert.equal(history.body.completions[0].contentMode, 'document');
+  assert.deepEqual(history.body.completions[0].document, document);
 });
 
 test('completion derives business and employee identity from the session', async () => {

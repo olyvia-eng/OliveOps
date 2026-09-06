@@ -42,6 +42,7 @@ test('Training menu actions follow status rules and preserve immutable history',
   assert.match(library, /Existing completion history and immutable version records remain unchanged/);
   assert.match(library, /statusRequestInFlight\.current/);
   assert.match(library, /duplicateRequestInFlight\.current/);
+  assert.match(library, /training: \{ \.\.\.training, title: `\$\{training\.title\} Copy`, attachmentFileId: null, document: null \}/);
 });
 
 test('Training builder supports immutable publish choices and stable checklist editing', () => {
@@ -57,7 +58,7 @@ test('Training document authoring is PDF-only and retains completion controls', 
   assert.match(builder, /CreationMethodChoice resource="Training"/);
   assert.match(documentControls, /Build in OliveOps/);
   assert.match(documentControls, /Upload a PDF/);
-  assert.match(documentControls, /category: 'document'/);
+  assert.match(documentControls, /category:\s*["']document["']/);
   assert.match(documentControls, /AuthorizedPdfPreview/);
   assert.match(documentControls, /<iframe/);
   assert.match(upload, /PDF files are supported/);
@@ -65,6 +66,28 @@ test('Training document authoring is PDF-only and retains completion controls', 
   assert.match(builder, /Completion checklist/);
   assert.match(builder, /Acknowledgement/);
   assert.match(builder, /Renewal/);
+});
+
+test('Training new routing derives durable isolated mode state from the URL', () => {
+  assert.match(documentControls, /resource === "Training" \? "\/training" : "\/sops"/);
+  assert.match(documentControls, /to=\{`\$\{base\}\/new\?mode=structured`\}/);
+  assert.match(documentControls, /to=\{`\$\{base\}\/new\?mode=document`\}/);
+  assert.match(builder, /searchParams\.get\("mode"\)/);
+  assert.match(builder, /requestedMode !== "structured" &&\s*requestedMode !== "document"/);
+  assert.match(builder, /return <CreationMethodChoice resource="Training"/);
+  assert.match(builder, /<TrainingBuilder\s+key=\{trainingId \?\? initialMode\}/);
+  assert.match(builder, /useState<Draft>\(\(\) => emptyDraft\(initialMode\)\)/);
+  assert.match(builder, /body: \{ requestId: crypto\.randomUUID\(\), training: draft \}/);
+  assert.match(builder, /contentMode: editable\.contentMode \?\? "structured"/);
+});
+
+test('Training document mode hides structured instructions and requires a ready PDF', () => {
+  assert.match(builder, /\{!isDocument \? \([\s\S]*label="Employee instructions"/);
+  assert.match(builder, /\{isDocument \? \([\s\S]*<PdfDropzone/);
+  assert.match(builder, /onRemove=\{\(\) => \{[\s\S]*document: null[\s\S]*update-draft/);
+  assert.match(builder, /isDocument && draft\.document\?\.status !== "ready"/);
+  assert.match(builder, /to=\{definition \? `\/training\/\$\{definition\.id\}` : "\/training\/new"\}/);
+  assert.match(builder, /attachmentFileId: null,\s*document: null/);
 });
 
 test('Training detail and employee profile expose assignment operations and transparent compliance', () => {

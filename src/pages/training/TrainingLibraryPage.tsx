@@ -33,7 +33,7 @@ export default function TrainingLibraryPage() {
     setDuplicateSavingId(training.id);
     setError('');
     try {
-      const payload = await trainingRequest<{ ok: true; definition: TrainingDefinition }>('create', { method: 'POST', body: { requestId: crypto.randomUUID(), training: { ...training, title: `${training.title} Copy`, attachmentFileId: null } } });
+      const payload = await trainingRequest<{ ok: true; definition: TrainingDefinition }>('create', { method: 'POST', body: { requestId: crypto.randomUUID(), training: { ...training, title: `${training.title} Copy`, attachmentFileId: null, document: null } } });
       emitAppToast({ tone: 'success', message: 'Training duplicated as a new draft.' });
       navigate(`/training/${payload.definition.id}/edit`);
     } catch (reason) {

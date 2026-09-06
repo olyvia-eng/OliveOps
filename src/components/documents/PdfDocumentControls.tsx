@@ -1,24 +1,272 @@
-import { useEffect, useState, type DragEvent } from 'react';
-import { ArrowLeft, FileText, Upload } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { Button, Card } from '../ui';
-import type { PdfDocumentMetadata } from '../../types/training';
-import { PDF_EXPORT_MESSAGE, resolveAttachmentUrl, uploadFileToStorage, validatePdfFile } from '../../utils/fileUpload';
+import { useEffect, useState, type DragEvent } from "react";
+import { ArrowLeft, FileText, Trash2, Upload } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button, Card } from "../ui";
+import type { PdfDocumentMetadata } from "../../types/training";
+import {
+  PDF_EXPORT_MESSAGE,
+  resolveAttachmentUrl,
+  uploadFileToStorage,
+  validatePdfFile,
+} from "../../utils/fileUpload";
 
-export function CreationMethodChoice({ resource }: { resource: 'Training' | 'SOP' }) {
-  const base = resource === 'Training' ? '/training' : '/sops';
-  return <div className="mx-auto max-w-3xl space-y-5"><Link to={base} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700"><ArrowLeft size={15} /> {resource === 'Training' ? 'Training' : 'SOP Library'}</Link><header><h1 className="text-2xl font-semibold">New {resource}</h1><p className="mt-1 text-sm text-gray-500">Choose how you want to create this {resource}.</p></header><div className="grid gap-4 sm:grid-cols-2"><Link to={`${base}/new?mode=structured`} className="rounded-lg border border-brand-100 bg-white p-5 shadow-sm hover:border-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"><h2 className="font-semibold">Build in OliveOps</h2><p className="mt-2 text-sm leading-6 text-gray-600">Create structured content, instructions, and checklist items in OliveOps.</p></Link><Link to={`${base}/new?mode=document`} className="rounded-lg border border-brand-100 bg-white p-5 shadow-sm hover:border-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"><h2 className="font-semibold">Upload a PDF</h2><p className="mt-2 text-sm leading-6 text-gray-600">Upload an existing PDF for employees to view directly.</p></Link></div></div>;
+export function CreationMethodChoice({
+  resource,
+}: {
+  resource: "Training" | "SOP";
+}) {
+  const base = resource === "Training" ? "/training" : "/sops";
+  return (
+    <div className="mx-auto max-w-3xl space-y-5">
+      <Link
+        to={base}
+        className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700"
+      >
+        <ArrowLeft size={15} />{" "}
+        {resource === "Training" ? "Training" : "SOP Library"}
+      </Link>
+      <header>
+        <h1 className="text-2xl font-semibold">New {resource}</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Choose how you want to create this {resource}.
+        </p>
+      </header>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Link
+          to={`${base}/new?mode=structured`}
+          className="rounded-lg border border-brand-100 bg-white p-5 shadow-sm hover:border-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+        >
+          <h2 className="font-semibold">Build in OliveOps</h2>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            Create structured content, instructions, and checklist items in
+            OliveOps.
+          </p>
+        </Link>
+        <Link
+          to={`${base}/new?mode=document`}
+          className="rounded-lg border border-brand-100 bg-white p-5 shadow-sm hover:border-accent-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+        >
+          <h2 className="font-semibold">Upload a PDF</h2>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            Upload an existing PDF for employees to view directly.
+          </p>
+        </Link>
+      </div>
+    </div>
+  );
 }
 
-export function PdfDropzone({ entityType, entityId, document, disabled, onUploaded, onBusyChange }: { entityType: 'training' | 'sop'; entityId: string; document: PdfDocumentMetadata | null; disabled?: boolean; onUploaded: (document: PdfDocumentMetadata) => void; onBusyChange?: (busy: boolean) => void }) {
-  const [dragging, setDragging] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const [lastFile, setLastFile] = useState<File | null>(null); const [uploading, setUploading] = useState(false);
-  const upload = async (file: File) => { const validation = validatePdfFile(file); if (!validation.valid) { setError(validation.error); return; } setLastFile(file); setUploading(true); onBusyChange?.(true); setProgress(0); setError(''); try { const result = await uploadFileToStorage({ file, entityType, entityId, category: 'document', onProgress: setProgress }); if (!result.file) throw new Error('The validated PDF metadata was missing.'); onUploaded(result.file); } catch (reason) { setError(reason instanceof Error ? reason.message : 'The PDF could not be uploaded.'); } finally { setUploading(false); onBusyChange?.(false); } };
-  const drop = (event: DragEvent<HTMLDivElement>) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) void upload(file); };
-  return <Card className="space-y-4 p-5"><div><h2 className="font-semibold">PDF document</h2><p className="text-sm text-gray-500">PDF only, up to 25 MB. The server validates the uploaded document before publishing.</p></div><div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop} className={`grid min-h-36 place-items-center rounded-lg border border-dashed p-5 text-center ${dragging ? 'border-accent-500 bg-accent-50' : 'border-brand-200 bg-brand-50'}`}><div><Upload className="mx-auto text-brand-500" /><p className="mt-2 text-sm font-semibold">Drag and drop a PDF here</p><label className="mt-3 inline-flex cursor-pointer rounded-md border border-brand-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-brand-50">Browse files<input className="sr-only" type="file" accept=".pdf,application/pdf" disabled={disabled || uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ''; }} /></label></div></div>{uploading ? <div role="status"><div className="mb-1 flex justify-between text-xs"><span>Uploading document</span><span>{progress}%</span></div><progress className="w-full" max={100} value={progress} /></div> : null}{error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-red-50 p-3 text-sm text-red-700" role="alert"><span>{error || PDF_EXPORT_MESSAGE}</span>{lastFile ? <Button size="sm" variant="secondary" onClick={() => void upload(lastFile)}>Retry</Button> : null}</div> : null}{document ? <div className="flex items-center gap-3 rounded-md border p-3"><FileText size={18} /><div className="min-w-0"><p className="truncate text-sm font-semibold">{document.originalFileName}</p><p className="text-xs text-gray-500">{(document.sizeBytes / 1024 / 1024).toFixed(2)} MB · Ready to preview</p></div></div> : null}</Card>;
+export function PdfDropzone({
+  entityType,
+  entityId,
+  document,
+  disabled,
+  onUploaded,
+  onRemove,
+  onBusyChange,
+}: {
+  entityType: "training" | "sop";
+  entityId: string;
+  document: PdfDocumentMetadata | null;
+  disabled?: boolean;
+  onUploaded: (document: PdfDocumentMetadata) => void;
+  onRemove: () => void;
+  onBusyChange?: (busy: boolean) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [lastFile, setLastFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const upload = async (file: File) => {
+    const validation = validatePdfFile(file);
+    if (!validation.valid) {
+      setError(validation.error);
+      return;
+    }
+    setLastFile(file);
+    setUploading(true);
+    onBusyChange?.(true);
+    setProgress(0);
+    setError("");
+    try {
+      const result = await uploadFileToStorage({
+        file,
+        entityType,
+        entityId,
+        category: "document",
+        onProgress: setProgress,
+      });
+      if (!result.file)
+        throw new Error("The validated PDF metadata was missing.");
+      onUploaded(result.file);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "The PDF could not be uploaded.",
+      );
+    } finally {
+      setUploading(false);
+      onBusyChange?.(false);
+    }
+  };
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files[0];
+    if (file) void upload(file);
+  };
+  return (
+    <Card className="space-y-4 p-5">
+      <div>
+        <h2 className="font-semibold">PDF document</h2>
+        <p className="text-sm text-gray-500">
+          PDF only, up to 25 MB. The server validates the uploaded document
+          before publishing.
+        </p>
+      </div>
+      <div
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={drop}
+        className={`grid min-h-36 place-items-center rounded-lg border border-dashed p-5 text-center ${dragging ? "border-accent-500 bg-accent-50" : "border-brand-200 bg-brand-50"}`}
+      >
+        <div>
+          <Upload className="mx-auto text-brand-500" />
+          <p className="mt-2 text-sm font-semibold">Drag and drop a PDF here</p>
+          <label className="mt-3 inline-flex cursor-pointer rounded-md border border-brand-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-brand-50">
+            {document ? "Replace PDF" : "Browse files"}
+            <input
+              className="sr-only"
+              type="file"
+              accept=".pdf,application/pdf"
+              disabled={disabled || uploading}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void upload(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+      </div>
+      {uploading ? (
+        <div role="status">
+          <div className="mb-1 flex justify-between text-xs">
+            <span>Uploading document</span>
+            <span>{progress}%</span>
+          </div>
+          <progress className="w-full" max={100} value={progress} />
+        </div>
+      ) : null}
+      {error ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-red-50 p-3 text-sm text-red-700"
+          role="alert"
+        >
+          <span>{error || PDF_EXPORT_MESSAGE}</span>
+          {lastFile ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void upload(lastFile)}
+            >
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {document ? (
+        <div className="flex items-center gap-3 rounded-md border p-3">
+          <FileText size={18} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {document.originalFileName}
+            </p>
+            <p className="text-xs text-gray-500">
+              {(document.sizeBytes / 1024 / 1024).toFixed(2)} MB · Ready to
+              preview
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={disabled || uploading}
+            title="Remove PDF"
+            aria-label="Remove PDF"
+            onClick={onRemove}
+          >
+            <Trash2 size={15} />
+          </Button>
+        </div>
+      ) : null}
+    </Card>
+  );
 }
 
-export function AuthorizedPdfPreview({ document, title }: { document: PdfDocumentMetadata; title: string }) {
-  const [url, setUrl] = useState(''); const [error, setError] = useState('');
-  useEffect(() => { let active = true; setUrl(''); setError(''); void resolveAttachmentUrl({ fileId: document.fileId }).then((next) => { if (!active) return; if (next) setUrl(next); else setError('The PDF preview could not be loaded.'); }); return () => { active = false; }; }, [document.fileId]);
-  return <Card className="overflow-hidden"><div className="flex flex-wrap items-center justify-between gap-2 border-b p-4"><div><h2 className="font-semibold">PDF document</h2><p className="text-xs text-gray-500">{document.originalFileName} · {(document.sizeBytes / 1024 / 1024).toFixed(2)} MB</p></div>{url ? <a href={url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-brand-700 hover:underline">Download</a> : null}</div>{error ? <p role="alert" className="p-5 text-sm text-red-700">{error}</p> : url ? <iframe title={`${title} PDF preview`} src={url} className="h-[70vh] min-h-[520px] w-full bg-white" /> : <p role="status" className="p-5 text-sm text-gray-500">Loading PDF preview...</p>}</Card>;
+export function AuthorizedPdfPreview({
+  document,
+  title,
+}: {
+  document: PdfDocumentMetadata;
+  title: string;
+}) {
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setUrl("");
+    setError("");
+    void resolveAttachmentUrl({ fileId: document.fileId }).then((next) => {
+      if (!active) return;
+      if (next) setUrl(next);
+      else setError("The PDF preview could not be loaded.");
+    });
+    return () => {
+      active = false;
+    };
+  }, [document.fileId]);
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
+        <div>
+          <h2 className="font-semibold">PDF document</h2>
+          <p className="text-xs text-gray-500">
+            {document.originalFileName} ·{" "}
+            {(document.sizeBytes / 1024 / 1024).toFixed(2)} MB
+          </p>
+        </div>
+        {url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-semibold text-brand-700 hover:underline"
+          >
+            Download
+          </a>
+        ) : null}
+      </div>
+      {error ? (
+        <p role="alert" className="p-5 text-sm text-red-700">
+          {error}
+        </p>
+      ) : url ? (
+        <iframe
+          title={`${title} PDF preview`}
+          src={url}
+          className="h-[70vh] min-h-[520px] w-full bg-white"
+        />
+      ) : (
+        <p role="status" className="p-5 text-sm text-gray-500">
+          Loading PDF preview...
+        </p>
+      )}
+    </Card>
+  );
 }

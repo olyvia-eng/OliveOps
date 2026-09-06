@@ -57,10 +57,13 @@ test('employee list exposes only active published current versions', async () =>
     { id: 'draft', status: 'draft', active: false, currentVersion: 0 },
     { id: 'archived', status: 'published', active: false, currentVersion: 1 },
   ];
-  const versions = { 'published:2': { sopId: 'published', version: 2, title: 'Published SOP' } };
+  const document = { fileId: 'file-pdf', originalFileName: 'procedure.pdf', mimeType: 'application/pdf', sizeBytes: 1024, status: 'ready', version: 2 };
+  const versions = { 'published:2': { sopId: 'published', version: 2, title: 'Published SOP', contentMode: 'document', document } };
   const result = await call(harness({ definitions, versions }).handler, 'GET', 'my-list');
   assert.equal(result.statusCode, 200);
   assert.deepEqual(result.body.sops, [versions['published:2']]);
+  assert.equal(result.body.sops[0].contentMode, 'document');
+  assert.deepEqual(result.body.sops[0].document, document);
 });
 
 test('employee detail fails closed for draft, archived, and cross-tenant records', async () => {
