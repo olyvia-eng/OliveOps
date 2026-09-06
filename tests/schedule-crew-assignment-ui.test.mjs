@@ -5,19 +5,19 @@ import test from 'node:test';
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('Schedule saves employee IDs, supports explicit crew removal, and cancel does not save', async () => {
-  const modal = await source('../src/components/calendar/ScheduleJobModal.tsx');
-  assert.match(modal, /assignedEmployeeIds: \[\.\.\.new Set\(form\.assignedEmployeeIds\)\]/);
-  assert.match(modal, /crewId: form\.crewId \|\| null/);
-  assert.match(modal, /if \(saved\) onClose\(\)/);
-  assert.match(modal, /<Button variant="secondary" onClick=\{onClose\}>Cancel<\/Button>/);
-  assert.doesNotMatch(modal, /employee\.name[^]*assignedEmployeeIds:/);
+  const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
+  assert.match(editor, /assignedEmployeeIds: \[\.\.\.new Set\(form\.assignedEmployeeIds\)\]/);
+  assert.match(editor, /crewId: form\.crewId \|\| null/);
+  assert.match(editor, /if \(saved\) onExit\(\)/);
+  assert.match(editor, /<Button variant="secondary" onClick=\{onExit\}>Cancel<\/Button>/);
+  assert.doesNotMatch(editor, /employee\.name[^]*assignedEmployeeIds:/);
 });
 
 test('Schedule offers active employees and retains assigned inactive employees for removal', async () => {
-  const modal = await source('../src/components/calendar/ScheduleJobModal.tsx');
-  assert.match(modal, /employee\.active \|\| form\.assignedEmployeeIds\.includes\(employee\.id\)/);
-  assert.match(modal, /!employee\.active \? 'Inactive'/);
-  assert.match(modal, /crew\.active \|\| crew\.id === form\.crewId/);
+  const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
+  assert.match(editor, /employee\.active \|\| form\.assignedEmployeeIds\.includes\(employee\.id\)/);
+  assert.match(editor, /!employee\.active \? 'Inactive'/);
+  assert.match(editor, /crew\.active \|\| crew\.id === form\.crewId/);
 });
 
 test('successful Job updates reconcile from the API and failed updates roll back', async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -12,9 +12,8 @@ import {
 } from 'date-fns';
 import { AlertTriangle, Plus } from 'lucide-react';
 import { useStore } from '../../store';
-import { Badge, Button, Card, Modal, PageHeader } from '../../components/ui';
+import { Badge, Button, Card, Modal, PageHeader, Select } from '../../components/ui';
 import type { CalendarColourBy, CalendarPreferences, CalendarView } from '../../types';
-import ScheduleJobModal from '../../components/calendar/ScheduleJobModal';
 import { CalendarFilters, CalendarLegend, CalendarToolbar, ColourBySelector, ScheduleEventCard } from '../../components/calendar/CalendarControls';
 import CrewLaneWeekView from '../../components/calendar/CrewLaneWeekView';
 import { formatDate, statusColor } from '../../utils';
@@ -52,6 +51,12 @@ const CALENDAR_VIEW_MAP: Record<CalendarView, 'dayGridMonth' | 'timeGridWeek' | 
 };
 
 const canManageScheduleRole = (role: string) => role === 'owner' || role === 'admin' || role === 'foreman';
+const calendarViewFromQuery = (value: string | null): CalendarView | null => value === 'month' || value === 'week' || value === 'day' ? value : null;
+const calendarDateFromQuery = (value: string | null) => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date();
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+};
 const getWeekRange = (value: Date) => {
   const start = startOfWeek(value, { weekStartsOn: 1 });
   const end = addDays(start, 7);
@@ -60,22 +65,28 @@ const getWeekRange = (value: Date) => {
 
 export default function CalendarPage({ currentUserRole }: Props) {
   const navigate = useNavigate();
-  const { jobs, customers, employees, budgets, budgetDivisions, crews, divisions, equipmentAssets, updateJobSchedule } = useStore();
+  const [searchParams] = useSearchParams();
+  const { jobs, customers, employees, budgets, crews, divisions, equipmentAssets, updateJobSchedule } = useStore();
   const calendarRef = useRef<any>(null);
-  const [preferences, setPreferences] = useState<CalendarPreferences>(DEFAULT_CALENDAR_PREFERENCES);
+  const initialCalendarDate = useRef(calendarDateFromQuery(searchParams.get('date')));
+  const requestedCalendarView = useRef(calendarViewFromQuery(searchParams.get('view')));
+  const [preferences, setPreferences] = useState<CalendarPreferences>(() => normalizeCalendarPreferences({
+    ...DEFAULT_CALENDAR_PREFERENCES,
+    ...(requestedCalendarView.current ? { view: requestedCalendarView.current } : {}),
+  }));
   const [divisionFilter, setDivisionFilter] = useState('all');
   const [jobFilter, setJobFilter] = useState('all');
   const [crewFilter, setCrewFilter] = useState('all');
   const [employeeFilter, setEmployeeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [equipmentFilter, setEquipmentFilter] = useState('all');
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleJobId, setScheduleJobId] = useState<string | undefined>(undefined);
+  const [jobPickerOpen, setJobPickerOpen] = useState(false);
+  const [jobToScheduleId, setJobToScheduleId] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedTimeOffId, setSelectedTimeOffId] = useState<string | null>(null);
   const [approvedTimeOff, setApprovedTimeOff] = useState<ScheduleTimeOff[]>([]);
   const [pendingTimeOffOverride, setPendingTimeOffOverride] = useState<{ conflicts: EmployeeTimeOffConflict[]; proceed: () => void; cancel: () => void } | null>(null);
-  const [visibleRange, setVisibleRange] = useState(() => getWeekRange(new Date()));
+  const [visibleRange, setVisibleRange] = useState(() => getWeekRange(initialCalendarDate.current));
   const canManageSchedule = canManageScheduleRole(currentUserRole);
 
   const allScheduledJobs = useMemo(() => {
@@ -253,6 +264,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
     });
     return [...options.values()].sort((left, right) => left.name.localeCompare(right.name));
   }, [allScheduledJobs, divisions]);
+  const jobsSorted = useMemo(() => [...jobs].sort((left, right) => left.title.localeCompare(right.title)), [jobs]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -261,9 +273,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
         const response = await fetch('/api/calendar-preferences', { credentials: 'include', signal: controller.signal });
         const payload = await response.json() as { ok?: boolean; preferences?: Partial<CalendarPreferences> };
         if (!response.ok || !payload.ok) return;
-        const next = normalizeCalendarPreferences(payload.preferences);
+        const next = normalizeCalendarPreferences({
+          ...payload.preferences,
+          ...(requestedCalendarView.current ? { view: requestedCalendarView.current } : {}),
+        });
         setPreferences(next);
-        if (next.view === 'week') setVisibleRange(getWeekRange(new Date()));
+        if (next.view === 'week') setVisibleRange(getWeekRange(initialCalendarDate.current));
       } catch (error) {
         if ((error as Error).name !== 'AbortError') setPreferences(DEFAULT_CALENDAR_PREFERENCES);
       }
@@ -421,22 +436,19 @@ export default function CalendarPage({ currentUserRole }: Props) {
     return <ScheduleEventCard title={content.event.title} summary={props.source === 'time_off' ? props.summary : `${props.crewName} · ${props.summary}`} detail={detail} colour={props.colour} compact={compact} selected={selected} />;
   };
 
-  const handleScheduleSave = async (payload: {
-    jobId: string;
-    startDate: string;
-    endDate?: string;
-    scheduledStartAt?: string;
-    scheduledEndAt?: string;
-    scheduleAllDay: boolean;
-    scheduleConfirmed: boolean;
-    scheduleNotes: string;
-    crewId: string | null;
-    divisionId?: string | null;
-    assignedEmployeeIds: string[];
-    assignedEquipmentIds: string[];
-  }) => {
-    const { jobId, ...schedule } = payload;
-    return updateJobSchedule(jobId, schedule);
+  const openScheduleEditor = (jobId: string) => {
+    const currentDate = preferences.view === 'week'
+      ? visibleRange.start
+      : calendarRef.current?.getApi().getDate() ?? visibleRange.start;
+    const calendarDate = format(currentDate, 'yyyy-MM-dd');
+    navigate(`/jobs/${jobId}/schedule?from=schedule&calendarDate=${calendarDate}&calendarView=${preferences.view}`);
+  };
+  const openJobPicker = () => {
+    const preferredJobId = jobFilter !== 'all' && jobs.some((job) => job.id === jobFilter)
+      ? jobFilter
+      : jobs.find((job) => !job.scheduleConfirmed)?.id ?? jobs[0]?.id ?? '';
+    setJobToScheduleId(preferredJobId);
+    setJobPickerOpen(true);
   };
 
   return (
@@ -444,7 +456,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       <PageHeader
         title="Schedule"
         subtitle="Coordinate company jobs, crews, employees, and equipment."
-        action={canManageSchedule ? <Button onClick={() => { setScheduleJobId(undefined); setScheduleOpen(true); }}><Plus size={16} /> Schedule</Button> : undefined}
+        action={canManageSchedule ? <Button onClick={openJobPicker}><Plus size={16} /> Schedule</Button> : undefined}
       />
 
       <Card className="overflow-hidden">
@@ -464,7 +476,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
                 <p className="font-semibold">{preferences.view === 'month' ? 'No work scheduled this month.' : preferences.view === 'week' ? 'No work scheduled this week.' : 'No work scheduled this day.'}</p>
                 <p className="text-brand-500 dark:text-brand-200">Schedule a Job to start building your operations calendar.</p>
               </div>
-              {canManageSchedule ? <Button size="sm" onClick={() => { setScheduleJobId(undefined); setScheduleOpen(true); }}><Plus size={14} /> Schedule Job</Button> : null}
+              {canManageSchedule ? <Button size="sm" onClick={openJobPicker}><Plus size={14} /> Schedule Job</Button> : null}
             </div>
           ) : null}
 
@@ -488,7 +500,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
             ref={calendarRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin] as any}
             initialView={CALENDAR_VIEW_MAP[preferences.view]}
-            initialDate={visibleRange.start}
+            initialDate={initialCalendarDate.current}
             events={calendarEvents}
             headerToolbar={false}
             editable={canManageSchedule}
@@ -516,21 +528,16 @@ export default function CalendarPage({ currentUserRole }: Props) {
         </div>
       </Card>
 
-      <ScheduleJobModal
-        open={scheduleOpen}
-        title={scheduleJobId ? 'Edit Schedule' : 'Schedule Job'}
-        jobs={jobs}
-        customers={customers}
-        employees={employees}
-        equipmentAssets={equipmentAssets}
-        crews={crews}
-        divisions={divisions}
-        budgetDivisions={budgetDivisions}
-        initialJobId={scheduleJobId}
-        approvedTimeOff={approvedTimeOff}
-        onClose={() => setScheduleOpen(false)}
-        onSave={handleScheduleSave}
-      />
+      <Modal
+        open={jobPickerOpen}
+        onClose={() => setJobPickerOpen(false)}
+        title="Choose a Job"
+        footer={<><Button variant="secondary" onClick={() => setJobPickerOpen(false)}>Cancel</Button><Button disabled={!jobToScheduleId} onClick={() => openScheduleEditor(jobToScheduleId)}>Continue</Button></>}
+      >
+        <Select label="Job" value={jobToScheduleId} onChange={(event) => setJobToScheduleId(event.target.value)}>
+          {jobsSorted.length === 0 ? <option value="">No Jobs available</option> : jobsSorted.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
+        </Select>
+      </Modal>
 
       {selectedEvent ? (
         <div className="fixed inset-0 z-40">
@@ -614,7 +621,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
             <div className="mt-6 flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => navigate(`/jobs/${selectedEvent.job.id}`)}>Open Job</Button>
-              {canManageSchedule ? <Button onClick={() => { setScheduleJobId(selectedEvent.job.id); setScheduleOpen(true); }}>Edit Schedule</Button> : null}
+              {canManageSchedule ? <Button onClick={() => openScheduleEditor(selectedEvent.job.id)}>Edit Schedule</Button> : null}
             </div>
           </div>
         </div>

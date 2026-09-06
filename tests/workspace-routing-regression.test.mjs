@@ -198,10 +198,10 @@ test('Job scheduling uses a dedicated fixed-Job route and returns to Project Man
   assert.match(appSource, /path="jobs\/:id\/schedule"/);
   assert.match(appSource, /<JobSchedulePage currentUserRole=\{sessionUser\.role\} \/>/);
   assert.match(jobWorkspaceSource, /navigate\(`\/jobs\/\$\{job\.id\}\/schedule`\)/);
-  assert.match(jobScheduleSource, /presentation="page"/);
-  assert.match(jobScheduleSource, /fixedJob/);
-  assert.match(jobScheduleSource, /jobs=\{\[job\]\}/);
-  assert.match(jobScheduleSource, /navigate\(`\/jobs\/\$\{job\.id\}\?tab=project-management`\)/);
+  assert.match(jobScheduleSource, /<JobScheduleEditor/);
+  assert.match(jobScheduleSource, /job=\{job\}/);
+  assert.match(jobScheduleSource, /jobs=\{jobs\}/);
+  assert.match(jobScheduleSource, /`\/jobs\/\$\{job\.id\}\?tab=project-management`/);
 });
 
 test('company setup sidebar keeps existing routes and account terminology', () => {

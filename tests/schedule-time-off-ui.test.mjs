@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const calendar = readFileSync('src/pages/calendar/CalendarPage.tsx', 'utf8');
-const modal = readFileSync('src/components/calendar/ScheduleJobModal.tsx', 'utf8');
+const editor = readFileSync('src/components/calendar/JobScheduleEditor.tsx', 'utf8');
 const week = readFileSync('src/components/calendar/CrewLaneWeekView.tsx', 'utf8');
 const model = readFileSync('src/utils/employeeAvailability.js', 'utf8');
 const handler = readFileSync('api/_lib/timeOffHandler.js', 'utf8');
@@ -28,22 +28,22 @@ test('approved Time Off renders as compact all-day events in month, week, and da
 });
 
 test('employee availability remains selectable and recalculates when Schedule dates change', () => {
-  assert.match(modal, /employeeAvailability/);
-  assert.match(modal, /Unavailable/);
-  assert.match(modal, /onClick=\{\(\) => toggleEmployee\(employee\.id\)\}/);
-  assert.doesNotMatch(modal, /disabled=\{unavailable/);
-  assert.match(modal, /\[form\.endDate, form\.startDate, open\]/);
+  assert.match(editor, /employeeAvailability/);
+  assert.match(editor, /Unavailable/);
+  assert.match(editor, /onClick=\{\(\) => toggleEmployee\(employee\.id\)\}/);
+  assert.doesNotMatch(editor, /disabled=\{unavailable/);
+  assert.match(editor, /\[form\.endDate, form\.startDate\]/);
 });
 
 test('one warning lists all direct and Crew-member conflicts before an explicit override', () => {
-  assert.match(modal, /getEmployeeTimeOffConflicts/);
-  assert.match(modal, /crewId: form\.crewId/);
-  assert.match(modal, /timeOffConflicts\.map/);
-  assert.match(modal, /Go Back/);
-  assert.match(modal, /Schedule Anyway/);
-  assert.match(modal, /if \(timeOffConflicts\.length > 0 \|\| assignmentConflicts\.length > 0\)/);
-  assert.match(modal, /setConfirmingTimeOff\(true\)/);
-  assert.match(modal, /onClick=\{\(\) => void performSave\(\)\}/);
+  assert.match(editor, /getEmployeeTimeOffConflicts/);
+  assert.match(editor, /crewId: form\.crewId/);
+  assert.match(editor, /timeOffConflicts\.map/);
+  assert.match(editor, /Go Back/);
+  assert.match(editor, /Schedule Anyway/);
+  assert.match(editor, /if \(timeOffConflicts\.length > 0 \|\| assignmentConflicts\.length > 0\)/);
+  assert.match(editor, /setConfirmingTimeOff\(true\)/);
+  assert.match(editor, /onClick=\{\(\) => void performSave\(\)\}/);
   assert.match(calendar, /pendingTimeOffOverride/);
   assert.match(calendar, /eventDrop\.revert\(\)/);
 });

@@ -10,7 +10,7 @@ const scheduleModelSource = readFileSync('src/utils/scheduleModel.js', 'utf8');
 const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const jobScheduleSource = readFileSync('src/pages/jobs/JobSchedulePage.tsx', 'utf8');
 const scheduleUtilsSource = readFileSync('src/utils/jobSchedule.ts', 'utf8');
-const scheduleModalSource = readFileSync('src/components/calendar/ScheduleJobModal.tsx', 'utf8');
+const scheduleEditorSource = readFileSync('src/components/calendar/JobScheduleEditor.tsx', 'utf8');
 const estimateConversionSource = readFileSync('api/estimates.js', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 const scheduleApiSource = readFileSync('api/job-schedule.js', 'utf8');
@@ -77,7 +77,7 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /status: statusFilter/);
   assert.match(calendarSource, /crewId: selectedEvent\.job\.crewId/);
   assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employee\.id\)/);
-  assert.match(scheduleModalSource, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\],/);
+  assert.match(scheduleEditorSource, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\],/);
   assert.match(scheduleUtilsSource, /scheduleConfirmed/);
   assert.match(scheduleUtilsSource, /scheduledStartAt/);
   assert.match(scheduleUtilsSource, /scheduledEndAt/);
@@ -95,18 +95,18 @@ test('job detail page exposes the same schedule workflow and equipment context',
   assert.match(jobDetailSource, /Schedule Notes/);
   assert.match(jobDetailSource, /Job Resources[\s\S]*Equipment/);
   assert.match(jobDetailSource, /formatScheduleTimeLabel/);
-  assert.match(scheduleModalSource, /Assigned Employees/);
-  assert.match(scheduleModalSource, /Assigned Equipment/);
-  assert.match(scheduleModalSource, /Employee overlap warning/);
-  assert.match(scheduleModalSource, /Equipment conflict warning/);
+  assert.match(scheduleEditorSource, /Assigned Employees/);
+  assert.match(scheduleEditorSource, /Assigned Equipment/);
+  assert.match(scheduleEditorSource, /Employee overlap warning/);
+  assert.match(scheduleEditorSource, /Equipment conflict warning/);
 });
 
 test('Schedule preserves converted planning division through a dedicated mutation contract', () => {
-  assert.match(scheduleModalSource, /budgetDivisions\.find\(\(division\) => division\.id === selectedJob\.divisionId\)/);
-  assert.match(scheduleModalSource, /selectedJob\?\.sourceEstimateId/);
-  assert.match(scheduleModalSource, /convertedDivision\?\.name \?\? 'Planning division unavailable'/);
-  assert.match(scheduleModalSource, /if \(!selectedJob\.sourceEstimateId\) payload\.divisionId = form\.divisionId \|\| null;/);
-  assert.doesNotMatch(scheduleModalSource, /divisionId: form\.divisionId \|\| null,/);
+  assert.match(scheduleEditorSource, /budgetDivisions\.find\(\(division\) => division\.id === selectedJob\.divisionId\)/);
+  assert.match(scheduleEditorSource, /selectedJob\?\.sourceEstimateId/);
+  assert.match(scheduleEditorSource, /convertedDivision\?\.name \?\? 'Planning division unavailable'/);
+  assert.match(scheduleEditorSource, /if \(!selectedJob\.sourceEstimateId\) payload\.divisionId = form\.divisionId \|\| null;/);
+  assert.doesNotMatch(scheduleEditorSource, /divisionId: form\.divisionId \|\| null,/);
   assert.match(calendarSource, /updateJobSchedule/);
   assert.match(jobDetailSource, /navigate\(`\/jobs\/\$\{job\.id\}\/schedule`\)/);
   assert.match(jobScheduleSource, /updateJobSchedule/);
