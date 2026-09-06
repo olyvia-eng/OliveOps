@@ -779,11 +779,12 @@ test('SOP uploads allow only PDF, DOC, and DOCX for owner/admin users', async ()
 });
 
 test('employee SOP attachment access requires an active published SOP', async () => {
-  const request = async (sop) => {
+  const request = async (sop, attachmentFileIds = ['file-sop']) => {
     const handler = createStorageHandler(baseDeps({
       requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
       getFileForBusiness: async (businessId) => ({ id: 'file-sop', businessId, entityType: 'sop', entityId: 'sop-a', uploadStatus: 'uploaded', key: 'biz-1/file-sop/procedure.pdf' }),
       getSopDefinitionForBusiness: async () => sop,
+      getSopVersionForBusiness: async () => ({ sopId: 'sop-a', version: 1, attachmentFileIds }),
     }));
     const res = createMockRes();
     await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-sop' } }, res);
@@ -791,6 +792,7 @@ test('employee SOP attachment access requires an active published SOP', async ()
   };
 
   assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 })).statusCode, 200);
+  assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 }, ['removed-file'])).statusCode, 403);
   assert.equal((await request({ id: 'sop-a', status: 'draft', active: false, currentVersion: 0 })).statusCode, 403);
   assert.equal((await request({ id: 'sop-a', status: 'published', active: false, currentVersion: 1 })).statusCode, 403);
 });

@@ -42,7 +42,7 @@ import {
   listTrainingAssignmentsForBusiness,
   listTrainingCompletionsForBusiness,
 } from './_lib/trainingRepo.js';
-import { getSopDefinitionForBusiness } from './_lib/sopRepo.js';
+import { getSopDefinitionForBusiness, getSopVersionForBusiness } from './_lib/sopRepo.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
@@ -258,6 +258,7 @@ const defaultDeps = {
   getTimeEntryForBusiness,
   getTrainingDefinitionForBusiness,
   getSopDefinitionForBusiness,
+  getSopVersionForBusiness,
   listTrainingAssignmentsForBusiness,
   listTrainingCompletionsForBusiness,
   listEmployeesForBusiness,
@@ -286,16 +287,19 @@ export function createStorageHandler(overrides = {}) {
       ?? null;
   }
 
-  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode = 'read' }) {
+  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, accessMode = 'read' }) {
     if (entityType === SOP_ENTITY_TYPE) {
       const sop = await deps.getSopDefinitionForBusiness(session.businessId, entityId);
       if (!sop) return null;
       if (session.role === 'owner' || session.role === 'admin') return { entity: sop, allowed: true };
       if (accessMode !== 'read') return { entity: sop, allowed: false };
       const employee = await resolveSessionEmployee(session);
+      const version = employee && sop.status === 'published' && sop.active === true && Number(sop.currentVersion) > 0
+        ? await deps.getSopVersionForBusiness(session.businessId, sop.id, sop.currentVersion)
+        : null;
       return {
         entity: sop,
-        allowed: Boolean(employee && sop.status === 'published' && sop.active === true && Number(sop.currentVersion) > 0),
+        allowed: Boolean(version && typeof fileId === 'string' && version.attachmentFileIds?.includes(fileId)),
       };
     }
 
@@ -594,6 +598,7 @@ export function createStorageHandler(overrides = {}) {
             session,
             entityType: file.entityType,
             entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
+            fileId: file.id,
             accessMode: 'read',
           });
           if (!entityResolution?.allowed) {
@@ -626,6 +631,7 @@ export function createStorageHandler(overrides = {}) {
             session,
             entityType: file.entityType,
             entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
+            fileId: file.id,
             accessMode: 'write',
           });
           if (!entityResolution?.allowed) {
@@ -668,6 +674,7 @@ export function createStorageHandler(overrides = {}) {
             session,
             entityType: file.entityType,
             entityId: file.entityType === FORM_SIGNATURE_ENTITY_TYPE || file.entityType === FORM_ATTACHMENT_ENTITY_TYPE ? file.id : file.entityId,
+            fileId: file.id,
             accessMode: 'write',
           });
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {

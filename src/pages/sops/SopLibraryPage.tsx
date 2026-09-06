@@ -43,7 +43,7 @@ export default function SopLibraryPage() {
       const matchesCategory = category === 'all' || sop.category === category;
       const matchesStatus = status === 'all'
         || (status === 'active' && sop.active && sop.status === 'published')
-        || (status === 'archived' && !sop.active)
+        || (status === 'archived' && sop.status === 'published' && !sop.active)
         || sop.status === status;
       return matchesQuery && matchesCategory && matchesStatus;
     });

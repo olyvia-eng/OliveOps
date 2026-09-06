@@ -128,13 +128,25 @@ export const reactivateSopForBusiness = (input) => setSopActiveForBusiness({ ...
 export async function duplicateSopForBusiness({ businessId, sopId, actor, requestId }) {
   const source = await getSopDefinitionForBusiness(businessId, sopId);
   if (!source) return null;
-  const duplicate = await createSopDraftForBusiness({
-    businessId, actor, requestId,
-    input: { ...source, title: `${source.title} Copy`, attachmentFileIds: source.attachmentFileIds ?? [] },
-  });
+  const duplicateId = typeof requestId === 'string' && requestId.trim() ? requestId.trim() : randomUUID();
+  const existing = await getSopDefinitionForBusiness(businessId, duplicateId);
+  if (existing) return existing;
   const duplicatedAt = nowIso();
-  await ddb.send(new TransactWriteCommand({ TransactItems: [
-    { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'sop_duplicated', actor, metadata: { sourceSopId: sopId, sopId: duplicate.id }, createdAt: duplicatedAt }) } },
-  ] }));
+  const draft = normalizeSopDraft({ ...source, title: `${source.title} Copy`, attachmentFileIds: source.attachmentFileIds ?? [] });
+  const duplicate = {
+    id: duplicateId, businessId, ...draft, status: 'draft', active: false, currentVersion: 0,
+    createdAt: duplicatedAt, createdBy: actor.id, updatedAt: duplicatedAt, updatedBy: actor.id,
+  };
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: definitionSk(duplicateId), entityType: 'SOP_DEFINITION', ...duplicate }, ConditionExpression: 'attribute_not_exists(PK)' } },
+      { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'sop_duplicated', actor, metadata: { sourceSopId: sopId, sopId: duplicateId }, createdAt: duplicatedAt }) } },
+    ] }));
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    const winner = await getSopDefinitionForBusiness(businessId, duplicateId);
+    if (!winner) throw error;
+    return winner;
+  }
   return duplicate;
 }
