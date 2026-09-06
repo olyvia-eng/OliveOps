@@ -17,6 +17,7 @@ test('SOP drafts contain reference content without Training semantics', () => {
   });
 
   assert.deepEqual(draft, {
+    contentMode: 'structured',
     title: 'Lockout Procedure',
     category: 'Safety',
     shortDescription: 'Safely isolate equipment.',
@@ -24,6 +25,7 @@ test('SOP drafts contain reference content without Training semantics', () => {
     instructions: 'Shut down and isolate.',
     safetyInformation: 'Wear required PPE.',
     attachmentFileIds: ['file-1', 'file-2'],
+    document: null,
   });
   assert.equal('dueDate' in draft, false);
   assert.equal('recurrenceType' in draft, false);
@@ -40,4 +42,16 @@ test('published SOPs require employee-readable reference content', () => {
     purpose: 'Prevent unexpected startup', instructions: 'Stop, isolate, and verify.',
   });
   assert.equal(valid.ok, true);
+});
+
+test('document SOP requires a ready PDF without structured-only fields', () => {
+  const valid = validateSopForPublish({
+    contentMode: 'document', title: 'Lockout Procedure', category: 'Safety', shortDescription: 'Isolation steps',
+    document: { fileId: 'file-1', originalFileName: 'lockout.pdf', mimeType: 'application/pdf', sizeBytes: 4096, uploadedAt: '2026-09-06T12:00:00.000Z', status: 'ready' },
+  });
+  assert.equal(valid.ok, true);
+  assert.equal(valid.draft.purpose, '');
+  assert.equal(valid.draft.instructions, '');
+  assert.equal('recurrenceType' in valid.draft, false);
+  assert.equal('checklist' in valid.draft, false);
 });

@@ -1,7 +1,9 @@
 import { getBusinessPeriodKeys, normalizeBusinessTimeZone } from './businessTime.js';
+import { normalizeContentMode, normalizePdfDocument, validateReadyPdfDocument } from './documentContent.js';
 
 export const TRAINING_RECURRENCE_TYPES = new Set(['one_time', 'annual', 'custom_months']);
 export const DEFAULT_TRAINING_ACKNOWLEDGEMENT = 'I confirm that I have read and understood this training and completed each required checklist item.';
+export const DEFAULT_DOCUMENT_TRAINING_ACKNOWLEDGEMENT = 'I confirm that I have reviewed and understood this Training document.';
 
 function cleanText(value, maxLength) {
   if (typeof value !== 'string') return '';
@@ -58,6 +60,7 @@ export function trainingPresentationStatus({ assignment, now = new Date(), timeZ
 }
 
 export function normalizeTrainingDraft(input = {}) {
+  const contentMode = normalizeContentMode(input.contentMode);
   const recurrenceType = TRAINING_RECURRENCE_TYPES.has(input.recurrenceType) ? input.recurrenceType : 'one_time';
   const checklist = Array.isArray(input.checklist) ? input.checklist.map((item, index) => ({
     itemId: cleanText(item?.itemId, 100) || `item-${index + 1}`,
@@ -66,12 +69,15 @@ export function normalizeTrainingDraft(input = {}) {
     sortOrder: index,
   })).filter((item) => item.text) : [];
   return {
+    contentMode,
     title: cleanText(input.title, 160),
+    category: cleanText(input.category, 100),
     shortDescription: cleanText(input.shortDescription, 500),
     instructions: cleanText(input.instructions, 20_000),
     attachmentFileId: cleanText(input.attachmentFileId, 160) || null,
     checklist,
-    acknowledgementStatement: cleanText(input.acknowledgementStatement, 1_000) || DEFAULT_TRAINING_ACKNOWLEDGEMENT,
+    acknowledgementStatement: cleanText(input.acknowledgementStatement, 1_000) || (contentMode === 'document' ? DEFAULT_DOCUMENT_TRAINING_ACKNOWLEDGEMENT : DEFAULT_TRAINING_ACKNOWLEDGEMENT),
+    document: contentMode === 'document' ? normalizePdfDocument(input.document) : null,
     recurrenceType,
     recurrenceMonths: recurrenceType === 'custom_months' ? Number(input.recurrenceMonths) : null,
     dueSoonDays: Number.isSafeInteger(Number(input.dueSoonDays)) ? Math.min(365, Math.max(0, Number(input.dueSoonDays))) : 30,
@@ -83,8 +89,13 @@ export function validateTrainingForPublish(input) {
   const draft = normalizeTrainingDraft(input);
   const errors = {};
   if (!draft.title) errors.title = 'Title is required.';
-  if (!draft.instructions && !draft.attachmentFileId) errors.content = 'Instructions or an attachment is required.';
-  if (draft.checklist.length === 0) errors.checklist = 'Add at least one required checklist item.';
+  if (draft.contentMode === 'document') {
+    const documentError = validateReadyPdfDocument(draft.document);
+    if (documentError) errors.document = documentError;
+  } else {
+    if (!draft.instructions && !draft.attachmentFileId) errors.content = 'Instructions or an attachment is required.';
+    if (draft.checklist.length === 0) errors.checklist = 'Add at least one required checklist item.';
+  }
   try {
     recurrenceMonthsFor(draft.recurrenceType, draft.recurrenceMonths);
   } catch {

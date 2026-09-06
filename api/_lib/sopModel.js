@@ -1,3 +1,5 @@
+import { normalizeContentMode, normalizePdfDocument, validateReadyPdfDocument } from './documentContent.js';
+
 const MAX_ATTACHMENTS = 10;
 
 function cleanText(value, maxLength) {
@@ -6,6 +8,7 @@ function cleanText(value, maxLength) {
 }
 
 export function normalizeSopDraft(input = {}) {
+  const contentMode = normalizeContentMode(input.contentMode);
   const attachmentFileIds = Array.isArray(input.attachmentFileIds)
     ? [...new Set(input.attachmentFileIds
       .map((value) => cleanText(value, 160))
@@ -13,6 +16,7 @@ export function normalizeSopDraft(input = {}) {
     : [];
 
   return {
+    contentMode,
     title: cleanText(input.title, 160),
     category: cleanText(input.category, 100),
     shortDescription: cleanText(input.shortDescription, 500),
@@ -20,6 +24,7 @@ export function normalizeSopDraft(input = {}) {
     instructions: cleanText(input.instructions, 30_000),
     safetyInformation: cleanText(input.safetyInformation, 8_000),
     attachmentFileIds,
+    document: contentMode === 'document' ? normalizePdfDocument(input.document) : null,
   };
 }
 
@@ -29,7 +34,12 @@ export function validateSopForPublish(input) {
   if (!draft.title) errors.title = 'Title is required.';
   if (!draft.category) errors.category = 'Category is required.';
   if (!draft.shortDescription) errors.shortDescription = 'Short description is required.';
-  if (!draft.purpose) errors.purpose = 'Purpose is required.';
-  if (!draft.instructions) errors.instructions = 'Procedure or instructions are required.';
+  if (draft.contentMode === 'document') {
+    const documentError = validateReadyPdfDocument(draft.document);
+    if (documentError) errors.document = documentError;
+  } else {
+    if (!draft.purpose) errors.purpose = 'Purpose is required.';
+    if (!draft.instructions) errors.instructions = 'Procedure or instructions are required.';
+  }
   return { ok: Object.keys(errors).length === 0, errors, draft };
 }

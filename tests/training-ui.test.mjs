@@ -8,6 +8,8 @@ const library = readFileSync('src/pages/training/TrainingLibraryPage.tsx', 'utf8
 const builder = readFileSync('src/pages/training/TrainingBuilderPage.tsx', 'utf8');
 const detail = readFileSync('src/pages/training/TrainingDetailPage.tsx', 'utf8');
 const employeeTraining = readFileSync('src/components/employees/EmployeeTrainingSection.tsx', 'utf8');
+const documentControls = readFileSync('src/components/documents/PdfDocumentControls.tsx', 'utf8');
+const upload = readFileSync('src/utils/fileUpload.ts', 'utf8');
 
 test('Training administration uses protected full-page routes and owner/admin navigation', () => {
   for (const route of ['training', 'training/new', 'training/:trainingId', 'training/:trainingId/edit']) {
@@ -49,6 +51,20 @@ test('Training builder supports immutable publish choices and stable checklist e
   assert.match(builder, /Require selected employees to complete this version/);
   assert.match(builder, /requireEmployeeIds/);
   assert.match(builder, /New version due date/);
+});
+
+test('Training document authoring is PDF-only and retains completion controls', () => {
+  assert.match(builder, /CreationMethodChoice resource="Training"/);
+  assert.match(documentControls, /Build in OliveOps/);
+  assert.match(documentControls, /Upload a PDF/);
+  assert.match(documentControls, /category: 'document'/);
+  assert.match(documentControls, /AuthorizedPdfPreview/);
+  assert.match(documentControls, /<iframe/);
+  assert.match(upload, /PDF files are supported/);
+  assert.match(upload, /XMLHttpRequest/);
+  assert.match(builder, /Completion checklist/);
+  assert.match(builder, /Acknowledgement/);
+  assert.match(builder, /Renewal/);
 });
 
 test('Training detail and employee profile expose assignment operations and transparent compliance', () => {

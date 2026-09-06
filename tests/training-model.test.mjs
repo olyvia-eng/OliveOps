@@ -34,6 +34,21 @@ test('publish validation normalizes required checklist content', () => {
   assert.deepEqual(result.draft.checklist, [{ itemId: 'stable', text: 'Guard fitted', required: true, sortOrder: 0 }]);
   assert.equal(validateTrainingForPublish({ title: '', checklist: [], recurrenceType: 'custom_months', recurrenceMonths: 0 }).ok, false);
   assert.equal(normalizeTrainingDraft({}).dueSoonDays, 30);
+  assert.equal(normalizeTrainingDraft({}).contentMode, 'structured');
+});
+
+test('document Training requires a validated PDF and permits an optional checklist', () => {
+  const pending = validateTrainingForPublish({ contentMode: 'document', title: 'Lift Safety', recurrenceType: 'annual' });
+  assert.equal(pending.ok, false);
+  assert.equal(pending.errors.document, 'Upload a PDF before publishing.');
+  assert.equal('checklist' in pending.errors, false);
+
+  const ready = validateTrainingForPublish({
+    contentMode: 'document', title: 'Lift Safety', category: 'Safety', recurrenceType: 'annual', checklist: [],
+    document: { fileId: 'file-1', originalFileName: 'lift-safety.pdf', mimeType: 'application/pdf', sizeBytes: 2048, uploadedAt: '2026-09-06T12:00:00.000Z', status: 'ready' },
+  });
+  assert.equal(ready.ok, true);
+  assert.equal(ready.draft.acknowledgementStatement, 'I confirm that I have reviewed and understood this Training document.');
 });
 
 test('training compliance excludes revoked work and preserves no-assignment state', () => {

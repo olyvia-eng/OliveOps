@@ -8,6 +8,7 @@ const api = readFileSync('src/pages/sops/sopApi.ts', 'utf8');
 const library = readFileSync('src/pages/sops/SopLibraryPage.tsx', 'utf8');
 const editor = readFileSync('src/pages/sops/SopEditorPage.tsx', 'utf8');
 const detail = readFileSync('src/pages/sops/SopDetailPage.tsx', 'utf8');
+const documentControls = readFileSync('src/components/documents/PdfDocumentControls.tsx', 'utf8');
 
 test('SOP administration uses protected full-page routes and owner/admin navigation', () => {
   for (const route of ['sops', 'sops/new', 'sops/:sopId', 'sops/:sopId/edit']) {
@@ -51,4 +52,14 @@ test('SOP detail presents immutable versions without training workflow concepts'
   for (const source of [library, editor, detail]) {
     assert.doesNotMatch(source, /assignment|completion|recurrence|due date/i);
   }
+});
+
+test('SOP document authoring uses one validated PDF and an authorized inline preview', () => {
+  assert.match(editor, /CreationMethodChoice resource="SOP"/);
+  assert.match(editor, /contentMode.*document/);
+  assert.match(editor, /<PdfDropzone entityType="sop"/);
+  assert.match(editor, /<AuthorizedPdfPreview/);
+  assert.match(documentControls, /accept="\.pdf,application\/pdf"/);
+  assert.match(documentControls, /category: 'document'/);
+  assert.match(detail, /AuthorizedPdfPreview/);
 });

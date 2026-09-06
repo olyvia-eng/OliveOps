@@ -85,22 +85,22 @@ export async function updateTrainingDraftForBusiness({ businessId, trainingId, a
   return record;
 }
 
-export async function publishTrainingVersionForBusiness({ businessId, trainingId, actor, requestId }) {
+export async function publishTrainingVersionForBusiness({ businessId, trainingId, actor, requestId, document }) {
   if (typeof requestId !== 'string' || !requestId.trim()) throw Object.assign(new Error('A publish request ID is required.'), { statusCode: 400 });
   const priorRequest = await getItem(businessId, publishRequestSk(trainingId, requestId));
   if (priorRequest?.version) return getTrainingVersionForBusiness(businessId, trainingId, priorRequest.version);
   const definition = await getTrainingDefinitionForBusiness(businessId, trainingId);
   if (!definition) return null;
-  const validation = validateTrainingForPublish(definition);
+  const validation = validateTrainingForPublish({ ...definition, ...(definition.contentMode === 'document' ? { document } : {}) });
   if (!validation.ok) throw Object.assign(new Error('Training is not ready to publish.'), { statusCode: 400, fields: validation.errors });
   const version = Number(definition.currentVersion ?? 0) + 1;
   const createdAt = nowIso();
   const snapshot = {
-    trainingId, businessId, version, title: validation.draft.title, shortDescription: validation.draft.shortDescription,
+    trainingId, businessId, version, contentMode: validation.draft.contentMode, title: validation.draft.title, category: validation.draft.category, shortDescription: validation.draft.shortDescription,
     instructions: validation.draft.instructions, checklist: validation.draft.checklist,
     acknowledgementStatement: validation.draft.acknowledgementStatement, attachmentFileId: validation.draft.attachmentFileId,
     recurrenceType: validation.draft.recurrenceType, recurrenceMonths: validation.draft.recurrenceMonths,
-    dueSoonDays: validation.draft.dueSoonDays, createdAt, createdBy: actor.id,
+    dueSoonDays: validation.draft.dueSoonDays, document: validation.draft.document ? { ...validation.draft.document, version } : null, createdAt, createdBy: actor.id,
   };
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
@@ -238,6 +238,7 @@ export async function completeTrainingAssignmentForBusiness({ businessId, employ
     id: completionId, completionId, businessId, assignmentId, employeeId: employee.id, trainingId: assignment.trainingId,
     completedVersion: version.version, trainingTitle: version.title,
     checklistItems: version.checklist.map((item) => ({ itemId: item.itemId, text: item.text, required: true, checked: true })),
+    contentMode: version.contentMode ?? 'structured', document: version.document ?? null,
     acknowledgementStatement: version.acknowledgementStatement, acknowledged: true, completedAt, nextDueDate, submissionId,
   };
   try {

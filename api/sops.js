@@ -1,5 +1,6 @@
 import { requireSession } from './_lib/session.js';
-import { getEmployeeForBusiness } from './_lib/authRepo.js';
+import { getEmployeeForBusiness, getFileForBusiness } from './_lib/authRepo.js';
+import { documentFromFileRecord } from './_lib/documentContent.js';
 import {
   archiveSopForBusiness,
   createSopDraftForBusiness,
@@ -22,7 +23,7 @@ const actorFrom = (session) => ({ id: session.id, name: session.name, email: ses
 const isEmployeeVisible = (definition) => definition?.status === 'published' && definition.active === true && Number(definition.currentVersion) > 0;
 
 const defaultDeps = {
-  requireSession, getEmployeeForBusiness, archiveSopForBusiness, createSopDraftForBusiness,
+  requireSession, getEmployeeForBusiness, getFileForBusiness, archiveSopForBusiness, createSopDraftForBusiness,
   duplicateSopForBusiness, getSopDefinitionForBusiness, getSopVersionForBusiness,
   listSopDefinitionsForBusiness, listSopVersionsForBusiness, publishSopVersionForBusiness,
   reactivateSopForBusiness, updateSopDraftForBusiness,
@@ -88,11 +89,20 @@ export function createSopsHandler(overrides = {}) {
         return res.status(201).json({ ok: true, definition });
       }
       if (action === 'update-draft') {
-        const definition = await deps.updateSopDraftForBusiness({ businessId: session.businessId, sopId: body.sopId, actor, input: body.sop });
+        const requested = body.sop ?? {};
+        const document = requested.contentMode === 'document' && requested.document?.fileId
+          ? documentFromFileRecord(await deps.getFileForBusiness(session.businessId, requested.document.fileId), { entityType: 'sop', entityId: body.sopId })
+          : null;
+        if (requested.contentMode === 'document' && requested.document?.fileId && !document) return res.status(409).json({ ok: false, error: 'The PDF upload is not ready or does not belong to this SOP.' });
+        const definition = await deps.updateSopDraftForBusiness({ businessId: session.businessId, sopId: body.sopId, actor, input: { ...requested, document } });
         return definition ? res.status(200).json({ ok: true, definition }) : res.status(404).json({ ok: false, error: 'SOP was not found.' });
       }
       if (action === 'publish') {
-        const version = await deps.publishSopVersionForBusiness({ businessId: session.businessId, sopId: body.sopId, actor, requestId: body.requestId });
+        const definition = await deps.getSopDefinitionForBusiness(session.businessId, body.sopId);
+        const document = definition?.contentMode === 'document' && definition.document?.fileId
+          ? documentFromFileRecord(await deps.getFileForBusiness(session.businessId, definition.document.fileId), { entityType: 'sop', entityId: body.sopId })
+          : null;
+        const version = await deps.publishSopVersionForBusiness({ businessId: session.businessId, sopId: body.sopId, actor, requestId: body.requestId, document });
         return version ? res.status(200).json({ ok: true, version }) : res.status(404).json({ ok: false, error: 'SOP was not found.' });
       }
       if (action === 'duplicate') {

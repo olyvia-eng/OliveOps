@@ -1,19 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowUp, FileText, Plus, Trash2, Upload } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Card, Input, Select, TextArea } from '../../components/ui';
+import { AuthorizedPdfPreview, CreationMethodChoice, PdfDropzone } from '../../components/documents/PdfDocumentControls';
 import type { TrainingAssignment, TrainingChecklistItem, TrainingDefinition, TrainingRecurrenceType } from '../../types/training';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import { trainingRequest, type TrainingDetailPayload } from './trainingApi';
 
 const DEFAULT_ACKNOWLEDGEMENT = 'I confirm that I have read and understood this training and completed each required checklist item.';
-type Draft = Pick<TrainingDefinition, 'title' | 'shortDescription' | 'instructions' | 'attachmentFileId' | 'checklist' | 'acknowledgementStatement' | 'recurrenceType' | 'recurrenceMonths' | 'dueSoonDays'>;
-const emptyDraft = (): Draft => ({ title: '', shortDescription: '', instructions: '', attachmentFileId: null, checklist: [], acknowledgementStatement: DEFAULT_ACKNOWLEDGEMENT, recurrenceType: 'one_time', recurrenceMonths: null, dueSoonDays: 30 });
+type Draft = Pick<TrainingDefinition, 'contentMode' | 'title' | 'category' | 'shortDescription' | 'instructions' | 'attachmentFileId' | 'document' | 'checklist' | 'acknowledgementStatement' | 'recurrenceType' | 'recurrenceMonths' | 'dueSoonDays'>;
+const emptyDraft = (contentMode: 'structured' | 'document' = 'structured'): Draft => ({ contentMode, title: '', category: '', shortDescription: '', instructions: '', attachmentFileId: null, document: null, checklist: [], acknowledgementStatement: contentMode === 'document' ? 'I confirm that I have reviewed and understood this Training document.' : DEFAULT_ACKNOWLEDGEMENT, recurrenceType: 'one_time', recurrenceMonths: null, dueSoonDays: 30 });
 
 export default function TrainingBuilderPage() {
   const { trainingId } = useParams();
   const navigate = useNavigate();
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [searchParams] = useSearchParams();
+  const requestedMode = searchParams.get('mode');
+  const [draft, setDraft] = useState<Draft>(() => emptyDraft(requestedMode === 'document' ? 'document' : 'structured'));
   const [definition, setDefinition] = useState<TrainingDefinition | null>(null);
   const [assignments, setAssignments] = useState<TrainingAssignment[]>([]);
   const [updateMode, setUpdateMode] = useState<'keep' | 'require'>('keep');
@@ -22,6 +25,7 @@ export default function TrainingBuilderPage() {
   const [attachment, setAttachment] = useState<{ name: string; type: string; size: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [error, setError] = useState('');
   const publishRequestId = useRef(crypto.randomUUID());
   useEffect(() => {
@@ -32,7 +36,7 @@ export default function TrainingBuilderPage() {
         : payload.definition;
       setDefinition(editable);
       setAssignments(payload.assignments.filter((item) => !item.revokedAt));
-      setDraft(editable);
+      setDraft({ ...editable, contentMode: editable.contentMode ?? 'structured', category: editable.category ?? '', document: editable.document ?? null });
     }).catch((reason) => setError(reason instanceof Error ? reason.message : 'Training could not be loaded.'));
   }, [trainingId]);
 
@@ -86,11 +90,20 @@ export default function TrainingBuilderPage() {
     finally { setPublishing(false); }
   };
 
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (saving || publishing || uploadingDocument || (definition && JSON.stringify(draft) !== JSON.stringify({ ...definition, contentMode: definition.contentMode ?? 'structured', category: definition.category ?? '', document: definition.document ?? null }))) event.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [definition, draft, publishing, saving, uploadingDocument]);
+
+  if (!trainingId && requestedMode !== 'structured' && requestedMode !== 'document') return <CreationMethodChoice resource="Training" />;
+  const isDocument = (definition?.contentMode ?? draft.contentMode) === 'document';
+
   return <div className="mx-auto max-w-5xl space-y-5">
     <Link to={definition ? `/training/${definition.id}` : '/training'} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700"><ArrowLeft size={15} /> Training</Link>
     <header><h1 className="text-2xl font-semibold text-gray-900">{definition ? `Edit ${definition.title || 'Training'}` : 'New Training'}</h1><p className="mt-1 text-sm text-gray-500">Draft changes do not affect assigned or completed versions until you publish.</p></header>
-    <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Basic information</h2><p className="text-sm text-gray-500">Give employees enough context to understand why this matters.</p></div><Input label="Title" required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><Input label="Short description" value={draft.shortDescription} onChange={(event) => setDraft({ ...draft, shortDescription: event.target.value })} /><TextArea label="Employee instructions" rows={8} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></Card>
-    <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Attachment</h2><p className="text-sm text-gray-500">Optional PDF, DOC, or DOCX. Files stay private and open through short-lived links.</p></div>{draft.attachmentFileId ? <div className="flex items-center justify-between rounded-md border p-3"><div className="flex items-center gap-3"><FileText size={18} /><div><p className="text-sm font-medium">{attachment?.name ?? 'Attached document'}</p><p className="text-xs text-gray-500">{attachment ? `${attachment.type} · ${(attachment.size / 1024).toFixed(1)} KB` : 'Saved attachment'}</p></div></div><Button variant="ghost" onClick={() => { setDraft({ ...draft, attachmentFileId: null }); setAttachment(null); }}>Remove</Button></div> : null}<label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold"><Upload size={15} /> {draft.attachmentFileId ? 'Replace attachment' : 'Choose attachment'}<input className="sr-only" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => void selectAttachment(event.target.files?.[0])} /></label></Card>
+    <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Basic information</h2><p className="text-sm text-gray-500">Give employees enough context to understand why this matters.</p></div><div className="grid gap-4 sm:grid-cols-2"><Input label="Title" required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /><Input label="Category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value })} /></div><Input label="Short description" value={draft.shortDescription} onChange={(event) => setDraft({ ...draft, shortDescription: event.target.value })} />{!isDocument ? <TextArea label="Employee instructions" rows={8} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /> : null}</Card>
+    {isDocument ? definition ? <><PdfDropzone entityType="training" entityId={definition.id} document={draft.document} disabled={saving || publishing} onBusyChange={setUploadingDocument} onUploaded={(document) => { const next = { ...draft, document }; setDraft(next); void trainingRequest<{ ok: true; definition: TrainingDefinition }>('update-draft', { method: 'PATCH', body: { trainingId: definition.id, training: next } }).then((payload) => setDefinition(payload.definition)).catch((reason) => setError(reason instanceof Error ? reason.message : 'PDF metadata could not be saved.')); }} />{draft.document ? <AuthorizedPdfPreview document={draft.document} title={draft.title || 'Training'} /> : null}</> : <Card className="p-5"><p className="text-sm text-gray-600">Save the Training details to enable the tenant-authorized PDF upload.</p><Button className="mt-3" disabled={saving} onClick={() => void persist()}>{saving ? 'Saving...' : 'Save and add PDF'}</Button></Card> : <Card className="space-y-4 p-5"><div><h2 className="font-semibold">Attachment</h2><p className="text-sm text-gray-500">Optional PDF, DOC, or DOCX. Files stay private and open through short-lived links.</p></div>{draft.attachmentFileId ? <div className="flex items-center justify-between rounded-md border p-3"><div className="flex items-center gap-3"><FileText size={18} /><div><p className="text-sm font-medium">{attachment?.name ?? 'Attached document'}</p><p className="text-xs text-gray-500">{attachment ? `${attachment.type} · ${(attachment.size / 1024).toFixed(1)} KB` : 'Saved attachment'}</p></div></div><Button variant="ghost" onClick={() => { setDraft({ ...draft, attachmentFileId: null }); setAttachment(null); }}>Remove</Button></div> : null}<label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold"><Upload size={15} /> {draft.attachmentFileId ? 'Replace attachment' : 'Choose attachment'}<input className="sr-only" type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => void selectAttachment(event.target.files?.[0])} /></label></Card>}
     <Card className="space-y-4 p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">Completion checklist</h2><p className="text-sm text-gray-500">Every item is required before acknowledgement.</p></div><Button variant="secondary" onClick={addItem}><Plus size={15} /> Add item</Button></div>{draft.checklist.map((item: TrainingChecklistItem, index) => <div key={item.itemId} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2"><div className="flex"><Button title="Move up" variant="ghost" size="sm" disabled={index === 0} onClick={() => moveItem(index, -1)}><ArrowUp size={14} /></Button><Button title="Move down" variant="ghost" size="sm" disabled={index === draft.checklist.length - 1} onClick={() => moveItem(index, 1)}><ArrowDown size={14} /></Button></div><Input label={`Required item ${index + 1}`} value={item.text} onChange={(event) => updateItem(item.itemId, event.target.value)} /><Button title="Delete item" variant="ghost" onClick={() => removeItem(item.itemId)}><Trash2 size={15} /></Button></div>)}</Card>
     <Card className="space-y-4 p-5"><h2 className="font-semibold">Acknowledgement</h2><TextArea label="Acknowledgement statement" rows={3} value={draft.acknowledgementStatement} onChange={(event) => setDraft({ ...draft, acknowledgementStatement: event.target.value })} /></Card>
     <Card className="space-y-4 p-5"><h2 className="font-semibold">Renewal</h2><div className="grid gap-4 sm:grid-cols-2"><Select label="Recurrence" value={draft.recurrenceType} onChange={(event) => setDraft({ ...draft, recurrenceType: event.target.value as TrainingRecurrenceType })}><option value="one_time">One time</option><option value="annual">Annually</option><option value="custom_months">Every X months</option></Select>{draft.recurrenceType === 'custom_months' ? <Input label="Months" type="number" min={1} max={120} value={draft.recurrenceMonths ?? ''} onChange={(event) => setDraft({ ...draft, recurrenceMonths: Number(event.target.value) })} /> : null}<Input label="Due-soon warning (days)" type="number" min={0} max={365} value={draft.dueSoonDays} onChange={(event) => setDraft({ ...draft, dueSoonDays: Number(event.target.value) })} /></div></Card>

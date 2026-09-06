@@ -6,6 +6,7 @@ import {
   buildStorageKey,
   createPendingUploadPlan,
   isPendingUploadExpired,
+  validatePdfParts,
 } from '../api/_lib/storage.js';
 
 test('sanitizeFilename strips unsafe characters and preserves extension', () => {
@@ -44,4 +45,10 @@ test('pending-upload plans expire once the deadline passes', () => {
 test('storage key builder normalizes the filename for safe object storage paths', () => {
   const key = buildStorageKey({ businessId: 'biz-1', fileId: 'file-1', fileName: 'My Resume.pdf' });
   assert.equal(key, 'biz-1/file-1/My-Resume.pdf');
+});
+
+test('PDF validation requires both the PDF signature and an end marker', () => {
+  assert.equal(validatePdfParts(Buffer.from('%PDF-1.7'), Buffer.from('trailer\n%%EOF\n')), true);
+  assert.equal(validatePdfParts(Buffer.from('not-pdf!'), Buffer.from('trailer\n%%EOF\n')), false);
+  assert.equal(validatePdfParts(Buffer.from('%PDF-1.7'), Buffer.from('truncated')), false);
 });

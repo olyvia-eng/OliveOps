@@ -105,7 +105,29 @@ export async function parseStorageApiResponse(response, fallbackErrorMessage) {
 	};
 }
 
-export async function uploadFileToStorage({ file, entityType, entityId, category }) {
+export const PDF_EXPORT_MESSAGE = 'PDF files are supported. Open your Word document and choose Save As or Export to create a PDF, then upload it here.';
+
+export function validatePdfFile(file) {
+	if (!file || !file.name.toLowerCase().endsWith('.pdf') || normalizeMimeType(file.type) !== 'application/pdf') return { valid: false, error: PDF_EXPORT_MESSAGE };
+	return validateUploadPayload({ fileName: file.name, mimeType: file.type, sizeBytes: file.size });
+}
+
+function uploadWithProgress(url, file, headers, onProgress) {
+	if (!onProgress || typeof XMLHttpRequest === 'undefined') return fetch(url, { method: 'PUT', headers, body: file }).then((response) => {
+		if (!response.ok) throw new Error('The direct S3 upload failed.');
+	});
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open('PUT', url);
+		Object.entries(headers).forEach(([name, value]) => request.setRequestHeader(name, value));
+		request.upload.addEventListener('progress', (event) => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); });
+		request.addEventListener('load', () => request.status >= 200 && request.status < 300 ? resolve() : reject(new Error('The direct S3 upload failed.')));
+		request.addEventListener('error', () => reject(new Error('The direct S3 upload failed.')));
+		request.send(file);
+	});
+}
+
+export async function uploadFileToStorage({ file, entityType, entityId, category, onProgress }) {
 	const validation = validateUploadPayload({
 		fileName: file?.name,
 		mimeType: file?.type,
@@ -136,18 +158,7 @@ export async function uploadFileToStorage({ file, entityType, entityId, category
 		throw new Error(preparePayload?.error || 'Upload could not be prepared.');
 	}
 
-	const uploadResponse = await fetch(preparePayload.uploadUrl, {
-		method: 'PUT',
-		headers: {
-			'Content-Type': validation.mimeType,
-			...(preparePayload.requiredHeaders ?? {}),
-		},
-		body: file,
-	});
-
-	if (!uploadResponse.ok) {
-		throw new Error('The direct S3 upload failed.');
-	}
+	await uploadWithProgress(preparePayload.uploadUrl, file, { 'Content-Type': validation.mimeType, ...(preparePayload.requiredHeaders ?? {}) }, onProgress);
 
 	const completeResponse = await fetch('/api/storage', {
 		method: 'POST',
@@ -170,6 +181,7 @@ export async function uploadFileToStorage({ file, entityType, entityId, category
 
 	return {
 		fileId: completePayload.fileId,
+		file: completePayload.file ? { ...completePayload.file, version: null } : undefined,
 	};
 }
 

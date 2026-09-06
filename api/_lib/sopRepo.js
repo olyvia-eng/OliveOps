@@ -80,18 +80,18 @@ export async function updateSopDraftForBusiness({ businessId, sopId, actor, inpu
   return record;
 }
 
-export async function publishSopVersionForBusiness({ businessId, sopId, actor, requestId }) {
+export async function publishSopVersionForBusiness({ businessId, sopId, actor, requestId, document }) {
   if (typeof requestId !== 'string' || !requestId.trim()) throw Object.assign(new Error('A publish request ID is required.'), { statusCode: 400 });
   const requestKey = publishRequestSk(sopId, requestId.trim());
   const priorRequest = await getItem(businessId, requestKey);
   if (priorRequest?.version) return getSopVersionForBusiness(businessId, sopId, priorRequest.version);
   const definition = await getSopDefinitionForBusiness(businessId, sopId);
   if (!definition) return null;
-  const validation = validateSopForPublish(definition);
+  const validation = validateSopForPublish({ ...definition, ...(definition.contentMode === 'document' ? { document } : {}) });
   if (!validation.ok) throw Object.assign(new Error('SOP is not ready to publish.'), { statusCode: 400, fields: validation.errors });
   const version = Number(definition.currentVersion ?? 0) + 1;
   const publishedAt = nowIso();
-  const snapshot = { sopId, businessId, version, ...validation.draft, publishedAt, publishedBy: actor.id };
+  const snapshot = { sopId, businessId, version, ...validation.draft, document: validation.draft.document ? { ...validation.draft.document, version } : null, publishedAt, publishedBy: actor.id };
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
       { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: versionSk(sopId, version), entityType: 'SOP_VERSION', ...snapshot }, ConditionExpression: 'attribute_not_exists(PK)' } },

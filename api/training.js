@@ -1,5 +1,7 @@
 import { requireSession } from './_lib/session.js';
 import { getBusinessProfile, getEmployeeForBusiness, listEmployeesForBusiness } from './_lib/authRepo.js';
+import { getFileForBusiness } from './_lib/authRepo.js';
+import { documentFromFileRecord } from './_lib/documentContent.js';
 import { calculateTrainingCompliance } from './_lib/trainingModel.js';
 import {
   changeTrainingAssignmentDueDate,
@@ -29,7 +31,7 @@ const parseBody = (req) => {
 };
 
 const defaultDeps = {
-  requireSession, getBusinessProfile, getEmployeeForBusiness, listEmployeesForBusiness,
+  requireSession, getBusinessProfile, getEmployeeForBusiness, listEmployeesForBusiness, getFileForBusiness,
   changeTrainingAssignmentDueDate, completeTrainingAssignmentForBusiness, createTrainingAssignmentForBusiness,
   createTrainingDraftForBusiness, getTrainingAssignmentForBusiness, getTrainingDefinitionForBusiness,
   getTrainingVersionForBusiness, listTrainingAssignmentsForBusiness, listTrainingCompletionsForBusiness,
@@ -120,7 +122,12 @@ export function createTrainingHandler(overrides = {}) {
         return res.status(201).json({ ok: true, definition });
       }
       if (action === 'update-draft') {
-        const definition = await deps.updateTrainingDraftForBusiness({ businessId: session.businessId, trainingId: body.trainingId, actor, input: body.training });
+        const requested = body.training ?? {};
+        const document = requested.contentMode === 'document' && requested.document?.fileId
+          ? documentFromFileRecord(await deps.getFileForBusiness(session.businessId, requested.document.fileId), { entityType: 'training', entityId: body.trainingId })
+          : null;
+        if (requested.contentMode === 'document' && requested.document?.fileId && !document) return res.status(409).json({ ok: false, error: 'The PDF upload is not ready or does not belong to this Training.' });
+        const definition = await deps.updateTrainingDraftForBusiness({ businessId: session.businessId, trainingId: body.trainingId, actor, input: { ...requested, document } });
         return definition ? res.status(200).json({ ok: true, definition }) : res.status(404).json({ ok: false, error: 'Training was not found.' });
       }
       if (action === 'start-draft') {
@@ -128,7 +135,11 @@ export function createTrainingHandler(overrides = {}) {
         return definition ? res.status(200).json({ ok: true, definition }) : res.status(404).json({ ok: false, error: 'Training was not found.' });
       }
       if (action === 'publish') {
-        const version = await deps.publishTrainingVersionForBusiness({ businessId: session.businessId, trainingId: body.trainingId, actor, requestId: body.requestId });
+        const definition = await deps.getTrainingDefinitionForBusiness(session.businessId, body.trainingId);
+        const document = definition?.contentMode === 'document' && definition.document?.fileId
+          ? documentFromFileRecord(await deps.getFileForBusiness(session.businessId, definition.document.fileId), { entityType: 'training', entityId: body.trainingId })
+          : null;
+        const version = await deps.publishTrainingVersionForBusiness({ businessId: session.businessId, trainingId: body.trainingId, actor, requestId: body.requestId, document });
         if (!version) return res.status(404).json({ ok: false, error: 'Training was not found.' });
         const selected = new Set(Array.isArray(body.requireEmployeeIds) ? body.requireEmployeeIds.filter((id) => typeof id === 'string') : []);
         if (selected.size > 0) {

@@ -724,8 +724,9 @@ test('employee can download Training attachment through an active assignment', a
     requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
     getFileForBusiness: async (businessId) => ({ id: 'file-training', businessId, entityType: 'training', entityId: 'training-a', uploadStatus: 'uploaded', key: 'biz-1/file-training/safety.pdf' }),
     getTrainingDefinitionForBusiness: async (businessId, trainingId) => ({ id: trainingId, businessId, status: 'published' }),
-    listTrainingAssignmentsForBusiness: async () => [{ id: 'assignment-a', employeeId: 'emp-1', trainingId: 'training-a' }],
+    listTrainingAssignmentsForBusiness: async () => [{ id: 'assignment-a', employeeId: 'emp-1', trainingId: 'training-a', assignedVersion: 1 }],
     listTrainingCompletionsForBusiness: async () => [],
+    getTrainingVersionForBusiness: async () => ({ version: 1, attachmentFileId: 'file-training' }),
   }));
   const res = createMockRes();
   await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-training' } }, res);
@@ -739,7 +740,8 @@ test('historical Training completion preserves attachment access after revocatio
     getFileForBusiness: async (businessId) => ({ id: 'file-training', businessId, entityType: 'training', entityId: 'training-a', uploadStatus: 'uploaded', key: 'biz-1/file-training/safety.pdf' }),
     getTrainingDefinitionForBusiness: async (businessId, trainingId) => ({ id: trainingId, businessId, status: 'published' }),
     listTrainingAssignmentsForBusiness: async () => [{ id: 'assignment-a', employeeId: 'emp-1', trainingId: 'training-a', revokedAt: '2026-08-01T00:00:00.000Z' }],
-    listTrainingCompletionsForBusiness: async () => [{ id: 'completion-a', employeeId: 'emp-1', trainingId: 'training-a' }],
+    listTrainingCompletionsForBusiness: async () => [{ id: 'completion-a', employeeId: 'emp-1', trainingId: 'training-a', completedVersion: 1 }],
+    getTrainingVersionForBusiness: async () => ({ version: 1, attachmentFileId: 'file-training' }),
   }));
   const res = createMockRes();
   await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-training' } }, res);
@@ -779,12 +781,12 @@ test('SOP uploads allow only PDF, DOC, and DOCX for owner/admin users', async ()
 });
 
 test('employee SOP attachment access requires an active published SOP', async () => {
-  const request = async (sop, attachmentFileIds = ['file-sop']) => {
+  const request = async (sop, attachmentFileIds = ['file-sop'], document = null) => {
     const handler = createStorageHandler(baseDeps({
       requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
       getFileForBusiness: async (businessId) => ({ id: 'file-sop', businessId, entityType: 'sop', entityId: 'sop-a', uploadStatus: 'uploaded', key: 'biz-1/file-sop/procedure.pdf' }),
       getSopDefinitionForBusiness: async () => sop,
-      getSopVersionForBusiness: async () => ({ sopId: 'sop-a', version: 1, attachmentFileIds }),
+      getSopVersionForBusiness: async () => ({ sopId: 'sop-a', version: 1, attachmentFileIds, document }),
     }));
     const res = createMockRes();
     await handler({ method: 'POST', body: { action: 'prepare-download', fileId: 'file-sop' } }, res);
@@ -792,6 +794,7 @@ test('employee SOP attachment access requires an active published SOP', async ()
   };
 
   assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 })).statusCode, 200);
+  assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 }, [], { fileId: 'file-sop' })).statusCode, 200);
   assert.equal((await request({ id: 'sop-a', status: 'published', active: true, currentVersion: 1 }, ['removed-file'])).statusCode, 403);
   assert.equal((await request({ id: 'sop-a', status: 'draft', active: false, currentVersion: 0 })).statusCode, 403);
   assert.equal((await request({ id: 'sop-a', status: 'published', active: false, currentVersion: 1 })).statusCode, 403);

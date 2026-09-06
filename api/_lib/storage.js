@@ -196,6 +196,38 @@ export async function headStoredFile({ businessId, key }) {
   }
 }
 
+async function readObjectRange({ client, key, range }) {
+  const result = await client.send(new GetObjectCommand({ Bucket: getBucketName(), Key: key, Range: range }));
+  if (!result.Body) return new Uint8Array();
+  if (typeof result.Body.transformToByteArray === 'function') return result.Body.transformToByteArray();
+  const chunks = [];
+  for await (const chunk of result.Body) chunks.push(chunk);
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+}
+
+export function validatePdfParts(firstBytes, tailBytes) {
+  const hasHeader = Buffer.from(firstBytes).toString('latin1').startsWith('%PDF-');
+  const hasEof = Buffer.from(tailBytes).toString('latin1').includes('%%EOF');
+  return hasHeader && hasEof;
+}
+
+export async function validateStoredPdf({ businessId, key, sizeBytes }) {
+  if (!isStorageKeyScopedToBusiness({ businessId, key })) return { ok: false, status: 403, error: 'Unauthorized storage key.' };
+  const size = Number(sizeBytes);
+  if (!Number.isSafeInteger(size) || size < 8) return { ok: false, status: 400, error: 'The PDF is empty or corrupt.' };
+  try {
+    const client = getS3Client();
+    const first = await readObjectRange({ client, key, range: 'bytes=0-7' });
+    const tailStart = Math.max(0, size - 2048);
+    const tail = await readObjectRange({ client, key, range: `bytes=${tailStart}-${size - 1}` });
+    if (!validatePdfParts(first, tail)) return { ok: false, status: 400, error: 'The selected file is not a readable PDF.' };
+    return { ok: true, validatedAt: nowIso() };
+  } catch (error) {
+    const status = Number(error?.$metadata?.httpStatusCode ?? error?.statusCode ?? 0);
+    return { ok: false, status: status >= 400 ? status : 503, error: 'The PDF could not be validated.' };
+  }
+}
+
 export async function createPresignedDownloadUrl({ businessId, key }) {
   if (!isStorageKeyScopedToBusiness({ businessId, key })) {
     return { ok: false, error: 'Unauthorized storage key.' };

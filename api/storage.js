@@ -4,6 +4,7 @@ import {
   createPresignedDownloadUrl,
   createPendingUploadPlan,
   headStoredFile,
+  validateStoredPdf,
   removeStoredFile,
   validateUploadPayload,
 } from './_lib/storage.js';
@@ -39,6 +40,7 @@ import { findClockInWorkflowRequirement, getClockInWorkflowForBusiness } from '.
 import { findWorkflowRequirement, getClockOutWorkflowForBusiness } from './_lib/mandatoryClockOut.js';
 import {
   getTrainingDefinitionForBusiness,
+  getTrainingVersionForBusiness,
   listTrainingAssignmentsForBusiness,
   listTrainingCompletionsForBusiness,
 } from './_lib/trainingRepo.js';
@@ -54,8 +56,10 @@ const SOP_ENTITY_TYPE = 'sop';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const SOP_DOCUMENT_MIME_TYPES = new Set([
-  'application/pdf',
+const PDF_MIME_TYPE = 'application/pdf';
+const PDF_EXPORT_MESSAGE = 'PDF files are supported. Open your Word document and choose Save As or Export to create a PDF, then upload it here.';
+const SOP_ATTACHMENT_MIME_TYPES = new Set([
+  PDF_MIME_TYPE,
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]);
@@ -70,8 +74,8 @@ const ATTACHMENT_ALLOWLIST = {
   estimate: new Set(['document', 'photo', 'misc']),
   employee: new Set(['document', 'photo', 'misc']),
   feedback: new Set(['screenshot']),
-  [TRAINING_ENTITY_TYPE]: new Set(['attachment']),
-  [SOP_ENTITY_TYPE]: new Set(['attachment']),
+  [TRAINING_ENTITY_TYPE]: new Set(['attachment', 'document']),
+  [SOP_ENTITY_TYPE]: new Set(['attachment', 'document']),
   [FORM_SIGNATURE_ENTITY_TYPE]: new Set(['signature']),
   [FORM_ATTACHMENT_ENTITY_TYPE]: new Set(['photo']),
 };
@@ -240,6 +244,7 @@ const defaultDeps = {
   createPresignedDownloadUrl,
   createPendingUploadPlan,
   headStoredFile,
+  validateStoredPdf,
   removeStoredFile,
   validateUploadPayload,
   createAuditEventForBusiness,
@@ -257,6 +262,7 @@ const defaultDeps = {
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
   getTrainingDefinitionForBusiness,
+  getTrainingVersionForBusiness,
   getSopDefinitionForBusiness,
   getSopVersionForBusiness,
   listTrainingAssignmentsForBusiness,
@@ -299,7 +305,7 @@ export function createStorageHandler(overrides = {}) {
         : null;
       return {
         entity: sop,
-        allowed: Boolean(version && typeof fileId === 'string' && version.attachmentFileIds?.includes(fileId)),
+        allowed: Boolean(version && typeof fileId === 'string' && (version.attachmentFileIds?.includes(fileId) || version.document?.fileId === fileId)),
       };
     }
 
@@ -316,8 +322,12 @@ export function createStorageHandler(overrides = {}) {
         deps.listTrainingAssignmentsForBusiness(session.businessId),
         deps.listTrainingCompletionsForBusiness(session.businessId),
       ]);
-      const hasAccess = assignments.some((item) => item.employeeId === employee.id && item.trainingId === training.id && !item.revokedAt)
-        || completions.some((item) => item.employeeId === employee.id && item.trainingId === training.id);
+      const authorizedVersions = [
+        ...assignments.filter((item) => item.employeeId === employee.id && item.trainingId === training.id && !item.revokedAt).map((item) => item.assignedVersion),
+        ...completions.filter((item) => item.employeeId === employee.id && item.trainingId === training.id).map((item) => item.completedVersion),
+      ];
+      const versions = await Promise.all([...new Set(authorizedVersions)].map((version) => deps.getTrainingVersionForBusiness(session.businessId, training.id, version)));
+      const hasAccess = versions.some((version) => version && (version.attachmentFileId === fileId || version.document?.fileId === fileId));
       return { entity: training, allowed: hasAccess };
     }
 
@@ -430,7 +440,10 @@ export function createStorageHandler(overrides = {}) {
           if (!validation.ok) {
             return res.status(400).json({ ok: false, error: validation.error });
           }
-          if (entityType === SOP_ENTITY_TYPE && !SOP_DOCUMENT_MIME_TYPES.has(validation.mimeType)) {
+          if ((entityType === TRAINING_ENTITY_TYPE || entityType === SOP_ENTITY_TYPE) && normalizedCategory === 'document' && validation.mimeType !== PDF_MIME_TYPE) {
+            return res.status(400).json({ ok: false, error: PDF_EXPORT_MESSAGE });
+          }
+          if (entityType === SOP_ENTITY_TYPE && normalizedCategory === 'attachment' && !SOP_ATTACHMENT_MIME_TYPES.has(validation.mimeType)) {
             return res.status(400).json({ ok: false, error: 'SOP attachments must be PDF, DOC, or DOCX files.' });
           }
 
@@ -704,6 +717,15 @@ export function createStorageHandler(overrides = {}) {
             return res.status(409).json({ ok: false, error: 'Uploaded file could not be verified.' });
           }
 
+          let pdfValidation;
+          if ((file.entityType === TRAINING_ENTITY_TYPE || file.entityType === SOP_ENTITY_TYPE) && normalizedCategory === 'document') {
+            if (expectedContentType !== PDF_MIME_TYPE || headResult.contentType !== PDF_MIME_TYPE) {
+              return res.status(409).json({ ok: false, error: PDF_EXPORT_MESSAGE });
+            }
+            pdfValidation = await deps.validateStoredPdf({ businessId: session.businessId, key: objectKey, sizeBytes: headResult.contentLength });
+            if (!pdfValidation.ok) return res.status(409).json({ ok: false, error: pdfValidation.error });
+          }
+
           if (file.uploadStatus !== 'uploaded') {
             await deps.updateFileForBusiness({
               businessId: session.businessId,
@@ -717,6 +739,7 @@ export function createStorageHandler(overrides = {}) {
                 objectKey,
                 expectedContentType,
                 expectedFileSize,
+                pdfValidatedAt: pdfValidation?.validatedAt,
               },
             });
           }
@@ -774,7 +797,13 @@ export function createStorageHandler(overrides = {}) {
             },
           });
 
-          return res.status(200).json({ ok: true, fileId: file.id });
+          return res.status(200).json({
+            ok: true,
+            fileId: file.id,
+            ...((file.entityType === TRAINING_ENTITY_TYPE || file.entityType === SOP_ENTITY_TYPE) && normalizedCategory === 'document' ? {
+              file: { fileId: file.id, originalFileName: file.originalFileName, mimeType: expectedContentType, sizeBytes: expectedFileSize, uploadedAt: file.uploadedAt ?? nowIso(), status: 'ready' },
+            } : {}),
+          });
         }
 
         return res.status(400).json({ ok: false, error: 'Unsupported action.' });

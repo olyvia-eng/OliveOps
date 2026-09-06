@@ -1,6 +1,9 @@
+import type { ContentMode, PdfDocumentMetadata } from './training';
+
 export type SopStatus = 'draft' | 'published';
 
 export interface SopContent {
+  contentMode?: ContentMode;
   title: string;
   category: string;
   shortDescription: string;
@@ -8,6 +11,7 @@ export interface SopContent {
   instructions: string;
   safetyInformation: string;
   attachmentFileIds: string[];
+  document: PdfDocumentMetadata | null;
 }
 
 export interface SopDefinition extends SopContent {
