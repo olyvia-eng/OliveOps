@@ -76,7 +76,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [submissionLoading, setSubmissionLoading] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
-  const [jobTaskFilter, setJobTaskFilter] = useState<'all' | 'completed'>('all');
   const [analysisScope, setAnalysisScope] = useState('entire-job');
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const [showAllNotes, setShowAllNotes] = useState(false);
@@ -105,7 +104,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const outstandingRequiredForms = requiredAssignedForms.filter((form) => !completedAssignedFormIds.has(form.id)).length;
   const jobTasks = useMemo(() => tasks.filter((task) => task.relatedEntityType === 'job' && task.relatedEntityId === id), [id, tasks]);
   const headings = useMemo(() => jobTaskHeadings.filter((heading) => heading.jobId === id).sort((left, right) => left.sortOrder - right.sortOrder), [id, jobTaskHeadings]);
-  const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId && (jobTaskFilter === 'completed' ? task.status === 'completed' : task.status === 'open')), [jobTaskFilter, jobTasks]);
+  const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId), [jobTasks]);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
   const canEditFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const [jobInfoSaving, setJobInfoSaving] = useState(false);
@@ -522,7 +521,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             subtitle="Actions tied directly to this job"
             tasks={visibleJobTasks}
             allTasks={jobTasks}
-            filter={jobTaskFilter}
+            filter="all"
             filterOrder={['all', 'completed']}
             filterLabels={job.taskHeaderLabels}
             customTaskTabs={[]}
@@ -535,7 +534,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             onRenameHeading={(headingId, name) => renameJobTaskHeading(job.id, headingId, name)}
             onDeleteHeading={(headingId) => deleteJobTaskHeading(job.id, headingId)}
             onReorderHeadings={(orderedIds) => reorderJobTaskHeadings(job.id, orderedIds)}
-            onFilterChange={(filter) => setJobTaskFilter(filter === 'completed' ? 'completed' : 'all')}
+            onFilterChange={() => undefined}
             onRenameFilter={async (filter, name) => {
               if (filter !== 'all' && filter !== 'completed') return;
               await updateJob(job.id, { taskHeaderLabels: { ...job.taskHeaderLabels, [filter]: name } });

@@ -73,7 +73,29 @@ test('one Analysis mode controls accessible distribution and variance visualizat
   assert.match(summarySource, /Cost variance by category/);
   assert.match(summarySource, /<table className="sr-only">/);
   assert.match(summarySource, /segment\.amount > 0/);
-  assert.match(summarySource, /mode !== 'estimated' && !deferredPerformance\.economics\.actualCostComplete/);
+  assert.match(summarySource, /mode === 'actual' && !deferredPerformance\.economics\.actualCostComplete/);
+  assert.match(summarySource, /mode === 'variance' && deferredPerformance\.costs\.varianceUnavailableCategories\.length/);
   assert.doesNotMatch(summarySource, /Job Target|Remaining estimated cost|forecastUnavailableReason/);
   assert.doesNotMatch(summarySource, /<Input|onTargetMarginChange/);
+});
+
+test('legacy Estimates use contract value allocation without presenting it as cost or profit', () => {
+  assert.match(summarySource, /Contract Value Distribution/);
+  assert.match(summarySource, /How the accepted pre-tax contract value is distributed by category\./);
+  assert.match(summarySource, /contractValueChartSegments/);
+  assert.match(summarySource, /Accepted contract value distribution chart/);
+  assert.match(summarySource, /estimatedUsesInternalCosts \? 'Planned internal cost allocation' : 'Contract value distribution'/);
+  assert.match(summarySource, /deferredPerformance\.profit\.estimatedGross/);
+  assert.doesNotMatch(summarySource, /contractValueChartSegments[\s\S]{0,160}estimatedGross/);
+});
+
+test('partial actual and variance modes retain supported charts and name missing data', () => {
+  assert.match(summarySource, /distributionSegments\.filter\(\(segment\) => segment\.amount > 0\)/);
+  assert.match(summarySource, /Unavailable actual costs:/);
+  assert.match(summarySource, /No comparable accepted and actual cost data for:/);
+  assert.match(summarySource, /No recorded actual costs yet\./);
+  assert.match(summarySource, /row\.variance === null \? \[\] :/);
+  assert.match(summarySource, /useDeferredValue\(performance\)/);
+  assert.match(summarySource, /deferredPerformance !== performance/);
+  assert.match(detailSource, /scopeWorkAreaId: resolvedAnalysisScope/);
 });

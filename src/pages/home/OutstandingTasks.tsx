@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, ChevronLeft, ChevronRight, Circle, ClipboardList, ListPlus, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Circle, ClipboardList, EllipsisVertical, ListPlus, Pencil, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { JobTaskHeading, Task, TaskPriority, TaskTab } from '../../types';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select } from '../../components/ui';
@@ -69,7 +69,12 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
   const [headingError, setHeadingError] = useState('');
   const [activeHeadingId, setActiveHeadingId] = useState('general');
   const [moveHeadingTasksTo, setMoveHeadingTasksTo] = useState('general');
+  const [deleteHeadingTasks, setDeleteHeadingTasks] = useState(false);
+  const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
+  const [draggedHeadingId, setDraggedHeadingId] = useState<string | null>(null);
+  const [completedTasksExpanded, setCompletedTasksExpanded] = useState(false);
   const visibleTasks = expanded ? tasks : tasks.slice(0, 5);
+  const activeHeading = jobTaskHeadings?.find((item) => item.id === activeHeadingId) ?? null;
 
   const saveFilterName = async () => {
     if (!editingFilter || !editingFilterName.trim() || !onRenameFilter) return;
@@ -171,6 +176,8 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     setHeadingName(selected?.name ?? '');
     setHeadingError('');
     setMoveHeadingTasksTo('general');
+    setDeleteHeadingTasks(false);
+    setHeadingMenuOpen(false);
     setHeadingDialog(mode);
   };
 
@@ -187,7 +194,9 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
   const deleteHeading = async () => {
     if (!selectedHeading || !onDeleteHeading) return;
     const affectedTasks = allTasks.filter((task) => task.headingId === selectedHeading.id);
-    if (affectedTasks.length > 0 && moveHeadingTasksTo !== 'general') {
+    if (affectedTasks.length > 0 && deleteHeadingTasks) {
+      for (const task of affectedTasks) await onDelete(task.id);
+    } else if (affectedTasks.length > 0) {
       for (const task of affectedTasks) {
         const result = await onUpdate(task.id, {
           title: task.title,
@@ -216,11 +225,35 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     void onReorderHeadings(orderedIds);
   };
 
+  const moveHeadingTo = (headingId: string, targetId: string) => {
+    if (!jobTaskHeadings || !onReorderHeadings || headingId === targetId) return;
+    const orderedIds = jobTaskHeadings.map((item) => item.id);
+    const fromIndex = orderedIds.indexOf(headingId);
+    const targetIndex = orderedIds.indexOf(targetId);
+    if (fromIndex < 0 || targetIndex < 0) return;
+    orderedIds.splice(fromIndex, 1);
+    orderedIds.splice(targetIndex, 0, headingId);
+    void onReorderHeadings(orderedIds);
+  };
+
   useEffect(() => {
     if (activeHeadingId !== 'general' && !jobTaskHeadings?.some((item) => item.id === activeHeadingId)) {
       setActiveHeadingId('general');
     }
   }, [activeHeadingId, jobTaskHeadings]);
+
+  useEffect(() => {
+    setCompletedTasksExpanded(false);
+    setHeadingMenuOpen(false);
+  }, [activeHeadingId]);
+
+  const renderJobTaskList = (items: Task[]) => <ul className="divide-y divide-brand-100 dark:divide-brand-600">{items.map((task) => {
+    const subtasks = allTasks.filter((item) => item.parentTaskId === task.id);
+    const completedCount = subtasks.filter((item) => item.status === 'completed').length;
+    return <li key={task.id}><div className="flex items-start gap-3 px-4 py-3"><button type="button" onClick={() => void onToggle(task)} className="mt-0.5 text-brand-700" aria-label={task.status === 'completed' ? 'Mark task open' : 'Mark task complete'}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div className="min-w-0 flex-1"><p className={`text-sm font-medium ${task.status === 'completed' ? 'text-brand-400 line-through' : 'text-brand-900'}`}>{task.title}</p><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-brand-400"><span>{task.dueDate ? `Due ${task.dueDate}` : 'No due date'}</span><Badge label={task.priority ?? 'normal'} className={priorityTone(task.priority)} />{subtasks.length ? <span>{completedCount} of {subtasks.length} subtasks complete</span> : null}</div></div>{task.status === 'open' ? <button type="button" onClick={() => openAddSubtask(task)} className="grid h-8 w-8 place-items-center text-brand-400" aria-label={`Add subtask to ${task.title}`}><ListPlus size={16} /></button> : null}<button type="button" onClick={() => openEditTask(task)} className="grid h-8 w-8 place-items-center text-brand-400" aria-label={`Edit ${task.title}`}><Pencil size={15} /></button><button type="button" onClick={() => void onDelete(task.id)} className="grid h-8 w-8 place-items-center text-brand-400 hover:text-accent-700" aria-label={`Remove ${task.title}`}><X size={15} /></button></div>
+      {subtasks.length ? <ul className="border-t border-brand-50 bg-brand-50/40 px-4 py-1">{subtasks.map((subtask) => <li key={subtask.id} className="ml-6 flex items-center gap-3 border-l-2 border-brand-100 px-3 py-2"><button type="button" onClick={() => void onToggle(subtask)} className="text-brand-600" aria-label={subtask.status === 'completed' ? 'Mark subtask open' : 'Mark subtask complete'}>{subtask.status === 'completed' ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button><p className={`min-w-0 flex-1 text-sm ${subtask.status === 'completed' ? 'text-brand-400 line-through' : 'text-brand-800'}`}>{subtask.title}</p><button type="button" onClick={() => openEditTask(subtask)} aria-label={`Edit ${subtask.title}`}><Pencil size={14} /></button><button type="button" onClick={() => void onDelete(subtask.id)} aria-label={`Remove ${subtask.title}`}><X size={14} /></button></li>)}</ul> : null}
+    </li>;
+  })}</ul>;
 
   return (
     <Card id="outstanding-tasks" className="overflow-hidden rounded-lg">
@@ -236,24 +269,21 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
       </div>
 
       {jobTaskHeadings ? <div className="flex items-center gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" role="tablist" aria-label="Job task tabs">
-        {[{ id: 'general', name: 'General' }, ...jobTaskHeadings].map((tab, index) => {
+        {[{ id: 'general', name: 'General' }, ...jobTaskHeadings].map((tab) => {
           const openCount = allTasks.filter((task) => !task.parentTaskId && task.status === 'open' && (tab.id === 'general' ? !task.headingId || !jobTaskHeadings.some((item) => item.id === task.headingId) : task.headingId === tab.id)).length;
           const persisted = tab.id !== 'general';
-          return <div key={tab.id} className="group flex shrink-0 items-center rounded-md border border-transparent data-[active=true]:border-brand-200 data-[active=true]:bg-brand-50" data-active={activeHeadingId === tab.id}>
-            <button type="button" role="tab" aria-selected={activeHeadingId === tab.id} aria-controls="job-task-tab-panel" onClick={() => setActiveHeadingId(tab.id)} className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:text-brand-100">
-              <span>{tab.name}</span><span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-brand-600" aria-label={`${openCount} open tasks`}>{openCount}</span>
+          const selected = activeHeadingId === tab.id;
+          return <div key={tab.id} draggable={persisted && canManageJobTaskHeadings} onDragStart={() => setDraggedHeadingId(persisted ? tab.id : null)} onDragEnd={() => setDraggedHeadingId(null)} onDragOver={(event) => { if (persisted) event.preventDefault(); }} onDrop={() => { if (persisted && draggedHeadingId) moveHeadingTo(draggedHeadingId, tab.id); setDraggedHeadingId(null); }} className="flex shrink-0 items-center rounded-md border border-transparent data-[active=true]:border-brand-200 data-[active=true]:bg-brand-50" data-active={selected}>
+            <button type="button" role="tab" aria-selected={selected} aria-controls="job-task-tab-panel" onClick={() => setActiveHeadingId(tab.id)} className="flex h-9 max-w-56 items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-semibold text-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:text-brand-100">
+              <span className="truncate">{tab.name}</span><span className="rounded-full bg-white px-1.5 py-0.5 text-[11px] text-brand-600" aria-label={`${openCount} open tasks`}>{openCount}</span>
             </button>
-            {persisted && canManageJobTaskHeadings ? <div className="flex items-center pr-1">
-              <button type="button" onClick={() => moveHeading(tab.id, -1)} disabled={index === 1} aria-label={`Move ${tab.name} tab left`} className="grid h-7 w-7 place-items-center rounded text-brand-400 hover:bg-white hover:text-brand-700 disabled:opacity-30"><ChevronLeft size={13} /></button>
-              <button type="button" onClick={() => moveHeading(tab.id, 1)} disabled={index === jobTaskHeadings.length} aria-label={`Move ${tab.name} tab right`} className="grid h-7 w-7 place-items-center rounded text-brand-400 hover:bg-white hover:text-brand-700 disabled:opacity-30"><ChevronRight size={13} /></button>
-              <button type="button" onClick={() => openHeadingDialog('rename', tab as JobTaskHeading)} aria-label={`Rename ${tab.name} tab`} className="grid h-7 w-7 place-items-center rounded text-brand-400 hover:bg-white hover:text-brand-700"><Pencil size={13} /></button>
-              <button type="button" onClick={() => openHeadingDialog('delete', tab as JobTaskHeading)} aria-label={`Delete ${tab.name} tab`} className="grid h-7 w-7 place-items-center rounded text-brand-400 hover:bg-accent-50 hover:text-accent-700"><Trash2 size={13} /></button>
-            </div> : null}
+            {selected && persisted && canManageJobTaskHeadings ? <button type="button" aria-label={`Manage ${tab.name} tab`} aria-haspopup="menu" aria-expanded={headingMenuOpen} onClick={() => setHeadingMenuOpen((open) => !open)} className="mr-1 grid h-7 w-7 place-items-center rounded text-brand-500 hover:bg-white hover:text-brand-800"><EllipsisVertical size={15} /></button> : null}
           </div>;
         })}
       </div> : null}
+      {headingMenuOpen && activeHeading && jobTaskHeadings ? <div role="menu" aria-label={`Manage ${activeHeading.name} tab`} className="flex flex-wrap justify-end gap-1 border-b border-brand-100 bg-brand-50/60 px-3 py-2"><button type="button" role="menuitem" onClick={() => openHeadingDialog('rename', activeHeading)} className="rounded px-3 py-2 text-xs hover:bg-white">Rename tab</button><button type="button" role="menuitem" disabled={jobTaskHeadings[0]?.id === activeHeading.id} onClick={() => { moveHeading(activeHeading.id, -1); setHeadingMenuOpen(false); }} className="flex items-center gap-2 rounded px-3 py-2 text-xs hover:bg-white disabled:opacity-40"><ChevronLeft size={13} />Move left</button><button type="button" role="menuitem" disabled={jobTaskHeadings.at(-1)?.id === activeHeading.id} onClick={() => { moveHeading(activeHeading.id, 1); setHeadingMenuOpen(false); }} className="flex items-center gap-2 rounded px-3 py-2 text-xs hover:bg-white disabled:opacity-40"><ChevronRight size={13} />Move right</button><button type="button" role="menuitem" onClick={() => openHeadingDialog('delete', activeHeading)} className="rounded px-3 py-2 text-xs text-accent-700 hover:bg-accent-50">Delete tab</button></div> : null}
 
-      <div className="flex gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" aria-label="Task filters">
+      {!jobTaskHeadings ? <div className="flex gap-1 overflow-x-auto border-b border-brand-100 px-3 py-2 dark:border-brand-600" aria-label="Task filters">
         {filterOrder.map((value, index) => { const customTab = customTaskTabs.find((tab) => tab.id === value); const label = customTab?.name ?? filterLabels?.[value] ?? systemTabLabels[value] ?? value; return (
           <div key={value} className="relative shrink-0" onDragOver={(event) => event.preventDefault()} onDrop={() => {
             if (draggedFilter) moveFilter(draggedFilter, index);
@@ -264,7 +294,7 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
           </div>
         ); })}
         {allowCustomTabs ? <button type="button" onClick={() => openTabDialog('create')} aria-label="Add task tab" title="Add task tab" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-600 hover:bg-brand-50 dark:text-brand-200 dark:hover:bg-brand-600"><Plus size={15} /></button> : null}
-      </div>
+      </div> : null}
 
       {adding ? (
         <div className="border-b border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/30">
@@ -282,11 +312,12 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
 
       {jobTaskHeadings ? (
         <div id="job-task-tab-panel" role="tabpanel">
-          {(() => { const sectionTasks = visibleTasks.filter((task) => activeHeadingId === 'general' ? !task.headingId || !jobTaskHeadings.some((section) => section.id === task.headingId) : task.headingId === activeHeadingId); return sectionTasks.length ? <ul className="divide-y divide-brand-100 dark:divide-brand-600">{sectionTasks.map((task) => { const subtasks = allTasks.filter((item) => item.parentTaskId === task.id); const completedCount = subtasks.filter((item) => item.status === 'completed').length; return (
-                <li key={task.id}><div className="flex items-start gap-3 px-4 py-3"><button type="button" onClick={() => void onToggle(task)} className="mt-0.5 text-brand-700" aria-label={task.status === 'completed' ? 'Mark task open' : 'Mark task complete'}>{task.status === 'completed' ? <CheckCircle2 size={18} /> : <Circle size={18} />}</button><div className="min-w-0 flex-1"><p className={`text-sm font-medium ${task.status === 'completed' ? 'text-brand-400 line-through' : 'text-brand-900'}`}>{task.title}</p><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-brand-400"><span>{task.dueDate ? `Due ${task.dueDate}` : 'No due date'}</span><Badge label={task.priority ?? 'normal'} className={priorityTone(task.priority)} />{subtasks.length ? <span>{completedCount} of {subtasks.length} subtasks complete</span> : null}</div></div>{task.status === 'open' ? <button type="button" onClick={() => openAddSubtask(task)} className="grid h-8 w-8 place-items-center text-brand-400" aria-label={`Add subtask to ${task.title}`}><ListPlus size={16} /></button> : null}<button type="button" onClick={() => openEditTask(task)} className="grid h-8 w-8 place-items-center text-brand-400" aria-label={`Edit ${task.title}`}><Pencil size={15} /></button><button type="button" onClick={() => void onDelete(task.id)} className="grid h-8 w-8 place-items-center text-brand-400 hover:text-accent-700" aria-label={`Remove ${task.title}`}><X size={15} /></button></div>
-                {subtasks.length ? <ul className="border-t border-brand-50 bg-brand-50/40 px-4 py-1">{subtasks.map((subtask) => <li key={subtask.id} className="ml-6 flex items-center gap-3 border-l-2 border-brand-100 px-3 py-2"><button type="button" onClick={() => void onToggle(subtask)} className="text-brand-600" aria-label={subtask.status === 'completed' ? 'Mark subtask open' : 'Mark subtask complete'}>{subtask.status === 'completed' ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button><p className={`min-w-0 flex-1 text-sm ${subtask.status === 'completed' ? 'text-brand-400 line-through' : 'text-brand-800'}`}>{subtask.title}</p><button type="button" onClick={() => openEditTask(subtask)} aria-label={`Edit ${subtask.title}`}><Pencil size={14} /></button><button type="button" onClick={() => void onDelete(subtask.id)} aria-label={`Remove ${subtask.title}`}><X size={14} /></button></li>)}</ul> : null}
-                </li>
-              ); })}</ul> : <EmptyState icon={<ClipboardList />} title={filter === 'completed' ? 'No completed tasks' : 'No open tasks'} description={filter === 'completed' ? 'Completed tasks in this tab will appear here.' : 'Add a task to this tab when work is ready.'} action={<Button size="sm" onClick={() => openAdd(activeHeadingId === 'general' ? '' : activeHeadingId)}><Plus />Add Task</Button>} />; })()}
+          {(() => {
+            const sectionTasks = allTasks.filter((task) => !task.parentTaskId && (activeHeadingId === 'general' ? !task.headingId || !jobTaskHeadings.some((section) => section.id === task.headingId) : task.headingId === activeHeadingId));
+            const openTasks = sectionTasks.filter((task) => task.status === 'open');
+            const completedTasks = sectionTasks.filter((task) => task.status === 'completed');
+            return <>{openTasks.length ? renderJobTaskList(openTasks) : <p className="px-4 py-3 text-sm text-brand-400">No open tasks in this tab.</p>}{completedTasks.length ? <div className="border-t border-brand-100"><button type="button" aria-expanded={completedTasksExpanded} onClick={() => setCompletedTasksExpanded((expanded) => !expanded)} className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-brand-600 hover:bg-brand-50"><span>Completed tasks ({completedTasks.length})</span><ChevronDown size={16} className={`transition-transform ${completedTasksExpanded ? 'rotate-180' : ''}`} /></button>{completedTasksExpanded ? renderJobTaskList(completedTasks) : null}</div> : null}</>;
+          })()}
         </div>
       ) : visibleTasks.length === 0 ? <EmptyState icon={<ClipboardList />} title="Nothing here" description={filter === 'completed' ? 'Completed tasks will appear here.' : 'You are clear for this view.'} /> : (
         <ul className="divide-y divide-brand-100 dark:divide-brand-600">
@@ -324,7 +355,7 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
       <Modal open={tabDialog === 'create' || tabDialog === 'rename'} onClose={() => setTabDialog(null)} title={tabDialog === 'rename' ? 'Rename Task Tab' : 'New Task Tab'} footer={<><Button variant="secondary" onClick={() => setTabDialog(null)}>Cancel</Button><Button onClick={saveTab}>{tabDialog === 'rename' ? 'Save' : 'Create'}</Button></>}><Input autoFocus label="Name" maxLength={30} value={tabName} onChange={(event) => { setTabName(event.target.value); setTabError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') saveTab(); }} error={tabError} /></Modal>
       <Modal open={tabDialog === 'delete'} onClose={() => setTabDialog(null)} title={`Delete "${selectedTab?.name ?? ''}"?`} footer={<><Button variant="secondary" onClick={() => setTabDialog(null)}>Cancel</Button><Button onClick={deleteTab}>Delete Tab</Button></>}><p className="text-sm text-brand-500 dark:text-brand-300">Tasks in this tab will not be deleted. They will continue to appear in system views such as Open, Today, and Completed.</p></Modal>
       <Modal open={headingDialog === 'create' || headingDialog === 'rename'} onClose={() => setHeadingDialog(null)} title={headingDialog === 'rename' ? 'Rename Task Tab' : 'Add Task Tab'} footer={<><Button variant="secondary" onClick={() => setHeadingDialog(null)}>Cancel</Button><Button onClick={() => void saveHeading()}>{headingDialog === 'rename' ? 'Save' : 'Add Tab'}</Button></>}><Input autoFocus label="Tab Name" maxLength={80} value={headingName} onChange={(event) => { setHeadingName(event.target.value); setHeadingError(''); }} error={headingError} /></Modal>
-      <Modal open={headingDialog === 'delete'} onClose={() => setHeadingDialog(null)} title={`Delete "${selectedHeading?.name ?? ''}" tab?`} footer={<><Button variant="secondary" onClick={() => setHeadingDialog(null)}>Cancel</Button><Button variant="danger" onClick={() => void deleteHeading()}>{allTasks.some((task) => task.headingId === selectedHeading?.id) ? 'Move Tasks and Delete Tab' : 'Delete Tab'}</Button></>}>{allTasks.some((task) => task.headingId === selectedHeading?.id) ? <div className="space-y-3"><p className="text-sm text-brand-500">This tab contains {allTasks.filter((task) => task.headingId === selectedHeading?.id).length} tasks. Choose where to move them. No task will be deleted.</p><Select label="Move tasks to" value={moveHeadingTasksTo} onChange={(event) => setMoveHeadingTasksTo(event.target.value)}><option value="general">General</option>{jobTaskHeadings?.filter((item) => item.id !== selectedHeading?.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></div> : <p className="text-sm text-brand-500">This empty tab will be deleted. General always remains available.</p>}{headingError ? <p className="mt-2 text-sm text-accent-700">{headingError}</p> : null}</Modal>
+      <Modal open={headingDialog === 'delete'} onClose={() => setHeadingDialog(null)} title={`Delete "${selectedHeading?.name ?? ''}" tab?`} footer={<><Button variant="secondary" onClick={() => setHeadingDialog(null)}>Cancel</Button><Button variant="danger" onClick={() => void deleteHeading()}>{allTasks.some((task) => task.headingId === selectedHeading?.id) ? deleteHeadingTasks ? 'Delete Tasks and Tab' : 'Move Tasks and Delete Tab' : 'Delete Tab'}</Button></>}>{allTasks.some((task) => task.headingId === selectedHeading?.id) ? <div className="space-y-3"><p className="text-sm text-brand-500">This tab contains {allTasks.filter((task) => task.headingId === selectedHeading?.id).length} tasks. Choose what should happen to them.</p><label className="flex items-start gap-2 text-sm text-brand-700"><input type="radio" checked={!deleteHeadingTasks} onChange={() => setDeleteHeadingTasks(false)} />Move tasks to another tab</label>{!deleteHeadingTasks ? <Select label="Move tasks to" value={moveHeadingTasksTo} onChange={(event) => setMoveHeadingTasksTo(event.target.value)}><option value="general">General</option>{jobTaskHeadings?.filter((item) => item.id !== selectedHeading?.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select> : null}<label className="flex items-start gap-2 text-sm text-accent-700"><input type="radio" checked={deleteHeadingTasks} onChange={() => setDeleteHeadingTasks(true)} />Delete the tasks in this tab</label></div> : <p className="text-sm text-brand-500">This empty tab will be deleted. General always remains available.</p>}{headingError ? <p className="mt-2 text-sm text-accent-700">{headingError}</p> : null}</Modal>
     </Card>
   );
 }

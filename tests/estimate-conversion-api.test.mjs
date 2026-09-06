@@ -220,6 +220,14 @@ test('convert-to-job preserves complete pricing provenance in independent origin
   assert.notEqual(current, original);
   current.unitCost = 48;
   assert.equal(original.unitCost, 40);
+  assert.equal(original.plannedCost, 800);
+  assert.equal(original.contractRevenue, 1100);
+  assert.equal(original.directCostPerUnit, 40);
+  assert.equal(original.divisionOverheadRecoveryPerUnit, 4);
+  assert.equal(original.companyOverheadRecoveryPerUnit, 1);
+  assert.equal(job.originalEstimateSnapshot.pricingBudgetId, estimate.pricingBudgetId);
+  assert.equal(job.originalEstimateSnapshot.estimatedCost, 800);
+  assert.equal(job.originalEstimateSnapshot.estimatedProfit, 300);
   assert.equal(job.originalContractRevenue, 1100);
   assert.equal(job.currentContractRevenue, 1100);
   assert.equal(job.contractValue, 1210);

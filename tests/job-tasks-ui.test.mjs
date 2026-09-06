@@ -53,24 +53,37 @@ test('existing Job task headings remain accessible as tabs with a General fallba
   assert.match(tasksSource, /role="tablist" aria-label="Job task tabs"/);
   assert.match(tasksSource, /role="tab" aria-selected=/);
   assert.match(tasksSource, /\[\{ id: 'general', name: 'General' \}, \.\.\.jobTaskHeadings\]/);
-  assert.match(jobSource, /jobTaskFilter === 'completed' \? task\.status === 'completed' : task\.status === 'open'/);
+  assert.match(jobSource, /jobTasks\.filter\(\(task\) => !task\.parentTaskId\)/);
   assert.match(tasksSource, /!task\.headingId \|\| !jobTaskHeadings\.some/);
   assert.match(tasksSource, /aria-label=\{`\$\{openCount\} open tasks`\}/);
+  assert.match(tasksSource, /!jobTaskHeadings \? <div[^>]+aria-label="Task filters"/);
 });
 
-test('task tab controls support add, rename, accessible reorder, and selected-tab task creation', () => {
+test('selected task tab menu owns management while drag and menu actions reorder accessibly', () => {
   assert.match(tasksSource, /Add Tab/);
   assert.match(tasksSource, /openAdd\(jobTaskHeadings && activeHeadingId !== 'general' \? activeHeadingId : ''\)/);
-  assert.match(tasksSource, /Move .* tab left/);
-  assert.match(tasksSource, /Move .* tab right/);
+  assert.match(tasksSource, /selected && persisted && canManageJobTaskHeadings/);
+  assert.match(tasksSource, /aria-label=\{`Manage \$\{tab\.name\} tab`\}/);
+  assert.match(tasksSource, /role="menu"/);
+  assert.match(tasksSource, />Rename tab</);
+  assert.match(tasksSource, />Delete tab</);
+  assert.match(tasksSource, /draggable=\{persisted && canManageJobTaskHeadings\}/);
+  assert.match(tasksSource, /onDrop=\{\(\) => \{ if \(persisted && draggedHeadingId\) moveHeadingTo/);
+  assert.match(tasksSource, />Move left</);
+  assert.match(tasksSource, />Move right</);
   assert.match(tasksSource, /onReorderHeadings\(orderedIds\)/);
+  assert.doesNotMatch(tasksSource, /aria-label=\{`Rename \$\{tab\.name\} tab`\}/);
+  assert.doesNotMatch(tasksSource, /aria-label=\{`Delete \$\{tab\.name\} tab`\}/);
 });
 
 test('non-empty task tabs require an explicit destination before deletion', () => {
-  assert.match(tasksSource, /Choose where to move them\. No task will be deleted\./);
+  assert.match(tasksSource, /Choose what should happen to them\./);
   assert.match(tasksSource, /label="Move tasks to"/);
   assert.match(tasksSource, /Move Tasks and Delete Tab/);
+  assert.match(tasksSource, /Delete Tasks and Tab/);
+  assert.match(tasksSource, /Delete the tasks in this tab/);
   assert.match(tasksSource, /await onUpdate\(task\.id, \{[\s\S]*headingId: moveHeadingTasksTo/);
+  assert.match(tasksSource, /await onDelete\(task\.id\)/);
   assert.match(tasksSource, /General always remains available/);
 });
 
@@ -81,9 +94,14 @@ test('task add and edit preserve or change the optional heading relationship', (
   assert.match(typesSource, /headingId\?: ID/);
 });
 
-test('Job Task tab empty states stay compact and actionable', () => {
-  assert.match(tasksSource, /No completed tasks/);
-  assert.match(tasksSource, /No open tasks/);
-  assert.match(tasksSource, /Add a task to this tab when work is ready\./);
-  assert.doesNotMatch(tasksSource, /No .* tasks in this section/);
+test('open tasks lead and completed tasks expand inline without duplicate actions', () => {
+  assert.match(tasksSource, /const openTasks = sectionTasks\.filter\(\(task\) => task\.status === 'open'\)/);
+  assert.match(tasksSource, /const completedTasks = sectionTasks\.filter\(\(task\) => task\.status === 'completed'\)/);
+  assert.ok(tasksSource.indexOf('renderJobTaskList(openTasks)') < tasksSource.indexOf('Completed tasks ({completedTasks.length})'));
+  assert.match(tasksSource, /aria-expanded=\{completedTasksExpanded\}/);
+  assert.match(tasksSource, /completedTasksExpanded \? renderJobTaskList\(completedTasks\) : null/);
+  assert.match(tasksSource, /No open tasks in this tab\./);
+  assert.doesNotMatch(tasksSource, /title=\{filter === 'completed' \? 'No completed tasks'/);
+  const jobPanelSource = tasksSource.slice(tasksSource.indexOf('id="job-task-tab-panel"'), tasksSource.indexOf(': visibleTasks.length === 0'));
+  assert.doesNotMatch(jobPanelSource, /<EmptyState|<Plus \/>Add Task/);
 });

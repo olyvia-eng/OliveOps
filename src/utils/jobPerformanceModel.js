@@ -37,6 +37,15 @@ function immutableLineCost(line) {
   return null;
 }
 
+function immutableLineContractValue(line) {
+  const quantity = Math.max(0, number(line?.quantity));
+  if (optionalNumber(line?.contractRevenue) !== null) return Math.max(0, line.contractRevenue);
+  if (optionalNumber(line?.estimatedSell) !== null) return Math.max(0, line.estimatedSell);
+  if (optionalNumber(line?.total) !== null) return Math.max(0, line.total);
+  if (optionalNumber(line?.sellPrice) !== null) return quantity * Math.max(0, line.sellPrice);
+  return null;
+}
+
 function estimatedCategoryTotals(areas) {
   const totals = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
   const unavailable = new Set();
@@ -46,6 +55,20 @@ function estimatedCategoryTotals(areas) {
       const cost = immutableLineCost(line);
       if (cost === null) unavailable.add(line.category);
       else totals[line.category] += cost;
+    }
+  }
+  return Object.fromEntries(CATEGORIES.map((category) => [category, unavailable.has(category) ? null : totals[category]]));
+}
+
+function contractCategoryTotals(areas) {
+  const totals = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
+  const unavailable = new Set();
+  for (const area of areas) {
+    for (const line of Array.isArray(area?.lineItems) ? area.lineItems : []) {
+      if (!CATEGORIES.includes(line?.category)) continue;
+      const value = immutableLineContractValue(line);
+      if (value === null) unavailable.add(line.category);
+      else totals[line.category] += value;
     }
   }
   return Object.fromEntries(CATEGORIES.map((category) => [category, unavailable.has(category) ? null : totals[category]]));
@@ -116,6 +139,7 @@ export function calculateJobPerformance({
     scopeWorkAreaId: scopeWorkAreaId === 'entire-job' ? undefined : scopeWorkAreaId,
   });
   const estimated = scopedBaselineAvailable ? estimatedCategoryTotals(areas) : null;
+  const contractAllocation = scopedBaselineAvailable ? contractCategoryTotals(areas) : null;
   const recordedLabour = workAreaScoped ? [] : (Array.isArray(job?.actualCosts) ? job.actualCosts : [])
     .filter((cost) => costCategory(cost?.category) === 'labour');
   const labourActual = labour.actual.hasData || recordedLabour.length === 0
@@ -173,6 +197,7 @@ export function calculateJobPerformance({
     ...categoryRows.filter((row) => row.actualCost === null).map((row) => CATEGORY_LABELS[row.category]),
     ...(recordedOverhead === null ? ['Overhead'] : []),
   ];
+  const varianceUnavailableCategories = categoryRows.filter((row) => row.variance === null).map((row) => CATEGORY_LABELS[row.category]);
 
   const estimatedLines = areas.flatMap((area) => (area.lineItems ?? []).map((line) => ({
     id: line.id,
@@ -250,11 +275,18 @@ export function calculateJobPerformance({
         { key: 'profit', label: 'Expected profit', amount: Math.max(0, estimatedGrossProfit ?? 0), percent: percentOfRevenue(Math.max(0, estimatedGrossProfit ?? 0)) },
       ]
     : [];
+  const contractValueChartSegments = scopedBaselineAvailable && scopedRevenue !== null && contractAllocation
+    ? categoryRows.map((row) => ({
+        key: row.category,
+        label: CATEGORY_LABELS[row.category],
+        amount: Math.max(0, contractAllocation[row.category] ?? 0),
+        percent: percentOfRevenue(Math.max(0, contractAllocation[row.category] ?? 0)),
+      }))
+    : [];
   const actualChartSegments = scopedRevenue !== null
     ? [
-        ...categoryRows.map((row) => ({ key: row.category, label: CATEGORY_LABELS[row.category], amount: Math.max(0, row.actualCost ?? 0), percent: percentOfRevenue(Math.max(0, row.actualCost ?? 0)) })),
-        { key: 'overhead', label: 'Recorded overhead', amount: Math.max(0, recordedOverhead ?? 0), percent: percentOfRevenue(Math.max(0, recordedOverhead ?? 0)) },
-        { key: 'unspent', label: 'Unspent contract value', amount: Math.max(0, scopedRevenue - knownActualCostIncludingOverhead), percent: percentOfRevenue(Math.max(0, scopedRevenue - knownActualCostIncludingOverhead)) },
+        ...categoryRows.flatMap((row) => row.actualCost === null ? [] : [{ key: row.category, label: CATEGORY_LABELS[row.category], amount: Math.max(0, row.actualCost), percent: percentOfRevenue(Math.max(0, row.actualCost)) }]),
+        ...(recordedOverhead === null ? [] : [{ key: 'overhead', label: 'Recorded overhead', amount: Math.max(0, recordedOverhead), percent: percentOfRevenue(Math.max(0, recordedOverhead)) }]),
       ]
     : [];
   const estimatedVariance = estimatedDirectCost === null || !actualDirectCostComplete ? null : knownActualDirectCost - estimatedDirectCost;
@@ -296,6 +328,7 @@ export function calculateJobPerformance({
       actualDirectComplete: actualDirectCostComplete,
       actualComplete: actualCostComplete,
       unavailableCategories,
+      varianceUnavailableCategories,
       estimatedOverhead,
       actualOverhead: recordedOverhead,
       knownActualIncludingOverhead: knownActualCostIncludingOverhead,
@@ -316,6 +349,7 @@ export function calculateJobPerformance({
     },
     economics: {
       estimatedChartSegments,
+      contractValueChartSegments,
       actualChartSegments,
       chartTotal: Math.max(scopedRevenue ?? 0, knownActualCostIncludingOverhead, 1),
       knownActualCost: knownActualCostIncludingOverhead,

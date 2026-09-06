@@ -194,7 +194,7 @@ test('distribution never creates negative slices and summary values reconcile', 
     expenses: [...expenses, { id: 'large-overhead', jobId: 'job-a', status: 'paid', category: 'overhead', amount: 1000 }],
   });
   assert.ok(result.economics.actualChartSegments.every((segment) => segment.amount >= 0));
-  assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'unspent').amount, 0);
+  assert.equal(result.economics.actualChartSegments.some((segment) => segment.key === 'unspent'), false);
   assert.ok(result.economics.overContractAmount > 0);
   assert.equal(result.economics.marginAfterRecordedCosts, result.revenue.contract - result.economics.knownActualCost);
 });
@@ -222,6 +222,8 @@ test('accepted Estimate sell values are never substituted for internal cost', ()
   assert.equal(result.costs.estimatedDirect, null);
   assert.equal(result.profit.estimatedGross, null);
   assert.equal(result.baseline.available, false);
+  assert.equal(result.economics.contractValueChartSegments.find((segment) => segment.key === 'material').amount, 1800);
+  assert.equal(result.economics.estimatedChartSegments.find((segment) => segment.key === 'material').amount, 0);
 });
 
 test('ambiguous historical cost fields remain unavailable without an immutable cost snapshot', () => {
@@ -234,4 +236,28 @@ test('ambiguous historical cost fields remain unavailable without an immutable c
   const material = result.costs.categories.find((row) => row.category === 'material');
   assert.equal(material.estimatedCost, null);
   assert.match(result.baseline.unavailableReason, /historical.*cost/i);
+});
+
+test('partial actual costs graph supported categories and identify unavailable categories', () => {
+  const result = calculate({
+    timeEntries: [],
+    expenses: [{ id: 'material-only', jobId: 'job-a', status: 'paid', category: 'materials', amount: 275 }],
+    invoices: [],
+  });
+  assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'material').amount, 275);
+  assert.ok(result.costs.unavailableCategories.includes('Equipment'));
+  assert.ok(result.costs.unavailableCategories.includes('Subcontractors'));
+});
+
+test('missing estimated cost never becomes zero variance', () => {
+  const snapshotJob = structuredClone(job);
+  snapshotJob.originalEstimateSnapshot.workAreas[0].lineItems = [{
+    id: 'sell-only-material', category: 'material', quantity: 1, contractRevenue: 500,
+  }];
+  const result = calculate({ job: snapshotJob, timeEntries: [], expenses: [{ id: 'actual-material', jobId: 'job-a', status: 'paid', category: 'materials', amount: 650 }] });
+  const material = result.costs.categories.find((row) => row.category === 'material');
+  assert.equal(material.estimatedCost, null);
+  assert.equal(material.actualCost, 650);
+  assert.equal(material.variance, null);
+  assert.ok(result.costs.varianceUnavailableCategories.includes('Materials'));
 });
