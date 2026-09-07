@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   BriefcaseBusiness,
@@ -31,6 +31,21 @@ import {
 
 const DASHBOARD_TABS = ['overview', 'sales', 'jobs', 'labour', 'equipment', 'financial', 'customers'] as const;
 type DashboardTab = typeof DASHBOARD_TABS[number];
+const REPORT_CATEGORIES = ['overview', 'sales-jobs', 'operations', 'financial'] as const;
+type ReportCategory = typeof REPORT_CATEGORIES[number];
+
+const CATEGORY_DEFAULT_TAB: Record<ReportCategory, DashboardTab> = {
+  overview: 'overview',
+  'sales-jobs': 'sales',
+  operations: 'labour',
+  financial: 'financial',
+};
+
+const categoryForTab = (tab: DashboardTab): ReportCategory => {
+  if (tab === 'sales' || tab === 'jobs' || tab === 'customers') return 'sales-jobs';
+  if (tab === 'labour' || tab === 'equipment') return 'operations';
+  return tab;
+};
 
 const DATE_OPTIONS: Array<{ id: DataCenterDatePreset; label: string }> = [
   { id: 'month', label: 'This Month' },
@@ -115,6 +130,16 @@ function RecordList({ title, subtitle, rows, emptyText }: { title: string; subti
       )}
     </Card>
   );
+}
+
+function FinancialSummary({ invoiced, collected, expenses }: { invoiced: number; collected: number; expenses: number }) {
+  const rows = [
+    { label: 'Invoiced', value: formatCurrency(invoiced) },
+    { label: 'Collected', value: formatCurrency(collected) },
+    { label: 'Recorded expenses', value: formatCurrency(expenses) },
+    { label: 'Collection rate', value: percent(collected, invoiced) },
+  ];
+  return <Card className="rounded-lg p-5"><h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Period financials</h2><p className="mt-1 text-xs text-brand-400 dark:text-brand-200">Recorded activity for the selected reporting period.</p><dl className="mt-4 divide-y divide-brand-50 dark:divide-brand-600">{rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"><dt className="text-sm text-brand-500 dark:text-brand-200">{row.label}</dt><dd className="font-semibold tabular-nums text-brand-900 dark:text-brand-50">{row.value}</dd></div>)}</dl></Card>;
 }
 
 function DashboardContent({ activeTab, records, range }: { activeTab: DashboardTab; records: FilteredDataCenterRecords; range: { start: Date; end: Date } }) {
@@ -240,12 +265,7 @@ function DashboardContent({ activeTab, records, range }: { activeTab: DashboardT
       { label: 'Outstanding', value: formatCurrency(outstandingValue), sub: `${records.invoices.filter((invoice) => invoice.status !== 'paid').length} open invoices`, icon: <Receipt />, color: outstandingValue > 0 ? 'text-accent-700' : 'text-brand-700' },
     ]} />
     <div className="grid gap-4 xl:grid-cols-2">
-      <Breakdown title="Operating pulse" subtitle="Volume across the selected business view" items={[
-        { label: 'Estimates', value: records.estimates.length },
-        { label: 'Jobs', value: records.jobs.length },
-        { label: 'Customers', value: records.customers.length },
-        { label: 'Invoices', value: records.invoices.length },
-      ]} emptyText="No operating activity in this period." />
+      <FinancialSummary invoiced={invoiceValue} collected={paidValue} expenses={expenseValue} />
       <RecordList title="Work in motion" subtitle="Current jobs ordered by start date" emptyText="No active jobs in this period." rows={[...activeJobs].sort((a, b) => a.startDate.localeCompare(b.startDate)).map((job) => ({ id: job.id, title: job.title, meta: `${titleCase(job.status)} · ${customerById.get(job.customerId)?.name ?? 'Customer'}`, value: formatCurrency(job.contractValue) }))} />
     </div>
   </>;
@@ -257,6 +277,7 @@ export default function DataCenterDashboardPage() {
   const tabParam = searchParams.get('tab') as DashboardTab | null;
   const rangeParam = searchParams.get('range') as DataCenterDatePreset | null;
   const activeTab = tabParam && DASHBOARD_TABS.includes(tabParam) ? tabParam : 'overview';
+  const activeCategory = categoryForTab(activeTab);
   const datePreset = rangeParam && DATE_OPTIONS.some((option) => option.id === rangeParam) ? rangeParam : 'month';
   const divisionId = searchParams.get('division') || 'all';
   const customStart = searchParams.get('start') || '';
@@ -264,7 +285,9 @@ export default function DataCenterDashboardPage() {
   const range = useMemo(() => getDataCenterDateRange(datePreset, new Date(), customStart, customEnd), [customEnd, customStart, datePreset]);
   const records = useMemo(() => filterDataCenterRecords({ divisionId, range, divisions, budgets, customers, estimates, jobs, invoices, expenses, employees, timeEntries, equipmentAssets }), [budgets, customers, divisionId, divisions, employees, equipmentAssets, estimates, expenses, invoices, jobs, range, timeEntries]);
   const activeDivision = divisions.find((division) => division.id === divisionId);
-  const dateLabel = `${range.start.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })} - ${new Date(range.end.getTime() - 1).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const rangeEnd = new Date(range.end.getTime() - 1);
+  const dateLabel = `${range.start.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })} – ${rangeEnd.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+  const [customRangeOpen, setCustomRangeOpen] = useState(datePreset === 'custom');
 
   const updateFilter = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -277,37 +300,38 @@ export default function DataCenterDashboardPage() {
     setSearchParams(next, { replace: true });
   };
 
+  const selectDatePreset = (value: DataCenterDatePreset) => {
+    updateFilter('range', value);
+    setCustomRangeOpen(value === 'custom');
+  };
+
   return (
-    <div className="space-y-5">
-      <PageHeader title="Dashboards" subtitle="One filtered view of sales, operations, labour, equipment, financial performance, and customers." />
+    <div className="space-y-4">
+      <PageHeader title="Reports" subtitle="Business performance and reporting." />
 
-      <Card className="rounded-lg p-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-brand-400 dark:text-brand-300">Date</p>
-            <div className="mt-2 flex flex-wrap gap-1 rounded-lg bg-brand-50 p-1 dark:bg-brand-800">
-              {DATE_OPTIONS.map((option) => <button key={option.id} type="button" onClick={() => updateFilter('range', option.id)} className={`min-h-9 rounded-md px-3 text-sm font-semibold transition-colors ${datePreset === option.id ? 'bg-white text-brand-900 shadow-sm dark:bg-brand-600 dark:text-brand-50' : 'text-brand-500 hover:text-brand-900 dark:text-brand-200 dark:hover:text-white'}`}>{option.label}</button>)}
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 xl:flex xl:items-end">
-            {datePreset === 'custom' ? <>
-              <Input type="date" label="From" value={customStart} onChange={(event) => updateFilter('start', event.target.value)} />
-              <Input type="date" label="To" value={customEnd} min={customStart} onChange={(event) => updateFilter('end', event.target.value)} />
-            </> : null}
-            <Select label="Division" value={divisionId} onChange={(event) => updateFilter('division', event.target.value)} className="min-w-52">
-              <option value="all">All Divisions</option>
-              {divisions.filter((division) => division.active).sort((a, b) => a.sortOrder - b.sortOrder).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
-            </Select>
-          </div>
-        </div>
-        <p className="mt-3 text-xs text-brand-400 dark:text-brand-300">Showing {activeDivision?.name ?? 'all divisions'} · {dateLabel}</p>
-      </Card>
+      <div className="relative flex flex-wrap items-center gap-2">
+        <Select aria-label="Reporting period" value={datePreset} onChange={(event) => selectDatePreset(event.target.value as DataCenterDatePreset)} className="w-auto min-w-36">
+          {DATE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+        </Select>
+        <Select aria-label="Division" value={divisionId} onChange={(event) => updateFilter('division', event.target.value)} className="w-auto min-w-40">
+          <option value="all">All Divisions</option>
+          {divisions.filter((division) => division.active).sort((a, b) => a.sortOrder - b.sortOrder).map((division) => <option key={division.id} value={division.id}>{division.name}</option>)}
+        </Select>
+        <p className="text-xs text-brand-400 dark:text-brand-300 sm:ml-auto">{activeDivision?.name ? `${activeDivision.name} · ` : ''}{dateLabel}</p>
+        {datePreset === 'custom' && customRangeOpen ? <div className="absolute left-0 top-12 z-20 grid w-full gap-3 rounded-lg border border-brand-100 bg-white p-4 shadow-lg dark:border-brand-600 dark:bg-brand-700 sm:w-auto sm:grid-cols-2" role="dialog" aria-label="Custom reporting period">
+          <Input type="date" label="From" value={customStart} onChange={(event) => updateFilter('start', event.target.value)} />
+          <Input type="date" label="To" value={customEnd} min={customStart} onChange={(event) => updateFilter('end', event.target.value)} />
+        </div> : null}
+      </div>
 
-      <div className="overflow-x-auto border-b border-brand-100 dark:border-brand-600" role="tablist" aria-label="Data Center dashboards">
+      <div className="overflow-x-auto border-b border-brand-100 dark:border-brand-600" role="tablist" aria-label="Reports">
         <div className="flex min-w-max gap-6">
-          {DASHBOARD_TABS.map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => updateFilter('tab', tab)} className={`border-b-2 px-1 pb-3 text-sm font-semibold transition-colors ${activeTab === tab ? 'border-accent-500 text-brand-900 dark:text-brand-50' : 'border-transparent text-brand-400 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-100'}`}>{titleCase(tab)}</button>)}
+          {REPORT_CATEGORIES.map((category) => <button key={category} type="button" role="tab" aria-selected={activeCategory === category} onClick={() => updateFilter('tab', CATEGORY_DEFAULT_TAB[category])} className={`border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${activeCategory === category ? 'border-accent-500 text-brand-900 dark:text-brand-50' : 'border-transparent text-brand-400 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-100'}`}>{category === 'sales-jobs' ? 'Sales & Jobs' : titleCase(category)}</button>)}
         </div>
       </div>
+
+      {activeCategory === 'sales-jobs' ? <div className="inline-flex rounded-lg bg-brand-50 p-1 dark:bg-brand-800" role="tablist" aria-label="Sales and Jobs reports">{(['sales', 'jobs', 'customers'] as DashboardTab[]).map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => updateFilter('tab', tab)} className={`rounded-md px-3 py-1.5 text-sm font-medium ${activeTab === tab ? 'bg-white text-brand-900 shadow-sm dark:bg-brand-600 dark:text-brand-50' : 'text-brand-500 dark:text-brand-200'}`}>{titleCase(tab)}</button>)}</div> : null}
+      {activeCategory === 'operations' ? <div className="inline-flex rounded-lg bg-brand-50 p-1 dark:bg-brand-800" role="tablist" aria-label="Operations reports">{(['labour', 'equipment'] as DashboardTab[]).map((tab) => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => updateFilter('tab', tab)} className={`rounded-md px-3 py-1.5 text-sm font-medium ${activeTab === tab ? 'bg-white text-brand-900 shadow-sm dark:bg-brand-600 dark:text-brand-50' : 'text-brand-500 dark:text-brand-200'}`}>{titleCase(tab)}</button>)}</div> : null}
 
       <DashboardContent activeTab={activeTab} records={records} range={range} />
     </div>
