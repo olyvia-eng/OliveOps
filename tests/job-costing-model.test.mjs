@@ -24,6 +24,22 @@ test('current Job plan and catalog changes cannot alter the accepted Estimate ba
   assert.equal(result.summary.estimatedTotalCost, 1000);
 });
 
+test('material comparisons join accepted estimates to actual purchases by Catalog ID', () => {
+  const materialJob = structuredClone(job);
+  materialJob.originalEstimateSnapshot.workAreas[0].lineItems[2].materialCatalogItemId = 'material-stone';
+  Object.assign(materialJob.originalEstimateSnapshot.workAreas[0].lineItems[2], { itemName: 'Stone', unit: 't' });
+  const vendorBill = calculateJobBill({ lineItems: [{ materialCatalogItemId: 'material-stone', description: 'Stone', quantity: 3, unit: 't', unitCost: 225, workAreaId: 'area-a' }] }, 'vendor');
+  const result = calculateJobCostAnalysis({ job: materialJob, vendorBills: [vendorBill] });
+
+  assert.deepEqual(result.materialComparisons, [{
+    materialCatalogItemId: 'material-stone', description: 'Stone', unit: 't',
+    estimatedQuantity: 2, estimatedUnitCost: 100, estimatedTotalCost: 200,
+    actualQuantity: 3, actualUnitCost: 225, actualTotalCost: 675,
+  }]);
+  assert.equal(result.categories.find((row) => row.category === 'material').actual, 675);
+  assert.equal(materialJob.originalEstimateSnapshot.workAreas[0].lineItems[2].directCostPerUnit, 100);
+});
+
 test('bill totals are server calculated and invalid values are rejected', () => {
   const bill = calculateJobBill({ subtotal: 9999, total: 9999, taxRate: 13, lineItems: [{ quantity: 2, unitCost: 10 }] }, 'vendor');
   assert.equal(bill.subtotal, 20); assert.equal(bill.taxAmount, 2.6); assert.equal(bill.total, 22.6);

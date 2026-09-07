@@ -58,6 +58,47 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     material: billCost(vendorBills),
     subcontractor: billCost(subcontractorBills),
   };
+  const materialComparisonsById = new Map();
+  for (const area of includedAreas) for (const line of area.lineItems ?? []) {
+    if (line.category !== 'material' || !line.materialCatalogItemId) continue;
+    const current = materialComparisonsById.get(line.materialCatalogItemId) ?? {
+      materialCatalogItemId: line.materialCatalogItemId,
+      description: line.itemName || line.description || 'Material',
+      unit: line.unit || 'ea',
+      estimatedQuantity: 0,
+      estimatedTotalCost: 0,
+      actualQuantity: 0,
+      actualTotalCost: 0,
+    };
+    current.estimatedQuantity += Number(line.quantity || 0);
+    current.estimatedTotalCost += immutableLineCost(line) ?? 0;
+    materialComparisonsById.set(line.materialCatalogItemId, current);
+  }
+  for (const bill of vendorBills) for (const line of bill.lineItems ?? []) {
+    if (!line.materialCatalogItemId || !recordInScope(line)) continue;
+    const current = materialComparisonsById.get(line.materialCatalogItemId) ?? {
+      materialCatalogItemId: line.materialCatalogItemId,
+      description: line.description || 'Material',
+      unit: line.unit || 'ea',
+      estimatedQuantity: 0,
+      estimatedTotalCost: 0,
+      actualQuantity: 0,
+      actualTotalCost: 0,
+    };
+    current.actualQuantity += Number(line.quantity || 0);
+    current.actualTotalCost += Number(line.lineTotal || 0);
+    if (!current.description || current.description === 'Material') current.description = line.description || 'Material';
+    materialComparisonsById.set(line.materialCatalogItemId, current);
+  }
+  const materialComparisons = [...materialComparisonsById.values()].map((item) => ({
+    ...item,
+    estimatedQuantity: money(item.estimatedQuantity),
+    estimatedUnitCost: item.estimatedQuantity > 0 ? money(item.estimatedTotalCost / item.estimatedQuantity) : null,
+    estimatedTotalCost: money(item.estimatedTotalCost),
+    actualQuantity: money(item.actualQuantity),
+    actualUnitCost: item.actualQuantity > 0 ? money(item.actualTotalCost / item.actualQuantity) : null,
+    actualTotalCost: money(item.actualTotalCost),
+  })).sort((left, right) => left.description.localeCompare(right.description));
   const categories = JOB_COST_CATEGORIES.map((category) => ({
     category,
     estimated: areas && !unavailable.has(category) && scopeWorkAreaId !== 'unallocated' ? money(estimated[category]) : null,
@@ -76,6 +117,7 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     equipmentUsage: equipmentUsage.filter(recordInScope),
     vendorBills: vendorBills.filter((bill) => scopeWorkAreaId === 'entire-job' || bill.lineItems.some(recordInScope)),
     subcontractorBills: subcontractorBills.filter((bill) => scopeWorkAreaId === 'entire-job' || bill.lineItems.some(recordInScope)),
+    materialComparisons,
     summary: {
       estimatedTotalCost: estimatedTotal,
       actualCostToDate: actualTotal,

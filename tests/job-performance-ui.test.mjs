@@ -43,6 +43,15 @@ test('Job Analysis renders the complete scoped cost workspace', () => {
   for (const label of ['Accepted Estimate baseline compared with direct costs recorded to date.', 'Job Cost Summary', 'Estimated vs Actual', 'Time Analysis', 'Equipment Usage', 'Material Vendor Bills', 'Subcontractor Bills']) assert.match(workspaceSource, new RegExp(label));
 });
 
+test('Vendor and Subcontractor Bills use catalog-first editable line-item workflows', () => {
+  for (const label of ['Add from Material Catalog', 'Custom Line', 'Material / Description', 'Quantity', 'Unit Cost', 'Work Area', 'Subtotal', 'Tax', 'Total', 'Choose from Subcontractor Catalog']) assert.match(workspaceSource, new RegExp(label));
+  assert.match(workspaceSource, /materialCatalogItemId/);
+  assert.match(workspaceSource, /line\.quantity \* line\.unitCost/);
+  assert.match(workspaceSource, /createMaterialBillLine/);
+  assert.match(workspaceSource, /createSubcontractorBillLine/);
+  assert.doesNotMatch(workspaceSource, /> Add line</);
+});
+
 test('Job economics mirrors the Budget split-card hierarchy without coupling calculation models', () => {
   assert.match(summarySource, /lg:grid-cols-\[minmax\(0,0\.9fr\)_minmax\(360px,1\.1fr\)\]/);
   assert.match(summarySource, /Job Economics/);

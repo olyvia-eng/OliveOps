@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Download, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { Job, JobAnalysisPayload, JobCostBill, JobEquipmentUsage } from '../../types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, Download, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import type { Job, JobAnalysisPayload, JobCostBill, JobEquipmentUsage, MaterialCatalogItem, SubcontractorCatalogItem } from '../../types';
 import { formatCurrency, formatDate } from '../../utils';
 import { emitAppToast } from '../../toast';
 import { uploadFileToStorage, resolveAttachmentUrl } from '../../utils/fileUpload';
 import { Button, Card, EmptyState, Input, Modal, Select, TextArea } from '../ui';
 import { createJobVendor, deleteJobCostRecord, loadJobAnalysis, saveJobCostRecord, type JobAnalysisReferences } from '../../pages/jobs/jobAnalysisApi';
+import { calculateBillDraftTotals, createCustomBillLine, createMaterialBillLine, createSubcontractorBillLine, type BillLineDraft } from './jobBillLineModel.js';
 
 type Editor = { type: 'equipment' | 'vendor' | 'subcontractor'; record?: JobEquipmentUsage | JobCostBill };
-type BillLineDraft = { id?: string; description: string; quantity: number; unit: string; unitCost: number; workAreaId: string; materialCatalogItemId?: string };
 const categoryLabel = { labour: 'Labour', equipment: 'Equipment', material: 'Materials', subcontractor: 'Subcontractors' };
-const blankLine = (): BillLineDraft => ({ description: '', quantity: 1, unit: 'ea', unitCost: 0, workAreaId: '' });
 const percent = (value: number | null) => value === null ? 'Unavailable' : `${value.toFixed(1)}%`;
 const money = (value: number | null) => value === null ? 'Unavailable' : formatCurrency(value);
 
@@ -81,6 +80,7 @@ export default function JobAnalysisWorkspace({ job }: { job: Job }) {
     </Card>
 
     <CostSection title="Equipment Usage" addLabel="Record usage" onAdd={() => setEditor({ type: 'equipment' })} records={analysis.equipmentUsage} onEdit={(record) => setEditor({ type: 'equipment', record })} onDelete={remove} />
+    <MaterialComparison rows={analysis.materialComparisons} />
     <CostSection title="Material Vendor Bills" addLabel="Add vendor bill" onAdd={() => setEditor({ type: 'vendor' })} records={analysis.vendorBills} onEdit={(record) => setEditor({ type: 'vendor', record })} onDelete={remove} />
     <CostSection title="Subcontractor Bills" addLabel="Add subcontractor bill" onAdd={() => setEditor({ type: 'subcontractor' })} records={analysis.subcontractorBills} onEdit={(record) => setEditor({ type: 'subcontractor', record })} onDelete={remove} />
     <CostEditor job={job} editor={editor} references={references} onClose={() => setEditor(null)} onSaved={async () => { setEditor(null); await refresh(); }} />
@@ -88,6 +88,11 @@ export default function JobAnalysisWorkspace({ job }: { job: Job }) {
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note?: string }) { return <div><dt className="text-xs font-medium text-gray-500">{label}</dt><dd className="mt-1 text-lg font-semibold text-gray-900">{value}</dd>{note ? <span className="text-xs text-gray-500">{note}</span> : null}</div>; }
+
+function MaterialComparison({ rows }: { rows: JobAnalysisPayload['materialComparisons'] }) {
+  if (!rows.length) return null;
+  return <Card className="overflow-hidden"><div className="border-b border-gray-200 p-4"><h3 className="font-semibold text-gray-900">Materials</h3><p className="text-xs text-gray-500">Accepted Estimate quantities and direct costs compared with catalog-linked purchases.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-3">Material</th><th className="px-4 py-3 text-right">Estimated Qty.</th><th className="px-4 py-3 text-right">Estimated Unit Cost</th><th className="px-4 py-3 text-right">Estimated Total</th><th className="px-4 py-3 text-right">Actual Qty.</th><th className="px-4 py-3 text-right">Actual Unit Cost</th><th className="px-4 py-3 text-right">Actual Total</th></tr></thead><tbody className="divide-y divide-gray-100">{rows.map((row) => <tr key={row.materialCatalogItemId}><td className="px-4 py-3 font-medium text-gray-900">{row.description}<span className="ml-1 text-xs font-normal text-gray-500">/{row.unit}</span></td><td className="px-4 py-3 text-right tabular-nums">{row.estimatedQuantity}</td><td className="px-4 py-3 text-right tabular-nums">{money(row.estimatedUnitCost)}</td><td className="px-4 py-3 text-right font-medium tabular-nums">{formatCurrency(row.estimatedTotalCost)}</td><td className="px-4 py-3 text-right tabular-nums">{row.actualQuantity}</td><td className="px-4 py-3 text-right tabular-nums">{money(row.actualUnitCost)}</td><td className="px-4 py-3 text-right font-semibold tabular-nums">{formatCurrency(row.actualTotalCost)}</td></tr>)}</tbody></table></div></Card>;
+}
 
 function CostSection({ title, addLabel, records, onAdd, onEdit, onDelete }: { title: string; addLabel: string; records: Array<JobEquipmentUsage | JobCostBill>; onAdd: () => void; onEdit: (record: JobEquipmentUsage | JobCostBill) => void; onDelete: (record: JobEquipmentUsage | JobCostBill) => void }) {
   return <Card className="overflow-hidden"><div className="flex items-center justify-between gap-3 p-4"><h3 className="font-semibold text-gray-900">{title}</h3><Button size="sm" onClick={onAdd}><Plus size={15} /> {addLabel}</Button></div>{records.length ? <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-sm"><thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Reference</th><th className="px-4 py-3">Description</th><th className="px-4 py-3 text-right">Cost</th><th className="px-4 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-gray-100">{records.map((record) => { const equipment = record.recordType === 'equipment'; const party = !equipment ? record.vendorNameSnapshot ?? record.subcontractorNameSnapshot : ''; return <tr key={record.id}><td className="px-4 py-3">{formatDate(equipment ? record.date : record.invoiceDate)}</td><td className="px-4 py-3 font-medium">{equipment ? record.equipmentNameSnapshot : `${party || 'Supplier'}${record.invoiceNumber ? ` · ${record.invoiceNumber}` : ''}`}</td><td className="px-4 py-3 text-gray-600">{equipment ? `${record.quantity} ${record.unit}` : record.description || `${record.lineItems.length} line item${record.lineItems.length === 1 ? '' : 's'}`}</td><td className="px-4 py-3 text-right font-semibold">{formatCurrency(equipment ? record.cost : record.total)}</td><td className="px-4 py-3"><div className="flex justify-end gap-1">{!equipment && record.attachmentFileId ? <button title="Download invoice" className="p-2 text-gray-500" onClick={() => void resolveAttachmentUrl({ fileId: record.attachmentFileId }).then((url) => url && window.open(url, '_blank', 'noopener,noreferrer'))}><Download size={15} /></button> : null}<button title="Edit" className="p-2 text-gray-500" onClick={() => onEdit(record)}><Pencil size={15} /></button><button title="Delete" className="p-2 text-red-600" onClick={() => onDelete(record)}><Trash2 size={15} /></button></div></td></tr>; })}</tbody></table></div> : <EmptyState title={`No ${title.toLowerCase()} recorded`} description="Actual totals update after a record is saved." />}</Card>;
@@ -98,16 +103,40 @@ function CostEditor({ job, editor, references, onClose, onSaved }: { job: Job; e
   const existingBill = existing && existing.recordType !== 'equipment' ? existing : undefined;
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [lines, setLines] = useState<BillLineDraft[]>([blankLine()]);
+  const [lines, setLines] = useState<BillLineDraft[]>([]);
   const [attachment, setAttachment] = useState<File | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState<'materials' | 'subcontractors' | null>(null);
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (!editor) return;
     if (existing?.recordType === 'equipment') setForm({ equipmentId: existing.equipmentId, date: existing.date, quantity: String(existing.quantity), unit: existing.unit, workAreaId: existing.workAreaId ?? '', notes: existing.notes ?? '' });
     else setForm({ vendorId: existingBill?.vendorId ?? '', subcontractorId: existingBill?.subcontractorId ?? '', invoiceNumber: existingBill?.invoiceNumber ?? '', invoiceDate: existingBill?.invoiceDate ?? new Date().toISOString().slice(0, 10), dueDate: existingBill?.dueDate ?? '', description: existingBill?.description ?? '', notes: existingBill?.notes ?? '', taxRate: String(existingBill?.taxRate ?? 0), newVendorName: '' });
-    setLines(existingBill?.lineItems.map((line) => ({ ...line, workAreaId: line.workAreaId ?? '' })) ?? [blankLine()]); setAttachment(null);
+    setLines(existingBill?.lineItems.map((line) => ({ ...line, workAreaId: line.workAreaId ?? '' })) ?? []);
+    setAttachment(null);
+    setCatalogOpen(null);
+    setCatalogSearch('');
+    setSelectedMaterialIds(new Set());
   }, [editor, existing, existingBill]);
   if (!editor) return null;
   const field = (name: string) => ({ value: form[name] ?? '', onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm((current) => ({ ...current, [name]: event.target.value })) });
+  const updateLine = <K extends keyof BillLineDraft>(index: number, property: K, value: BillLineDraft[K]) => {
+    setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [property]: value } : item));
+  };
+  const billTotals = calculateBillDraftTotals(lines, Number(form.taxRate ?? 0));
+  const chooseSubcontractor = (item: SubcontractorCatalogItem) => {
+    setForm((current) => ({ ...current, subcontractorId: item.id }));
+    if (lines.length === 0) setLines([createSubcontractorBillLine(item)]);
+    setCatalogOpen(null);
+    setCatalogSearch('');
+  };
+  const addSelectedMaterials = () => {
+    const selected = references.materials.filter((material) => selectedMaterialIds.has(material.id));
+    setLines((current) => [...current, ...selected.map((material) => createMaterialBillLine(material))]);
+    setCatalogOpen(null);
+    setCatalogSearch('');
+    setSelectedMaterialIds(new Set());
+  };
   const save = async () => {
     setSaving(true);
     try {
@@ -126,13 +155,78 @@ function CostEditor({ job, editor, references, onClose, onSaved }: { job: Job; e
     finally { setSaving(false); }
   };
   const bill = editor.type !== 'equipment';
-  return <Modal open onClose={onClose} title={existing ? 'Edit actual cost' : 'Add actual cost'} size={bill ? 'wide' : 'default'} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button></>}>
-    <div className="space-y-4">{editor.type === 'equipment' ? <><Select label="Equipment" required {...field('equipmentId')}><option value="">Select equipment</option>{references.equipment.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrency(item.costRateHourly ?? item.hourlyCost)}/hr</option>)}</Select><div className="grid grid-cols-2 gap-3"><Input label="Usage date" type="date" required {...field('date')} /><Input label="Hours or quantity" type="number" min="0.01" step="0.01" required {...field('quantity')} /></div><Input label="Unit" {...field('unit')} /><WorkAreaSelect references={references} value={form.workAreaId} onChange={(value) => setForm((current) => ({ ...current, workAreaId: value }))} /><TextArea label="Notes" {...field('notes')} /></> : <>
-      <div className="grid gap-3 sm:grid-cols-2">{editor.type === 'vendor' ? <><Select label="Vendor" {...field('vendorId')}><option value="">Select vendor</option>{references.vendors.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select><Input label="Or create vendor" placeholder="Vendor name" {...field('newVendorName')} /></> : <Select label="Subcontractor" required {...field('subcontractorId')}><option value="">Select subcontractor</option>{references.subcontractors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>}<Input label="Invoice number" {...field('invoiceNumber')} /><Input label="Invoice date" type="date" required {...field('invoiceDate')} /><Input label="Due date" type="date" {...field('dueDate')} /><Input label="Tax rate (%)" type="number" min="0" max="100" step="0.01" {...field('taxRate')} /></div>
-      <div><div className="mb-2 flex items-center justify-between"><p className="text-sm font-medium text-gray-700">Line items</p><Button type="button" size="sm" variant="secondary" onClick={() => setLines((current) => [...current, blankLine()])}><Plus size={14} /> Add line</Button></div><div className="space-y-3">{lines.map((line, index) => <div key={line.id ?? index} className="grid gap-2 border-t border-gray-100 pt-3 sm:grid-cols-12"><Input className="sm:col-span-4" aria-label="Description" placeholder="Description" value={line.description} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} /><Input className="sm:col-span-2" aria-label="Quantity" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))} /><Input className="sm:col-span-2" aria-label="Unit cost" type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, unitCost: Number(event.target.value) } : item))} /><Select className="sm:col-span-3" aria-label="Work Area" value={line.workAreaId} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, workAreaId: event.target.value } : item))}><option value="">Unallocated</option>{references.workAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</Select><button type="button" title="Remove line" className="p-2 text-red-600" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} /></button></div>)}</div></div>
-      <TextArea label="Notes" {...field('notes')} />
-      {existingBill ? <Input label="Invoice attachment" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => setAttachment(event.target.files?.[0] ?? null)} /> : <p className="text-xs text-gray-500">Save the bill, then edit it to attach the vendor invoice.</p>}
-    </>}</div>
+  return <>
+    <Modal open onClose={onClose} title={existing ? 'Edit actual cost' : 'Add actual cost'} size={bill ? 'wide' : 'default'} footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button></>}>
+      <div className="space-y-4">{editor.type === 'equipment' ? <>
+        <Select label="Equipment" required {...field('equipmentId')}><option value="">Select equipment</option>{references.equipment.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrency(item.costRateHourly ?? item.hourlyCost)}/hr</option>)}</Select>
+        <div className="grid grid-cols-2 gap-3"><Input label="Usage date" type="date" required {...field('date')} /><Input label="Hours or quantity" type="number" min="0.01" step="0.01" required {...field('quantity')} /></div>
+        <Input label="Unit" {...field('unit')} />
+        <WorkAreaSelect references={references} value={form.workAreaId} onChange={(value) => setForm((current) => ({ ...current, workAreaId: value }))} />
+        <TextArea label="Notes" {...field('notes')} />
+      </> : <>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {editor.type === 'vendor' ? <>
+            <Select label="Vendor" {...field('vendorId')}><option value="">Select vendor</option>{references.vendors.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select>
+            <Input label="Or create vendor" placeholder="Vendor name" {...field('newVendorName')} />
+          </> : <div>
+            <p className="mb-1 text-sm font-medium text-gray-700">Subcontractor</p>
+            <button type="button" className="flex h-10 w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 text-left text-sm" onClick={() => setCatalogOpen('subcontractors')}>
+              <span>{references.subcontractors.find((item) => item.id === form.subcontractorId)?.name ?? 'Choose from Subcontractor Catalog'}</span><Search size={15} className="text-gray-400" />
+            </button>
+          </div>}
+          <Input label="Invoice number" {...field('invoiceNumber')} />
+          <Input label="Invoice date" type="date" required {...field('invoiceDate')} />
+          <Input label="Due date" type="date" {...field('dueDate')} />
+          <Input label="Tax rate (%)" type="number" min="0" max="100" step="0.01" {...field('taxRate')} />
+        </div>
+        <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-gray-700">Line items</p>
+            <div className="flex flex-wrap gap-2">
+              {editor.type === 'vendor' ? <Button type="button" size="sm" onClick={() => setCatalogOpen('materials')}><Plus size={14} /> Add from Material Catalog</Button> : null}
+              <Button type="button" size="sm" variant="secondary" onClick={() => setLines((current) => [...current, createCustomBillLine()])}><Plus size={14} /> Custom Line</Button>
+            </div>
+          </div>
+          {lines.length ? <BillLineTable lines={lines} references={references} onChange={updateLine} onDelete={(index) => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} /> : <p className="rounded-md border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">Add a catalog item or custom line to record this invoice.</p>}
+          <dl className="ml-auto mt-3 grid max-w-xs grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm">
+            <dt className="text-gray-500">Subtotal</dt><dd className="text-right font-medium tabular-nums">{formatCurrency(billTotals.subtotal)}</dd>
+            <dt className="text-gray-500">Tax</dt><dd className="text-right font-medium tabular-nums">{formatCurrency(billTotals.tax)}</dd>
+            <dt className="border-t border-gray-200 pt-2 font-semibold">Total</dt><dd className="border-t border-gray-200 pt-2 text-right font-semibold tabular-nums">{formatCurrency(billTotals.total)}</dd>
+          </dl>
+        </div>
+        <TextArea label="Notes" {...field('notes')} />
+        {existingBill ? <Input label="Invoice attachment" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => setAttachment(event.target.files?.[0] ?? null)} /> : <p className="text-xs text-gray-500">Save the bill, then edit it to attach the vendor invoice.</p>}
+      </>}</div>
+    </Modal>
+    {catalogOpen ? <CatalogSelector mode={catalogOpen} materials={references.materials} subcontractors={references.subcontractors} query={catalogSearch} onQueryChange={setCatalogSearch} selectedMaterialIds={selectedMaterialIds} onToggleMaterial={(id) => setSelectedMaterialIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} onChooseSubcontractor={chooseSubcontractor} onAddMaterials={addSelectedMaterials} onClose={() => { setCatalogOpen(null); setCatalogSearch(''); setSelectedMaterialIds(new Set()); }} /> : null}
+  </>;
+}
+
+function BillLineTable({ lines, references, onChange, onDelete }: { lines: BillLineDraft[]; references: JobAnalysisReferences; onChange: <K extends keyof BillLineDraft>(index: number, property: K, value: BillLineDraft[K]) => void; onDelete: (index: number) => void }) {
+  return <div className="overflow-x-auto rounded-md border border-gray-200"><div className="min-w-[920px]">
+    <div className="grid grid-cols-[minmax(220px,2fr)_90px_100px_120px_120px_minmax(150px,1fr)_44px] gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-600"><span>Material / Description</span><span>Quantity</span><span>Unit</span><span>Unit Cost</span><span className="text-right">Total</span><span>Work Area</span><span className="sr-only">Delete</span></div>
+    {lines.map((line, index) => <div key={line.id ?? `${line.materialCatalogItemId ?? 'custom'}-${index}`} className="grid grid-cols-[minmax(220px,2fr)_90px_100px_120px_120px_minmax(150px,1fr)_44px] items-center gap-2 border-b border-gray-100 px-3 py-2 last:border-b-0">
+      <div><Input aria-label={`Description for line ${index + 1}`} value={line.description} onChange={(event) => onChange(index, 'description', event.target.value)} />{line.materialCatalogItemId ? <p className="mt-1 text-xs text-gray-500">Material Catalog</p> : null}</div>
+      <Input aria-label={`Quantity for ${line.description || `line ${index + 1}`}`} type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => onChange(index, 'quantity', Number(event.target.value))} />
+      <Input aria-label={`Unit for ${line.description || `line ${index + 1}`}`} value={line.unit} onChange={(event) => onChange(index, 'unit', event.target.value)} />
+      <Input aria-label={`Unit Cost for ${line.description || `line ${index + 1}`}`} type="number" min="0" step="0.01" value={line.unitCost} onChange={(event) => onChange(index, 'unitCost', Number(event.target.value))} />
+      <p className="text-right font-semibold tabular-nums">{formatCurrency(line.quantity * line.unitCost)}</p>
+      <Select aria-label={`Work Area for ${line.description || `line ${index + 1}`}`} value={line.workAreaId} onChange={(event) => onChange(index, 'workAreaId', event.target.value)}><option value="">Unallocated</option>{references.workAreas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</Select>
+      <button type="button" title="Delete line" aria-label={`Delete ${line.description || `line ${index + 1}`}`} className="p-2 text-red-600" onClick={() => onDelete(index)}><Trash2 size={16} /></button>
+    </div>)}
+  </div></div>;
+}
+
+function CatalogSelector({ mode, materials, subcontractors, query, onQueryChange, selectedMaterialIds, onToggleMaterial, onChooseSubcontractor, onAddMaterials, onClose }: { mode: 'materials' | 'subcontractors'; materials: MaterialCatalogItem[]; subcontractors: SubcontractorCatalogItem[]; query: string; onQueryChange: (value: string) => void; selectedMaterialIds: Set<string>; onToggleMaterial: (id: string) => void; onChooseSubcontractor: (item: SubcontractorCatalogItem) => void; onAddMaterials: () => void; onClose: () => void }) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleMaterials = useMemo(() => materials.filter((item) => item.active !== false && (!normalizedQuery || [item.name, item.unit, item.notes].some((value) => value?.toLowerCase().includes(normalizedQuery)))), [materials, normalizedQuery]);
+  const visibleSubcontractors = useMemo(() => subcontractors.filter((item) => !normalizedQuery || [item.name, item.trade, item.unit, item.contactName].some((value) => value?.toLowerCase().includes(normalizedQuery))), [subcontractors, normalizedQuery]);
+  const materialMode = mode === 'materials';
+  const visibleItems = materialMode ? visibleMaterials : visibleSubcontractors;
+  return <Modal open onClose={onClose} title={materialMode ? 'Material Catalog' : 'Subcontractor Catalog'} size="wide" footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button>{materialMode ? <Button onClick={onAddMaterials} disabled={selectedMaterialIds.size === 0}>Add selected ({selectedMaterialIds.size})</Button> : null}</>}>
+    <div className="relative"><Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input autoFocus value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={materialMode ? 'Search materials...' : 'Search company or trade...'} aria-label={materialMode ? 'Search Material Catalog' : 'Search Subcontractor Catalog'} className="w-full rounded-md border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" /></div>
+    <div className="mt-4 max-h-[55vh] overflow-y-auto border-y border-gray-200">{materialMode ? visibleMaterials.map((item) => { const selected = selectedMaterialIds.has(item.id); return <button key={item.id} type="button" aria-pressed={selected} onClick={() => onToggleMaterial(item.id)} className="grid w-full grid-cols-[24px_minmax(0,1fr)_100px_130px] items-center gap-3 border-b border-gray-100 px-3 py-3 text-left last:border-b-0 hover:bg-gray-50"><span className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300'}`}>{selected ? <Check size={14} /> : null}</span><span className="font-medium text-gray-900">{item.name}</span><span className="text-sm text-gray-600">{item.unit}</span><span className="text-right text-sm font-semibold">{formatCurrency(item.defaultUnitCost)} / {item.unit}</span></button>; }) : visibleSubcontractors.map((item) => <button key={item.id} type="button" onClick={() => onChooseSubcontractor(item)} className="grid w-full grid-cols-[minmax(0,1fr)_140px_150px] gap-3 border-b border-gray-100 px-3 py-3 text-left last:border-b-0 hover:bg-gray-50"><span><span className="block font-medium text-gray-900">{item.name}</span><span className="text-xs text-gray-500">{item.trade || 'General subcontractor'}</span></span><span className="text-sm text-gray-600">{item.unit}</span><span className="text-right text-sm font-semibold">{formatCurrency(item.defaultUnitCost)} / {item.unit}</span></button>)}</div>
+    {visibleItems.length === 0 ? <p className="py-8 text-center text-sm text-gray-500">No catalog items match this search.</p> : null}
   </Modal>;
 }
 

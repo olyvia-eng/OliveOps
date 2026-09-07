@@ -632,6 +632,7 @@ export interface JobAnalysisPayload {
   scopeWorkAreaId: string;
   baselineAvailable: boolean;
   categories: Array<{ category: 'labour' | 'equipment' | 'material' | 'subcontractor'; estimated: number | null; actual: number | null; variance: number | null }>;
+  materialComparisons: Array<{ materialCatalogItemId: ID; description: string; unit: string; estimatedQuantity: number; estimatedUnitCost: number | null; estimatedTotalCost: number; actualQuantity: number; actualUnitCost: number | null; actualTotalCost: number }>;
   labour: import('../utils/jobLabourSummary.js').JobLabourSummary;
   equipmentUsage: JobEquipmentUsage[];
   vendorBills: JobCostBill[];
