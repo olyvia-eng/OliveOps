@@ -59,10 +59,11 @@ test('Job financial summary keeps estimated, actual, and variance values in expl
   assert.match(summarySource, /under estimate to date/);
   assert.match(summarySource, /over estimate/);
   assert.match(summarySource, /On estimate/);
-  assert.match(summarySource, /Incomplete cost data/);
+  assert.match(summarySource, /actual costs recorded to date/);
   assert.match(summarySource, /It is not the final Job profit until all costs are recorded/);
   assert.match(summarySource, /value === null \? 'Unavailable' : formatCurrency\(value\)/);
   assert.match(summarySource, /row\.variance === null/);
+  assert.doesNotMatch(summarySource, /Incomplete cost data:/);
 });
 
 test('one Analysis mode controls accessible distribution and variance visualizations', () => {
@@ -89,9 +90,10 @@ test('legacy Estimates use contract value allocation without presenting it as co
   assert.doesNotMatch(summarySource, /contractValueChartSegments[\s\S]{0,160}estimatedGross/);
 });
 
-test('partial actual and variance modes retain supported charts and name missing data', () => {
+test('actual and variance modes filter zero slices and retain genuine unavailable states', () => {
   assert.match(summarySource, /distributionSegments\.filter\(\(segment\) => segment\.amount > 0\)/);
-  assert.match(summarySource, /Unavailable actual costs:/);
+  assert.doesNotMatch(summarySource, /Unavailable actual costs:/);
+  assert.doesNotMatch(summarySource, /Actual cost data is incomplete/);
   assert.match(summarySource, /No comparable accepted and actual cost data for:/);
   assert.match(summarySource, /No recorded actual costs yet\./);
   assert.match(summarySource, /row\.variance === null \? \[\] :/);

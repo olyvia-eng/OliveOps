@@ -67,13 +67,13 @@ test('shared Job performance reconciles salary labour, tax-exclusive issued reve
   assert.ok(Math.abs(result.costs.categories[0].actualCost - (11.37 * 47.2 + 50)) < 0.000001);
   assert.equal(result.costs.categories.find((row) => row.category === 'material').actualCost, 250);
   assert.equal(result.costs.categories.find((row) => row.category === 'equipment').actualCost, 90);
-  assert.equal(result.costs.categories.find((row) => row.category === 'subcontractor').actualCost, null);
+  assert.equal(result.costs.categories.find((row) => row.category === 'subcontractor').actualCost, 0);
   assert.equal(result.costs.actualOverhead, 75);
-  assert.equal(result.costs.actualDirectComplete, false);
+  assert.equal(result.costs.actualDirectComplete, true);
   assert.equal(result.labour.unbillable.hours, 1);
   assert.ok(Math.abs(result.labour.unbillable.cost - 47.2) < 0.000001);
   assert.equal(result.profit.toDate, result.revenue.contract - result.economics.knownActualCost);
-  assert.match(result.profit.unavailableReason, /Incomplete actual cost/);
+  assert.equal(result.profit.unavailableReason, null);
   assert.ok(result.details.some((item) => item.id === 'expense:material-expense' && item.actualCost === 250));
 });
 
@@ -129,12 +129,13 @@ test('Work Area baseline follows immutable source lineage when operational IDs c
   assert.ok(Math.abs(area.labour.actual.hours - 11.37) < 0.000001);
 });
 
-test('variance is actual minus estimated and missing actuals stay unavailable', () => {
+test('variance is actual minus estimated and no recorded actuals use zero', () => {
   const result = calculate();
   const equipment = result.costs.categories.find((row) => row.category === 'equipment');
   const subcontractor = result.costs.categories.find((row) => row.category === 'subcontractor');
   assert.equal(equipment.variance, -310);
-  assert.equal(subcontractor.variance, null);
+  assert.equal(subcontractor.actualCost, 0);
+  assert.equal(subcontractor.variance, -300);
   assert.match(result.costs.varianceConvention, /Actual minus estimated/);
 });
 
@@ -164,7 +165,7 @@ test('summary and chart share category values and percentages reconcile to pre-t
   assert.equal(result.economics.estimatedChartSegments.reduce((total, segment) => total + segment.amount, 0), result.revenue.contract);
 });
 
-test('active under-estimate, active over-estimate, completed, and incomplete Jobs have honest status', () => {
+test('active under-estimate, active over-estimate, completed, and no-record Jobs have honest status', () => {
   const completeActualCosts = [
     { id: 'material', category: 'material', total: 250 },
     { id: 'equipment', category: 'equipment', total: 90 },
@@ -182,10 +183,10 @@ test('active under-estimate, active over-estimate, completed, and incomplete Job
   assert.equal(completed.economics.knownActualCost, activeUnder.economics.knownActualCost);
   assert.equal(completed.economics.marginAfterRecordedCosts, activeUnder.economics.marginAfterRecordedCosts);
 
-  const incomplete = calculate();
-  assert.equal(incomplete.economics.actualCostComplete, false);
-  assert.match(incomplete.economics.statusMessage, /Actual cost data is incomplete/);
-  assert.ok(incomplete.costs.unavailableCategories.includes('Subcontractors'));
+  const noRecords = calculate({ timeEntries: [], expenses: [] });
+  assert.equal(noRecords.economics.actualCostComplete, true);
+  assert.deepEqual(noRecords.costs.unavailableCategories, []);
+  assert.doesNotMatch(noRecords.economics.statusMessage, /incomplete|unavailable/i);
 });
 
 test('distribution never creates negative slices and summary values reconcile', () => {
@@ -238,15 +239,47 @@ test('ambiguous historical cost fields remain unavailable without an immutable c
   assert.match(result.baseline.unavailableReason, /historical.*cost/i);
 });
 
-test('partial actual costs graph supported categories and identify unavailable categories', () => {
+test('partial actual costs graph recorded categories and keeps empty supported categories at zero', () => {
   const result = calculate({
     timeEntries: [],
     expenses: [{ id: 'material-only', jobId: 'job-a', status: 'paid', category: 'materials', amount: 275 }],
     invoices: [],
   });
   assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'material').amount, 275);
-  assert.ok(result.costs.unavailableCategories.includes('Equipment'));
-  assert.ok(result.costs.unavailableCategories.includes('Subcontractors'));
+  assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'equipment').amount, 0);
+  assert.equal(result.economics.actualChartSegments.find((segment) => segment.key === 'subcontractor').amount, 0);
+  assert.deepEqual(result.costs.unavailableCategories, []);
+});
+
+test('no actual records produce zero costs, valid totals, and an empty distribution', () => {
+  const result = calculate({ timeEntries: [], expenses: [], job: { ...job, actualCosts: [] } });
+  assert.deepEqual(result.costs.categories.map((row) => [row.category, row.actualCost]), [
+    ['labour', 0],
+    ['material', 0],
+    ['equipment', 0],
+    ['subcontractor', 0],
+  ]);
+  assert.equal(result.costs.actualOverhead, 0);
+  assert.equal(result.economics.knownActualCost, 0);
+  assert.equal(result.economics.marginAfterRecordedCosts, result.revenue.contract);
+  assert.equal(result.economics.costConsumedPct, 0);
+  assert.equal(result.economics.actualChartSegments.filter((segment) => segment.amount > 0).length, 0);
+  assert.equal(result.economics.actualCostComplete, true);
+});
+
+test('actual source failures remain unavailable instead of becoming zero', () => {
+  const result = calculate({ timeEntries: [], expenses: [], actualCostDataAvailable: false });
+  assert.ok(result.costs.categories.every((row) => row.actualCost === null));
+  assert.equal(result.costs.actualOverhead, null);
+  assert.equal(result.costs.knownActualDirect, null);
+  assert.equal(result.costs.knownActualIncludingOverhead, null);
+  assert.equal(result.economics.knownActualCost, null);
+  assert.equal(result.economics.marginAfterRecordedCosts, null);
+  assert.equal(result.economics.costConsumedPct, null);
+  assert.equal(result.economics.actualCostComplete, false);
+  assert.match(result.economics.statusMessage, /could not be loaded/i);
+  assert.ok(result.costs.unavailableCategories.includes('Materials'));
+  assert.ok(result.costs.unavailableCategories.includes('Overhead'));
 });
 
 test('missing estimated cost never becomes zero variance', () => {

@@ -17,14 +17,14 @@ export type JobPerformance = {
   labour: JobLabourSummary;
   revenue: { contract: number | null; issued: number | null; taxTreatment: string };
   profit: { estimatedGross: number | null; estimatedGrossMargin: number | null; estimatedNet: number | null; estimatedNetMargin: number | null; toDate: number | null; toDateMargin: number | null; unavailableReason: string | null };
-  costs: { categories: JobPerformanceCostRow[]; estimatedDirect: number | null; knownActualDirect: number; actualDirectComplete: boolean; actualComplete: boolean; unavailableCategories: string[]; varianceUnavailableCategories: string[]; estimatedOverhead: number | null; actualOverhead: number | null; knownActualIncludingOverhead: number; varianceConvention: string };
+  costs: { categories: JobPerformanceCostRow[]; estimatedDirect: number | null; knownActualDirect: number | null; actualDirectComplete: boolean; actualComplete: boolean; unavailableCategories: string[]; varianceUnavailableCategories: string[]; estimatedOverhead: number | null; actualOverhead: number | null; knownActualIncludingOverhead: number | null; varianceConvention: string };
   baseline: { available: boolean; source: 'accepted-estimate-snapshot' | 'unavailable'; unavailableReason: string | null };
   economics: {
     estimatedChartSegments: JobEconomicsChartSegment[];
     contractValueChartSegments: JobEconomicsChartSegment[];
     actualChartSegments: JobEconomicsChartSegment[];
     chartTotal: number;
-    knownActualCost: number;
+    knownActualCost: number | null;
     actualCostComplete: boolean;
     marginAfterRecordedCosts: number | null;
     costConsumedPct: number | null;
@@ -45,4 +45,4 @@ export type JobEconomicsChartSegment = {
   percent: number | null;
 };
 
-export function calculateJobPerformance(input: { job: Job; employees?: Employee[]; labourClasses?: LabourClass[]; timeEntries?: TimeEntry[]; timeCorrections?: TimeCorrectionRequest[]; invoices?: Invoice[]; expenses?: Expense[]; scopeWorkAreaId?: string }): JobPerformance;
+export function calculateJobPerformance(input: { job: Job; employees?: Employee[]; labourClasses?: LabourClass[]; timeEntries?: TimeEntry[]; timeCorrections?: TimeCorrectionRequest[]; invoices?: Invoice[]; expenses?: Expense[]; scopeWorkAreaId?: string; actualCostDataAvailable?: boolean }): JobPerformance;

@@ -243,7 +243,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const hasUnallocatedData = Boolean(unallocatedPerformance && (
     unallocatedPerformance.labour.actual.hasData
     || unallocatedPerformance.expenses.length > 0
-    || unallocatedPerformance.costs.categories.some((row) => row.actualCost !== null)
+    || unallocatedPerformance.details.some((row) => row.status === 'actual-only')
   ));
   useEffect(() => {
     if (analysisScope !== resolvedAnalysisScope || analysisScope === 'unallocated' && !hasUnallocatedData) {
