@@ -5,7 +5,7 @@ import { buildEstimateProposalProjection } from '../src/utils/estimateProposalMo
 
 const estimate = {
   id: 'estimate-a', proposalNumber: 'PROP-2026-0042', title: 'Patio & Grading', description: 'A customer introduction.',
-  propertyAddressSnapshot: '20 Project Road, Toronto, ON', createdAt: '2026-09-01T10:00:00.000Z', validUntil: '2026-10-01', taxRate: 13,
+  propertyAddressSnapshot: '20 Project Road, Toronto, ON', status: 'draft', createdAt: '2026-09-01T10:00:00.000Z', validUntil: '2026-10-01', taxRate: 13,
   notes: 'Customer-facing note.', internalNotes: 'Never print this.', estimatedProfit: 9000, margin: 40, overhead: 2000,
   proposalTerms: 'Proposal-specific terms.',
   paymentSchedule: [
@@ -44,6 +44,8 @@ test('proposal projection exposes customer scope and exact stored totals without
   assert.equal(projection.proposal.subtotal, 3400);
   assert.equal(projection.proposal.taxAmount, 442);
   assert.equal(projection.proposal.total, 3842);
+  assert.equal(projection.proposal.status, 'draft');
+  assert.equal(projection.proposal.introduction, 'A customer introduction.');
   assert.equal(projection.proposal.terms, 'Proposal-specific terms.');
   assert.deepEqual(projection.paymentSchedule.map((payment) => payment.amount), [960.5, 2881.5]);
   assert.equal(projection.customer.billingAddress, '11 Accounts Avenue, Toronto, ON, M3M 3M3, Canada');

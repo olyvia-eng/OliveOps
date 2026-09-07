@@ -19,6 +19,11 @@ function sample(areaCount, descriptionsPerArea, longNames = false) {
     title: longNames ? 'Morgan Residence Complete Backyard Landscape, Drainage, Patio and Site Restoration Project' : 'Morgan Residence Interlock Patio',
     description: 'Thank you for the opportunity to provide this proposal for the improvements described below.',
     propertyAddressSnapshot: '72 Project Avenue, Burlington, ON L7M 3A1', notes: 'Please keep the driveway clear for material deliveries during scheduled work days.',
+    paymentSchedule: [
+      { id: 'deposit', label: 'Scheduling Deposit', type: 'percentage', percentage: 5, due: 'Due on signing.', sortOrder: 0 },
+      { id: 'down-payment', label: 'Down Payment', type: 'percentage', percentage: 45, due: 'Due the day work begins.', sortOrder: 1 },
+      { id: 'final', label: 'Final Payment', type: 'percentage', percentage: 50, due: 'Due on receipt of final invoice.', sortOrder: 2 },
+    ],
     workAreas: Array.from({ length: areaCount }, (_, areaIndex) => ({
       id: `area-${areaIndex}`,
       name: ['Patio', 'Excavation and Base Preparation', 'Drainage', 'Landscape Restoration', 'Front Walkway', 'Retaining Edge', 'Site Cleanup', 'Final Grading'][areaIndex] ?? `Work Area ${areaIndex + 1}`,
@@ -36,6 +41,23 @@ function sample(areaCount, descriptionsPerArea, longNames = false) {
 
 await mkdir('public/proposal-previews', { recursive: true });
 const samples = [
+  ['stone-firepit.pdf', {
+    ...sample(1, 1),
+    proposalNumber: 'PROP-2026-0004',
+    title: 'Stone Firepit',
+    createdAt: '2026-09-07',
+    validUntil: '2026-09-23',
+    propertyAddressSnapshot: '123 Anywhere Street, Burlington, ON',
+    description: 'Thank you for the opportunity to provide this proposal. Below is our recommended scope of work, pricing, and terms for the Stone Firepit project.',
+    notes: '',
+    workAreas: [{
+      id: 'stone-firepit',
+      name: 'Stone Firepit',
+      description: 'Excavate and prepare firepit area.\nSupply and install base material.\nInstall stone firepit.\nComplete final grading and cleanup.',
+      sortOrder: 0,
+      lineItems: [{ category: 'material', itemName: 'Internal priced scope', description: '', quantity: 1, unit: 'job', unitCost: 300, sellPrice: 515.65, total: 515.65 }],
+    }],
+  }, { ...customer, name: 'Apple Seed', company: '' }, { ...business, name: 'Nighthawk Contracting', legalName: '' }],
   ['one-work-area.pdf', sample(1, 4), customer, business],
   ['multi-page.pdf', sample(8, 8, true), customer, business],
   ['missing-company-fields.pdf', sample(2, 4), { name: 'Client' }, { name: 'Evergreen Site & Landscape' }],

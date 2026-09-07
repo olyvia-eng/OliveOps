@@ -625,7 +625,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <Input label="Property Address Snapshot" value={form.propertyAddressSnapshot ?? ''} onChange={(event) => setField('propertyAddressSnapshot', event.target.value)} />
             </div>
             <Input label="Title" required value={form.title} onChange={(event) => setField('title', event.target.value)} />
-            <TextArea label="Description" value={form.description} onChange={(event) => setField('description', event.target.value)} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Select label="Status" value={form.status} onChange={(event) => setField('status', event.target.value as EstimateStatus)}>
                 {STATUSES.map((status) => <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>)}
@@ -755,6 +754,10 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(analysis.total)}</p>
             </div>
             {latestProposalVersion ? <div className="grid gap-3 border-y border-gray-200 py-4 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs font-semibold uppercase text-gray-500">Status</p><p className="mt-1 font-semibold capitalize text-gray-900">{latestProposalVersion.status}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Sent</p><p className="mt-1 text-gray-900">{formatDateTime(latestProposalVersion.sentAt)}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Viewed</p><p className="mt-1 text-gray-900">{latestProposalVersion.firstViewedAt ? formatDateTime(latestProposalVersion.firstViewedAt) : 'Not yet'}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Accepted</p><p className="mt-1 text-gray-900">{latestProposalVersion.acceptedAt ? `${formatDateTime(latestProposalVersion.acceptedAt)}${latestProposalVersion.acceptedBy ? ` by ${latestProposalVersion.acceptedBy}` : ''}` : 'Not yet'}</p></div></div> : null}
+            <div>
+              <TextArea label="Introduction (optional)" rows={4} value={form.description} onChange={(event) => setField('description', event.target.value)} />
+              <p className="mt-1.5 text-xs text-gray-500">Use separate lines for paragraphs. This appears before Work Areas in the proposal.</p>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <TextArea label="Proposal-specific Terms and Conditions" rows={5} value={form.proposalTerms ?? ''} onChange={(event) => setField('proposalTerms', event.target.value)} />
               <TextArea label="Customer-facing Exclusions" rows={5} value={form.exclusions ?? ''} onChange={(event) => setField('exclusions', event.target.value)} />

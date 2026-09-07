@@ -59,6 +59,7 @@ test('sending creates a redacted immutable snapshot and persists only a token ha
   assert.equal(harness.persisted.tokenHash.length, 64);
   assert.doesNotMatch(JSON.stringify(harness.persisted), /01234567890123456789012345678901/);
   assert.doesNotMatch(JSON.stringify(harness.persisted.version.snapshot), /internalNotes|estimatedProfit|unitCost|sellPrice/);
+  assert.equal(harness.persisted.version.snapshot.proposal.status, 'sent');
   assert.deepEqual(harness.persisted.version.snapshot.paymentSchedule.map((payment) => payment.amount), [2280.57, 9122.26]);
   assert.equal(harness.email.to, 'barbara@example.ca');
 });
@@ -105,4 +106,19 @@ test('each send snapshots current content into a distinct immutable version', as
   assert.equal(saved[1].versionNumber, 2);
   assert.equal(saved[0].snapshot.proposal.title, 'Shoreline Restoration');
   assert.equal(saved[1].snapshot.proposal.title, 'Revised Shoreline Restoration');
+});
+
+test('sending snapshots the current company logo and branding for historical versions', async () => {
+  const logoBytes = Buffer.from('snapshotted-logo');
+  const harness = createHarness({
+    getBusinessProfile: async () => ({ id: 'business-1', name: 'Original Contracting', email: 'original@example.ca', logoFileId: 'logo-1' }),
+    getFileForBusiness: async () => ({ id: 'logo-1', entityType: 'business-profile', uploadStatus: 'uploaded', mimeType: 'image/png', objectKey: 'business/logo.png' }),
+    readStoredFile: async () => logoBytes,
+  });
+
+  const response = await request(harness);
+  assert.equal(response.statusCode, 201);
+  assert.equal(harness.persisted.version.snapshot.company.name, 'Original Contracting');
+  assert.equal(harness.persisted.version.snapshot.company.email, 'original@example.ca');
+  assert.equal(harness.persisted.version.snapshot.company.logoDataUrl, `data:image/png;base64,${logoBytes.toString('base64')}`);
 });

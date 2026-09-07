@@ -1,20 +1,23 @@
 import { jsPDF } from 'jspdf';
 
 const PAGE_WIDTH = 612;
-const MARGIN = 44;
+const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
-const CONTENT_BOTTOM = 748;
-const NAVY = [28, 43, 58];
-const OLIVE = [91, 112, 72];
+const CONTENT_BOTTOM = 735;
+const CHARCOAL = [38, 45, 51];
+const INK = [31, 41, 48];
 const MUTED = [92, 103, 112];
-const DIVIDER = [220, 224, 226];
+const LIGHT = [242, 243, 243];
+const DIVIDER = [196, 201, 204];
+const WHITE = [255, 255, 255];
 
 const clean = (value) => Array.from(String(value ?? '')).filter((character) => {
   const codePoint = character.codePointAt(0) ?? 0;
   return codePoint === 9 || codePoint === 10 || codePoint === 13 || (codePoint >= 32 && codePoint !== 127);
 }).join('').trim();
 const currency = (value) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value);
-const date = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
+const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
+const longDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
 
 export function proposalPdfFileName(projection, accepted = false) {
   const safe = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -30,96 +33,227 @@ export async function fetchEstimateProposal(estimateId) {
 
 export function createEstimateProposalDocument(projection, options = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: false });
-  let cursorY = MARGIN;
-  const setText = (size, color = NAVY, style = 'normal') => { doc.setFont('helvetica', style); doc.setFontSize(size); doc.setTextColor(...color); };
-  const lines = (value, width) => doc.splitTextToSize(clean(value), width);
-  const divider = (y) => { doc.setDrawColor(...DIVIDER); doc.setLineWidth(0.7); doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y); };
-  const drawContinuationHeader = () => { setText(9, OLIVE, 'bold'); doc.text(clean(projection.company.name || 'Proposal'), MARGIN, 34); setText(9, MUTED); doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 34, { align: 'right' }); divider(43); cursorY = 62; };
-  const addPage = () => { doc.addPage(); drawContinuationHeader(); };
-  const ensureSpace = (height) => { if (cursorY + height > CONTENT_BOTTOM) addPage(); };
-  const heading = (value) => { ensureSpace(35); setText(15, NAVY, 'bold'); doc.text(value, MARGIN, cursorY); cursorY += 23; };
-
   const companyName = clean(projection.company.name || 'Contractor');
+  const status = options.acceptance ? 'ACCEPTED' : ['sent', 'viewed'].includes(projection.proposal.status) ? 'PROPOSAL' : 'DRAFT';
+  let cursorY = 0;
+
+  const setText = (size, color = INK, style = 'normal') => {
+    doc.setFont('helvetica', style);
+    doc.setFontSize(size);
+    doc.setTextColor(...color);
+  };
+  const lines = (value, width) => doc.splitTextToSize(clean(value), width);
+  const divider = (y, left = MARGIN, right = PAGE_WIDTH - MARGIN, width = 0.6) => {
+    doc.setDrawColor(...DIVIDER);
+    doc.setLineWidth(width);
+    doc.line(left, y, right, y);
+  };
+  const continuationHeader = () => {
+    doc.setFillColor(...CHARCOAL);
+    doc.rect(0, 0, PAGE_WIDTH, 50, 'F');
+    setText(10, WHITE, 'bold');
+    doc.text(companyName, MARGIN, 30, { maxWidth: 300 });
+    setText(9, WHITE);
+    doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 30, { align: 'right' });
+    cursorY = 68;
+  };
+  const addPage = () => {
+    doc.addPage();
+    continuationHeader();
+  };
+  const ensureSpace = (height) => {
+    if (cursorY + height > CONTENT_BOTTOM) addPage();
+  };
+  const heading = (value, followingHeight = 0) => {
+    ensureSpace(32 + followingHeight);
+    setText(10, INK, 'bold');
+    doc.text(clean(value).toUpperCase(), MARGIN, cursorY);
+    divider(cursorY + 8);
+    cursorY += 25;
+  };
+  const formattedText = (value) => {
+    for (const rawLine of clean(value).split(/\r\n?|\n/)) {
+      const line = rawLine.trim();
+      if (!line) {
+        cursorY += 6;
+        continue;
+      }
+      const bullet = /^[-*•]\s+/.test(line);
+      const numbered = /^(\d+[.)])\s+/.exec(line);
+      const marker = numbered?.[1] ?? (bullet ? '•' : '');
+      const content = line.replace(/^[-*•]\s+|^\d+[.)]\s+/, '');
+      const wrapped = lines(content, CONTENT_WIDTH - (marker ? 16 : 0));
+      ensureSpace(wrapped.length * 12 + 5);
+      setText(9.5, INK);
+      if (marker) doc.text(marker, MARGIN, cursorY);
+      doc.text(wrapped, MARGIN + (marker ? 16 : 0), cursorY);
+      cursorY += wrapped.length * 12 + 5;
+    }
+  };
+
+  doc.setFillColor(...CHARCOAL);
+  doc.rect(0, 0, PAGE_WIDTH, 104, 'F');
+  let logoRendered = false;
   if (projection.company.logoDataUrl) {
     try {
       const format = projection.company.logoDataUrl.toLowerCase().startsWith('data:image/png') ? 'PNG' : 'JPEG';
-      doc.addImage(projection.company.logoDataUrl, format, MARGIN, 30, 58, 46, undefined, 'FAST');
+      const properties = doc.getImageProperties(projection.company.logoDataUrl);
+      const scale = Math.min(66 / properties.width, 56 / properties.height);
+      const logoWidth = properties.width * scale;
+      const logoHeight = properties.height * scale;
+      doc.addImage(projection.company.logoDataUrl, format, MARGIN, 24 + (56 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
+      logoRendered = true;
     } catch { /* Invalid snapshot logos fall back to the company name. */ }
   }
-  const companyX = projection.company.logoDataUrl ? MARGIN + 70 : MARGIN;
-  setText(14, NAVY, 'bold'); doc.text(companyName, companyX, 42, { maxWidth: 280 });
-  setText(8.5, MUTED);
-  [projection.company.address, projection.company.phone, projection.company.email].map(clean).filter(Boolean).forEach((detail, index) => doc.text(detail, companyX, 56 + index * 11, { maxWidth: 290 }));
-  setText(22, OLIVE, 'bold'); doc.text('PROPOSAL', PAGE_WIDTH - MARGIN, 42, { align: 'right' });
-  setText(8.5, MUTED);
-  [projection.proposal.number ? `Proposal # ${clean(projection.proposal.number)}` : '', projection.proposal.date ? `Proposal Date  ${date(projection.proposal.date)}` : '', projection.proposal.validUntil ? `Valid Until  ${date(projection.proposal.validUntil)}` : ''].filter(Boolean).forEach((item, index) => doc.text(item, PAGE_WIDTH - MARGIN, 59 + index * 11, { align: 'right' }));
-  divider(103); cursorY = 127;
+  const companyX = logoRendered ? MARGIN + 80 : MARGIN;
+  setText(15, WHITE, 'bold');
+  doc.text(companyName, companyX, 38, { maxWidth: 280 });
+  setText(8.5, WHITE);
+  const companyDetails = [projection.company.address, [projection.company.phone, projection.company.email].map(clean).filter(Boolean).join('  |  '), projection.company.website].map(clean).filter(Boolean);
+  companyDetails.slice(0, 3).forEach((detail, index) => doc.text(detail, companyX, 54 + index * 12, { maxWidth: 290 }));
+  setText(25, WHITE, 'bold');
+  doc.text('PROPOSAL', PAGE_WIDTH - MARGIN, 43, { align: 'right' });
+  setText(10, WHITE, 'bold');
+  doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 63, { align: 'right' });
 
-  const drawInfoColumn = (label, values, x) => {
-    setText(8.5, OLIVE, 'bold'); doc.text(label, x, cursorY);
-    let y = cursorY + 17;
-    values.map(clean).filter(Boolean).forEach((value, index) => { const wrapped = lines(value, 238); setText(index === 0 ? 10.5 : 9.5, index === 0 ? NAVY : MUTED, index === 0 ? 'bold' : 'normal'); doc.text(wrapped, x, y); y += wrapped.length * 12 + 3; });
-    return y;
-  };
-  const customerBottom = drawInfoColumn('PREPARED FOR', [projection.customer.displayName, projection.customer.contactName, projection.customer.billingAddress, projection.customer.email, projection.customer.phone], MARGIN);
-  const projectBottom = drawInfoColumn('PROJECT', [projection.proposal.title, projection.proposal.projectAddress, projection.proposal.introduction], MARGIN + 274);
-  cursorY = Math.max(customerBottom, projectBottom) + 14; divider(cursorY); cursorY += 27;
+  doc.setFillColor(...LIGHT);
+  doc.rect(0, 104, PAGE_WIDTH, 72, 'F');
+  const information = [
+    ['PREPARED FOR', [projection.customer.displayName, projection.customer.contactName].map(clean).filter(Boolean).join('\n')],
+    ['PROPERTY', projection.proposal.projectAddress || projection.proposal.title],
+    ['ISSUE DATE', shortDate(projection.proposal.date)],
+    ['VALID UNTIL', shortDate(projection.proposal.validUntil)],
+  ];
+  const columnWidths = [138, 206, 92, 92];
+  let columnX = MARGIN;
+  information.forEach(([label, value], index) => {
+    setText(7.5, MUTED, 'bold');
+    doc.text(label, columnX, 125);
+    setText(9, INK, 'bold');
+    doc.text(lines(value || '-', columnWidths[index] - 10).slice(0, 3), columnX, 142);
+    columnX += columnWidths[index];
+  });
+  cursorY = 202;
 
-  heading('Scope of Work');
-  const showWorkAreaTotals = projection.workAreas.length > 1;
-  for (const area of projection.workAreas) {
-    ensureSpace(38); setText(11.5, OLIVE, 'bold'); doc.text(clean(area.name), MARGIN, cursorY); cursorY += 18;
-    for (const scopeLine of area.scopeLines.length ? area.scopeLines : ['Scope details to be confirmed.']) {
-      const wrapped = lines(scopeLine, CONTENT_WIDTH - 28); ensureSpace(wrapped.length * 12 + 7); setText(9.5, MUTED); doc.setFillColor(...OLIVE); doc.circle(MARGIN + 3, cursorY - 3, 1.5, 'F'); doc.text(wrapped, MARGIN + 14, cursorY); cursorY += wrapped.length * 12 + 7;
-    }
-    if (showWorkAreaTotals) { ensureSpace(31); divider(cursorY); cursorY += 17; setText(9.5, NAVY, 'bold'); doc.text('Work Area Total', PAGE_WIDTH - MARGIN - 118, cursorY); doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' }); cursorY += 25; } else cursorY += 6;
+  if (clean(projection.proposal.introduction)) {
+    heading('Introduction', 17);
+    formattedText(projection.proposal.introduction);
+    cursorY += 8;
   }
 
-  ensureSpace(104);
-  const totalsX = PAGE_WIDTH - MARGIN - 220;
-  doc.setFillColor(247, 249, 246); doc.setDrawColor(...DIVIDER); doc.roundedRect(totalsX, cursorY, 220, 88, 3, 3, 'FD');
-  [['Subtotal', projection.proposal.subtotal], [`${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, projection.proposal.taxAmount], ['Proposal Total', projection.proposal.total]].forEach(([label, value], index) => { const rowY = cursorY + 21 + index * 27; setText(index === 2 ? 11 : 9.5, index === 2 ? OLIVE : NAVY, index === 2 ? 'bold' : 'normal'); doc.text(label, totalsX + 14, rowY); doc.text(currency(value), totalsX + 206, rowY, { align: 'right' }); if (index === 1) { doc.setDrawColor(...DIVIDER); doc.line(totalsX + 12, rowY + 8, totalsX + 208, rowY + 8); } });
-  cursorY += 112;
+  heading('Work Areas', 57);
+  for (const area of projection.workAreas) {
+    const scopeLines = area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'];
+    const firstScopeHeight = lines(clean(scopeLines[0]).replace(/^[-*•]\s+|^\d+[.)]\s+/, ''), CONTENT_WIDTH - 18).length * 12 + 6;
+    ensureSpace(57 + firstScopeHeight);
+    const areaName = lines(area.name, CONTENT_WIDTH - 125);
+    setText(12, INK, 'bold');
+    doc.text(areaName, MARGIN, cursorY);
+    doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+    cursorY += areaName.length * 14 + 7;
+    divider(cursorY);
+    cursorY += 18;
+    setText(9, INK, 'bold');
+    doc.text('Scope of Work', MARGIN, cursorY);
+    cursorY += 17;
+    for (const scopeLine of scopeLines) {
+      const line = clean(scopeLine);
+      const numbered = /^(\d+[.)])\s+/.exec(line);
+      const marker = numbered?.[1] ?? '•';
+      const content = line.replace(/^[-*•]\s+|^\d+[.)]\s+/, '');
+      const wrapped = lines(content, CONTENT_WIDTH - 18);
+      ensureSpace(wrapped.length * 12 + 6);
+      setText(9.5, MUTED);
+      doc.text(marker, MARGIN, cursorY);
+      doc.text(wrapped, MARGIN + 16, cursorY);
+      cursorY += wrapped.length * 12 + 6;
+    }
+    cursorY += 11;
+  }
 
   if (projection.paymentSchedule?.length) {
-    heading('Payment Schedule');
-    projection.paymentSchedule.forEach((payment) => {
-      const dueLines = lines(payment.due, 250); ensureSpace(Math.max(31, dueLines.length * 11 + 13));
-      setText(10, NAVY, 'bold'); doc.text(clean(payment.label), MARGIN, cursorY);
-      setText(9, MUTED); doc.text(dueLines, MARGIN + 150, cursorY);
-      setText(9.5, NAVY); if (payment.type === 'percentage') doc.text(`${payment.percentage}%`, PAGE_WIDTH - MARGIN - 104, cursorY, { align: 'right' });
-      setText(9.5, NAVY, 'bold'); doc.text(currency(payment.amount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-      cursorY += Math.max(31, dueLines.length * 11 + 13); divider(cursorY - 9);
-    });
-    setText(10, OLIVE, 'bold'); doc.text('TOTAL', PAGE_WIDTH - MARGIN - 104, cursorY + 5, { align: 'right' }); doc.text(currency(projection.proposal.total), PAGE_WIDTH - MARGIN, cursorY + 5, { align: 'right' }); cursorY += 30;
-  }
-
-  const drawTextSection = (label, value) => {
-    if (!clean(value)) return;
-    heading(label); setText(9.5, MUTED);
-    for (const line of lines(value, CONTENT_WIDTH)) { ensureSpace(12); doc.text(line, MARGIN, cursorY); cursorY += 12; }
-    cursorY += 14;
-  };
-  drawTextSection('Notes', projection.proposal.notes);
-  drawTextSection('Exclusions', projection.proposal.exclusions);
-  drawTextSection('Terms and Conditions', projection.proposal.terms);
-
-  if (options.acceptance) {
-    ensureSpace(145); heading('Accepted');
-    setText(10, NAVY, 'bold'); doc.text(`Accepted by: ${clean(options.acceptance.customerName)}`, MARGIN, cursorY); cursorY += 17;
-    setText(9.5, MUTED); doc.text(`Accepted on: ${date(options.acceptance.acceptedAt)}`, MARGIN, cursorY); cursorY += 18;
-    if (options.acceptance.signatureDataUrl) {
-      try { doc.addImage(options.acceptance.signatureDataUrl, 'PNG', MARGIN, cursorY, 170, 58, undefined, 'FAST'); cursorY += 68; } catch { /* Signature validation occurs before rendering. */ }
+    const firstDueLines = lines(projection.paymentSchedule[0].due, CONTENT_WIDTH - 135);
+    heading('Payment Schedule', Math.max(43, firstDueLines.length * 11 + 27));
+    for (const payment of projection.paymentSchedule) {
+      const dueLines = lines(payment.due, CONTENT_WIDTH - 135);
+      const rowHeight = Math.max(43, dueLines.length * 11 + 27);
+      ensureSpace(rowHeight);
+      setText(10, INK, 'bold');
+      doc.text(clean(payment.label), MARGIN, cursorY);
+      doc.text(currency(payment.amount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+      setText(8.5, MUTED, 'italic');
+      doc.text(dueLines, MARGIN, cursorY + 15);
+      if (payment.type === 'percentage') doc.text(`${payment.percentage}%`, PAGE_WIDTH - MARGIN, cursorY + 15, { align: 'right' });
+      cursorY += rowHeight - 8;
+      divider(cursorY);
+      cursorY += 8;
     }
-    setText(8.5, MUTED); doc.text(`Electronic acceptance statement version ${options.acceptance.acceptanceStatementVersion}`, MARGIN, cursorY);
-  } else {
-    ensureSpace(118); heading('Acceptance of Proposal'); setText(9.5, MUTED);
-    const acceptance = lines(clean(projection.proposal.terms) ? 'This proposal is accepted, and the contractor is authorized to perform the work described above, subject to the stated terms and conditions.' : 'This proposal is accepted, and the contractor is authorized to perform the work described above.', CONTENT_WIDTH);
-    doc.text(acceptance, MARGIN, cursorY); cursorY += acceptance.length * 12 + 28;
-    setText(8.5, MUTED); doc.text('Customer name', MARGIN, cursorY); doc.text('Signature', MARGIN + 190, cursorY); doc.text('Date', MARGIN + 390, cursorY); doc.setDrawColor(...MUTED); doc.line(MARGIN, cursorY + 19, MARGIN + 160, cursorY + 19); doc.line(MARGIN + 190, cursorY + 19, MARGIN + 360, cursorY + 19); doc.line(MARGIN + 390, cursorY + 19, PAGE_WIDTH - MARGIN, cursorY + 19);
+    cursorY += 3;
   }
+
+  ensureSpace(64);
+  const totalsX = PAGE_WIDTH - MARGIN - 260;
+  setText(9.5, INK);
+  doc.text(`${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, totalsX, cursorY);
+  doc.text(currency(projection.proposal.taxAmount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+  cursorY += 13;
+  divider(cursorY, totalsX);
+  cursorY += 22;
+  setText(13, INK, 'bold');
+  doc.text('TOTAL', totalsX, cursorY);
+  doc.text(currency(projection.proposal.total), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+  cursorY += 33;
+
+  const textSection = (label, value) => {
+    if (!clean(value)) return;
+    heading(label, 17);
+    formattedText(value);
+    cursorY += 8;
+  };
+  textSection('Notes', projection.proposal.notes);
+  textSection('Exclusions', projection.proposal.exclusions);
+  const validityTerm = projection.proposal.validUntil ? `- This proposal is valid until ${longDate(projection.proposal.validUntil)}.` : '';
+  textSection('Terms', [validityTerm, clean(projection.proposal.terms)].filter(Boolean).join('\n'));
+
+  ensureSpace(options.acceptance ? 150 : 142);
+  heading('Acceptance');
+  if (options.acceptance) {
+    setText(8.5, MUTED);
+    doc.text('CLIENT SIGNATURE', MARGIN, cursorY);
+    if (options.acceptance.signatureDataUrl) {
+      try { doc.addImage(options.acceptance.signatureDataUrl, 'PNG', MARGIN, cursorY + 7, 165, 48, undefined, 'FAST'); } catch { /* Signature validation occurs before rendering. */ }
+    }
+    divider(cursorY + 61, MARGIN, MARGIN + 210);
+    setText(9, INK, 'bold');
+    doc.text(clean(options.acceptance.customerName), MARGIN, cursorY + 75);
+    setText(8.5, MUTED);
+    doc.text(longDate(options.acceptance.acceptedAt), MARGIN + 210, cursorY + 75, { align: 'right' });
+    doc.text(`Electronic acceptance statement version ${options.acceptance.acceptanceStatementVersion}`, MARGIN, cursorY + 91);
+  } else {
+    setText(8.5, MUTED);
+    doc.text('CLIENT SIGNATURE', MARGIN, cursorY);
+    doc.text('DATE', MARGIN + 220, cursorY);
+    divider(cursorY + 38, MARGIN, MARGIN + 200);
+    divider(cursorY + 38, MARGIN + 220, MARGIN + 310);
+  }
+  const contractorX = MARGIN + 335;
+  setText(8.5, MUTED);
+  doc.text('CONTRACTOR', contractorX, cursorY);
+  doc.text('DATE', contractorX + 130, cursorY);
+  divider(cursorY + 38, contractorX, contractorX + 115);
+  divider(cursorY + 38, contractorX + 130, PAGE_WIDTH - MARGIN);
 
   const pageCount = doc.getNumberOfPages();
-  for (let page = 1; page <= pageCount; page += 1) { doc.setPage(page); divider(762); setText(8, MUTED); doc.text(companyName, MARGIN, 777); doc.text(clean(projection.proposal.number), PAGE_WIDTH / 2, 777, { align: 'center' }); doc.text(`Page ${page} of ${pageCount}`, PAGE_WIDTH - MARGIN, 777, { align: 'right' }); }
+  for (let page = 1; page <= pageCount; page += 1) {
+    doc.setPage(page);
+    doc.setFillColor(...CHARCOAL);
+    doc.rect(0, 752, PAGE_WIDTH, 40, 'F');
+    setText(8.5, WHITE, 'bold');
+    doc.text([companyName, clean(projection.company.email)].filter(Boolean).join('  |  '), MARGIN, 776, { maxWidth: 325 });
+    setText(8, WHITE);
+    doc.text(`Page ${page} of ${pageCount}`, PAGE_WIDTH / 2, 776, { align: 'center' });
+    setText(9, WHITE, 'bold');
+    doc.text(status, PAGE_WIDTH - MARGIN, 776, { align: 'right' });
+  }
   return doc;
 }

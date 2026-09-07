@@ -19,9 +19,12 @@ export async function buildProposalSnapshot({ businessId, estimate, getBusinessP
     }
   }
 
+  const projection = buildEstimateProposalProjection({ estimate, customer, business: brandedBusiness });
+  projection.proposal.status = 'sent';
+
   return {
     schemaVersion: PROPOSAL_SNAPSHOT_SCHEMA_VERSION,
     acceptanceStatementVersion: ACCEPTANCE_STATEMENT_VERSION,
-    ...buildEstimateProposalProjection({ estimate, customer, business: brandedBusiness }),
+    ...projection,
   };
 }

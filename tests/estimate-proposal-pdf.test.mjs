@@ -19,7 +19,7 @@ const customer = { name: 'Jamie Smith', company: 'Smith Family', email: 'jamie@e
 
 function estimate(areaCount = 1, descriptionsPerArea = 3) {
   return {
-    id: 'estimate-a', customerId: 'customer-a', proposalNumber: 'PROP-2026-0042', title: 'Smith Backyard Patio', description: 'A practical outdoor space designed for the Smith family.', propertyAddressSnapshot: '20 Project Road', createdAt: '2026-09-01', validUntil: '2026-10-01', taxRate: 13, notes: 'Please provide access to the rear yard.',
+    id: 'estimate-a', customerId: 'customer-a', proposalNumber: 'PROP-2026-0042', title: 'Smith Backyard Patio', description: 'A practical outdoor space designed for the Smith family.', propertyAddressSnapshot: '20 Project Road', status: 'draft', createdAt: '2026-09-01', validUntil: '2026-10-01', taxRate: 13, notes: 'Please provide access to the rear yard.',
     paymentSchedule: [
       { id: 'deposit', label: 'Deposit', type: 'percentage', percentage: 25, due: 'Upon acceptance', sortOrder: 0 },
       { id: 'final', label: 'Final Payment', type: 'percentage', percentage: 75, due: 'Upon substantial completion', sortOrder: 1 },
@@ -43,17 +43,19 @@ const pdfRenderedText = (output) => (output.match(/\((?:\\.|[^)])*\) Tj/g) ?? []
   .map((token) => token.slice(1, -4).replace(/\\([()\\])/g, '$1'))
   .join(' ');
 
-test('proposal PDF renders customer-safe scope, branding, exact projected totals, and acceptance', () => {
+test('proposal PDF renders the compact customer-safe layout in the required order', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
   const pdf = createEstimateProposalDocument(projection);
   const output = pdfText(pdf);
   const renderedText = pdfRenderedText(output);
 
-  for (const visible of ['PROPOSAL', 'Scope of Work', 'Proposal Total', 'Payment Schedule', 'Deposit', 'Final Payment', 'Acceptance of Proposal', 'Green Earth Contracting', 'PROP-2026-0042', '10 Billing Street', '20 Project Road']) {
+  for (const visible of ['PROPOSAL', 'PREPARED FOR', 'PROPERTY', 'ISSUE DATE', 'VALID UNTIL', 'INTRODUCTION', 'WORK AREAS', 'Scope of Work', 'PAYMENT SCHEDULE', 'Deposit', 'Final Payment', 'TOTAL', 'ACCEPTANCE', 'Green Earth Contracting', 'PROP-2026-0042', '20 Project Road', 'Sep 1, 2026', 'Oct 1, 2026', 'DRAFT']) {
     assert.match(output, new RegExp(visible));
   }
-  assert.doesNotMatch(output, /Work Area Total/);
-  assert.match(renderedText, /This proposal is accepted, and the contractor is authorized to perform the work described above, subject to the stated terms and conditions\./);
+  assert.ok(renderedText.indexOf('INTRODUCTION') < renderedText.indexOf('WORK AREAS'));
+  assert.ok(renderedText.indexOf('WORK AREAS') < renderedText.indexOf('PAYMENT SCHEDULE'));
+  assert.ok(renderedText.indexOf('PAYMENT SCHEDULE') < renderedText.indexOf('Tax (13%)'));
+  assert.ok(renderedText.indexOf('Tax (13%)') < renderedText.indexOf('TOTAL'));
   for (const hidden of ['unitCost', 'sellPrice', 'overheadRecovery', 'estimatedProfit', 'margin', 'John Smith', 'Mike White', 'Bobcat e50', 'HPB Aggregate', 'Trade Partner Inc.', 'Equipment catalog record', 'Employee record', 'Generated:']) {
     assert.doesNotMatch(output, new RegExp(hidden, 'i'));
   }
@@ -75,34 +77,34 @@ test('accepted PDF renders the immutable customer signature, accepted name, and 
     signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     acceptanceStatementVersion: 1,
   } }));
-  assert.match(output, /Accepted/);
-  assert.match(output, /Accepted by: Barbara Bartholomew/);
-  assert.match(output, /Accepted on: September 8, 2026/);
+  assert.match(output, /ACCEPTANCE/);
+  assert.match(output, /ACCEPTED/);
+  assert.match(output, /Barbara Bartholomew/);
+  assert.match(output, /September 8, 2026/);
   assert.match(output, /Electronic acceptance statement version 1/);
   assert.match(output, /\/Subtype \/Image/);
   assert.doesNotMatch(output, /Customer name|Signature\)/);
 });
 
-test('multiple Work Areas render every Work Area total without changing proposal totals', () => {
+test('multiple Work Areas render each sell price without exposing an internal total label', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(2, 2), customer, business });
   const output = pdfText(createEstimateProposalDocument(projection));
 
-  assert.equal((output.match(/Work Area Total/g) ?? []).length, 2);
+  assert.doesNotMatch(output, /Work Area Total/);
+  assert.match(output, /Work Area 1/);
+  assert.match(output, /Work Area 2/);
   assert.match(output, /\$201\.00/);
   assert.match(output, /\$203\.00/);
-  assert.match(output, /\$404\.00/);
   assert.match(output, /\$52\.52/);
   assert.match(output, /\$456\.52/);
 });
 
-test('acceptance omits terms wording when no Terms and Conditions are displayed', () => {
+test('Terms retain the validity statement when no custom terms are configured', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business: { ...business, proposalTerms: '' } });
   const output = pdfText(createEstimateProposalDocument(projection));
-  const renderedText = pdfRenderedText(output);
-
-  assert.doesNotMatch(output, /\(Terms and Conditions\)/);
-  assert.match(renderedText, /This proposal is accepted, and the contractor is authorized to perform the work described above\./);
-  assert.doesNotMatch(renderedText, /subject to the stated terms and conditions\./);
+  assert.match(output, /\(TERMS\)/);
+  assert.match(output, /This proposal is valid until October 1, 2026\./);
+  assert.match(output, /ACCEPTANCE/);
 });
 
 test('long proposal paginates without clipping and prints proposal/page footers on every page', () => {
@@ -114,6 +116,7 @@ test('long proposal paginates without clipping and prints proposal/page footers 
   assert.ok(pageCount >= 3);
   for (let page = 1; page <= pageCount; page += 1) assert.match(output, new RegExp(`Page ${page} of ${pageCount}`));
   assert.equal((output.match(/PROP-2026-0042/g) ?? []).length >= pageCount, true);
+  assert.equal((output.match(/DRAFT/g) ?? []).length, pageCount);
   assert.match(output, /Complete customer scope item 8\.8/);
 });
 
@@ -126,8 +129,8 @@ test('optional sections are omitted when empty and a non-taxable proposal preser
 
   assert.match(output, /Tax \\\(0%\\\)/);
   assert.match(output, /\$0\.00/);
-  assert.doesNotMatch(output, /\(Notes\)|\(Exclusions\)|\(Terms and Conditions\)/);
-  assert.doesNotMatch(output, /Phone:|Email:|Website:|Address:/);
+  assert.doesNotMatch(output, /\(NOTES\)|\(EXCLUSIONS\)/);
+  assert.match(output, /\(TERMS\)/);
 });
 
 test('legacy proposal renders the safe scope fallback without resource names', () => {
@@ -139,5 +142,26 @@ test('legacy proposal renders the safe scope fallback without resource names', (
   assert.doesNotMatch(output, /John Smith|Bobcat e50|Employee record|Equipment catalog record/i);
   assert.match(output, /\$303\.00/);
   assert.match(output, /\$39\.39/);
+  assert.match(output, /\$342\.39/);
+});
+
+test('company logo is rendered when snapshotted and company name remains the fallback', () => {
+  const logoDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const withLogo = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: estimate(), customer, business: { ...business, logoDataUrl } })));
+  const withoutLogo = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: estimate(), customer, business: { ...business, logoDataUrl: '' } })));
+
+  assert.match(withLogo, /\/Subtype \/Image/);
+  assert.match(withLogo, /Green Earth Contracting/);
+  assert.doesNotMatch(withoutLogo, /\/Subtype \/Image/);
+  assert.match(withoutLogo, /Green Earth Contracting/);
+});
+
+test('sent proposal footer uses PROPOSAL without changing totals', () => {
+  const source = estimate();
+  source.status = 'sent';
+  const output = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: source, customer, business })));
+
+  assert.match(output, /PROPOSAL/);
+  assert.doesNotMatch(output, /\(DRAFT\)/);
   assert.match(output, /\$342\.39/);
 });

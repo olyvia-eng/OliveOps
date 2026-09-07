@@ -53,6 +53,7 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
     },
     proposal: {
       number: text(estimate?.proposalNumber),
+      status: text(estimate?.status) || 'draft',
       date: text(estimate?.createdAt),
       validUntil: text(estimate?.validUntil),
       title: text(estimate?.title),
