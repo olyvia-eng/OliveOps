@@ -1107,6 +1107,9 @@ function validateJobRecord(record) {
   if (record.scheduleAllDay !== undefined && typeof record.scheduleAllDay !== 'boolean') {
     return 'Job schedule all-day flag is invalid.';
   }
+  if (record.includeWeekends !== undefined && typeof record.includeWeekends !== 'boolean') {
+    return 'Job include-weekends flag is invalid.';
+  }
   if (record.scheduledStartAt !== undefined && record.scheduledStartAt !== null && record.scheduledStartAt !== '' && !isValidIsoDateTime(record.scheduledStartAt)) {
     return 'Job scheduled start must be a valid ISO datetime.';
   }

@@ -7,6 +7,7 @@ import {
 } from './_lib/authRepo.js';
 import { getCrewForBusiness, getDivisionForBusiness } from './_lib/schedulingConfig.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
+import { scheduleHasWorkingDays } from '../src/utils/scheduleWorkingDays.js';
 
 const WRITE_ROLES = ['owner', 'admin', 'foreman'];
 const SCHEDULE_FIELDS = new Set([
@@ -15,6 +16,7 @@ const SCHEDULE_FIELDS = new Set([
   'scheduledStartAt',
   'scheduledEndAt',
   'scheduleAllDay',
+  'includeWeekends',
   'scheduleConfirmed',
   'scheduleNotes',
   'crewId',
@@ -45,6 +47,7 @@ function validateSchedulePatch(existing, patch) {
   if (hasOwn(patch, 'scheduledStartAt') && patch.scheduledStartAt !== null && !isDateTime(patch.scheduledStartAt)) return 'Job scheduled start must be a valid ISO datetime.';
   if (hasOwn(patch, 'scheduledEndAt') && patch.scheduledEndAt !== null && !isDateTime(patch.scheduledEndAt)) return 'Job scheduled end must be a valid ISO datetime.';
   if (hasOwn(patch, 'scheduleAllDay') && typeof patch.scheduleAllDay !== 'boolean') return 'Job schedule all-day flag is invalid.';
+  if (hasOwn(patch, 'includeWeekends') && typeof patch.includeWeekends !== 'boolean') return 'Job include-weekends flag is invalid.';
   if (hasOwn(patch, 'scheduleConfirmed') && typeof patch.scheduleConfirmed !== 'boolean') return 'Job schedule confirmed flag is invalid.';
   if (hasOwn(patch, 'scheduleNotes') && typeof patch.scheduleNotes !== 'string') return 'Job schedule notes must be a string.';
   if (hasOwn(patch, 'crewId') && patch.crewId !== null && !isId(patch.crewId)) return 'Job crew is invalid.';
@@ -60,6 +63,7 @@ function validateSchedulePatch(existing, patch) {
 
   const next = { ...existing, ...patch };
   if (next.endDate && next.startDate && next.endDate < next.startDate) return 'Job end date must be on or after the start date.';
+  if (next.startDate && !scheduleHasWorkingDays(next)) return 'This schedule does not contain any working days.';
   if (next.scheduledStartAt && next.scheduledEndAt && Date.parse(next.scheduledEndAt) < Date.parse(next.scheduledStartAt)) {
     return 'Job scheduled end must be on or after the scheduled start.';
   }

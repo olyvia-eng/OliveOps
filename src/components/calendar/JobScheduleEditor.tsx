@@ -7,6 +7,7 @@ import { formatTimeOffType, getEmployeeTimeOffConflicts, type ScheduleTimeOff } 
 import {
   getAssignedEquipmentForJob,
   getJobAssignmentConflicts,
+  getScheduleSegments,
   getScheduleWindowFromValues,
 } from '../../utils/jobSchedule';
 
@@ -17,6 +18,7 @@ type ScheduleFormState = {
   startTime: string;
   endTime: string;
   allDay: boolean;
+  includeWeekends: boolean;
   crewId: ID;
   divisionId: ID;
   assignedEmployeeIds: ID[];
@@ -67,6 +69,7 @@ const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[]): ScheduleFormS
   startTime: timeValueFromIso(job.scheduledStartAt),
   endTime: timeValueFromIso(job.scheduledEndAt),
   allDay: job.scheduleAllDay !== false,
+  includeWeekends: job.includeWeekends !== false,
   crewId: job.crewId ?? '',
   divisionId: job.divisionId ?? '',
   assignedEmployeeIds: [...(job.assignedEmployeeIds ?? [])],
@@ -157,8 +160,12 @@ export default function JobScheduleEditor({
       scheduledStartAt: form.allDay ? undefined : buildIsoDateTime(form.startDate, form.startTime),
       scheduledEndAt: form.allDay ? undefined : buildIsoDateTime(form.endDate || form.startDate, form.endTime || form.startTime),
       scheduleAllDay: form.allDay,
+      includeWeekends: form.includeWeekends,
     });
-  }, [form.allDay, form.endDate, form.endTime, form.startDate, form.startTime]);
+  }, [form.allDay, form.endDate, form.endTime, form.includeWeekends, form.startDate, form.startTime]);
+  const scheduleValidationError = form.startDate && draftScheduleWindow && getScheduleSegments(draftScheduleWindow).length === 0
+    ? 'This schedule does not contain any working days.'
+    : '';
 
   const assignmentConflicts = useMemo(() => {
     if (!selectedJob) return [];
@@ -178,19 +185,21 @@ export default function JobScheduleEditor({
     crews,
     startDate: form.startDate,
     endDate: form.endDate || form.startDate,
+    includeWeekends: form.includeWeekends,
     approvedTimeOff: rangeTimeOff,
-  }), [crews, form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate, rangeTimeOff]);
+  }), [crews, form.assignedEmployeeIds, form.crewId, form.endDate, form.includeWeekends, form.startDate, rangeTimeOff]);
   const employeeAvailability = useMemo(() => new Map(employees.map((employee) => [employee.id, getEmployeeTimeOffConflicts({
     employeeIds: [employee.id],
     crews,
     startDate: form.startDate,
     endDate: form.endDate || form.startDate,
+    includeWeekends: form.includeWeekends,
     approvedTimeOff: rangeTimeOff,
-  })])), [crews, employees, form.endDate, form.startDate, rangeTimeOff]);
+  })])), [crews, employees, form.endDate, form.includeWeekends, form.startDate, rangeTimeOff]);
 
   useEffect(() => {
     setConfirmingTimeOff(false);
-  }, [form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate]);
+  }, [form.assignedEmployeeIds, form.crewId, form.endDate, form.includeWeekends, form.startDate]);
 
   const crewConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingCrewId);
   const employeeConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEmployeeIds.length > 0);
@@ -209,7 +218,7 @@ export default function JobScheduleEditor({
   };
 
   const performSave = async () => {
-    if (!form.startDate || savingRef.current) return;
+    if (!form.startDate || scheduleValidationError || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     const payload: SchedulePayload = {
@@ -219,6 +228,7 @@ export default function JobScheduleEditor({
       scheduledStartAt: form.allDay ? undefined : buildIsoDateTime(form.startDate, form.startTime),
       scheduledEndAt: form.allDay ? undefined : buildIsoDateTime(form.endDate || form.startDate, form.endTime || form.startTime),
       scheduleAllDay: form.allDay,
+      includeWeekends: form.includeWeekends,
       scheduleConfirmed: true,
       scheduleNotes: form.notes.trim(),
       crewId: form.crewId || null,
@@ -236,7 +246,7 @@ export default function JobScheduleEditor({
   };
 
   const handleSave = async () => {
-    if (timeOffLoading || savingRef.current) return;
+    if (timeOffLoading || scheduleValidationError || savingRef.current) return;
     if (timeOffConflicts.length > 0 || assignmentConflicts.length > 0) {
       setConfirmingTimeOff(true);
       return;
@@ -245,7 +255,7 @@ export default function JobScheduleEditor({
   };
 
   const footer = (
-        confirmingTimeOff ? <><Button variant="secondary" onClick={() => setConfirmingTimeOff(false)}>Go Back</Button><Button onClick={() => void performSave()} disabled={saving}>{saving ? 'Saving…' : 'Schedule Anyway'}</Button></> : <><Button variant="secondary" onClick={onExit}>Cancel</Button><Button onClick={() => void handleSave()} disabled={!form.startDate || saving || timeOffLoading}>{saving ? 'Saving…' : timeOffLoading ? 'Checking availability…' : 'Save Schedule'}</Button></>
+        confirmingTimeOff ? <><Button variant="secondary" onClick={() => setConfirmingTimeOff(false)}>Go Back</Button><Button onClick={() => void performSave()} disabled={saving || Boolean(scheduleValidationError)}>{saving ? 'Saving…' : 'Schedule Anyway'}</Button></> : <><Button variant="secondary" onClick={onExit}>Cancel</Button><Button onClick={() => void handleSave()} disabled={!form.startDate || saving || timeOffLoading || Boolean(scheduleValidationError)}>{saving ? 'Saving…' : timeOffLoading ? 'Checking availability…' : 'Save Schedule'}</Button></>
   );
   const content = <div className="space-y-5">
       <div className="grid gap-3 rounded-md border border-brand-100 bg-brand-50/60 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4 dark:border-brand-600 dark:bg-brand-800/70">
@@ -261,10 +271,15 @@ export default function JobScheduleEditor({
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Input label="Start Date *" type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
             <Input label="End Date *" type="date" value={form.endDate} onChange={(event) => setForm((current) => ({ ...current, endDate: event.target.value }))} />
-            <label className="flex items-center gap-3 rounded-md border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100 sm:col-span-2">
+            <label className="flex items-center gap-3 rounded-md border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100">
               <input type="checkbox" checked={form.allDay} onChange={(event) => setForm((current) => ({ ...current, allDay: event.target.checked }))} />
               All Day
             </label>
+            <label className="flex items-center gap-3 rounded-md border border-brand-100 bg-brand-50/70 px-3 py-2 text-sm text-brand-800 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-100">
+              <input type="checkbox" checked={form.includeWeekends} onChange={(event) => setForm((current) => ({ ...current, includeWeekends: event.target.checked }))} />
+              Include weekends
+            </label>
+            {scheduleValidationError ? <p className="text-sm font-medium text-rose-700 sm:col-span-2" role="alert">{scheduleValidationError}</p> : null}
             <Input label="Start Time" type="time" value={form.startTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
             <Input label="End Time" type="time" value={form.endTime} disabled={form.allDay} onChange={(event) => setForm((current) => ({ ...current, endTime: event.target.value }))} />
           </div>

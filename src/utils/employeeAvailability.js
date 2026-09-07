@@ -1,3 +1,5 @@
+import { scheduleHasWorkingDays } from './scheduleWorkingDays.js';
+
 export function dateRangesOverlapInclusive(leftStart, leftEnd, rightStart, rightEnd) {
   return leftStart <= rightEnd && rightStart <= leftEnd;
 }
@@ -16,13 +18,18 @@ export function getCrewEmployeeIds(crewId, crews) {
   return [...new Set([crew.leadEmployeeId, ...(crew.memberIds ?? [])].filter(Boolean))];
 }
 
-export function getEmployeeTimeOffConflicts({ employeeIds, crewId, crews = [], startDate, endDate, approvedTimeOff = [] }) {
+export function getEmployeeTimeOffConflicts({ employeeIds, crewId, crews = [], startDate, endDate, includeWeekends = true, approvedTimeOff = [] }) {
   if (!startDate || !endDate || endDate < startDate) return [];
   const selectedIds = new Set([...employeeIds, ...getCrewEmployeeIds(crewId, crews)]);
   return approvedTimeOff
     .filter((request) => request.status === 'approved'
       && selectedIds.has(request.employeeId)
-      && dateRangesOverlapInclusive(request.startDate, request.endDate, startDate, endDate))
+      && dateRangesOverlapInclusive(request.startDate, request.endDate, startDate, endDate)
+      && scheduleHasWorkingDays({
+        startDate: request.startDate > startDate ? request.startDate : startDate,
+        endDate: request.endDate < endDate ? request.endDate : endDate,
+        includeWeekends,
+      }))
     .map((request) => ({
       requestId: request.id,
       employeeId: request.employeeId,
@@ -41,6 +48,7 @@ export function getJobTimeOffConflicts(job, approvedTimeOff, crews = []) {
     crews,
     startDate: job.startDate,
     endDate: job.endDate || job.startDate,
+    includeWeekends: job.includeWeekends !== false,
     approvedTimeOff,
   });
 }

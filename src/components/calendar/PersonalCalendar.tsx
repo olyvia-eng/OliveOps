@@ -5,7 +5,7 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { addDays } from 'date-fns';
 import type { Customer, ExternalCalendarEvent, Job, Task, CalendarView } from '../../types';
-import { getJobScheduleWindow } from '../../utils/jobSchedule';
+import { getJobScheduleWindow, getScheduleSegments } from '../../utils/jobSchedule';
 import { CalendarToolbar, ScheduleEventCard } from './CalendarControls';
 import { resolveScheduleColour } from '../../utils/scheduleModel.js';
 
@@ -49,16 +49,16 @@ export default function PersonalCalendar({ jobs, tasks, customers, externalEvent
       const schedule = getJobScheduleWindow(job);
       if (!schedule || job.status === 'cancelled') return [];
       const customer = customers.find((item) => item.id === job.customerId);
-      return [{
-        id: `job:${job.id}`,
+      return getScheduleSegments(schedule).map((segment) => ({
+        id: `job:${job.id}:${segment.startKey}`,
         title: job.title,
-        start: schedule.start,
-        end: schedule.allDay ? addDays(schedule.end, 1) : schedule.end,
-        allDay: schedule.allDay,
+        start: segment.start,
+        end: segment.allDay ? addDays(segment.end, 1) : segment.end,
+        allDay: segment.allDay,
         backgroundColor: 'transparent',
         borderColor: 'transparent',
         extendedProps: { kind: 'job' as const, job, summary: customer?.name ?? 'OliveOps job' },
-      }];
+      }));
     });
     const taskEvents = tasks.filter((task) => task.dueDate && task.status === 'open').map((task) => ({
       id: `task:${task.id}`,

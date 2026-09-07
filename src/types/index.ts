@@ -647,6 +647,7 @@ export interface Job {
   scheduledStartAt?: string;
   scheduledEndAt?: string;
   scheduleAllDay?: boolean;
+  includeWeekends?: boolean;
   scheduleNotes?: string;
   scheduleOccurrences?: JobScheduleOccurrence[];
   estimatedHours: number;
@@ -671,6 +672,7 @@ export interface JobScheduleUpdate {
   scheduledStartAt?: string;
   scheduledEndAt?: string;
   scheduleAllDay?: boolean;
+  includeWeekends?: boolean;
   scheduleConfirmed?: boolean;
   scheduleNotes?: string;
   crewId?: ID | null;

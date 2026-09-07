@@ -7,6 +7,8 @@ import interactionPlugin from '@fullcalendar/interaction';
 import {
   format,
   addDays,
+  differenceInCalendarDays,
+  parseISO,
   startOfWeek,
   subDays,
 } from 'date-fns';
@@ -25,6 +27,7 @@ import {
   getAssignedEquipmentForJob,
   getJobAssignmentConflicts,
   getJobScheduleWindow,
+  getScheduleSegments,
 } from '../../utils/jobSchedule';
 
 interface Props {
@@ -33,6 +36,8 @@ interface Props {
 
 type CalendarEventExtendedProps = {
   source: 'oliveops' | 'time_off';
+  jobId?: string;
+  segmentStartKey?: string;
   summary: string;
   timeLabel: string;
   status: string;
@@ -117,23 +122,23 @@ export default function CalendarPage({ currentUserRole }: Props) {
       .sort((left, right) => left.schedule.start.getTime() - right.schedule.start.getTime() || left.job.title.localeCompare(right.job.title));
   }, [budgets, crews, customers, divisions, employees, equipmentAssets, jobs]);
 
-  const oliveOpsEntries = useMemo(() => allScheduledJobs.map((entry) => ({
+  const oliveOpsEntries = useMemo(() => allScheduledJobs.flatMap((entry) => getScheduleSegments(entry.schedule).map((segment) => ({
     source: 'oliveops' as const,
     jobId: entry.job.id,
     title: entry.job.title,
     summary: entry.summary,
-    timeLabel: entry.schedule.allDay ? '' : entry.timeLabel,
+    timeLabel: segment.allDay ? '' : entry.timeLabel,
     status: entry.job.status,
-    start: entry.schedule.start.toISOString(),
-    end: entry.schedule.end.toISOString(),
-    startKey: entry.schedule.startKey,
-    endKey: entry.schedule.endKey,
-    allDay: entry.schedule.allDay,
+    start: segment.start.toISOString(),
+    end: segment.end.toISOString(),
+    startKey: segment.startKey,
+    endKey: segment.endKey,
+    allDay: segment.allDay,
     crew: entry.crew,
     division: entry.division,
     employeeIds: entry.job.assignedEmployeeIds ?? [],
     equipmentIds: entry.job.assignedEquipmentIds ?? [],
-  })), [allScheduledJobs]);
+  }))), [allScheduledJobs]);
 
   const timeOffEntries = useMemo(() => approvedTimeOff.map((request) => {
     const employee = employees.find((item) => item.id === request.employeeId);
@@ -162,21 +167,28 @@ export default function CalendarPage({ currentUserRole }: Props) {
     return allScheduledJobs.filter((entry) => visibleJobIds.has(entry.job.id));
   }, [allScheduledJobs, filteredEntries]);
   const filteredTimeOffEntries = useMemo(() => filteredEntries.filter((entry) => entry.source === 'time_off'), [filteredEntries]);
+  const filteredOliveOpsEntries = useMemo(() => filteredEntries.filter((entry) => entry.source === 'oliveops'), [filteredEntries]);
 
   const legendItems = useMemo(() => getScheduleLegend(filteredEntries, preferences.colourBy), [filteredEntries, preferences.colourBy]);
 
   const calendarEvents = useMemo(() => {
-    const oliveOpsEvents = scheduledJobs.map((entry) => ({
-      id: entry.job.id,
+    const oliveOpsEvents = filteredOliveOpsEntries.flatMap((segment) => {
+      const entry = allScheduledJobs.find((candidate) => candidate.job.id === segment.jobId);
+      if (!entry) return [];
+      return [{
+      id: `${entry.job.id}:${segment.startKey}`,
+      groupId: entry.job.id,
       title: entry.job.title,
-      start: entry.schedule.start,
-      end: entry.schedule.allDay ? addDays(entry.schedule.end, 1) : entry.schedule.end,
-      allDay: entry.schedule.allDay,
+      start: segment.allDay ? segment.startKey : segment.start,
+      end: segment.allDay ? exclusiveEndDateKey(segment.endKey) : segment.end,
+      allDay: segment.allDay,
       backgroundColor: 'transparent',
       borderColor: 'transparent',
       textColor: 'inherit',
       extendedProps: {
         source: 'oliveops' as const,
+        jobId: entry.job.id,
+        segmentStartKey: segment.startKey,
         summary: entry.summary,
         timeLabel: entry.schedule.allDay ? '' : entry.timeLabel,
         status: entry.job.status,
@@ -186,7 +198,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
         colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, crew: entry.crew, division: entry.division }),
         timeOffConflictCount: getJobTimeOffConflicts(entry.job, approvedTimeOff, crews).length,
       } satisfies CalendarEventExtendedProps,
-    }));
+    }];
+    });
     const timeOffEvents = filteredTimeOffEntries.map((entry) => ({
       id: `time-off:${entry.timeOffRequestId}`,
       title: entry.title,
@@ -212,7 +225,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       } satisfies CalendarEventExtendedProps,
     }));
     return [...oliveOpsEvents, ...timeOffEvents];
-  }, [approvedTimeOff, crews, filteredTimeOffEntries, preferences.colourBy, scheduledJobs]);
+  }, [allScheduledJobs, approvedTimeOff, crews, filteredOliveOpsEntries, filteredTimeOffEntries, preferences.colourBy]);
 
   const currentRangeHasEvents = useMemo(() => {
     const firstKey = format(visibleRange.start, 'yyyy-MM-dd');
@@ -379,7 +392,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       scheduledStartAt: shiftedStart.toISOString(),
       scheduledEndAt: shiftedEnd.toISOString(),
     };
-    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
+    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, includeWeekends: entry.job.includeWeekends !== false, approvedTimeOff });
     if (conflicts.length > 0) {
       setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void updateJobSchedule(jobId, payload); }, cancel: () => setPendingTimeOffOverride(null) });
       return;
@@ -389,35 +402,44 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const handleEventDrop = async (eventDrop: any) => {
     const start = eventDrop.event.start;
-    const end = eventDrop.event.end ?? eventDrop.event.start;
+    const props = eventDrop.event.extendedProps as CalendarEventExtendedProps;
+    const jobId = props.jobId;
 
-    if (!start || !end) {
+    if (!start || !jobId || !props.segmentStartKey) {
       eventDrop.revert();
       return;
     }
 
-    const payload = eventDrop.event.allDay
+    const entry = allScheduledJobs.find((item) => item.job.id === jobId);
+    if (!entry) { eventDrop.revert(); return; }
+    const originalSegment = getScheduleSegments(entry.schedule).find((segment) => segment.startKey === props.segmentStartKey);
+    if (!originalSegment) { eventDrop.revert(); return; }
+    const shiftMilliseconds = eventDrop.event.allDay
+      ? differenceInCalendarDays(start, parseISO(`${props.segmentStartKey}T00:00:00`)) * 86400000
+      : start.getTime() - originalSegment.start.getTime();
+    const shiftedStart = new Date(entry.schedule.start.getTime() + shiftMilliseconds);
+    const shiftedEnd = new Date(entry.schedule.end.getTime() + shiftMilliseconds);
+
+    const payload = entry.schedule.allDay
       ? {
-          startDate: format(start, 'yyyy-MM-dd'),
-          endDate: format(subDays(end, 1), 'yyyy-MM-dd'),
+          startDate: format(shiftedStart, 'yyyy-MM-dd'),
+          endDate: format(shiftedEnd, 'yyyy-MM-dd'),
           scheduledStartAt: undefined,
           scheduledEndAt: undefined,
           scheduleAllDay: true,
           scheduleConfirmed: true,
         }
       : {
-          startDate: format(start, 'yyyy-MM-dd'),
-          endDate: format(end, 'yyyy-MM-dd'),
-          scheduledStartAt: start.toISOString(),
-          scheduledEndAt: end.toISOString(),
+          startDate: format(shiftedStart, 'yyyy-MM-dd'),
+          endDate: format(shiftedEnd, 'yyyy-MM-dd'),
+          scheduledStartAt: shiftedStart.toISOString(),
+          scheduledEndAt: shiftedEnd.toISOString(),
           scheduleAllDay: false,
           scheduleConfirmed: true,
         };
 
-    const entry = allScheduledJobs.find((item) => item.job.id === eventDrop.event.id);
-    if (!entry) { eventDrop.revert(); return; }
-    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, approvedTimeOff });
-    const save = async () => { const saved = await updateJobSchedule(eventDrop.event.id, payload); if (!saved) eventDrop.revert(); };
+    const conflicts = getEmployeeTimeOffConflicts({ employeeIds: entry.job.assignedEmployeeIds ?? [], crewId: entry.job.crewId ?? undefined, crews, startDate: payload.startDate, endDate: payload.endDate, includeWeekends: entry.job.includeWeekends !== false, approvedTimeOff });
+    const save = async () => { const saved = await updateJobSchedule(jobId, payload); if (!saved) eventDrop.revert(); };
     if (conflicts.length > 0) {
       setPendingTimeOffOverride({ conflicts, proceed: () => { setPendingTimeOffOverride(null); void save(); }, cancel: () => { setPendingTimeOffOverride(null); eventDrop.revert(); } });
       return;
@@ -427,7 +449,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const renderEventContent = (content: any) => {
     const props = content.event.extendedProps as CalendarEventExtendedProps;
-    const selected = content.event.id === selectedJobId;
+    const selected = props.jobId === selectedJobId;
     const compact = content.view.type === 'dayGridMonth';
 
     const detail = props.source === 'time_off'
@@ -520,7 +542,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
             eventClick={(eventClick) => {
               const props = eventClick.event.extendedProps as CalendarEventExtendedProps;
               if (props.source === 'time_off') { setSelectedTimeOffId(props.timeOffRequest?.id ?? null); setSelectedJobId(null); }
-              else { setSelectedJobId(eventClick.event.id); setSelectedTimeOffId(null); }
+              else { setSelectedJobId(props.jobId ?? null); setSelectedTimeOffId(null); }
             }}
             eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}
             />

@@ -27,6 +27,18 @@ test('fixed Job schedule loads current values and displays immutable Job context
   assert.match(editor, /Current schedule/);
   assert.match(editor, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\]/);
   assert.match(editor, /getAssignedEquipmentForJob\(job, equipmentAssets\)/);
+  assert.match(editor, /includeWeekends: job\.includeWeekends !== false/);
+  assert.match(editor, /checked=\{form\.includeWeekends\}/);
+  assert.match(editor, />\s*Include weekends\s*</);
+});
+
+test('weekend-only schedules are blocked without changing the selected date window', async () => {
+  const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
+  assert.match(editor, /getScheduleSegments\(draftScheduleWindow\)\.length === 0/);
+  assert.match(editor, /This schedule does not contain any working days\./);
+  assert.match(editor, /includeWeekends: form\.includeWeekends/);
+  assert.match(editor, /Boolean\(scheduleValidationError\)/);
+  assert.doesNotMatch(editor, /setForm[\s\S]{0,120}(nextMonday|addDays)/);
 });
 
 test('all schedule conflicts are grouped and require explicit confirmation', async () => {
@@ -44,13 +56,14 @@ test('schedule save is duplicate-safe and cannot mutate lifecycle status', async
     source('../src/pages/jobs/JobSchedulePage.tsx'),
     source('../api/job-schedule.js'),
   ]);
-  assert.match(editor, /if \(!form\.startDate \|\| savingRef\.current\) return/);
+  assert.match(editor, /if \(!form\.startDate \|\| scheduleValidationError \|\| savingRef\.current\) return/);
   assert.match(editor, /savingRef\.current = true/);
   assert.match(editor, /finally \{[\s\S]*savingRef\.current = false/);
   assert.match(page, /updateJobSchedule\(jobId, schedule\)/);
   assert.doesNotMatch(page, /updateJob\(|status:/);
   const fields = api.slice(api.indexOf('const SCHEDULE_FIELDS'), api.indexOf(']);', api.indexOf('const SCHEDULE_FIELDS')));
   assert.doesNotMatch(fields, /status/);
+  assert.match(fields, /includeWeekends/);
 });
 
 test('Job and Schedule entry points use one editor with context-aware return navigation', async () => {

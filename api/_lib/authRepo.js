@@ -4364,6 +4364,7 @@ function mapJobRecordFromItem(item) {
     scheduledStartAt: item.scheduledStartAt,
     scheduledEndAt: item.scheduledEndAt,
     scheduleAllDay: item.scheduleAllDay,
+    includeWeekends: item.includeWeekends,
     scheduleNotes: item.scheduleNotes,
     scheduleOccurrences: Array.isArray(item.scheduleOccurrences) ? item.scheduleOccurrences : undefined,
     estimatedHours: item.estimatedHours,

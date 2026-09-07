@@ -32,7 +32,8 @@ test('employee availability remains selectable and recalculates when Schedule da
   assert.match(editor, /Unavailable/);
   assert.match(editor, /onClick=\{\(\) => toggleEmployee\(employee\.id\)\}/);
   assert.doesNotMatch(editor, /disabled=\{unavailable/);
-  assert.match(editor, /\[form\.endDate, form\.startDate\]/);
+  assert.match(editor, /form\.includeWeekends/);
+  assert.match(editor, /includeWeekends: form\.includeWeekends/);
 });
 
 test('one warning lists all direct and Crew-member conflicts before an explicit override', () => {

@@ -34,6 +34,7 @@ test('Home answers what this user needs to do with a personal command center', (
 
 test('personal calendar renders assigned jobs, due tasks, and private provider events', () => {
   assert.match(personalCalendarSource, /getJobScheduleWindow/);
+  assert.match(personalCalendarSource, /getScheduleSegments\(schedule\)\.map/);
   assert.match(personalCalendarSource, /task\.dueDate && task\.status === 'open'/);
   assert.match(personalCalendarSource, /externalEvents\.map/);
   assert.match(personalCalendarSource, /My Calendar legend/);

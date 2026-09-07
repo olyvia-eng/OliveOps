@@ -23,7 +23,7 @@ export interface EmployeeTimeOffConflict {
 export function dateRangesOverlapInclusive(leftStart: string, leftEnd: string, rightStart: string, rightEnd: string): boolean;
 export function exclusiveEndDateKey(inclusiveEndDate: string): string;
 export function getCrewEmployeeIds(crewId: string | undefined, crews: Crew[]): string[];
-export function getEmployeeTimeOffConflicts(input: { employeeIds: string[]; crewId?: string; crews?: Crew[]; startDate: string; endDate: string; approvedTimeOff?: ScheduleTimeOff[] }): EmployeeTimeOffConflict[];
+export function getEmployeeTimeOffConflicts(input: { employeeIds: string[]; crewId?: string; crews?: Crew[]; startDate: string; endDate: string; includeWeekends?: boolean; approvedTimeOff?: ScheduleTimeOff[] }): EmployeeTimeOffConflict[];
 export function getJobTimeOffConflicts(job: Job, approvedTimeOff: ScheduleTimeOff[], crews?: Crew[]): EmployeeTimeOffConflict[];
 export function normalizeTimeOffScheduleEntry(request: ScheduleTimeOff, employee?: Employee, divisionIds?: string[]): {
   source: 'time_off'; timeOffRequestId: string; title: string; summary: string; timeLabel: string; status: 'approved';

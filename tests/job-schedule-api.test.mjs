@@ -24,6 +24,7 @@ function createHarness(overrides = {}) {
     scheduledStartAt: '2026-09-01T07:00:00',
     scheduledEndAt: '2026-09-03T16:00:00',
     scheduleAllDay: false,
+    includeWeekends: true,
     scheduleConfirmed: true,
     scheduleNotes: 'Original notes',
     crewId: null,
@@ -71,6 +72,7 @@ test('converted Job schedule assigns crew, employees, and equipment without chan
     scheduledStartAt: '2026-09-02T08:00:00',
     scheduledEndAt: '2026-09-04T15:30:00',
     scheduleAllDay: false,
+    includeWeekends: false,
     scheduleConfirmed: true,
     scheduleNotes: 'Use the east gate',
     crewId: 'crew-a',
@@ -91,7 +93,32 @@ test('converted Job schedule assigns crew, employees, and equipment without chan
   assert.equal(harness.persisted.endDate, '2026-09-04');
   assert.equal(harness.persisted.scheduledStartAt, '2026-09-02T08:00:00');
   assert.equal(harness.persisted.scheduledEndAt, '2026-09-04T15:30:00');
+  assert.equal(harness.persisted.includeWeekends, false);
   assert.equal(harness.writes, 1);
+});
+
+test('legacy schedules include weekends and explicit weekday schedules persist', async () => {
+  const legacy = createHarness({ job: { includeWeekends: undefined } });
+  assert.notEqual(legacy.persisted.includeWeekends, false);
+  const response = await legacy.patch({ includeWeekends: false, startDate: '2026-09-04', endDate: '2026-09-07' });
+  assert.equal(response.statusCode, 200);
+  assert.equal(legacy.persisted.includeWeekends, false);
+});
+
+test('weekend-only ranges are rejected when weekends are excluded', async () => {
+  const harness = createHarness();
+  const response = await harness.patch({ startDate: '2026-09-05', endDate: '2026-09-06', includeWeekends: false });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'This schedule does not contain any working days.');
+  assert.equal(harness.writes, 0);
+});
+
+test('includeWeekends must be a boolean', async () => {
+  const harness = createHarness();
+  const response = await harness.patch({ includeWeekends: 'false' });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'Job include-weekends flag is invalid.');
+  assert.equal(harness.writes, 0);
 });
 
 test('converted Job can assign a primary crew without a division mutation', async () => {

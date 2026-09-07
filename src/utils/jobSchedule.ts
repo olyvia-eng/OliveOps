@@ -1,5 +1,6 @@
-import { eachDayOfInterval, endOfDay, format, parseISO, startOfDay } from 'date-fns';
+import { endOfDay, format, parseISO, startOfDay } from 'date-fns';
 import type { Customer, EquipmentAsset, ID, Job } from '../types';
+import { getScheduleDateKeys, getScheduleDateSegments, isScheduleDateIncluded, scheduleDateRangesOverlap, scheduleIncludesWeekends } from './scheduleWorkingDays.js';
 
 export type JobScheduleWindow = {
   start: Date;
@@ -7,6 +8,7 @@ export type JobScheduleWindow = {
   startKey: string;
   endKey: string;
   allDay: boolean;
+  includeWeekends: boolean;
 };
 
 type ScheduleWindowInput = {
@@ -15,6 +17,7 @@ type ScheduleWindowInput = {
   scheduledStartAt?: string;
   scheduledEndAt?: string;
   scheduleAllDay?: boolean;
+  includeWeekends?: boolean;
 };
 
 export type JobAssignmentConflict = {
@@ -63,6 +66,7 @@ export const getScheduleWindowFromValues = ({
   scheduledStartAt,
   scheduledEndAt,
   scheduleAllDay,
+  includeWeekends,
 }: ScheduleWindowInput): JobScheduleWindow | null => {
   const explicitStart = parseDateTime(scheduledStartAt);
   const explicitEnd = parseDateTime(scheduledEndAt);
@@ -84,6 +88,7 @@ export const getScheduleWindowFromValues = ({
     startKey: format(normalizedStart, 'yyyy-MM-dd'),
     endKey: format(safeEnd, 'yyyy-MM-dd'),
     allDay,
+    includeWeekends: includeWeekends !== false,
   };
 };
 
@@ -94,7 +99,51 @@ export const getJobScheduleWindow = (job: Job): JobScheduleWindow | null => {
 
 export const scheduleWindowsOverlap = (left: JobScheduleWindow | null, right: JobScheduleWindow | null) => {
   if (!left || !right) return false;
-  return left.start < right.end && left.end > right.start;
+  if (!scheduleDateRangesOverlap(
+    { startDate: left.startKey, endDate: left.endKey, includeWeekends: left.includeWeekends },
+    { startDate: right.startKey, endDate: right.endKey, includeWeekends: right.includeWeekends },
+  )) return false;
+  return getScheduleSegments(left).some((leftSegment) => getScheduleSegments(right)
+    .some((rightSegment) => leftSegment.start < rightSegment.end && leftSegment.end > rightSegment.start));
+};
+
+export const getScheduleSegments = (window: JobScheduleWindow | null): JobScheduleWindow[] => {
+  if (!window) return [];
+  if (window.includeWeekends) return [window];
+  if (window.allDay) {
+    return getScheduleDateSegments({ startDate: window.startKey, endDate: window.endKey, includeWeekends: false }).map((segment) => ({
+      start: startOfDay(parseISO(`${segment.startKey}T00:00:00`)),
+      end: endOfDay(parseISO(`${segment.endKey}T00:00:00`)),
+      startKey: segment.startKey,
+      endKey: segment.endKey,
+      allDay: true,
+      includeWeekends: false,
+    }));
+  }
+
+  const startTime = format(window.start, 'HH:mm:ss');
+  const endTime = format(window.end, 'HH:mm:ss');
+  return getScheduleDateKeys({ startDate: window.startKey, endDate: window.endKey, includeWeekends: false }).map((dateKey) => {
+    const start = parseISO(`${dateKey}T${startTime}`);
+    const end = parseISO(`${dateKey}T${endTime}`);
+    return {
+      start,
+      end: end >= start ? end : start,
+      startKey: dateKey,
+      endKey: dateKey,
+      allDay: false,
+      includeWeekends: false,
+    };
+  });
+};
+
+export const isJobScheduledOnDate = (job: Job, dateKey: string): boolean => {
+  const window = getJobScheduleWindow(job);
+  return Boolean(window && isScheduleDateIncluded({
+    startDate: window.startKey,
+    endDate: window.endKey,
+    includeWeekends: window.includeWeekends,
+  }, dateKey));
 };
 
 export const getJobAssignmentConflicts = ({
@@ -144,7 +193,11 @@ export const getJobAssignmentConflicts = ({
 export const getScheduledDayKeys = (job: Job): string[] => {
   const window = getJobScheduleWindow(job);
   if (!window) return [];
-  return eachDayOfInterval({ start: startOfDay(window.start), end: startOfDay(window.end) }).map((day) => format(day, 'yyyy-MM-dd'));
+  return getScheduleDateKeys({
+    startDate: window.startKey,
+    endDate: window.endKey,
+    includeWeekends: scheduleIncludesWeekends(job),
+  });
 };
 
 export const formatScheduleTimeLabel = (job: Job): string => {

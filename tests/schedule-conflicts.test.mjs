@@ -6,6 +6,8 @@ test('crew conflict detection uses the canonical overlap window and remains non-
   const source = readFileSync('src/utils/jobSchedule.ts', 'utf8');
   assert.match(source, /const conflictingCrewId = crewId && job\.crewId === crewId/);
   assert.match(source, /scheduleWindowsOverlap\(scheduleWindow, otherSchedule\)/);
+  assert.match(source, /scheduleDateRangesOverlap/);
+  assert.match(source, /getScheduleSegments\(left\)/);
   assert.match(source, /\.\.\.\(conflictingCrewId \? \{ conflictingCrewId \} : \{\}\)/);
 });
 

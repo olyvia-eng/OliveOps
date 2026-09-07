@@ -83,9 +83,27 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(scheduleUtilsSource, /scheduledEndAt/);
   assert.match(scheduleUtilsSource, /getScheduleWindowFromValues/);
   assert.match(scheduleUtilsSource, /getJobAssignmentConflicts/);
+  assert.match(calendarSource, /allScheduledJobs\.flatMap\(\(entry\) => getScheduleSegments\(entry\.schedule\)/);
+  assert.match(calendarSource, /filteredOliveOpsEntries\.flatMap/);
+  assert.match(calendarSource, /segment\.allDay \? segment\.startKey : segment\.start/);
+  assert.match(calendarSource, /segment\.allDay \? exclusiveEndDateKey\(segment\.endKey\) : segment\.end/);
+  assert.match(calendarSource, /jobId: entry\.job\.id/);
+  assert.match(calendarSource, /setSelectedJobId\(props\.jobId \?\? null\)/);
   assert.match(calendarSource, /Open Job/);
   assert.match(calendarSource, /Edit Schedule/);
   assert.doesNotMatch(calendarSource, /Link to=\{`\/jobs\/\$\{job\.id\}`\}/);
+});
+
+test('weekend exclusion segments month, week, and day views without duplicating Jobs', () => {
+  const weekSource = readFileSync('src/components/calendar/CrewLaneWeekView.tsx', 'utf8');
+  assert.match(scheduleUtilsSource, /getScheduleDateSegments/);
+  assert.match(scheduleUtilsSource, /getScheduleDateKeys/);
+  assert.match(calendarSource, /dayGridMonth/);
+  assert.match(calendarSource, /timeGridDay/);
+  assert.match(calendarSource, /<CrewLaneWeekView/);
+  assert.match(weekSource, /buildWeeklyScheduleSpans\(entries, days\.map\(dayKey\)\)/);
+  assert.match(weekSource, /span\.entry\.startKey/);
+  assert.match(calendarSource, /groupId: entry\.job\.id/);
 });
 
 test('job detail page exposes the same schedule workflow and equipment context', () => {

@@ -50,3 +50,19 @@ test('existing scheduled work reports conflicts without mutating the Job assignm
   assert.equal(getJobTimeOffConflicts(job, requests).length, 1);
   assert.deepEqual(job, snapshot);
 });
+
+test('weekend Time Off is ignored for weekday-only Jobs while weekday Time Off conflicts', () => {
+  const approvedTimeOff = [
+    { id: 'saturday', employeeId: 'emp-a', employeeName: 'Jane Smith', requestType: 'vacation', startDate: '2026-09-05', endDate: '2026-09-05', status: 'approved' },
+    { id: 'monday', employeeId: 'emp-a', employeeName: 'Jane Smith', requestType: 'vacation', startDate: '2026-09-07', endDate: '2026-09-07', status: 'approved' },
+  ];
+  const conflicts = getEmployeeTimeOffConflicts({
+    employeeIds: ['emp-a'],
+    startDate: '2026-09-01',
+    endDate: '2026-09-14',
+    includeWeekends: false,
+    approvedTimeOff,
+  });
+  assert.deepEqual(conflicts.map((conflict) => conflict.requestId), ['monday']);
+  assert.equal(getEmployeeTimeOffConflicts({ employeeIds: ['emp-a'], startDate: '2026-09-05', endDate: '2026-09-05', includeWeekends: true, approvedTimeOff }).length, 1);
+});
