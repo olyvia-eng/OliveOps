@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const summarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
+const workspaceSource = readFileSync('src/components/jobs/JobAnalysisWorkspace.tsx', 'utf8');
+const analysisApiSource = readFileSync('src/pages/jobs/jobAnalysisApi.ts', 'utf8');
 const analysisTabSource = detailSource.slice(
   detailSource.indexOf("activeTab === 'analysis'"),
   detailSource.indexOf("activeTab === 'project-management'"),
@@ -22,26 +24,23 @@ test('Jobs list contains long titles and presents labour hours instead of comple
   assert.doesNotMatch(jobsSource, /job\.actualHours \/ job\.estimatedHours/);
 });
 
-test('Job summary and Analysis consume one shared performance model', () => {
+test('Job summary and Analysis use the normalized server performance model', () => {
   assert.match(jobsSource, /new Map\(jobs\.map\(\(job\) => \[job\.id, calculateJobPerformance\(\{/);
   assert.match(jobsSource, /const performance = jobPerformanceById\.get\(job\.id\)!/);
-  assert.match(detailSource, /const performance = useMemo\(\(\) => job \? calculateJobPerformance\(\{/);
-  assert.match(detailSource, /scopeWorkAreaId: resolvedAnalysisScope/);
-  assert.match(detailSource, /setAnalysisScope\('entire-job'\)/);
-  assert.match(detailSource, /<option value="entire-job">Entire Job<\/option>/);
-  assert.match(detailSource, /<option key=\{area\.id\} value=\{area\.id\}>\{area\.name\}<\/option>/);
-  assert.match(detailSource, /<option value="unallocated">Unallocated<\/option>/);
-  assert.match(detailSource, /onChange=\{\(event\) => setAnalysisScope\(event\.target\.value\)\}/);
+  assert.match(detailSource, /<JobAnalysisWorkspace job=\{job\}/);
+  assert.match(analysisApiSource, /scopeWorkAreaId/);
+  assert.match(workspaceSource, /useState\('entire-job'\)/);
+  assert.match(workspaceSource, /<option value="entire-job">Entire Job<\/option>/);
+  assert.match(workspaceSource, /<option key=\{area\.id\} value=\{area\.id\}>\{area\.name\}<\/option>/);
+  assert.match(workspaceSource, /<option value="unallocated">Unallocated<\/option>/);
+  assert.match(workspaceSource, /onChange=\{\(event\) => setScope\(event\.target\.value\)\}/);
   assert.doesNotMatch(detailSource, /trackedLaborCost|projectedProfitFromTracking|job\.actualHours\.toFixed/);
 });
 
-test('Job Analysis stops after the scoped financial summary and cost distribution card', () => {
+test('Job Analysis renders the complete scoped cost workspace', () => {
   assert.match(analysisTabSource, /Job Performance/);
-  assert.match(analysisTabSource, /Accepted Estimate baseline compared with eligible time and recorded costs\./);
-  assert.match(analysisTabSource, /<JobAnalysisSummary performance=\{performance\} \/>/);
-  for (const label of ['Estimated versus actual costs', 'Unbillable work', 'Detailed item comparison', 'Job-linked receipts and expenses', 'JobLabourSummaryCard']) {
-    assert.doesNotMatch(analysisTabSource, new RegExp(label));
-  }
+  assert.match(analysisTabSource, /<JobAnalysisWorkspace job=\{job\} \/>/);
+  for (const label of ['Accepted Estimate baseline compared with direct costs recorded to date.', 'Job Cost Summary', 'Estimated vs Actual', 'Time Analysis', 'Equipment Usage', 'Material Vendor Bills', 'Subcontractor Bills']) assert.match(workspaceSource, new RegExp(label));
 });
 
 test('Job economics mirrors the Budget split-card hierarchy without coupling calculation models', () => {
@@ -99,5 +98,5 @@ test('actual and variance modes filter zero slices and retain genuine unavailabl
   assert.match(summarySource, /row\.variance === null \? \[\] :/);
   assert.match(summarySource, /useDeferredValue\(performance\)/);
   assert.match(summarySource, /deferredPerformance !== performance/);
-  assert.match(detailSource, /scopeWorkAreaId: resolvedAnalysisScope/);
+  assert.match(analysisApiSource, /query\.set\('scopeWorkAreaId', options\.scopeWorkAreaId\)/);
 });

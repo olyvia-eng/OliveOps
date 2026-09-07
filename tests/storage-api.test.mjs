@@ -1035,3 +1035,22 @@ test('crew_member file actions reauthorize the stored file parent entry', async 
     assert.equal(res.statusCode, 403, action);
   }
 });
+
+test('Job cost bill upload requires the tenant bill and stores trusted Job context', async () => {
+  let pendingFile;
+  const handler = createStorageHandler(baseDeps({
+    getJobCostRecordForBusiness: async (businessId, jobId, type, billId) => businessId === 'biz-1' && jobId === 'job-1' && type === 'vendor' && billId === 'bill-1' ? { id: billId, jobId } : null,
+    getJobForBusiness: async (businessId, jobId) => businessId === 'biz-1' && jobId === 'job-1' ? { id: jobId } : null,
+    createPendingFileForBusiness: async ({ file }) => { pendingFile = file; return { ok: true }; },
+  }));
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-upload', entityType: 'job-cost-bill', entityId: 'bill-1', jobId: 'job-1', category: 'invoice', fileName: 'invoice.pdf', mimeType: 'application/pdf', sizeBytes: 100 } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(pendingFile.entityType, 'job-cost-bill');
+  assert.equal(pendingFile.entityId, 'bill-1');
+  assert.equal(pendingFile.jobId, 'job-1');
+
+  const forbidden = createMockRes();
+  await handler({ method: 'POST', body: { action: 'prepare-upload', entityType: 'job-cost-bill', entityId: 'foreign-bill', jobId: 'job-1', category: 'invoice', fileName: 'invoice.pdf', mimeType: 'application/pdf', sizeBytes: 100 } }, forbidden);
+  assert.equal(forbidden.statusCode, 403);
+});

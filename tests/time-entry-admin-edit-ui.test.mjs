@@ -93,15 +93,17 @@ test('selected detail derives from the current server page and full-history tota
 });
 
 test('reports and Job calculations consume updated Time Entry duration and labour snapshots', async () => {
-  const [reports, jobDetail] = await Promise.all([
+  const [reports, jobDetail, jobAnalysis] = await Promise.all([
     source('../src/pages/reports/TimeReportsPage.tsx'),
     source('../src/pages/jobs/JobDetailPage.tsx'),
+    source('../api/job-analysis.js'),
   ]);
   assert.match(reports, /durationHours\(entry\.clockIn, entry\.clockOut, entry\.breakMinutes\)/);
   assert.match(reports, /const totalsByType = useMemo/);
-  assert.match(jobDetail, /calculateJobPerformance/);
-  assert.match(jobDetail, /timeEntries,/);
-  assert.match(jobDetail, /timeCorrections,/);
+  assert.match(jobDetail, /JobAnalysisWorkspace/);
+  assert.match(jobAnalysis, /calculateJobCostAnalysis/);
+  assert.match(jobAnalysis, /listTimeEntriesForBusiness/);
+  assert.match(jobAnalysis, /listTimeCorrectionsForBusiness/);
   assert.doesNotMatch(jobDetail, /trackedLaborCost|employee\.hourlyRate \*/);
 });
 

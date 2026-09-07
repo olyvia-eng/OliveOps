@@ -563,6 +563,91 @@ export interface SubcontractorCatalogItem {
   updatedAt: string;
 }
 
+export interface Vendor {
+  id: ID;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobCostLineItem {
+  id: ID;
+  description: string;
+  materialCatalogItemId?: ID;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  lineTotal: number;
+  workAreaId?: ID;
+}
+
+export interface JobEquipmentUsage {
+  id: ID;
+  jobId: ID;
+  recordType: 'equipment';
+  equipmentId: ID;
+  equipmentNameSnapshot: string;
+  date: string;
+  quantity: number;
+  unit: string;
+  unitCostSnapshot: number;
+  cost: number;
+  workAreaId?: ID;
+  notes?: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobCostBill {
+  id: ID;
+  jobId: ID;
+  recordType: 'vendor' | 'subcontractor';
+  vendorId?: ID;
+  subcontractorId?: ID;
+  invoiceNumber?: string;
+  invoiceDate: string;
+  dueDate?: string;
+  description?: string;
+  notes?: string;
+  lineItems: JobCostLineItem[];
+  taxRate: number;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  attachmentFileId?: ID;
+  accountingIntegration?: { externalProvider?: string; externalBillId?: string; syncStatus?: string; lastSyncedAt?: string };
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobAnalysisPayload {
+  scopeWorkAreaId: string;
+  baselineAvailable: boolean;
+  categories: Array<{ category: 'labour' | 'equipment' | 'material' | 'subcontractor'; estimated: number | null; actual: number | null; variance: number | null }>;
+  labour: import('../utils/jobLabourSummary.js').JobLabourSummary;
+  equipmentUsage: JobEquipmentUsage[];
+  vendorBills: JobCostBill[];
+  subcontractorBills: JobCostBill[];
+  summary: {
+    estimatedTotalCost: number | null;
+    actualCostToDate: number | null;
+    remainingEstimatedCost: number | null;
+    costConsumedPercent: number | null;
+    contractRevenue: number | null;
+    estimatedGrossProfit: number | null;
+    estimatedGrossMargin: number | null;
+    grossProfitAfterRecordedCosts: number | null;
+    grossMarginAfterRecordedCosts: number | null;
+    projectionBasis: 'contract_revenue_less_cost_to_date_not_final_profit';
+  };
+}
+
 export type FeedbackType = 'bug' | 'feature_request' | 'usability' | 'general';
 export type FeedbackStatus = 'new' | 'triaged' | 'in_progress' | 'resolved' | 'closed';
 export type FeedbackPriority = 'low' | 'normal' | 'high';

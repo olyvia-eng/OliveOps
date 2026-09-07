@@ -47,6 +47,7 @@ import {
   listTrainingCompletionsForBusiness,
 } from './_lib/trainingRepo.js';
 import { getSopDefinitionForBusiness, getSopVersionForBusiness } from './_lib/sopRepo.js';
+import { getJobCostRecordForBusiness } from './_lib/jobCostRepo.js';
 
 const STORAGE_FAILURE_MESSAGE = 'Storage service is temporarily unavailable.';
 const DOCUMENT_ENTITY_TYPE = 'document';
@@ -56,6 +57,7 @@ const FORM_ATTACHMENT_ENTITY_TYPE = 'form-attachment';
 const TRAINING_ENTITY_TYPE = 'training';
 const SOP_ENTITY_TYPE = 'sop';
 const BUSINESS_PROFILE_ENTITY_TYPE = 'business-profile';
+const JOB_COST_BILL_ENTITY_TYPE = 'job-cost-bill';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 const BUSINESS_LOGO_MAX_BYTES = 200 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
@@ -75,6 +77,7 @@ const ATTACHMENT_ALLOWLIST = {
   document: DOCUMENT_CATEGORIES,
   job: new Set(['document', 'photo', 'misc']),
   'service-visit': new Set(['photo']),
+  [JOB_COST_BILL_ENTITY_TYPE]: new Set(['invoice']),
   customer: new Set(['document', 'photo', 'misc']),
   estimate: new Set(['document', 'photo', 'misc']),
   employee: new Set(['document', 'photo', 'misc']),
@@ -265,6 +268,7 @@ const defaultDeps = {
   getFormSubmissionForBusiness,
   getJobForBusiness,
   getServiceVisitForBusiness,
+  getJobCostRecordForBusiness,
   getEmployeeForBusiness,
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
@@ -383,6 +387,17 @@ export function createStorageHandler(overrides = {}) {
       if (!visit) return null;
       const crews = await deps.listCrewsForBusiness(session.businessId);
       return { entity: visit, allowed: isEmployeeAssignedToServiceVisit(session, visit, crews) };
+    }
+
+    if (entityType === JOB_COST_BILL_ENTITY_TYPE) {
+      let resolvedJobId = typeof jobId === 'string' ? jobId.trim() : '';
+      if (!resolvedJobId && fileId) resolvedJobId = (await deps.getFileForBusiness(session.businessId, fileId))?.jobId ?? '';
+      if (!resolvedJobId || !canManageDocuments(session.role)) return null;
+      const bill = await deps.getJobCostRecordForBusiness(session.businessId, resolvedJobId, 'vendor', entityId)
+        ?? await deps.getJobCostRecordForBusiness(session.businessId, resolvedJobId, 'subcontractor', entityId);
+      if (!bill) return null;
+      const job = await deps.getJobForBusiness(session.businessId, resolvedJobId);
+      return { entity: bill, allowed: Boolean(job && bill.jobId === job.id) };
     }
 
     if (entityType === 'customer') {
@@ -566,6 +581,12 @@ export function createStorageHandler(overrides = {}) {
             formContext = { jobId, serviceId, serviceVisitId: entityId };
           }
 
+          if (entityType === JOB_COST_BILL_ENTITY_TYPE) {
+            const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
+            if (!jobId) return res.status(400).json({ ok: false, error: 'Bill upload context is invalid.' });
+            formContext = { jobId };
+          }
+
           const resolvedEntity = entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE
             ? { entity: { id: entityId }, allowed: true }
             : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, jobId: body.jobId, accessMode: 'write' });
@@ -739,7 +760,7 @@ export function createStorageHandler(overrides = {}) {
           const attachmentField = file.entityType === DOCUMENT_ENTITY_TYPE
             ? undefined
             : getAttachmentFieldForCategory({ entityType: file.entityType, category: normalizedCategory });
-          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE, BUSINESS_PROFILE_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
+          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE, BUSINESS_PROFILE_ENTITY_TYPE, JOB_COST_BILL_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
             return res.status(400).json({ ok: false, error: 'Unsupported attachment category.' });
           }
 

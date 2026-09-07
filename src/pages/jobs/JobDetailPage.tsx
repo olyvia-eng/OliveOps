@@ -11,8 +11,7 @@ import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatScheduleTimeLabel, getAssignedEquipmentForJob } from '../../utils/jobSchedule';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import OutstandingTasks from '../home/OutstandingTasks';
-import JobAnalysisSummary from '../../components/jobs/JobAnalysisSummary';
-import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
+import JobAnalysisWorkspace from '../../components/jobs/JobAnalysisWorkspace';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 import JobSopsCard from '../../components/jobs/JobSopsCard';
@@ -65,7 +64,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, labourClasses, crews, invoices, expenses, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, crews, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
@@ -77,7 +76,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [submissionLoading, setSubmissionLoading] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [responseFileUrls, setResponseFileUrls] = useState<Record<string, string>>({});
-  const [analysisScope, setAnalysisScope] = useState('entire-job');
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const [showAllNotes, setShowAllNotes] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
@@ -216,40 +214,6 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     };
   }, [allJobTimeEntries]);
 
-  const availableAnalysisScopeIds = useMemo(() => new Set((job?.operationalWorkAreas ?? []).map((area) => area.id)), [job?.operationalWorkAreas]);
-  const resolvedAnalysisScope = analysisScope === 'entire-job' || analysisScope === 'unallocated' || availableAnalysisScopeIds.has(analysisScope)
-    ? analysisScope
-    : 'entire-job';
-  const performance = useMemo(() => job ? calculateJobPerformance({
-    job,
-    employees,
-    labourClasses,
-    timeEntries,
-    timeCorrections,
-    invoices,
-    expenses,
-    scopeWorkAreaId: resolvedAnalysisScope,
-  }) : null, [employees, expenses, invoices, job, labourClasses, resolvedAnalysisScope, timeCorrections, timeEntries]);
-  const unallocatedPerformance = useMemo(() => job ? calculateJobPerformance({
-    job,
-    employees,
-    labourClasses,
-    timeEntries,
-    timeCorrections,
-    invoices,
-    expenses,
-    scopeWorkAreaId: 'unallocated',
-  }) : null, [employees, expenses, invoices, job, labourClasses, timeCorrections, timeEntries]);
-  const hasUnallocatedData = Boolean(unallocatedPerformance && (
-    unallocatedPerformance.labour.actual.hasData
-    || unallocatedPerformance.expenses.length > 0
-    || unallocatedPerformance.details.some((row) => row.status === 'actual-only')
-  ));
-  useEffect(() => {
-    if (analysisScope !== resolvedAnalysisScope || analysisScope === 'unallocated' && !hasUnallocatedData) {
-      setAnalysisScope('entire-job');
-    }
-  }, [analysisScope, hasUnallocatedData, resolvedAnalysisScope]);
   const originalContractRevenue = job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? job?.contractValue ?? 0;
 
   const employeeTimeEntryNotes = useMemo(
@@ -479,26 +443,9 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'analysis' && canViewAnalysis && (
-        !performance ? (
-          <Card className="p-4">
-            <EmptyState
-              title="Job analysis is unavailable"
-              description="The Job performance model could not be calculated."
-            />
-          </Card>
-        ) : (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div><h2 className="text-lg font-semibold text-gray-900">Job Performance</h2><p className="text-sm text-gray-500">Accepted Estimate baseline compared with eligible time and recorded costs.</p>{resolvedAnalysisScope === 'entire-job' && hasUnallocatedData ? <p className="mt-1 text-xs font-medium text-brand-700">Entire Job includes Work Areas and clearly separated Unallocated records.</p> : null}</div>
-              <Select label="Scope" value={resolvedAnalysisScope} onChange={(event) => setAnalysisScope(event.target.value)} className="min-w-56">
-                <option value="entire-job">Entire Job</option>
-                {(job.operationalWorkAreas ?? []).slice().sort((left, right) => left.sortOrder - right.sortOrder).map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}
-                {hasUnallocatedData ? <option value="unallocated">Unallocated</option> : null}
-              </Select>
-            </div>
-            <JobAnalysisSummary performance={performance} />
-          </div>
-        )
+        <section aria-label="Job Performance">
+          <JobAnalysisWorkspace job={job} />
+        </section>
       )}
 
       {activeTab === 'project-management' && (

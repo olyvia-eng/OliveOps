@@ -175,12 +175,14 @@ export async function uploadFileToStorage({
 	entityType,
 	entityId,
 	category,
+	jobId,
 	onProgress,
 }: {
 	file: File;
 	entityType: string;
 	entityId: string;
 	category: string;
+	jobId?: string;
 	onProgress?: (percent: number) => void;
 }): Promise<{ fileId: string; file?: UploadedDocumentMetadata }> {
 	const validation = validateUploadPayload({
@@ -205,6 +207,7 @@ export async function uploadFileToStorage({
 			entityType,
 			entityId,
 			category,
+			jobId,
 		}),
 	});
 
