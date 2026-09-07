@@ -36,8 +36,26 @@ const NAVIGATION_CONFIG: SidebarConfig = {
       defaultExpanded: true,
       items: [
         { id: 'workflow-clients', type: 'link', to: '/crm', label: 'Clients', icon: icon(Users) },
-        { id: 'workflow-estimates', type: 'link', to: '/estimates', label: 'Estimates', icon: icon(FileText) },
-        { id: 'workflow-jobs', type: 'link', to: '/jobs', label: 'Jobs', icon: icon(Briefcase) },
+        {
+          id: 'workflow-estimates',
+          type: 'group',
+          label: 'Estimates',
+          icon: icon(FileText),
+          children: [
+            { id: 'workflow-project-estimates', type: 'link', to: '/estimates/projects', label: 'Projects' },
+            { id: 'workflow-service-estimates', type: 'link', to: '/estimates/services', label: 'Services' },
+          ],
+        },
+        {
+          id: 'workflow-jobs',
+          type: 'group',
+          label: 'Jobs',
+          icon: icon(Briefcase),
+          children: [
+            { id: 'workflow-project-jobs', type: 'link', to: '/jobs/projects', label: 'Projects' },
+            { id: 'workflow-service-jobs', type: 'link', to: '/jobs/services', label: 'Services' },
+          ],
+        },
         { id: 'workflow-schedule', type: 'link', to: '/schedule', label: 'Schedule', icon: icon(CalendarDays) },
       ],
     },

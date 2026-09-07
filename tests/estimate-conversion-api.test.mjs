@@ -146,6 +146,38 @@ test('convert-to-job returns job and estimate patch on success', async () => {
   assert.equal(conversionPayload.job.jobNumber, 'JOB-2026-0007');
 });
 
+test('convert-to-job creates a Service Job without Project operational Work Areas or Visits', async () => {
+  const estimate = {
+    ...baseEstimate(),
+    workType: 'service',
+    title: 'Seasonal grounds care',
+    workAreas: undefined,
+    serviceStartDate: '2027-04-01',
+    serviceEndDate: '2027-10-31',
+    services: [{ id: 'service-1', name: 'Weekly mowing', description: 'Cut and trim', divisionId: 'division-1', sortOrder: 0, scheduleType: 'recurring', billingType: 'contract', startDate: '2027-04-15', endDate: '2027-10-31', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 29 }],
+  };
+  const handler = createEstimatesHandler({
+    requireSession: async () => baseSession(),
+    getEstimateForBusiness: async () => estimate,
+    reserveNextJobNumberForBusiness: async () => 'JOB-2027-0001',
+    convertEstimateToJobForBusiness: async () => ({ ok: true }),
+  });
+  const res = createMockRes();
+
+  await handler({ method: 'POST', query: { action: 'convert-to-job' }, body: { estimateId: estimate.id } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.job.workType, 'service');
+  assert.equal(res.body.job.startDate, '2027-04-01');
+  assert.equal(res.body.job.endDate, '2027-10-31');
+  assert.equal(res.body.job.operationalWorkAreas, undefined);
+  assert.equal(res.body.job.scheduleOccurrences, undefined);
+  assert.deepEqual(res.body.job.workAreas, []);
+  assert.deepEqual(res.body.job.services, estimate.services);
+  assert.deepEqual(res.body.job.originalEstimateSnapshot.services, estimate.services);
+  assert.notEqual(res.body.job.services, res.body.job.originalEstimateSnapshot.services);
+});
+
 test('convert-to-job preserves accepted equipment cost and charge-out snapshots', async () => {
   const estimate = baseEstimate();
   estimate.workAreas[0].lineItems = [

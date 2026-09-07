@@ -10,6 +10,7 @@ import {
   calculateJobPlan,
   cloneJobPlan,
 } from '../src/utils/jobPlanModel.js';
+import { normalizeEstimateServices, resolveWorkType } from '../src/utils/workTypeModel.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -156,6 +157,7 @@ export function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
 
   return {
     estimateId: estimate.id,
+    workType: 'project',
     customerId: estimate.customerId,
     proposalNumber: estimate.proposalNumber,
     pricingBudgetId: estimate.pricingBudgetId,
@@ -173,7 +175,84 @@ export function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
   };
 }
 
+function buildServiceEstimateSnapshot(estimate, services) {
+  return {
+    estimateId: estimate.id,
+    workType: 'service',
+    customerId: estimate.customerId,
+    proposalNumber: estimate.proposalNumber,
+    pricingBudgetId: estimate.pricingBudgetId,
+    propertyLabel: estimate.propertyLabel,
+    propertyAddressSnapshot: estimate.propertyAddressSnapshot,
+    subtotal: 0,
+    taxRate: toNumber(estimate.taxRate),
+    taxAmount: 0,
+    total: 0,
+    estimatedCost: 0,
+    estimatedProfit: 0,
+    estimatedMarginPct: 0,
+    notes: typeof estimate.notes === 'string' ? estimate.notes : '',
+    workAreas: [],
+    services: structuredClone(services),
+    serviceStartDate: estimate.serviceStartDate,
+    serviceEndDate: estimate.serviceEndDate,
+  };
+}
+
+function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
+  const services = normalizeEstimateServices(estimate.services, generateId);
+  const firstServiceStart = services.map((service) => service.startDate).filter(Boolean).sort()[0];
+  const lastServiceEnd = services.map((service) => service.endDate).filter(Boolean).sort().at(-1);
+  const jobStartDate = isNonEmptyString(startDate)
+    ? startDate
+    : (estimate.serviceStartDate ?? firstServiceStart ?? convertedAt.slice(0, 10));
+  const jobEndDate = isNonEmptyString(endDate)
+    ? endDate
+    : (estimate.serviceEndDate ?? lastServiceEnd);
+
+  return {
+    id: generateId(),
+    workType: 'service',
+    jobNumber,
+    estimateId: estimate.id,
+    sourceEstimateId: estimate.id,
+    convertedFromEstimateAt: convertedAt,
+    convertedByUserId: actorUserId,
+    convertedByUserName: actorName,
+    customerId: estimate.customerId,
+    pricingBudgetId: estimate.pricingBudgetId,
+    divisionId: estimate.divisionId,
+    propertyLabel: estimate.propertyLabel,
+    propertyAddressSnapshot: estimate.propertyAddressSnapshot,
+    title: convertedJobTitle(estimate, title, jobNumber),
+    description: typeof estimate.description === 'string' ? estimate.description : '',
+    workAreas: [],
+    services: structuredClone(services),
+    originalEstimateSnapshot: buildServiceEstimateSnapshot(estimate, services),
+    status: 'scheduled',
+    startDate: jobStartDate,
+    endDate: jobEndDate,
+    scheduleConfirmed: isNonEmptyString(startDate) || isNonEmptyString(endDate),
+    scheduleAllDay: true,
+    estimatedHours: 0,
+    actualHours: 0,
+    estimatedCost: 0,
+    currentPlannedCost: 0,
+    originalContractRevenue: 0,
+    currentContractRevenue: 0,
+    actualCosts: [],
+    contractValue: 0,
+    assignedEmployeeIds: [],
+    notes: typeof estimate.notes === 'string' ? estimate.notes : '',
+    createdAt: convertedAt,
+    updatedAt: convertedAt,
+  };
+}
+
 function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
+  if (resolveWorkType(estimate) === 'service') {
+    return buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber });
+  }
   const operationalWorkAreas = buildJobWorkAreasFromEstimate(estimate);
   const snapshot = buildOriginalEstimateSnapshot(estimate, operationalWorkAreas);
   const plan = calculateJobPlan(operationalWorkAreas);
@@ -185,6 +264,7 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
 
   return {
     id: generateId(),
+    workType: 'project',
     jobNumber,
     estimateId: estimate.id,
     sourceEstimateId: estimate.id,

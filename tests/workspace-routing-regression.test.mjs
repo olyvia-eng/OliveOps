@@ -8,9 +8,13 @@ const budgetWorkspaceSource = readFileSync('src/pages/budget/BudgetWorkspacePage
 const budgetDetailSource = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const estimateWorkspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
+const serviceEstimatesSource = readFileSync('src/pages/estimates/ServiceEstimatesPage.tsx', 'utf8');
+const serviceEstimateWorkspaceSource = readFileSync('src/pages/estimates/ServiceEstimateWorkspacePage.tsx', 'utf8');
 const workAreaBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
 const jobsSource = readFileSync('src/pages/jobs/JobsPage.tsx', 'utf8');
 const jobWorkspaceSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+const serviceJobsSource = readFileSync('src/pages/jobs/ServiceJobsPage.tsx', 'utf8');
+const serviceJobWorkspaceSource = readFileSync('src/pages/jobs/ServiceJobDetailPage.tsx', 'utf8');
 const jobScheduleSource = readFileSync('src/pages/jobs/JobSchedulePage.tsx', 'utf8');
 const sidebarSource = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const sidebarItemSource = readFileSync('src/components/layout/SidebarItem.tsx', 'utf8');
@@ -22,8 +26,32 @@ const dataApiSource = readFileSync('api/data.js', 'utf8');
 
 test('estimate and job workspaces are wired with the current user context', () => {
   assert.match(appSource, /path="estimates\/:id"/);
-  assert.match(appSource, /<EstimateWorkspacePage currentUserRole=\{sessionUser\.role\} \/>/);
-  assert.match(appSource, /<JobDetailPage currentUserRole=\{sessionUser\.role\} currentUserId=\{sessionUser\.id\} \/>/);
+  assert.match(appSource, /<EstimateDetailRoute currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(appSource, /<JobDetailRoute currentUserRole=\{sessionUser\.role\} currentUserId=\{sessionUser\.id\} \/>/);
+  assert.match(appSource, /resolveWorkType\(estimate\) === 'service'/);
+  assert.match(appSource, /resolveWorkType\(job\) === 'service'/);
+});
+
+test('Project and Service work have separate list routes and grouped navigation', () => {
+  for (const route of ['estimates/projects', 'estimates/services', 'jobs/projects', 'jobs/services']) {
+    assert.match(appSource, new RegExp(`path="${route}"`));
+  }
+  assert.match(appSource, /<WorkListRedirect to="\/estimates\/projects" \/>/);
+  assert.match(appSource, /<WorkListRedirect to="\/jobs\/projects" \/>/);
+  assert.match(sidebarConfigSource, /type: 'group',[\s\S]*label: 'Estimates'[\s\S]*to: '\/estimates\/projects'[\s\S]*to: '\/estimates\/services'/);
+  assert.match(sidebarConfigSource, /type: 'group',[\s\S]*label: 'Jobs'[\s\S]*to: '\/jobs\/projects'[\s\S]*to: '\/jobs\/services'/);
+  assert.match(sidebarItemSource, /resolveWorkType\(estimate\)[\s\S]*resolveWorkType\(job\)/);
+});
+
+test('Service workspaces model agreements without generating Visits or Project Work Areas', () => {
+  assert.match(serviceEstimatesSource, /workType: 'service'/);
+  assert.match(serviceEstimateWorkspaceSource, /scheduleType[\s\S]*billingType[\s\S]*estimatedVisits/);
+  assert.match(serviceEstimateWorkspaceSource, /This does not generate Visits\./);
+  assert.doesNotMatch(serviceEstimateWorkspaceSource, /operationalWorkAreas|createDefaultEstimateWorkArea/);
+  assert.match(serviceJobsSource, /resolveWorkType\(job\) === 'service'/);
+  assert.match(serviceJobWorkspaceSource, /No Visits have been generated\./);
+  assert.match(appSource, /ProjectEstimateWorkAreaRoute[\s\S]*<Navigate to=\{`\/estimates\/\$\{id\}`\} replace \/>/);
+  assert.match(appSource, /ProjectJobScheduleRoute[\s\S]*<Navigate to=\{`\/jobs\/\$\{id\}`\} replace \/>/);
 });
 
 test('lightweight estimate creation returns an id and opens the workspace', () => {
@@ -76,7 +104,7 @@ test('estimate editing uses a URL-backed tab workspace with restricted analysis'
 
 test('work-area builder uses a dedicated nested route and returns to estimate work-areas tab', () => {
   assert.match(appSource, /path="estimates\/:id\/work-areas\/:workAreaId"/);
-  assert.match(appSource, /<EstimateWorkAreaBuilderPage currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(appSource, /<ProjectEstimateWorkAreaRoute currentUserRole=\{sessionUser\.role\} \/>/);
   assert.match(workAreaBuilderSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\)/);
   assert.match(workAreaBuilderSource, /Pricing: \$\{pricingBudget\.name\}/);
   assert.match(workAreaBuilderSource, /fetch\(`\/api\/estimate-pricing-catalog\?estimateId=\$\{encodeURIComponent\(estimate\.id\)\}`/);
@@ -196,7 +224,7 @@ test('full Job workspace retains management tabs and role gates', () => {
 
 test('Job scheduling uses a dedicated fixed-Job route and returns to Project Management', () => {
   assert.match(appSource, /path="jobs\/:id\/schedule"/);
-  assert.match(appSource, /<JobSchedulePage currentUserRole=\{sessionUser\.role\} \/>/);
+  assert.match(appSource, /<ProjectJobScheduleRoute currentUserRole=\{sessionUser\.role\} \/>/);
   assert.match(jobWorkspaceSource, /navigate\(`\/jobs\/\$\{job\.id\}\/schedule`\)/);
   assert.match(jobScheduleSource, /<JobScheduleEditor/);
   assert.match(jobScheduleSource, /job=\{job\}/);

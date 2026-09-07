@@ -15,6 +15,7 @@ import {
 import type { Address, Estimate, EstimateStatus, ID } from '../../types';
 import { activeDivisionsForBudget, resolveEstimateDivisionId } from './estimateSetupModel.js';
 import { createEstimateProposalDocument, fetchEstimateProposal, proposalPdfFileName } from '../../utils/estimateProposalPdf';
+import { resolveWorkType } from '../../utils/workTypeModel.js';
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
 
@@ -131,6 +132,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
   const [proposalEstimateId, setProposalEstimateId] = useState<string | null>(null);
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const projectEstimates = estimates.filter((estimate) => resolveWorkType(estimate) === 'project');
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -197,7 +199,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     });
   }, [pricingDivisions]);
 
-  const filtered = estimates.filter((estimate) => {
+  const filtered = projectEstimates.filter((estimate) => {
     const customer = customers.find((item) => item.id === estimate.customerId);
     const matchSearch =
       estimate.title.toLowerCase().includes(search.toLowerCase())
@@ -254,6 +256,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
         validUntil: defaultValidUntil(),
       })
       : await addEstimate({
+        workType: 'project',
         customerId: createForm.customerId,
         pricingBudgetId: createForm.pricingBudgetId,
         divisionId: createForm.divisionId,
@@ -325,8 +328,8 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
   return (
     <div>
       <PageHeader
-        title="Estimates"
-        subtitle="Create and manage estimates for your customers."
+        title="Project Estimates"
+        subtitle="Price defined scopes of work and prepare customer proposals."
         action={<Button onClick={() => openNew()}><Plus size={16} /> New Estimate</Button>}
       />
 
@@ -351,7 +354,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
       </div>
 
       {filtered.length === 0 ? (
-        estimates.length === 0 ? (
+        projectEstimates.length === 0 ? (
           !hasCustomers ? (
             <EmptyState
               icon={<Users aria-hidden="true" />}

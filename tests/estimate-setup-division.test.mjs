@@ -118,6 +118,7 @@ test('multiple or zero active Divisions prevent creation until a valid choice ex
 test('Estimate API accepts an active matching Division and rejects stale Budget relationships', async (t) => {
   const records = installDdbMock(t);
   seed(records, 'biz-a', 'USER#user-a', { entityType: 'USER', userId: 'user-a', name: 'Admin', email: 'admin@example.com', role: 'admin', active: true, passwordHash: 'hash' });
+  seed(records, 'biz-a', 'CUSTOMER#customer-a', { entityType: 'CUSTOMER', customerId: 'customer-a', id: 'customer-a', name: 'Customer A', status: 'client' });
   seed(records, 'biz-a', 'BUDGET_META#budget-a', { entityType: 'BUDGET', budgetId: 'budget-a', id: 'budget-a', name: 'Budget A', planningModel: 'divisions_v1', status: 'active' });
   seed(records, 'biz-a', 'BUDGET_META#budget-b', { entityType: 'BUDGET', budgetId: 'budget-b', id: 'budget-b', name: 'Budget B', planningModel: 'divisions_v1', status: 'active' });
   seed(records, 'biz-a', 'BUDGET_DIVISION#budget-a#DIVISION#active-a', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-a', divisionId: 'active-a', id: 'active-a', name: 'Active A', status: 'active' });
@@ -158,4 +159,39 @@ test('Estimate API accepts an active matching Division and rejects stale Budget 
   assert.match(dataApiSource, /getBudgetDivisionForBusiness\(businessId, estimate\.pricingBudgetId, estimate\.divisionId\)/);
   assert.match(dataApiSource, /enforceEstimateWorkAreaDivisionModel\(existing, next\)/);
   assert.match(estimatesPageSource, /if \(!estimateId\) return;\s*setCreateModalOpen\(false\);\s*navigate\(`\/estimates\/\$\{estimateId\}`\)/);
+});
+
+test('Service Estimate API persists Services without generating Project Work Areas', async (t) => {
+  const records = installDdbMock(t);
+  seed(records, 'biz-a', 'USER#user-a', { entityType: 'USER', userId: 'user-a', name: 'Admin', email: 'admin@example.com', role: 'admin', active: true, passwordHash: 'hash' });
+  seed(records, 'biz-a', 'CUSTOMER#customer-a', { entityType: 'CUSTOMER', customerId: 'customer-a', id: 'customer-a', name: 'Customer A', status: 'client' });
+  seed(records, 'biz-a', 'BUDGET_META#budget-a', { entityType: 'BUDGET', budgetId: 'budget-a', id: 'budget-a', name: 'Budget A', planningModel: 'divisions_v1', status: 'active' });
+  seed(records, 'biz-a', 'BUDGET_DIVISION#budget-a#DIVISION#service-a', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-a', divisionId: 'service-a', id: 'service-a', name: 'Maintenance', status: 'active' });
+  seed(records, 'biz-a', 'BUDGET_DIVISION#budget-a#DIVISION#archived-a', { entityType: 'BUDGET_DIVISION', budgetId: 'budget-a', divisionId: 'archived-a', id: 'archived-a', name: 'Archived', status: 'archived' });
+  await createMobileSessionForUser({ user: { id: 'user-a', businessId: 'biz-a', name: 'Admin', email: 'admin@example.com', role: 'admin', businessName: 'Business A' }, accessToken: 'estimate-setup-token', expiresInSeconds: 3600 });
+
+  const serviceEstimate = {
+    ...estimate('service-valid', 'budget-a', undefined),
+    workType: 'service',
+    workAreas: undefined,
+    services: [{ id: 'service-1', name: 'Weekly maintenance', description: '', divisionId: 'service-a', sortOrder: 0, scheduleType: 'recurring', billingType: 'contract', startDate: '2027-04-15', endDate: '2027-10-31', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 29 }],
+  };
+  const accepted = await postEstimate(serviceEstimate);
+  assert.equal(accepted.statusCode, 200);
+  assert.equal(accepted.body.estimate.workType, 'service');
+  assert.equal(accepted.body.estimate.workAreas, undefined);
+  assert.equal(accepted.body.estimate.services[0].id, 'service-1');
+  assert.equal(records.get('BUSINESS#biz-a|ESTIMATE#service-valid').workAreas, undefined);
+
+  const invalidDivision = await postEstimate({
+    ...serviceEstimate,
+    id: 'service-invalid-division',
+    services: [{ ...serviceEstimate.services[0], divisionId: 'archived-a' }],
+  });
+  assert.equal(invalidDivision.statusCode, 400);
+  assert.match(invalidDivision.body.error, /Service Division/);
+
+  const invalidWorkType = await postEstimate({ ...serviceEstimate, id: 'service-invalid-type', workType: 'maintenance' });
+  assert.equal(invalidWorkType.statusCode, 400);
+  assert.match(invalidWorkType.body.error, /work type/);
 });

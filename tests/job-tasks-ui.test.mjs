@@ -21,7 +21,8 @@ test('Job Tasks are scoped by the authoritative related Job fields', () => {
   assert.match(jobSource, /relatedEntityType: 'job'/);
   assert.match(jobSource, /relatedEntityId: job\.id/);
   assert.match(jobSource, /assignedUserId: currentUserId/);
-  assert.match(appSource, /<JobDetailPage currentUserRole=\{sessionUser\.role\} currentUserId=\{sessionUser\.id\}/);
+  assert.match(appSource, /<JobDetailRoute currentUserRole=\{sessionUser\.role\} currentUserId=\{sessionUser\.id\}/);
+  assert.match(appSource, /<JobDetailPage currentUserRole=\{currentUserRole\} currentUserId=\{currentUserId\}/);
 });
 
 test('Job task headers enter inline editing on double click and persist on the Job', () => {

@@ -1,6 +1,6 @@
 import { getDisplayName } from './auth/displayName';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
@@ -8,17 +8,22 @@ import type { Budget, BudgetDivision, BudgetDivisionPlanningItem, BudgetGroup, B
 import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
 import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
+import { resolveWorkType } from './utils/workTypeModel.js';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
 const CRMPage = lazy(() => import('./pages/crm/CRMPage'));
 const EstimatesPage = lazy(() => import('./pages/estimates/EstimatesPage'));
+const ServiceEstimatesPage = lazy(() => import('./pages/estimates/ServiceEstimatesPage'));
+const ServiceEstimateWorkspacePage = lazy(() => import('./pages/estimates/ServiceEstimateWorkspacePage'));
 const EstimateWorkspacePage = lazy(() => import('./pages/estimates/EstimateWorkspacePage'));
 const EstimateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/EstimateWorkAreaBuilderPage'));
 const TemplatesPage = lazy(() => import('./pages/estimates/TemplatesPage'));
 const TemplateWorkspacePage = lazy(() => import('./pages/estimates/TemplateWorkspacePage'));
 const TemplateWorkAreaBuilderPage = lazy(() => import('./pages/estimates/TemplateWorkAreaBuilderPage'));
 const JobsPage = lazy(() => import('./pages/jobs/JobsPage'));
+const ServiceJobsPage = lazy(() => import('./pages/jobs/ServiceJobsPage'));
+const ServiceJobDetailPage = lazy(() => import('./pages/jobs/ServiceJobDetailPage'));
 const JobDetailPage = lazy(() => import('./pages/jobs/JobDetailPage'));
 const JobSchedulePage = lazy(() => import('./pages/jobs/JobSchedulePage'));
 const JobWorkAreaBuilderPage = lazy(() => import('./pages/jobs/JobWorkAreaBuilderPage'));
@@ -76,6 +81,51 @@ function clearBusinessDataStore() {
 function LegacyCalendarRedirect() {
   const location = useLocation();
   return <Navigate to={`/schedule${location.search}`} replace />;
+}
+
+function WorkListRedirect({ to }: { to: string }) {
+  const location = useLocation();
+  return <Navigate to={`${to}${location.search}`} replace />;
+}
+
+function EstimateDetailRoute({ currentUserRole }: { currentUserRole: string }) {
+  const { id } = useParams<{ id: string }>();
+  const estimate = useStore((state) => state.estimates.find((item) => item.id === id));
+  return resolveWorkType(estimate) === 'service'
+    ? <ServiceEstimateWorkspacePage />
+    : <EstimateWorkspacePage currentUserRole={currentUserRole} />;
+}
+
+function JobDetailRoute({ currentUserRole, currentUserId }: { currentUserRole: string; currentUserId: string }) {
+  const { id } = useParams<{ id: string }>();
+  const job = useStore((state) => state.jobs.find((item) => item.id === id));
+  return resolveWorkType(job) === 'service'
+    ? <ServiceJobDetailPage />
+    : <JobDetailPage currentUserRole={currentUserRole} currentUserId={currentUserId} />;
+}
+
+function ProjectEstimateWorkAreaRoute({ currentUserRole }: { currentUserRole: string }) {
+  const { id } = useParams<{ id: string }>();
+  const estimate = useStore((state) => state.estimates.find((item) => item.id === id));
+  return resolveWorkType(estimate) === 'service'
+    ? <Navigate to={`/estimates/${id}`} replace />
+    : <EstimateWorkAreaBuilderPage currentUserRole={currentUserRole} />;
+}
+
+function ProjectJobScheduleRoute({ currentUserRole }: { currentUserRole: string }) {
+  const { id } = useParams<{ id: string }>();
+  const job = useStore((state) => state.jobs.find((item) => item.id === id));
+  return resolveWorkType(job) === 'service'
+    ? <Navigate to={`/jobs/${id}`} replace />
+    : <JobSchedulePage currentUserRole={currentUserRole} />;
+}
+
+function ProjectJobWorkAreaRoute({ currentUserRole }: { currentUserRole: string }) {
+  const { id } = useParams<{ id: string }>();
+  const job = useStore((state) => state.jobs.find((item) => item.id === id));
+  return resolveWorkType(job) === 'service'
+    ? <Navigate to={`/jobs/${id}`} replace />
+    : <JobWorkAreaBuilderPage currentUserRole={currentUserRole} />;
 }
 
 async function readApiJson<T>(response: Response): Promise<T | null> {
@@ -642,23 +692,27 @@ export default function App() {
                   />
                 }
               />
-              <Route path="estimates" element={<EstimatesPage currentUserRole={sessionUser.role} />} />
+              <Route path="estimates" element={<WorkListRedirect to="/estimates/projects" />} />
+              <Route path="estimates/projects" element={<EstimatesPage currentUserRole={sessionUser.role} />} />
+              <Route path="estimates/services" element={<ServiceEstimatesPage />} />
               <Route
                 path="estimates/:id"
-                element={<EstimateWorkspacePage currentUserRole={sessionUser.role} />}
+                element={<EstimateDetailRoute currentUserRole={sessionUser.role} />}
               />
               <Route
                 path="estimates/:id/work-areas/:workAreaId"
-                element={<EstimateWorkAreaBuilderPage currentUserRole={sessionUser.role} />}
+                element={<ProjectEstimateWorkAreaRoute currentUserRole={sessionUser.role} />}
               />
               <Route path="estimates/templates" element={<TemplatesPage currentUserRole={sessionUser.role} />} />
               <Route path="estimates/templates/:templateId" element={<TemplateWorkspacePage currentUserRole={sessionUser.role} />} />
               <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs" element={<JobsPage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs/:id" element={<JobDetailPage currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
+              <Route path="jobs" element={<WorkListRedirect to="/jobs/projects" />} />
+              <Route path="jobs/projects" element={<JobsPage currentUserRole={sessionUser.role} />} />
+              <Route path="jobs/services" element={<ServiceJobsPage />} />
+              <Route path="jobs/:id" element={<JobDetailRoute currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
               <Route path="jobs/:id/sops/:sopId" element={<SopDetailPage jobContext />} />
-              <Route path="jobs/:id/schedule" element={<JobSchedulePage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs/:id/work-areas/:workAreaId" element={<JobWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
+              <Route path="jobs/:id/schedule" element={<ProjectJobScheduleRoute currentUserRole={sessionUser.role} />} />
+              <Route path="jobs/:id/work-areas/:workAreaId" element={<ProjectJobWorkAreaRoute currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />

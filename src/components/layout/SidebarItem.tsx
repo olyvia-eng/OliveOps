@@ -2,6 +2,8 @@ import { ChevronDown } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import type { SidebarNavItem } from '../../navigation/types';
+import { useStore } from '../../store';
+import { resolveWorkType } from '../../utils/workTypeModel.js';
 
 interface SidebarItemProps {
   item: SidebarNavItem;
@@ -33,7 +35,21 @@ export default function SidebarItem({
   onAction,
 }: SidebarItemProps) {
   const { pathname } = useLocation();
-  const isBranchActive = useMemo(() => hasActiveDescendant(item, pathname), [item, pathname]);
+  const estimates = useStore((state) => state.estimates);
+  const jobs = useStore((state) => state.jobs);
+  const contextualPathname = useMemo(() => {
+    const segments = pathname.split('/').filter(Boolean);
+    if (segments[0] === 'estimates' && segments[1] && !['projects', 'services', 'templates'].includes(segments[1])) {
+      const estimate = estimates.find((record) => record.id === segments[1]);
+      return `/estimates/${resolveWorkType(estimate) === 'service' ? 'services' : 'projects'}/${segments.slice(1).join('/')}`;
+    }
+    if (segments[0] === 'jobs' && segments[1] && !['projects', 'services'].includes(segments[1])) {
+      const job = jobs.find((record) => record.id === segments[1]);
+      return `/jobs/${resolveWorkType(job) === 'service' ? 'services' : 'projects'}/${segments.slice(1).join('/')}`;
+    }
+    return pathname;
+  }, [estimates, jobs, pathname]);
+  const isBranchActive = useMemo(() => hasActiveDescendant(item, contextualPathname), [contextualPathname, item]);
 
   const [expanded, setExpanded] = useState(item.type === 'group' ? (item.defaultExpanded ?? true) : false);
 

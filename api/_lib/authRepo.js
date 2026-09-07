@@ -4314,6 +4314,7 @@ function mapEstimateRecordFromItem(item) {
 
   return {
     id: item.estimateId,
+    workType: item.workType === 'service' ? 'service' : 'project',
     customerId: item.customerId,
     convertedToJobId: item.convertedToJobId,
     convertedAt: item.convertedAt,
@@ -4321,6 +4322,9 @@ function mapEstimateRecordFromItem(item) {
     title,
     description: item.description,
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : undefined,
+    services: Array.isArray(item.services) ? item.services : [],
+    serviceStartDate: item.serviceStartDate,
+    serviceEndDate: item.serviceEndDate,
     pricingBudgetId: item.pricingBudgetId,
     divisionId: item.divisionId,
     propertyLabel: item.propertyLabel,
@@ -4347,6 +4351,7 @@ function mapEstimateRecordFromItem(item) {
 function mapJobRecordFromItem(item) {
   return {
     id: item.jobId,
+    workType: item.workType === 'service' ? 'service' : 'project',
     jobNumber: item.jobNumber,
     estimateId: item.estimateId,
     sourceEstimateId: item.sourceEstimateId,
@@ -4363,6 +4368,7 @@ function mapJobRecordFromItem(item) {
     description: item.description,
     workAreas: Array.isArray(item.workAreas) ? item.workAreas : [],
     operationalWorkAreas: Array.isArray(item.operationalWorkAreas) ? item.operationalWorkAreas : undefined,
+    services: Array.isArray(item.services) ? item.services : [],
     originalEstimateSnapshot: item.originalEstimateSnapshot,
     planningSnapshotVersion: item.planningSnapshotVersion,
     planningRevision: item.planningRevision,

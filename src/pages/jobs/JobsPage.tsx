@@ -6,10 +6,12 @@ import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, Clipboar
 import { statusColor, formatCurrency, formatDate } from '../../utils';
 import type { Job, JobStatus } from '../../types';
 import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
+import { resolveWorkType } from '../../utils/workTypeModel.js';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
 
 const empty = (customers: { id: string }[]): Omit<Job, 'id' | 'createdAt' | 'updatedAt'> => ({
+  workType: 'project',
   customerId: customers[0]?.id ?? '',
   title: '',
   description: '',
@@ -41,10 +43,11 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   const [form, setForm] = useState(empty(customers));
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const projectJobs = jobs.filter((job) => resolveWorkType(job) === 'project');
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
-    return estimates.filter((estimate) => estimate.status === 'accepted' && !estimate.convertedToJobId);
+    return estimates.filter((estimate) => resolveWorkType(estimate) === 'project' && estimate.status === 'accepted' && !estimate.convertedToJobId);
   }, [estimates]);
 
   const jobPerformanceById = useMemo(() => new Map(jobs.map((job) => [job.id, calculateJobPerformance({
@@ -57,7 +60,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
     expenses,
   })])), [employees, expenses, invoices, jobs, labourClasses, timeCorrections, timeEntries]);
 
-  const filtered = jobs.filter((j) => {
+  const filtered = projectJobs.filter((j) => {
     const c = customers.find((c) => c.id === j.customerId);
     const matchSearch =
       j.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -106,8 +109,8 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   return (
     <div>
       <PageHeader
-        title="Jobs"
-        subtitle="Track active and completed jobs."
+        title="Project Jobs"
+        subtitle="Track active and completed project work."
         action={(
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => navigate('/estimates?status=accepted')}>
@@ -140,7 +143,7 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
       </div>
 
       {filtered.length === 0 ? (
-        jobs.length === 0 ? (
+        projectJobs.length === 0 ? (
           availableEstimateConversions.length > 0 ? (
             <EmptyState
               icon={<BriefcaseBusiness aria-hidden="true" />}

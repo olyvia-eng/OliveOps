@@ -168,6 +168,25 @@ export interface EstimateWorkArea {
   lineItems: EstimateLineItem[];
 }
 
+export type WorkType = 'project' | 'service';
+export type ServiceScheduleType = 'recurring' | 'one_time' | 'as_needed';
+export type ServiceBillingType = 'contract' | 'per_visit' | 'time_and_material';
+export type ServiceFrequencyUnit = 'day' | 'week' | 'month';
+
+export interface EstimateService {
+  id: ID;
+  name: string;
+  description: string;
+  divisionId?: ID;
+  sortOrder: number;
+  scheduleType: ServiceScheduleType;
+  billingType: ServiceBillingType;
+  startDate?: string;
+  endDate?: string;
+  frequency?: { interval: number; unit: ServiceFrequencyUnit };
+  estimatedVisits?: number;
+}
+
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
 
 export interface ProposalPaymentStage {
@@ -182,6 +201,7 @@ export interface ProposalPaymentStage {
 
 export interface Estimate {
   id: ID;
+  workType?: WorkType;
   customerId: ID;
   pricingBudgetId: ID;
   divisionId?: ID;
@@ -193,6 +213,9 @@ export interface Estimate {
   title: string;
   description: string;
   workAreas?: EstimateWorkArea[] | string[];
+  services?: EstimateService[];
+  serviceStartDate?: string;
+  serviceEndDate?: string;
   status: EstimateStatus;
   lineItems: LineItem[] | EstimateLineItem[];
   taxRate: number; // percentage
@@ -612,6 +635,7 @@ export interface JobWorkArea {
 
 export interface JobEstimateSnapshot {
   estimateId: ID;
+  workType?: WorkType;
   customerId?: ID;
   proposalNumber?: string;
   pricingBudgetId?: ID;
@@ -626,6 +650,9 @@ export interface JobEstimateSnapshot {
   estimatedMarginPct?: number;
   notes: string;
   workAreas: JobWorkArea[];
+  services?: EstimateService[];
+  serviceStartDate?: string;
+  serviceEndDate?: string;
 }
 
 export interface JobScheduleOccurrence {
@@ -638,6 +665,7 @@ export interface JobScheduleOccurrence {
 
 export interface Job {
   id: ID;
+  workType?: WorkType;
   jobNumber?: string;
   estimateId?: ID;
   sourceEstimateId?: ID;
@@ -654,6 +682,7 @@ export interface Job {
   description: string;
   workAreas?: string[];
   operationalWorkAreas?: JobWorkArea[];
+  services?: EstimateService[];
   originalEstimateSnapshot?: JobEstimateSnapshot;
   planningSnapshotVersion?: number;
   planningRevision?: number;

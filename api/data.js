@@ -160,6 +160,7 @@ import { getHomeDashboardPreferencesForUser } from './_lib/homeDashboardPreferen
 import { deleteBudgetCascadeForBusiness } from './_lib/budgetDeletion.js';
 import { validateGenericJobPatch } from './_lib/jobPlanSecurity.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
+import { isWorkType, resolveWorkType, validateEstimateServices } from '../src/utils/workTypeModel.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -1090,6 +1091,7 @@ function validateJobScheduleOccurrence(occurrence) {
 
 function validateJobRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Job id is required.';
+  if (!isWorkType(record.workType)) return 'Job work type is invalid.';
   if (!isNonEmptyString(record.customerId)) return 'Job customer is required.';
   if (!isNonEmptyString(record.title)) return 'Job title is required.';
   if (typeof record.description !== 'string') return 'Job description must be a string.';
@@ -1156,6 +1158,11 @@ function validateJobRecord(record) {
     const invalidKey = Object.keys(record.taskHeaderLabels).some((key) => !['all', 'completed'].includes(key));
     const invalidLabel = Object.values(record.taskHeaderLabels).some((label) => typeof label !== 'string' || !label.trim() || label.trim().length > 30);
     if (invalidKey || invalidLabel) return 'Job task header labels are invalid.';
+  }
+  if (record.workType === 'service') {
+    const serviceError = validateEstimateServices(record.services);
+    if (serviceError) return serviceError;
+    if (['sent', 'accepted', 'converted'].includes(record.status) && record.services.length === 0) return 'A Service Estimate requires at least one Service before it can be sent or accepted.';
   }
   return null;
 }
@@ -1260,6 +1267,7 @@ function estimateLineItems(record) {
 
 function validateEstimateRecord(record) {
   if (!isNonEmptyString(record.id)) return 'Estimate id is required.';
+  if (!isWorkType(record.workType)) return 'Estimate work type is invalid.';
   if (!isNonEmptyString(record.customerId)) return 'Estimate customer is required.';
   if (!isNonEmptyString(record.title)) return 'Estimate title is required.';
   if (record.pricingBudgetId !== undefined && record.pricingBudgetId !== null && !isNonEmptyString(record.pricingBudgetId)) {
@@ -1301,6 +1309,14 @@ function validateEstimateRecord(record) {
     && typeof record.propertyAddressSnapshot !== 'string'
   ) {
     return 'Estimate property address snapshot is invalid.';
+  }
+
+  if (record.serviceStartDate !== undefined && record.serviceStartDate !== null && record.serviceStartDate !== '' && !isValidDateOnly(record.serviceStartDate)) return 'Service start date must use YYYY-MM-DD format.';
+  if (record.serviceEndDate !== undefined && record.serviceEndDate !== null && record.serviceEndDate !== '' && !isValidDateOnly(record.serviceEndDate)) return 'Service end date must use YYYY-MM-DD format.';
+  if (record.serviceStartDate && record.serviceEndDate && record.serviceEndDate < record.serviceStartDate) return 'Service end date cannot precede its start date.';
+  if (record.workType === 'service') {
+    const serviceError = validateEstimateServices(record.services);
+    if (serviceError) return serviceError;
   }
 
   if (record.workAreas !== undefined && record.workAreas !== null) {
@@ -1354,9 +1370,25 @@ async function authorizeEstimatePricing({ businessId, existing, estimate }) {
 }
 
 async function validateEstimatePricingDivision({ businessId, estimate, existing }) {
+  if (!await getCustomerForBusiness(businessId, estimate.customerId)) return 'Estimate customer must belong to this business.';
   if (!isNonEmptyString(estimate.pricingBudgetId)) return 'Estimate Pricing Budget is required.';
   const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
   if (!budget) return 'Estimate Pricing Budget is invalid.';
+  if (estimate.workType === 'service') {
+    if (isNonEmptyString(estimate.divisionId) && !await getBudgetDivisionForBusiness(businessId, estimate.pricingBudgetId, estimate.divisionId)) {
+      return 'Estimate Division must belong to the selected Pricing Budget.';
+    }
+    for (const service of estimate.services ?? []) {
+      if (isNonEmptyString(service.divisionId)) {
+        const division = await getBudgetDivisionForBusiness(businessId, estimate.pricingBudgetId, service.divisionId);
+        const unchangedHistoricalDivision = existing?.services?.some((existingService) => existingService.id === service.id && existingService.divisionId === service.divisionId);
+        if (!division || (division.status !== 'active' && !unchangedHistoricalDivision)) {
+          return 'Service Division must be active and belong to the selected Pricing Budget.';
+        }
+      }
+    }
+    return null;
+  }
   const workAreas = Array.isArray(estimate.workAreas) ? estimate.workAreas.filter((area) => area && typeof area === 'object') : [];
   if (!isNonEmptyString(estimate.divisionId) || workAreas.length === 0 || workAreas.some((area) => area.divisionId !== estimate.divisionId)) {
     return 'Estimate Division is required.';
@@ -1840,19 +1872,25 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'estimates') {
-      record = ensureDefaultEstimateWorkArea(record);
-      const divisionResult = enforceEstimateWorkAreaDivisionModel(null, record);
-      if (!divisionResult.ok) return res.status(400).json({ ok: false, error: divisionResult.error });
-      record = divisionResult.estimate;
+      if (record.workType !== undefined && !isWorkType(record.workType)) return res.status(400).json({ ok: false, error: 'Estimate work type is invalid.' });
+      record = { ...record, workType: resolveWorkType(record) };
+      if (record.workType === 'project') {
+        record = ensureDefaultEstimateWorkArea(record);
+        const divisionResult = enforceEstimateWorkAreaDivisionModel(null, record);
+        if (!divisionResult.ok) return res.status(400).json({ ok: false, error: divisionResult.error });
+        record = divisionResult.estimate;
+      }
       const validationError = validateEstimateRecord(record);
       if (validationError) {
         return res.status(400).json({ ok: false, error: validationError });
       }
       const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: record });
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
-      const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
-      if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
-      record = pricingResult.estimate;
+      if (record.workType === 'project') {
+        const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
+        if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+        record = pricingResult.estimate;
+      }
 
       const conflict = await findProposalNumberConflict({
         businessId: session.businessId,
@@ -1872,6 +1910,8 @@ export default async function handler(req, res) {
     }
 
     if (entity === 'jobs') {
+      if (record.workType !== undefined && !isWorkType(record.workType)) return res.status(400).json({ ok: false, error: 'Job work type is invalid.' });
+      record = { ...record, workType: resolveWorkType(record) };
       const validationError = validateJobRecord(record) ?? await validateJobRelationships({
         businessId: session.businessId,
         record,
@@ -2192,18 +2232,27 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'estimates') {
-        const divisionResult = enforceEstimateWorkAreaDivisionModel(existing, next);
-        if (!divisionResult.ok) return res.status(409).json({ ok: false, error: divisionResult.error });
-        next = divisionResult.estimate;
+        if (data.workType !== undefined && !isWorkType(data.workType)) return res.status(400).json({ ok: false, error: 'Estimate work type is invalid.' });
+        const existingWorkType = resolveWorkType(existing);
+        const nextWorkType = resolveWorkType(next);
+        if (nextWorkType !== existingWorkType) return res.status(409).json({ ok: false, error: 'Estimate work type cannot be changed.' });
+        next = { ...next, workType: nextWorkType };
+        if (nextWorkType === 'project') {
+          const divisionResult = enforceEstimateWorkAreaDivisionModel(existing, next);
+          if (!divisionResult.ok) return res.status(409).json({ ok: false, error: divisionResult.error });
+          next = divisionResult.estimate;
+        }
         const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: next, existing });
         if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
         const validationError = validateEstimateRecord(next);
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
-        const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing, estimate: next });
-        if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
-        next = pricingResult.estimate;
+        if (nextWorkType === 'project') {
+          const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing, estimate: next });
+          if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+          next = pricingResult.estimate;
+        }
 
         const conflict = await findProposalNumberConflict({
           businessId: session.businessId,
@@ -2223,6 +2272,11 @@ export default async function handler(req, res) {
       }
 
       if (entity === 'jobs') {
+        if (data.workType !== undefined && !isWorkType(data.workType)) return res.status(400).json({ ok: false, error: 'Job work type is invalid.' });
+        const existingWorkType = resolveWorkType(existing);
+        const nextWorkType = resolveWorkType(next);
+        if (nextWorkType !== existingWorkType) return res.status(409).json({ ok: false, error: 'Job work type cannot be changed.' });
+        next = { ...next, workType: nextWorkType };
         const validationError = validateJobRecord(next) ?? await validateJobRelationships({
           businessId: session.businessId,
           record: next,
