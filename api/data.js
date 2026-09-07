@@ -161,6 +161,7 @@ import { deleteBudgetCascadeForBusiness } from './_lib/budgetDeletion.js';
 import { validateGenericJobPatch } from './_lib/jobPlanSecurity.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
 import { isWorkType, resolveWorkType, validateEstimateServices } from '../src/utils/workTypeModel.js';
+import { validateServicePricing } from '../src/utils/servicePricingModel.js';
 
 const ENTITY_CONFIG = {
   budgets: {
@@ -1262,6 +1263,7 @@ function estimateLineItems(record) {
   return [
     ...(Array.isArray(record?.lineItems) ? record.lineItems : []),
     ...(Array.isArray(record?.workAreas) ? record.workAreas.flatMap((area) => Array.isArray(area?.lineItems) ? area.lineItems : []) : []),
+    ...(Array.isArray(record?.services) ? record.services.flatMap((service) => Array.isArray(service?.lineItems) ? service.lineItems : []) : []),
   ];
 }
 
@@ -1317,6 +1319,18 @@ function validateEstimateRecord(record) {
   if (record.workType === 'service') {
     const serviceError = validateEstimateServices(record.services);
     if (serviceError) return serviceError;
+    for (const service of record.services) {
+      if (service.lineItems !== undefined && !Array.isArray(service.lineItems)) return 'Service resources must be an array.';
+      for (const lineItem of service.lineItems ?? []) {
+        const lineItemError = validateEstimateLineItem(lineItem);
+        if (lineItemError) return lineItemError;
+        if (lineItem.costScope !== 'per_visit' && lineItem.costScope !== 'service_period') return 'Service resource cost scope is invalid.';
+      }
+      if (record.status !== 'draft') {
+        const pricingError = validateServicePricing(service);
+        if (pricingError) return pricingError;
+      }
+    }
   }
 
   if (record.workAreas !== undefined && record.workAreas !== null) {
@@ -1356,7 +1370,7 @@ async function authorizeEstimatePricing({ businessId, existing, estimate }) {
   if (!hasBudgetSources) return { ok: true, estimate };
   const budget = await getBudgetForBusiness(businessId, estimate.pricingBudgetId);
   if (!budget || budget.planningModel !== 'divisions_v1') return { ok: false, error: 'Estimate Pricing Budget is invalid.' };
-  const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems] = await Promise.all([
+  const [planningItems, budgetDivisions, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems, subcontractorCatalogItems] = await Promise.all([
     listDivisionPlanningItemsForBusiness(businessId),
     listBudgetDivisionsForBusiness(businessId),
     listBudgetRatesForBusiness(businessId),
@@ -1364,8 +1378,9 @@ async function authorizeEstimatePricing({ businessId, existing, estimate }) {
     listEquipmentAssetsForBusiness(businessId),
     listLabourClassesForBusiness(businessId),
     listMaterialCatalogItemsForBusiness(businessId),
+    listSubcontractorCatalogItemsForBusiness(businessId),
   ]);
-  const catalog = buildEstimatePricingCatalog({ budget, budgetId: budget.id, divisions: budgetDivisions.filter((division) => division.budgetId === budget.id), includeAllDivisions: true, planningItems, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems });
+  const catalog = buildEstimatePricingCatalog({ budget, budgetId: budget.id, divisions: budgetDivisions.filter((division) => division.budgetId === budget.id), includeAllDivisions: true, planningItems, budgetRates, employees, equipmentAssets, labourClasses, materialCatalogItems, subcontractorCatalogItems });
   return applyAuthoritativeEstimatePricing({ existingEstimate: existing, nextEstimate: estimate, catalog });
 }
 
@@ -1886,11 +1901,9 @@ export default async function handler(req, res) {
       }
       const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: record });
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
-      if (record.workType === 'project') {
-        const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [] }, estimate: record });
-        if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
-        record = pricingResult.estimate;
-      }
+      const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing: { lineItems: [], workAreas: [], services: [] }, estimate: record });
+      if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+      record = pricingResult.estimate;
 
       const conflict = await findProposalNumberConflict({
         businessId: session.businessId,
@@ -2248,11 +2261,9 @@ export default async function handler(req, res) {
         if (validationError) {
           return res.status(400).json({ ok: false, error: validationError });
         }
-        if (nextWorkType === 'project') {
-          const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing, estimate: next });
-          if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
-          next = pricingResult.estimate;
-        }
+        const pricingResult = await authorizeEstimatePricing({ businessId: session.businessId, existing, estimate: next });
+        if (!pricingResult.ok) return res.status(400).json({ ok: false, error: pricingResult.error });
+        next = pricingResult.estimate;
 
         const conflict = await findProposalNumberConflict({
           businessId: session.businessId,

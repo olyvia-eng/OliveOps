@@ -6,6 +6,8 @@ import { buildProposalSnapshot } from './_lib/proposalSnapshot.js';
 import { requireSession } from './_lib/session.js';
 import { readStoredFile } from './_lib/storage.js';
 import { calculateProposalPaymentSchedule } from '../src/utils/proposalPaymentSchedule.js';
+import { validateServicePricing } from '../src/utils/servicePricingModel.js';
+import { resolveWorkType } from '../src/utils/workTypeModel.js';
 
 const WRITE_ROLES = ['owner', 'admin', 'foreman'];
 const tokenHash = (token) => createHash('sha256').update(token).digest('hex');
@@ -48,9 +50,19 @@ export function createProposalDeliveryHandler(overrides = {}) {
     }
     if (req.method !== 'POST' || req.query?.action !== 'send') return res.status(405).json({ ok: false, error: 'Method not allowed' });
 
+    if (resolveWorkType(estimate) === 'service') {
+      for (const service of Array.isArray(estimate.services) ? estimate.services : []) {
+        const pricingError = validateServicePricing(service);
+        if (pricingError) return res.status(400).json({ ok: false, error: pricingError });
+      }
+    }
+
     const snapshot = await buildProposalSnapshot({ businessId: session.businessId, estimate, ...deps });
     if (!snapshot) return res.status(404).json({ ok: false, error: 'Proposal data not found.' });
-    const payment = calculateProposalPaymentSchedule(estimate.paymentSchedule, snapshot.proposal.total);
+    const paymentBase = resolveWorkType(estimate) === 'service'
+      ? snapshot.servicePricingSummary?.contractedTotalWithTax ?? 0
+      : snapshot.proposal.total;
+    const payment = calculateProposalPaymentSchedule(estimate.paymentSchedule, paymentBase);
     if (!payment.valid) return res.status(400).json({ ok: false, error: payment.errors[0] });
     if (Date.parse(`${estimate.validUntil.slice(0, 10)}T23:59:59.999Z`) < Date.now()) return res.status(400).json({ ok: false, error: 'Update the Proposal valid-until date before sending.' });
     const recipientEmail = String(req.body?.email || snapshot.customer.email || '').trim().toLowerCase();

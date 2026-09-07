@@ -3,6 +3,8 @@ export type ServiceScheduleType = 'recurring' | 'one_time' | 'as_needed';
 export type ServiceBillingType = 'contract' | 'per_visit' | 'time_and_material';
 export type ServiceFrequencyUnit = 'day' | 'week' | 'month';
 
+import type { ServiceEstimateLineItem } from '../types';
+
 export interface EstimateServiceModel {
   id: string;
   name: string;
@@ -15,6 +17,7 @@ export interface EstimateServiceModel {
   endDate?: string;
   frequency?: { interval: number; unit: ServiceFrequencyUnit };
   estimatedVisits?: number;
+  lineItems?: ServiceEstimateLineItem[];
 }
 
 export const WORK_TYPES: WorkType[];

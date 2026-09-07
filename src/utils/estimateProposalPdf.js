@@ -141,8 +141,43 @@ export function createEstimateProposalDocument(projection, options = {}) {
     cursorY += 8;
   }
 
-  heading('Work Areas', 57);
-  for (const area of projection.workAreas) {
+  if (projection.workType === 'service') {
+    heading('Services', 57);
+    for (const service of projection.services ?? []) {
+      ensureSpace(88);
+      setText(12, INK, 'bold');
+      doc.text(lines(service.name, CONTENT_WIDTH - 170), MARGIN, cursorY);
+      const price = service.billingType === 'contract'
+        ? currency(service.contractPrice)
+        : service.billingType === 'per_visit'
+          ? `${currency(service.effectivePricePerVisit)} / visit`
+          : 'Time & Material';
+      doc.text(price, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+      cursorY += 18;
+      setText(8.5, MUTED, 'italic');
+      doc.text(`${service.scheduleLabel}  |  ${service.estimatedVisits} estimated visit${service.estimatedVisits === 1 ? '' : 's'}`, MARGIN, cursorY);
+      cursorY += 18;
+      if (clean(service.description)) formattedText(service.description);
+      if (service.billingType === 'per_visit' && service.oneTimeCharge > 0) {
+        setText(9, MUTED);
+        doc.text(`One-time charge: ${currency(service.oneTimeCharge)}`, MARGIN, cursorY);
+        cursorY += 16;
+      }
+      if (service.billingType === 'time_and_material') {
+        for (const rate of service.customerRates) {
+          ensureSpace(15);
+          setText(9, MUTED);
+          doc.text(`${clean(rate.name) || 'Service rate'}: ${currency(rate.sellRate)} / ${clean(rate.unit)}`, MARGIN, cursorY);
+          cursorY += 14;
+        }
+        if (clean(service.timeAndMaterialNotes)) formattedText(service.timeAndMaterialNotes);
+      }
+      divider(cursorY);
+      cursorY += 18;
+    }
+  } else {
+    heading('Work Areas', 57);
+    for (const area of projection.workAreas) {
     const scopeLines = area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'];
     const firstScopeHeight = lines(clean(scopeLines[0]).replace(/^[-*•]\s+|^\d+[.)]\s+/, ''), CONTENT_WIDTH - 18).length * 12 + 6;
     ensureSpace(57 + firstScopeHeight);
@@ -169,6 +204,7 @@ export function createEstimateProposalDocument(projection, options = {}) {
       cursorY += wrapped.length * 12 + 6;
     }
     cursorY += 11;
+    }
   }
 
   if (projection.paymentSchedule?.length) {
@@ -191,16 +227,28 @@ export function createEstimateProposalDocument(projection, options = {}) {
     cursorY += 3;
   }
 
-  ensureSpace(64);
+  ensureSpace(projection.workType === 'service' ? 120 : 64);
   const totalsX = PAGE_WIDTH - MARGIN - 260;
+  if (projection.workType === 'service' && projection.servicePricingSummary) {
+    setText(9.5, INK);
+    doc.text('Contracted services', totalsX, cursorY);
+    doc.text(currency(projection.servicePricingSummary.contractedRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+    cursorY += 13;
+    doc.text('Projected per-visit services', totalsX, cursorY);
+    doc.text(currency(projection.servicePricingSummary.projectedPerVisitRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+    cursorY += 13;
+    doc.text('Projected time & material', totalsX, cursorY);
+    doc.text(currency(projection.servicePricingSummary.projectedTimeAndMaterialRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+    cursorY += 18;
+  }
   setText(9.5, INK);
-  doc.text(`${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, totalsX, cursorY);
+  doc.text(`${projection.workType === 'service' ? 'Estimated ' : ''}${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, totalsX, cursorY);
   doc.text(currency(projection.proposal.taxAmount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
   cursorY += 13;
   divider(cursorY, totalsX);
   cursorY += 22;
   setText(13, INK, 'bold');
-  doc.text('TOTAL', totalsX, cursorY);
+  doc.text(projection.workType === 'service' ? 'ESTIMATED TOTAL' : 'TOTAL', totalsX, cursorY);
   doc.text(currency(projection.proposal.total), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
   cursorY += 33;
 

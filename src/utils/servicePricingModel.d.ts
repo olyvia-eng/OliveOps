@@ -1,0 +1,10 @@
+import type { EstimateService, ServiceEstimateLineItem } from '../types';
+export interface ServiceEconomics { estimatedVisits: number; categories: Record<'labour' | 'equipment' | 'material' | 'subcontractor', number>; directCostPerVisit: number; overheadPerVisit: number; loadedCostPerVisit: number; recommendedPricePerVisit: number; effectivePricePerVisit: number; servicePeriodDirectCost: number; servicePeriodOverhead: number; servicePeriodCost: number; servicePeriodRecommendedSell: number; servicePeriodEffectiveSell: number; calculatedServiceValue: number; recommendedContractValue: number; contractedRevenue: number; projectedPerVisitRevenue: number; projectedTimeAndMaterialRevenue: number; estimatedRevenue: number; estimatedCost: number; estimatedProfit: number; estimatedMarginPercent: number; }
+export interface ServiceEstimateTotals { serviceEconomics: Array<{ service: EstimateService; economics: ServiceEconomics }>; categories: Record<'labour' | 'equipment' | 'material' | 'subcontractor', number>; contractedRevenue: number; projectedPerVisitRevenue: number; projectedTimeAndMaterialRevenue: number; estimatedRevenue: number; estimatedCost: number; estimatedProfit: number; estimatedMarginPercent: number; taxRate: number; estimatedTax: number; estimatedTotalWithTax: number; contractedTotalWithTax: number; }
+export function roundServiceMoney(value: unknown): number;
+export function formatServiceFrequency(service: Partial<EstimateService>): string;
+export function resolveServiceEstimatedVisits(service: Partial<EstimateService>): number;
+export function calculateServiceLineEconomics(lineItem: Partial<ServiceEstimateLineItem>): { costScope: 'per_visit' | 'service_period'; directCost: number; overhead: number; loadedCost: number; recommendedSell: number; effectiveSell: number };
+export function calculateServiceEconomics(service: Partial<EstimateService>): ServiceEconomics;
+export function calculateServiceEstimateTotals(services: EstimateService[] | undefined, taxRate?: number): ServiceEstimateTotals;
+export function validateServicePricing(service: Partial<EstimateService>): string | null;

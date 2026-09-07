@@ -111,6 +111,25 @@ test('legacy catalog items snapshot authoritative saved values and reject cross-
   assert.match(crossBudget.error, /selected Pricing Budget/);
 });
 
+test('Service resources are authoritatively repriced and reject cross-Budget identities', () => {
+  const catalog = build();
+  const lineItem = { id: 'service-line', category: 'labour', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', itemName: 'Forged', description: '', quantity: 2, unit: 'hr', unitCost: 1, sellPrice: 2, total: 4, costScope: 'per_visit' };
+  const estimate = { id: 'service-estimate', workType: 'service', pricingBudgetId: budgetId, lineItems: [], workAreas: [], services: [{ id: 'service-1', name: 'Maintenance', scheduleType: 'recurring', billingType: 'contract', lineItems: [lineItem] }] };
+
+  const result = applyAuthoritativeEstimatePricing({ existingEstimate: { ...estimate, services: [{ ...estimate.services[0], lineItems: [] }] }, nextEstimate: estimate, catalog });
+  assert.equal(result.ok, true);
+  assert.equal(result.estimate.services[0].lineItems[0].itemName, 'Ryan Field');
+  assert.equal(result.estimate.services[0].lineItems[0].unitCost, 42);
+  assert.equal(result.estimate.services[0].lineItems[0].sellPrice, 72);
+  assert.equal(result.estimate.services[0].lineItems[0].costScope, 'per_visit');
+
+  const forged = structuredClone(estimate);
+  forged.services[0].lineItems[0].sourceBudgetId = 'foreign-budget';
+  const rejected = applyAuthoritativeEstimatePricing({ existingEstimate: { ...estimate, services: [{ ...estimate.services[0], lineItems: [] }] }, nextEstimate: forged, catalog });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.error, /selected Pricing Budget/);
+});
+
 test('existing Estimate snapshots do not silently reprice or lose legacy employee identity', () => {
   const rateA = build();
   const existingLine = { id: 'line-ryan', category: 'labour', employeeId: 'ryan', employeeName: 'Ryan Field', sourceBudgetId: budgetId, sourceBudgetItemId: 'labour-ryan', sourceEntityId: 'ryan', sourceRateId: 'rate-ryan', itemName: 'Ryan Field', description: '', quantity: 8, unit: 'hr', unitCost: 42, sellPrice: 72, total: 576 };

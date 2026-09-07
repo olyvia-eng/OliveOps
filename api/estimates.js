@@ -11,6 +11,7 @@ import {
   cloneJobPlan,
 } from '../src/utils/jobPlanModel.js';
 import { normalizeEstimateServices, resolveWorkType } from '../src/utils/workTypeModel.js';
+import { calculateServiceEstimateTotals } from '../src/utils/servicePricingModel.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -176,6 +177,7 @@ export function buildOriginalEstimateSnapshot(estimate, operationalWorkAreas) {
 }
 
 function buildServiceEstimateSnapshot(estimate, services) {
+  const totals = calculateServiceEstimateTotals(services, estimate.taxRate);
   return {
     estimateId: estimate.id,
     workType: 'service',
@@ -184,23 +186,30 @@ function buildServiceEstimateSnapshot(estimate, services) {
     pricingBudgetId: estimate.pricingBudgetId,
     propertyLabel: estimate.propertyLabel,
     propertyAddressSnapshot: estimate.propertyAddressSnapshot,
-    subtotal: 0,
-    taxRate: toNumber(estimate.taxRate),
-    taxAmount: 0,
-    total: 0,
-    estimatedCost: 0,
-    estimatedProfit: 0,
-    estimatedMarginPct: 0,
+    subtotal: totals.estimatedRevenue,
+    contractedRevenue: totals.contractedRevenue,
+    projectedPerVisitRevenue: totals.projectedPerVisitRevenue,
+    projectedTimeAndMaterialRevenue: totals.projectedTimeAndMaterialRevenue,
+    taxRate: totals.taxRate,
+    taxAmount: totals.estimatedTax,
+    total: totals.estimatedTotalWithTax,
+    contractedTotalWithTax: totals.contractedTotalWithTax,
+    estimatedCost: totals.estimatedCost,
+    estimatedProfit: totals.estimatedProfit,
+    estimatedMarginPct: totals.estimatedMarginPercent,
     notes: typeof estimate.notes === 'string' ? estimate.notes : '',
     workAreas: [],
     services: structuredClone(services),
     serviceStartDate: estimate.serviceStartDate,
     serviceEndDate: estimate.serviceEndDate,
+    acceptedProposalVersionId: estimate.activeProposalVersionId,
+    proposalVersionNumber: estimate.proposalVersionNumber,
   };
 }
 
 function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   const services = normalizeEstimateServices(estimate.services, generateId);
+  const totals = calculateServiceEstimateTotals(services, estimate.taxRate);
   const firstServiceStart = services.map((service) => service.startDate).filter(Boolean).sort()[0];
   const lastServiceEnd = services.map((service) => service.endDate).filter(Boolean).sort().at(-1);
   const jobStartDate = isNonEmptyString(startDate)
@@ -236,12 +245,12 @@ function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actor
     scheduleAllDay: true,
     estimatedHours: 0,
     actualHours: 0,
-    estimatedCost: 0,
-    currentPlannedCost: 0,
-    originalContractRevenue: 0,
-    currentContractRevenue: 0,
+    estimatedCost: totals.estimatedCost,
+    currentPlannedCost: totals.estimatedCost,
+    originalContractRevenue: totals.contractedRevenue,
+    currentContractRevenue: totals.contractedRevenue,
     actualCosts: [],
-    contractValue: 0,
+    contractValue: totals.contractedRevenue,
     assignedEmployeeIds: [],
     notes: typeof estimate.notes === 'string' ? estimate.notes : '',
     createdAt: convertedAt,

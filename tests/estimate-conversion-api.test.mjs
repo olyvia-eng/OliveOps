@@ -154,7 +154,9 @@ test('convert-to-job creates a Service Job without Project operational Work Area
     workAreas: undefined,
     serviceStartDate: '2027-04-01',
     serviceEndDate: '2027-10-31',
-    services: [{ id: 'service-1', name: 'Weekly mowing', description: 'Cut and trim', divisionId: 'division-1', sortOrder: 0, scheduleType: 'recurring', billingType: 'contract', startDate: '2027-04-15', endDate: '2027-10-31', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 29 }],
+    activeProposalVersionId: 'proposal-version-3',
+    proposalVersionNumber: 3,
+    services: [{ id: 'service-1', name: 'Weekly mowing', description: 'Cut and trim', divisionId: 'division-1', sortOrder: 0, scheduleType: 'recurring', billingType: 'contract', startDate: '2027-04-15', endDate: '2027-10-31', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 29, lineItems: [{ id: 'line-1', category: 'labour', itemName: 'Crew', description: '', quantity: 1, unit: 'hr', unitCost: 40, recoveredCostPerUnit: 55, sellPrice: 100, total: 100, markupPercent: 0, costScope: 'per_visit' }], contractPricing: { customContractPrice: 3200 } }],
   };
   const handler = createEstimatesHandler({
     requireSession: async () => baseSession(),
@@ -176,6 +178,12 @@ test('convert-to-job creates a Service Job without Project operational Work Area
   assert.deepEqual(res.body.job.services, estimate.services);
   assert.deepEqual(res.body.job.originalEstimateSnapshot.services, estimate.services);
   assert.notEqual(res.body.job.services, res.body.job.originalEstimateSnapshot.services);
+  assert.equal(res.body.job.originalContractRevenue, 3200);
+  assert.equal(res.body.job.currentContractRevenue, 3200);
+  assert.equal(res.body.job.estimatedCost, 1595);
+  assert.equal(res.body.job.originalEstimateSnapshot.estimatedProfit, 1605);
+  assert.equal(res.body.job.originalEstimateSnapshot.acceptedProposalVersionId, 'proposal-version-3');
+  assert.equal(res.body.job.originalEstimateSnapshot.proposalVersionNumber, 3);
 });
 
 test('convert-to-job preserves accepted equipment cost and charge-out snapshots', async () => {

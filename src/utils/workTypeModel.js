@@ -51,6 +51,7 @@ export function normalizeEstimateService(service, index = 0, generateId) {
     estimatedVisits: Number.isFinite(service?.estimatedVisits)
       ? service.estimatedVisits
       : suggestedVisits,
+    lineItems: Array.isArray(service?.lineItems) ? service.lineItems : [],
   };
 }
 

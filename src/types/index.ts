@@ -172,6 +172,28 @@ export type WorkType = 'project' | 'service';
 export type ServiceScheduleType = 'recurring' | 'one_time' | 'as_needed';
 export type ServiceBillingType = 'contract' | 'per_visit' | 'time_and_material';
 export type ServiceFrequencyUnit = 'day' | 'week' | 'month';
+export type ServiceCostScope = 'per_visit' | 'service_period';
+
+export interface ServiceEstimateLineItem extends EstimateLineItem {
+  costScope: ServiceCostScope;
+}
+
+export interface ServicePricingOverride {
+  customPricePerVisit?: number | null;
+}
+
+export interface ServiceContractPricing {
+  customContractPrice?: number | null;
+}
+
+export interface ServicePerVisitPricing {
+  customPricePerVisit?: number | null;
+  oneTimeCharge?: number | null;
+}
+
+export interface ServiceTimeAndMaterialPricing {
+  notes?: string;
+}
 
 export interface EstimateService {
   id: ID;
@@ -185,6 +207,11 @@ export interface EstimateService {
   endDate?: string;
   frequency?: { interval: number; unit: ServiceFrequencyUnit };
   estimatedVisits?: number;
+  lineItems?: ServiceEstimateLineItem[];
+  pricing?: ServicePricingOverride;
+  contractPricing?: ServiceContractPricing;
+  perVisitPricing?: ServicePerVisitPricing;
+  timeAndMaterialPricing?: ServiceTimeAndMaterialPricing;
 }
 
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
@@ -645,6 +672,10 @@ export interface JobEstimateSnapshot {
   taxRate: number;
   taxAmount: number;
   total: number;
+  contractedRevenue?: number;
+  projectedPerVisitRevenue?: number;
+  projectedTimeAndMaterialRevenue?: number;
+  contractedTotalWithTax?: number;
   estimatedCost?: number;
   estimatedProfit?: number;
   estimatedMarginPct?: number;
@@ -653,6 +684,8 @@ export interface JobEstimateSnapshot {
   services?: EstimateService[];
   serviceStartDate?: string;
   serviceEndDate?: string;
+  acceptedProposalVersionId?: ID;
+  proposalVersionNumber?: number;
 }
 
 export interface JobScheduleOccurrence {

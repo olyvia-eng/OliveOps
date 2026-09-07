@@ -285,6 +285,7 @@ const catalogItems = (catalog) => [catalog.labour, catalog.equipment, catalog.ma
 const estimateLineItems = (estimate) => [
   ...(Array.isArray(estimate.lineItems) ? estimate.lineItems : []),
   ...(Array.isArray(estimate.workAreas) ? estimate.workAreas.flatMap((area) => Array.isArray(area?.lineItems) ? area.lineItems : []) : []),
+  ...(Array.isArray(estimate.services) ? estimate.services.flatMap((service) => Array.isArray(service?.lineItems) ? service.lineItems : []) : []),
 ];
 
 const preservePricingSnapshot = (existing, next) => {
@@ -456,6 +457,9 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
     workAreas: Array.isArray(nextEstimate.workAreas) ? nextEstimate.workAreas.map((area) => (
       area && typeof area === 'object' && Array.isArray(area.lineItems) ? { ...area, lineItems: mapItems(area.lineItems) } : area
     )) : nextEstimate.workAreas,
+    services: Array.isArray(nextEstimate.services) ? nextEstimate.services.map((service) => (
+      service && typeof service === 'object' && Array.isArray(service.lineItems) ? { ...service, lineItems: mapItems(service.lineItems) } : service
+    )) : nextEstimate.services,
   };
   return error ? { ok: false, error } : { ok: true, estimate };
 }

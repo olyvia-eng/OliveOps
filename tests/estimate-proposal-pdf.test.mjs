@@ -165,3 +165,15 @@ test('sent proposal footer uses PROPOSAL without changing totals', () => {
   assert.doesNotMatch(output, /\(DRAFT\)/);
   assert.match(output, /\$342\.39/);
 });
+
+test('Service proposal PDF distinguishes contracted and projected pricing', () => {
+  const source = { ...estimate(), workType: 'service', workAreas: [], services: [
+    { id: 'contract', name: 'Seasonal Lawn Care', description: 'Weekly mowing and trimming.', sortOrder: 0, scheduleType: 'recurring', billingType: 'contract', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 20, lineItems: [{ category: 'labour', itemName: 'Crew rate', quantity: 1, unit: 'hr', unitCost: 40, sellPrice: 100, costScope: 'per_visit' }], contractPricing: { customContractPrice: 1800 } },
+    { id: 'visit', name: 'Spring Cleanup', description: 'Cleanup as requested.', sortOrder: 1, scheduleType: 'as_needed', billingType: 'per_visit', estimatedVisits: 2, lineItems: [{ category: 'labour', itemName: 'Cleanup crew', quantity: 2, unit: 'hr', unitCost: 40, sellPrice: 100, costScope: 'per_visit' }], perVisitPricing: { customPricePerVisit: 250, oneTimeCharge: 50 } },
+    { id: 'tm', name: 'Storm Response', description: 'Emergency response.', sortOrder: 2, scheduleType: 'as_needed', billingType: 'time_and_material', estimatedVisits: 1, lineItems: [{ category: 'equipment', itemName: 'Loader', quantity: 2, unit: 'hr', unitCost: 50, sellPrice: 125, costScope: 'per_visit' }], timeAndMaterialPricing: { notes: 'Materials billed as used.' } },
+  ] };
+  const output = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: source, customer, business })));
+
+  for (const visible of ['SERVICES', 'Seasonal Lawn Care', 'Every week', 'Spring Cleanup', '$250.00 / visit', 'One-time charge: $50.00', 'Storm Response', 'Time & Material', 'Contracted services', 'Projected per-visit services', 'Projected time & material', 'Estimated Tax', 'ESTIMATED TOTAL']) assert.match(output, new RegExp(visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(output, /unitCost|recoveredCost|estimatedProfit|marginPercent/);
+});

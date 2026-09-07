@@ -82,3 +82,30 @@ test('proposal projection omits optional content and rejects external logos clea
   assert.equal(projection.proposal.exclusions, '');
   assert.equal(projection.proposal.terms, '');
 });
+
+test('Service proposal uses contracted revenue for payments and labels projected pricing separately', () => {
+  const serviceEstimate = {
+    ...estimate,
+    workType: 'service',
+    services: [{
+      id: 'service-1', name: 'Lawn Mowing', description: 'Weekly mowing and trimming.', sortOrder: 0,
+      scheduleType: 'recurring', billingType: 'contract', startDate: '2027-04-15', endDate: '2027-10-31',
+      frequency: { interval: 1, unit: 'week' }, estimatedVisits: 28,
+      lineItems: [{ id: 'labour-1', category: 'labour', itemName: 'Crew rate', quantity: 2, unit: 'hr', unitCost: 40, recoveredCostPerUnit: 55, sellPrice: 90, costScope: 'per_visit' }],
+      contractPricing: { customContractPrice: 7000 },
+    }],
+    paymentSchedule: [
+      { id: 'half', label: 'Installment', type: 'percentage', percentage: 50, due: 'Monthly', sortOrder: 0 },
+      { id: 'balance', label: 'Balance', type: 'percentage', percentage: 50, due: 'Final month', sortOrder: 1 },
+    ],
+  };
+
+  const projection = buildEstimateProposalProjection({ estimate: serviceEstimate, customer, business });
+
+  assert.equal(projection.workType, 'service');
+  assert.equal(projection.services[0].scheduleLabel, 'Every week');
+  assert.equal(projection.services[0].contractPrice, 7000);
+  assert.equal(projection.servicePricingSummary.contractedRevenue, 7000);
+  assert.deepEqual(projection.paymentSchedule.map((payment) => payment.amount), [3955, 3955]);
+  assert.doesNotMatch(JSON.stringify(projection), /unitCost|recoveredCostPerUnit|estimatedProfit|marginPercent/);
+});

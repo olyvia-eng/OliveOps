@@ -122,3 +122,17 @@ test('sending snapshots the current company logo and branding for historical ver
   assert.equal(harness.persisted.version.snapshot.company.email, 'original@example.ca');
   assert.equal(harness.persisted.version.snapshot.company.logoDataUrl, `data:image/png;base64,${logoBytes.toString('base64')}`);
 });
+
+test('Service send rejects incomplete pricing and schedules payments against contracted value only', async () => {
+  let serviceEstimate = { ...structuredClone(estimate), workType: 'service', workAreas: [], services: [{ id: 'service-1', name: 'Maintenance', scheduleType: 'recurring', billingType: 'contract', estimatedVisits: 10, frequency: { interval: 1, unit: 'week' }, lineItems: [] }] };
+  const harness = createHarness({ getEstimateForBusiness: async () => structuredClone(serviceEstimate) });
+
+  assert.equal((await request(harness)).statusCode, 400);
+  serviceEstimate.services[0].lineItems = [{ id: 'line-1', category: 'labour', itemName: 'Crew rate', quantity: 1, unit: 'hr', unitCost: 40, sellPrice: 100, costScope: 'per_visit' }];
+  serviceEstimate.services[0].contractPricing = { customContractPrice: 1200 };
+  const response = await request(harness);
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(harness.persisted.version.snapshot.servicePricingSummary.contractedRevenue, 1200);
+  assert.deepEqual(harness.persisted.version.snapshot.paymentSchedule.map((payment) => payment.amount), [271.2, 1084.8]);
+});

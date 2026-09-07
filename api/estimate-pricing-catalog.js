@@ -14,6 +14,7 @@ import {
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { buildEstimatePricingCatalog } from './_lib/estimatePricingCatalog.js';
 import { enforceEstimateWorkAreaDivisionModel } from '../src/utils/estimateWorkAreaIdentity.js';
+import { resolveWorkType } from '../src/utils/workTypeModel.js';
 
 export function createEstimatePricingCatalogHandler(overrides = {}) {
   const deps = {
@@ -47,15 +48,16 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
     try {
       const estimate = await deps.getEstimateForBusiness(session.businessId, estimateId);
       if (!estimate) return res.status(404).json({ ok: false, error: 'Estimate not found.' });
-      const divisionResult = enforceEstimateWorkAreaDivisionModel(estimate, estimate);
+      const isService = resolveWorkType(estimate) === 'service';
+      const divisionResult = isService ? { ok: true, estimate } : enforceEstimateWorkAreaDivisionModel(estimate, estimate);
       if (!divisionResult.ok) return res.status(409).json({ ok: false, error: divisionResult.error });
-      const divisionId = divisionResult.estimate.divisionId;
+      const divisionId = isService ? undefined : divisionResult.estimate.divisionId;
       const budget = await deps.getBudgetForBusiness(session.businessId, estimate.pricingBudgetId);
       if (!budget) return res.status(404).json({ ok: false, error: 'Estimate Pricing Budget not found.' });
       if (budget.planningModel !== 'divisions_v1') {
         return res.status(409).json({ ok: false, error: 'This Pricing Budget uses the legacy pricing catalog.' });
       }
-      if (!await deps.getBudgetDivisionForBusiness(session.businessId, budget.id, divisionId)) {
+      if (!isService && !await deps.getBudgetDivisionForBusiness(session.businessId, budget.id, divisionId)) {
         return res.status(400).json({ ok: false, error: 'Estimate Division is invalid.' });
       }
 
@@ -74,6 +76,7 @@ export function createEstimatePricingCatalogHandler(overrides = {}) {
         budgetId: budget.id,
         divisions: budgetDivisions.filter((division) => division.budgetId === budget.id),
         divisionId,
+        includeAllDivisions: isService,
         planningItems,
         budgetRates,
         employees,
