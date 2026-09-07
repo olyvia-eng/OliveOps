@@ -60,24 +60,16 @@ No endpoint names changed:
 
 - `GET /api/training?action=detail` returns normalized sections on the definition and each version.
 - `GET /api/training?action=my-detail&assignmentId=...` returns the assigned immutable version with `trainingSections` and compatibility `checklist`.
-- `POST /api/training?action=complete` continues accepting `checklistResponses: [{ itemId, checked }]` plus `acknowledged`; IDs span every section.
+- `POST /api/training?action=complete` accepts `checklistResponses: [{ itemId, checked }]`, `acknowledged`, and `signatureName`; IDs span every section.
 - `GET /api/training?action=my-history` returns `trainingSections` on new completions and legacy `checklistItems` on all completions.
 
 All repository access remains scoped by the authenticated `businessId`; employee detail also verifies assignment ownership.
 
-## OliveOps-mobile changes required
+## OliveOps-mobile behavior
 
-The mobile repository was inspected at `C:\Users\Ryan\OliveOps\OliveOps-mobile`. No mobile files were modified by this web/API change.
+The mobile Training detail reads `version.trainingSections` in `sortOrder` order and renders every section heading and description. Checklist controls render only for items present in that section, so informational sections remain visible without adding a completion requirement.
 
-1. `src/types/training.ts`
-   - Add the `TrainingSection` interface above.
-   - Add `trainingSections: TrainingSection[]` to `TrainingVersion`.
-   - Keep `checklist` while compatibility support is required.
-   - Add optional `trainingSections?: TrainingSection[]` and existing checked-item fields to completion history types where completed content is displayed.
-
-2. `app/training-detail.tsx`
-   - Read `version.trainingSections` in `sortOrder` order.
-   - Render each title, multiline description, and its `checklistItems` in item `sortOrder`.
+Completion also requires the employee to type the canonical full name shown on the linked employee profile. The API validates that name against the authenticated employee and stores `employeeName`, `signatureName`, `signedAt`, and `acknowledgementVersion` on new immutable completion records. `signedAt` and `completedAt` are the same server-authoritative timestamp. These fields remain optional on reads so historical unsigned completions continue to work without migration.
    - Keep one checked-state map keyed by `itemId` across all sections.
    - Compute `allChecked` across every nested item.
    - Keep acknowledgement disabled as a completion path until all nested items are checked; the server remains authoritative.

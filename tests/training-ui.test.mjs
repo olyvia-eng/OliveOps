@@ -122,3 +122,9 @@ test('Training detail and employee profile expose assignment operations and tran
   assert.match(employeeTraining, /No training assigned/);
   assert.match(employeeTraining, /completion\.checklistItems/);
 });
+
+test('Training completion history shows optional typed signatures without requiring them on legacy records', () => {
+  assert.match(detail, /item\.signatureName \?/);
+  assert.match(detail, /Signed as/);
+  assert.match(employeeTraining, /completion\.signatureName \?/);
+});

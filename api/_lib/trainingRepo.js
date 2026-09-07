@@ -279,7 +279,7 @@ export function presentTrainingAssignments(assignments, { now = new Date(), time
   return assignments.map((assignment) => ({ ...assignment, presentationStatus: trainingPresentationStatus({ assignment, now, timeZone }) }));
 }
 
-export async function completeTrainingAssignmentForBusiness({ businessId, employee, assignmentId, submissionId, checklistResponses, acknowledged, timeZone }) {
+export async function completeTrainingAssignmentForBusiness({ businessId, employee, assignmentId, submissionId, checklistResponses, acknowledged, signatureName, timeZone }) {
   if (typeof submissionId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(submissionId)) throw Object.assign(new Error('A valid submission ID is required.'), { statusCode: 400 });
   const replay = await getItem(businessId, idempotencySk(employee.id, assignmentId, submissionId));
   if (replay?.completionId) return { completion: await getTrainingCompletionForBusiness(businessId, replay.completionId), replayed: true };
@@ -289,6 +289,12 @@ export async function completeTrainingAssignmentForBusiness({ businessId, employ
   const version = await getTrainingVersionForBusiness(businessId, assignment.trainingId, assignment.assignedVersion);
   if (!version) throw Object.assign(new Error('The assigned training version is unavailable.'), { statusCode: 409, code: 'stale_assignment' });
   if (acknowledged !== true) throw Object.assign(new Error('Training acknowledgement is required.'), { statusCode: 400 });
+  const normalizedSignatureName = typeof signatureName === 'string' ? signatureName.replace(/\s+/g, ' ').trim() : '';
+  const expectedName = typeof employee.name === 'string' ? employee.name.replace(/\s+/g, ' ').trim() : '';
+  if (!normalizedSignatureName) throw Object.assign(new Error('Employee signature is required.'), { statusCode: 400 });
+  if (!expectedName || normalizedSignatureName.localeCompare(expectedName, undefined, { sensitivity: 'accent', usage: 'search' }) !== 0) {
+    throw Object.assign(new Error('Please enter your full name as shown on your employee profile.'), { statusCode: 400 });
+  }
   const responses = Array.isArray(checklistResponses) ? checklistResponses : [];
   const responseById = new Map(responses.map((response) => [response?.itemId, response]));
   const requiredIds = new Set(version.checklist.map((item) => item.itemId));
@@ -302,18 +308,18 @@ export async function completeTrainingAssignmentForBusiness({ businessId, employ
   const nextDueDate = nextDueDateForCompletion({ completedAt, recurrenceType: version.recurrenceType, recurrenceMonths: version.recurrenceMonths, timeZone });
   const completionId = randomUUID();
   const completion = {
-    id: completionId, completionId, businessId, assignmentId, employeeId: employee.id, trainingId: assignment.trainingId,
+    id: completionId, completionId, businessId, assignmentId, employeeId: employee.id, employeeName: expectedName, trainingId: assignment.trainingId,
     completedVersion: version.version, trainingTitle: version.title,
     checklistItems: version.checklist.map((item) => ({ itemId: item.itemId, text: item.text, required: true, checked: true })),
     contentMode: version.contentMode ?? 'structured', trainingSections: version.trainingSections, document: version.document ?? null,
-    acknowledgementStatement: version.acknowledgementStatement, acknowledged: true, completedAt, nextDueDate, submissionId,
+    acknowledgementStatement: version.acknowledgementStatement, acknowledgementVersion: 1, acknowledged: true, signatureName: normalizedSignatureName, signedAt: completedAt, completedAt, nextDueDate, submissionId,
   };
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
       { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: completionSk(completionId), entityType: 'TRAINING_COMPLETION', ...completion }, ConditionExpression: 'attribute_not_exists(PK)' } },
       { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: idempotencySk(employee.id, assignmentId, submissionId), entityType: 'TRAINING_COMPLETION_IDEMPOTENCY', businessId, employeeId: employee.id, assignmentId, completionId, createdAt: completedAt }, ConditionExpression: 'attribute_not_exists(PK)' } },
       { Update: { TableName: tableName, Key: { PK: businessPk(businessId), SK: assignmentSk(assignmentId) }, UpdateExpression: 'SET latestCompletionId = :completionId, latestCompletedAt = :completedAt, nextDueDate = :nextDueDate, currentDueDate = :nextDueDate, lastCompletedCycleKey = :cycleKey', ConditionExpression: 'attribute_not_exists(revokedAt) AND (attribute_not_exists(lastCompletedCycleKey) OR lastCompletedCycleKey <> :cycleKey)', ExpressionAttributeValues: { ':completionId': completionId, ':completedAt': completedAt, ':nextDueDate': nextDueDate, ':cycleKey': cycleKey } } },
-      { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'training_completed', actor: { id: employee.userId ?? employee.id, name: employee.name, email: employee.email }, metadata: { assignmentId, completionId, employeeId: employee.id, trainingId: assignment.trainingId, completedVersion: version.version }, createdAt: completedAt }) } },
+      { Put: { TableName: tableName, Item: auditItem({ businessId, action: 'training_completed', actor: { id: employee.userId ?? employee.id, name: employee.name, email: employee.email }, metadata: { assignmentId, completionId, employeeId: employee.id, trainingId: assignment.trainingId, completedVersion: version.version, signatureName: normalizedSignatureName }, createdAt: completedAt }) } },
     ] }));
   } catch (error) {
     if (error?.name !== 'TransactionCanceledException') throw error;

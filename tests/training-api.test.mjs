@@ -111,25 +111,27 @@ test('employee detail and history preserve immutable document mode metadata', as
 test('employee detail exposes ordered Training Sections from the assigned immutable version', async () => {
   const trainingSections = [
     { sectionId: 'section-a', title: 'Inspection', description: 'Check first.', sortOrder: 0, checklistItems: [{ itemId: 'item-a', text: 'Check oil', required: true, sortOrder: 0 }] },
-    { sectionId: 'section-b', title: 'Operation', description: 'Operate safely.', sortOrder: 1, checklistItems: [{ itemId: 'item-b', text: 'Wear seatbelt', required: true, sortOrder: 0 }] },
+    { sectionId: 'section-b', title: 'Operation', description: 'Operate safely.', sortOrder: 1, checklistItems: [] },
   ];
   const version = { businessId: 'biz-a', trainingId: 'training-a', version: 4, trainingSections, checklist: trainingSections.flatMap((section) => section.checklistItems) };
   const assignments = [{ id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 4 }];
   const { handler } = harness({ assignments, version });
   const detail = await call(handler, 'GET', 'my-detail', { query: { assignmentId: 'assignment-a' } });
   assert.equal(detail.statusCode, 200);
+  assert.equal(detail.body.assignment.employeeName, 'Alex');
   assert.deepEqual(detail.body.version.trainingSections, trainingSections);
 });
 
 test('completion derives business and employee identity from the session', async () => {
   const { handler, calls } = harness();
-  const body = { assignmentId: 'assignment-a', submissionId: 'submission-a', checklistResponses: [], acknowledged: true, businessId: 'biz-b', employeeId: 'emp-b' };
+  const body = { assignmentId: 'assignment-a', submissionId: 'submission-a', checklistResponses: [], acknowledged: true, signatureName: 'Alex', businessId: 'biz-b', employeeId: 'emp-b' };
   const result = await call(handler, 'POST', 'complete', { body });
   assert.equal(result.statusCode, 200);
   const input = calls.find(([name]) => name === 'complete')[1];
   assert.equal(input.businessId, 'biz-a');
   assert.equal(input.employee.id, 'emp-a');
   assert.equal(input.assignmentId, 'assignment-a');
+  assert.equal(input.signatureName, 'Alex');
 });
 
 test('publish requires owner/admin and forwards a stable request ID', async () => {

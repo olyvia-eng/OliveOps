@@ -66,15 +66,19 @@ test('concurrent publish retry returns the immutable version claimed by its requ
 });
 
 test('publishing snapshots the complete ordered Training Section structure', async (t) => {
-  const definition = { id: 'training-a', currentVersion: 0, status: 'draft', ...draft, trainingSections: structuredClone(draft.trainingSections) };
+  const expectedSections = [
+    ...structuredClone(draft.trainingSections),
+    { sectionId: 'section-info', title: 'Test header', description: 'Informational content only.', sortOrder: 1, checklistItems: [] },
+  ];
+  const definition = { id: 'training-a', currentVersion: 0, status: 'draft', ...draft, trainingSections: expectedSections };
   const seen = installSequence(t, [
     { command: 'GetCommand', result: {} },
     { command: 'GetCommand', result: item(definition, 'TRAINING#training-a') },
     { command: 'TransactWriteCommand' },
   ]);
   const version = await publishTrainingVersionForBusiness({ businessId: 'biz-a', trainingId: 'training-a', actor, requestId: 'publish-rich-text' });
-  assert.deepEqual(version.trainingSections, draft.trainingSections);
-  assert.deepEqual(seen[2].input.TransactItems[0].Put.Item.trainingSections, draft.trainingSections);
+  assert.deepEqual(version.trainingSections, expectedSections);
+  assert.deepEqual(seen[2].input.TransactItems[0].Put.Item.trainingSections, expectedSections);
   definition.trainingSections[0].title = 'Changed after publish';
   assert.equal(version.trainingSections[0].title, 'Safety Information');
 });
@@ -107,23 +111,59 @@ test('concurrent identical completion returns the original immutable completion'
     { command: 'GetCommand', result: item({ completionId: 'completion-winner' }, 'TRAINING_COMPLETION_IDEMPOTENCY#hash') },
     { command: 'GetCommand', result: item(completion, 'TRAINING_COMPLETION#completion-winner') },
   ]);
-  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-a', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' });
+  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-a', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: 'Alex', timeZone: 'America/Toronto' });
   assert.equal(result.replayed, true);
   assert.equal(result.completion.id, 'completion-winner');
 });
 
 test('completion snapshots the exact assigned Training Section content', async (t) => {
   const assignment = { id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 1, currentDueDate: '2026-08-31' };
-  const version = { trainingId: 'training-a', version: 1, ...draft };
+  const version = { trainingId: 'training-a', version: 1, ...draft, trainingSections: [
+    ...draft.trainingSections,
+    { sectionId: 'section-info', title: 'Additional Information', description: 'Read this section.', sortOrder: 1, checklistItems: [] },
+  ] };
   const seen = installSequence(t, [
     { command: 'GetCommand', result: {} },
     { command: 'GetCommand', result: item(assignment, 'TRAINING_ASSIGNMENT#assignment-a') },
     { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
     { command: 'TransactWriteCommand' },
   ]);
-  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' });
+  const result = await completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: '  alex  ', timeZone: 'America/Toronto' });
   assert.deepEqual(result.completion.trainingSections, version.trainingSections);
+  assert.equal(result.completion.employeeName, 'Alex');
+  assert.equal(result.completion.signatureName, 'alex');
+  assert.equal(result.completion.signedAt, result.completion.completedAt);
+  assert.equal(result.completion.acknowledgementVersion, 1);
   assert.deepEqual(seen[3].input.TransactItems[0].Put.Item.trainingSections, version.trainingSections);
+  assert.equal(seen[3].input.TransactItems[0].Put.Item.signatureName, 'alex');
+});
+
+test('completion rejects blank or another employee signature name', async (t) => {
+  const assignment = { id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 1, currentDueDate: '2026-08-31' };
+  const version = { trainingId: 'training-a', version: 1, ...draft };
+  installSequence(t, [
+    { command: 'GetCommand', result: {} },
+    { command: 'GetCommand', result: item(assignment, 'TRAINING_ASSIGNMENT#assignment-a') },
+    { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
+  ]);
+  await assert.rejects(
+    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'blank-signature', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: '   ', timeZone: 'America/Toronto' }),
+    (error) => error.statusCode === 400 && /signature is required/i.test(error.message),
+  );
+});
+
+test('completion rejects signing as another employee', async (t) => {
+  const assignment = { id: 'assignment-a', employeeId: 'emp-a', trainingId: 'training-a', assignedVersion: 1, currentDueDate: '2026-08-31' };
+  const version = { trainingId: 'training-a', version: 1, ...draft };
+  installSequence(t, [
+    { command: 'GetCommand', result: {} },
+    { command: 'GetCommand', result: item(assignment, 'TRAINING_ASSIGNMENT#assignment-a') },
+    { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
+  ]);
+  await assert.rejects(
+    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'wrong-signature', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: 'Jordan Smith', timeZone: 'America/Toronto' }),
+    (error) => error.statusCode === 400 && /employee profile/i.test(error.message),
+  );
 });
 
 test('completion is blocked until every checklist item across every section is checked', async (t) => {
@@ -138,7 +178,7 @@ test('completion is blocked until every checklist item across every section is c
     { command: 'GetCommand', result: item(version, 'TRAINING_VERSION#training-a#00000001') },
   ]);
   await assert.rejects(
-    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'partial-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' }),
+    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'partial-sections', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: 'Alex', timeZone: 'America/Toronto' }),
     (error) => error.statusCode === 400 && /Every required checklist item/.test(error.message),
   );
 });
@@ -155,7 +195,7 @@ test('different completion request losing the cycle race returns a stable confli
     { command: 'GetCommand', result: item({ ...assignment, lastCompletedCycleKey: '2026-08-31' }, 'TRAINING_ASSIGNMENT#assignment-a') },
   ]);
   await assert.rejects(
-    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-b', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, timeZone: 'America/Toronto' }),
+    completeTrainingAssignmentForBusiness({ businessId: 'biz-a', employee, assignmentId: 'assignment-a', submissionId: 'submission-b', checklistResponses: [{ itemId: 'item-a', checked: true }], acknowledged: true, signatureName: 'Alex', timeZone: 'America/Toronto' }),
     (error) => error.statusCode === 409 && error.code === 'cycle_complete',
   );
 });

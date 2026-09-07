@@ -102,7 +102,7 @@ export function createTrainingHandler(overrides = {}) {
         if (!assignment || assignment.employeeId !== employee.id) return res.status(404).json({ ok: false, error: 'Training assignment was not found.' });
         if (assignment.revokedAt) return res.status(409).json({ ok: false, error: 'This training assignment has been revoked. Refresh your Hub.', code: 'stale_assignment' });
         const version = await deps.getTrainingVersionForBusiness(session.businessId, assignment.trainingId, assignment.assignedVersion);
-        return res.status(200).json({ ok: true, assignment: deps.presentTrainingAssignments([assignment], { timeZone })[0], version });
+        return res.status(200).json({ ok: true, assignment: { ...deps.presentTrainingAssignments([assignment], { timeZone })[0], employeeName: employee.name }, version });
       }
       if (req.method === 'GET' && action === 'my-history') {
         const completions = await deps.listTrainingCompletionsForBusiness(session.businessId);
@@ -114,7 +114,7 @@ export function createTrainingHandler(overrides = {}) {
         return res.status(405).json({ ok: false, error: 'Method not allowed' });
       }
       if (action === 'complete') {
-        const result = await deps.completeTrainingAssignmentForBusiness({ businessId: session.businessId, employee, assignmentId: body.assignmentId, submissionId: body.submissionId, checklistResponses: body.checklistResponses, acknowledged: body.acknowledged, timeZone });
+        const result = await deps.completeTrainingAssignmentForBusiness({ businessId: session.businessId, employee, assignmentId: body.assignmentId, submissionId: body.submissionId, checklistResponses: body.checklistResponses, acknowledged: body.acknowledged, signatureName: body.signatureName, timeZone });
         return res.status(200).json({ ok: true, ...result });
       }
       if (!isAdmin) return res.status(403).json({ ok: false, error: 'Forbidden' });

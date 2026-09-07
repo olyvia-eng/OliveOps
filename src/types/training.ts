@@ -24,6 +24,7 @@ export interface TrainingAssignment {
 export interface TrainingCompletion {
   id: string; completionId: string; assignmentId: string; employeeId: string; trainingId: string;
   completedVersion: number; trainingTitle: string; checklistItems: Array<TrainingChecklistItem & { checked: true }>;
+  employeeName?: string; signatureName?: string; signedAt?: string; acknowledgementVersion?: number;
   contentMode?: ContentMode; trainingSections?: TrainingSection[]; document?: PdfDocumentMetadata | null; acknowledgementStatement: string; acknowledged: true; completedAt: string; nextDueDate: string | null;
 }
 export interface TrainingCompliance { current: number; total: number; dueSoon: number; overdue: number; percent: number | null }
