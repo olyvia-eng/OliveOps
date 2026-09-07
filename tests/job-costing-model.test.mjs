@@ -17,6 +17,13 @@ test('Job costing preserves snapshot estimates and aggregates transactional actu
   assert.equal(result.categories[2].variance, 68);
 });
 
+test('current Job plan and catalog changes cannot alter the accepted Estimate baseline', () => {
+  const changedJob = { ...job, operationalWorkAreas: [{ id: 'area-a', lineItems: [{ category: 'material', quantity: 100, unitCost: 999 }] }] };
+  const result = calculateJobCostAnalysis({ job: changedJob });
+  assert.deepEqual(result.categories.map((row) => row.estimated), [300, 100, 200, 400]);
+  assert.equal(result.summary.estimatedTotalCost, 1000);
+});
+
 test('bill totals are server calculated and invalid values are rejected', () => {
   const bill = calculateJobBill({ subtotal: 9999, total: 9999, taxRate: 13, lineItems: [{ quantity: 2, unitCost: 10 }] }, 'vendor');
   assert.equal(bill.subtotal, 20); assert.equal(bill.taxAmount, 2.6); assert.equal(bill.total, 22.6);

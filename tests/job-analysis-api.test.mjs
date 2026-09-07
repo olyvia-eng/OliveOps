@@ -19,20 +19,20 @@ test('Job Analysis read loads every source through the authenticated tenant', as
   const tenantList = async (businessId) => { businesses.push(businessId); return []; };
   const handler = createJobAnalysisHandler(baseDeps({ listEmployeesForBusiness: tenantList, listLabourClassesForBusiness: tenantList, listTimeEntriesForBusiness: tenantList, listTimeCorrectionsForBusiness: tenantList, listVendorsForBusiness: tenantList, listEquipmentAssetsForBusiness: tenantList, listMaterialCatalogItemsForBusiness: tenantList, listSubcontractorCatalogItemsForBusiness: tenantList }));
   const res = response(); await handler({ method: 'GET', query: { jobId: 'job-a' } }, res);
-  assert.equal(res.statusCode, 200); assert.equal(res.body.analysis.summary.actualCostToDate, 0); assert.deepEqual([...new Set(businesses)], ['biz-a']);
+  assert.equal(res.statusCode, 200); assert.equal(res.body.analysis.summary.actualCostToDate, 0); assert.equal(res.body.analysis.workAreaBreakdown[0].workAreaName, 'Front'); assert.deepEqual([...new Set(businesses)], ['biz-a']);
   const foreign = response(); await handler({ method: 'GET', query: { jobId: 'foreign' } }, foreign); assert.equal(foreign.statusCode, 404);
 });
 
 test('Vendor Bill ignores client totals and validates Work Area and vendor ownership', async () => {
   let saved;
   const handler = createJobAnalysisHandler(baseDeps({
-    getVendorForBusiness: async (businessId, id) => businessId === 'biz-a' && id === 'vendor-a' ? { id } : null,
+    getVendorForBusiness: async (businessId, id) => businessId === 'biz-a' && id === 'vendor-a' ? { id, name: 'Supply Co' } : null,
     getMaterialCatalogItemForBusiness: async () => null, getFileForBusiness: async () => null,
     getJobCostRecordForBusiness: async () => null,
     putJobCostRecordForBusiness: async (input) => { saved = input.record; return { ok: true }; },
   }));
   const res = response(); await handler({ method: 'POST', query: { jobId: 'job-a' }, body: { recordType: 'vendor', vendorId: 'vendor-a', invoiceDate: '2026-09-01', subtotal: 1, total: 1, taxRate: 10, lineItems: [{ description: 'Stone', quantity: 2, unitCost: 25, workAreaId: 'area-a' }] } }, res);
-  assert.equal(res.statusCode, 201); assert.equal(saved.subtotal, 50); assert.equal(saved.total, 55); assert.equal(saved.revision, 1);
+  assert.equal(res.statusCode, 201); assert.equal(saved.subtotal, 50); assert.equal(saved.total, 55); assert.equal(saved.vendorNameSnapshot, 'Supply Co'); assert.equal(saved.revision, 1);
   const wrongArea = response(); await handler({ method: 'POST', query: { jobId: 'job-a' }, body: { recordType: 'vendor', vendorId: 'vendor-a', invoiceDate: '2026-09-01', lineItems: [{ quantity: 1, unitCost: 1, workAreaId: 'foreign-area' }] } }, wrongArea); assert.equal(wrongArea.statusCode, 400); assert.match(wrongArea.body.error, /Work Area/);
   const foreignVendor = response(); await handler({ method: 'POST', query: { jobId: 'job-a' }, body: { recordType: 'vendor', vendorId: 'foreign', invoiceDate: '2026-09-01', lineItems: [{ quantity: 1, unitCost: 1 }] } }, foreignVendor); assert.equal(foreignVendor.statusCode, 400);
 });

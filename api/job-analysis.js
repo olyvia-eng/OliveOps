@@ -81,6 +81,10 @@ export function createJobAnalysisHandler(overrides = {}) {
           deps.listSubcontractorCatalogItemsForBusiness(session.businessId),
         ]);
         const analysis = calculateJobCostAnalysis({ job, employees, labourClasses, timeEntries, timeCorrections, ...records, scopeWorkAreaId });
+        analysis.workAreaBreakdown = (job.operationalWorkAreas ?? []).map((area) => {
+          const scoped = calculateJobCostAnalysis({ job, employees, labourClasses, timeEntries, timeCorrections, ...records, scopeWorkAreaId: area.id });
+          return { workAreaId: area.id, workAreaName: area.name, estimatedHours: scoped.labour.estimated.hours, actualHours: scoped.labour.actual.hours, estimatedCost: scoped.summary.estimatedTotalCost, actualCost: scoped.summary.actualCostToDate, variance: scoped.summary.remainingEstimatedCost };
+        });
         return res.status(200).json({ ok: true, analysis, references: { vendors, equipment, materials, subcontractors, workAreas: job.operationalWorkAreas ?? [] } });
       }
 
@@ -121,16 +125,18 @@ export function createJobAnalysisHandler(overrides = {}) {
         record = { id, jobId, recordType, equipmentId, equipmentNameSnapshot: equipment.name, date: dateValue(req.body.date, 'Usage date'), quantity, unit: text(req.body.unit) || 'hr', unitCostSnapshot, workAreaId: validateWorkArea(job, req.body.workAreaId), notes: text(req.body.notes), cost: Math.round((quantity * unitCostSnapshot + Number.EPSILON) * 100) / 100 };
       } else {
         const dates = validateBillDates(req.body);
-        if (recordType === 'vendor' && !await deps.getVendorForBusiness(session.businessId, text(req.body.vendorId))) throw new Error('Vendor must belong to this business.');
-        if (recordType === 'subcontractor' && !await deps.getSubcontractorCatalogItemForBusiness(session.businessId, text(req.body.subcontractorId))) throw new Error('Subcontractor must belong to this business.');
+        const vendor = recordType === 'vendor' ? await deps.getVendorForBusiness(session.businessId, text(req.body.vendorId)) : null;
+        const subcontractor = recordType === 'subcontractor' ? await deps.getSubcontractorCatalogItemForBusiness(session.businessId, text(req.body.subcontractorId)) : null;
+        if (recordType === 'vendor' && !vendor) throw new Error('Vendor must belong to this business.');
+        if (recordType === 'subcontractor' && !subcontractor) throw new Error('Subcontractor must belong to this business.');
         const lineItems = [];
         for (const line of Array.isArray(req.body.lineItems) ? req.body.lineItems : []) {
           const materialCatalogItemId = text(line.materialCatalogItemId) || undefined;
           if (materialCatalogItemId && !await deps.getMaterialCatalogItemForBusiness(session.businessId, materialCatalogItemId)) throw new Error('Material must belong to this business.');
           lineItems.push({ id: text(line.id) || deps.randomUUID(), description: text(line.description), materialCatalogItemId, quantity: Number(line.quantity), unit: text(line.unit) || 'ea', unitCost: Number(line.unitCost), workAreaId: validateWorkArea(job, line.workAreaId) });
         }
-        record = calculateJobBill({ id, jobId, recordType, vendorId: recordType === 'vendor' ? text(req.body.vendorId) : undefined, subcontractorId: recordType === 'subcontractor' ? text(req.body.subcontractorId) : undefined, invoiceNumber: text(req.body.invoiceNumber), ...dates, description: text(req.body.description), notes: text(req.body.notes), taxRate: Number(req.body.taxRate ?? 0), lineItems }, recordType);
-        record.attachmentFileId = await validateAttachment(deps, session, text(req.body.attachmentFileId), jobId, id);
+        record = calculateJobBill({ id, jobId, recordType, vendorId: vendor?.id, vendorNameSnapshot: vendor?.name, subcontractorId: subcontractor?.id, subcontractorNameSnapshot: subcontractor?.name, invoiceNumber: text(req.body.invoiceNumber), ...dates, description: text(req.body.description), notes: text(req.body.notes), taxRate: Number(req.body.taxRate ?? 0), lineItems }, recordType);
+        record.attachmentFileId = await validateAttachment(deps, session, text(req.body.attachmentFileId) || existing?.attachmentFileId, jobId, id);
         record.accountingIntegration = existing?.accountingIntegration;
       }
       record = { ...record, createdByUserId: existing?.createdByUserId ?? session.id, createdAt: existing?.createdAt ?? now, updatedByUserId: session.id, updatedAt: now, revision: (existing?.revision ?? 0) + 1 };

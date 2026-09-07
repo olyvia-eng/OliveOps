@@ -608,7 +608,9 @@ export interface JobCostBill {
   jobId: ID;
   recordType: 'vendor' | 'subcontractor';
   vendorId?: ID;
+  vendorNameSnapshot?: string;
   subcontractorId?: ID;
+  subcontractorNameSnapshot?: string;
   invoiceNumber?: string;
   invoiceDate: string;
   dueDate?: string;
@@ -634,6 +636,7 @@ export interface JobAnalysisPayload {
   equipmentUsage: JobEquipmentUsage[];
   vendorBills: JobCostBill[];
   subcontractorBills: JobCostBill[];
+  workAreaBreakdown: Array<{ workAreaId: ID; workAreaName: string; estimatedHours: number; actualHours: number; estimatedCost: number | null; actualCost: number | null; variance: number | null }>;
   summary: {
     estimatedTotalCost: number | null;
     actualCostToDate: number | null;
