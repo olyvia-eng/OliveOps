@@ -25,7 +25,7 @@ function harness(overrides = {}) {
     },
     getBusinessProfile: async () => ({ timezone: 'America/Toronto' }),
     getCrewForBusiness: async (_businessId, id) => id === 'crew-a' ? { id, active: true } : null,
-    getEmployeeForBusiness: async (_businessId, id) => id === 'employee-a' ? { id, active: true } : null,
+    getEmployeeForBusiness: async (_businessId, id) => id === 'employee-a' ? { id, role: 'crew_member', active: true } : id === 'foreman-a' ? { id, role: 'foreman', active: true } : id === 'foreman-inactive' ? { id, role: 'foreman', active: false } : null,
     getEquipmentAssetForBusiness: async (_businessId, id) => id === 'equipment-a' ? { id } : null,
     listServiceVisitsForJob: async () => structuredClone(visits),
     listServiceVisitsForSchedule: async (_businessId, startDate, endDate) => visits.filter((visit) => visit.scheduledDate >= startDate && visit.scheduledDate <= endDate),
@@ -182,4 +182,29 @@ test('employee Visit detail and mutations fail closed when the Visit is not assi
   const completion = await run.call('POST', 'complete', { jobId: 'job-a', serviceId: 'service-a', visitId: 'visit-a', clientSubmissionId: 'complete-1' });
   assert.equal(completion.statusCode, 403);
   assert.equal(completion.body.code, 'VISIT_NOT_ASSIGNED');
+});
+
+test('manual Visit persists canonical assignments and compatibility employee IDs', async () => {
+  const run = harness();
+  const result = await run.call('POST', 'manual', { jobId: 'job-a', serviceId: 'service-a', scheduledDate: '2027-04-08', assignedForemanId: 'foreman-a', assignedCrewEmployeeIds: ['employee-a'] });
+  assert.equal(result.statusCode, 201);
+  assert.equal(result.body.visit.assignedForemanId, 'foreman-a');
+  assert.deepEqual(result.body.visit.assignedCrewEmployeeIds, ['employee-a']);
+  assert.deepEqual(result.body.visit.assignedEmployeeIds, ['foreman-a', 'employee-a']);
+});
+
+test('manual Visit rejects invalid Foreman role, activity, tenant, and duplicate Crew membership', async () => {
+  const cases = [
+    [{ assignedForemanId: 'employee-a' }, 'Assigned Foreman must have the Foreman role.'],
+    [{ assignedForemanId: 'foreman-inactive' }, 'Assigned Foreman must be active.'],
+    [{ assignedForemanId: 'foreman-foreign' }, 'Assigned Foreman must belong to this business.'],
+    [{ assignedForemanId: 'foreman-a', assignedCrewEmployeeIds: ['foreman-a'] }, 'Assigned Foreman cannot also be in Assigned Crew.'],
+  ];
+  for (const [assignment, error] of cases) {
+    const run = harness();
+    const result = await run.call('POST', 'manual', { jobId: 'job-a', serviceId: 'service-a', scheduledDate: '2027-04-08', ...assignment });
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body.error, error);
+    assert.equal(run.visits.length, 0);
+  }
 });

@@ -20,6 +20,8 @@ const SCHEDULE_FIELDS = new Set([
   'scheduleConfirmed',
   'scheduleNotes',
   'crewId',
+  'assignedForemanId',
+  'assignedCrewEmployeeIds',
   'divisionId',
   'assignedEmployeeIds',
   'assignedEquipmentIds',
@@ -51,6 +53,12 @@ function validateSchedulePatch(existing, patch) {
   if (hasOwn(patch, 'scheduleConfirmed') && typeof patch.scheduleConfirmed !== 'boolean') return 'Job schedule confirmed flag is invalid.';
   if (hasOwn(patch, 'scheduleNotes') && typeof patch.scheduleNotes !== 'string') return 'Job schedule notes must be a string.';
   if (hasOwn(patch, 'crewId') && patch.crewId !== null && !isId(patch.crewId)) return 'Job crew is invalid.';
+  if (hasOwn(patch, 'assignedForemanId') && patch.assignedForemanId !== null && !isId(patch.assignedForemanId)) return 'Assigned Foreman is invalid.';
+  if (hasOwn(patch, 'assignedCrewEmployeeIds')) {
+    const error = validateIdList(patch.assignedCrewEmployeeIds, 'Assigned Crew employees');
+    if (error) return error;
+    if (patch.assignedForemanId && patch.assignedCrewEmployeeIds.includes(patch.assignedForemanId)) return 'Assigned Foreman cannot also be in Assigned Crew.';
+  }
   if (hasOwn(patch, 'divisionId') && patch.divisionId !== null && !isId(patch.divisionId)) return 'Job division is invalid.';
   if (hasOwn(patch, 'assignedEmployeeIds')) {
     const error = validateIdList(patch.assignedEmployeeIds, 'Assigned employees');
@@ -71,6 +79,19 @@ function validateSchedulePatch(existing, patch) {
 }
 
 async function validateRelationships(deps, businessId, existing, patch) {
+  if (hasOwn(patch, 'assignedForemanId') && patch.assignedForemanId) {
+    const foreman = await deps.getEmployeeForBusiness(businessId, patch.assignedForemanId);
+    if (!foreman) return 'Assigned Foreman must belong to this business.';
+    if (foreman.role !== 'foreman') return 'Assigned Foreman must have the Foreman role.';
+    if (foreman.active === false && patch.assignedForemanId !== existing.assignedForemanId) return 'Assigned Foreman must be active.';
+  }
+  if (hasOwn(patch, 'assignedCrewEmployeeIds')) {
+    for (const employeeId of patch.assignedCrewEmployeeIds) {
+      const employee = await deps.getEmployeeForBusiness(businessId, employeeId);
+      if (!employee) return 'Assigned Crew employees must belong to this business.';
+      if (employee.active === false && !existing.assignedCrewEmployeeIds?.includes(employeeId)) return 'Assigned Crew employees must be active.';
+    }
+  }
   if (hasOwn(patch, 'crewId') && patch.crewId) {
     const crew = await deps.getCrewForBusiness(businessId, patch.crewId);
     if (!crew) return 'Assigned crew must belong to this business.';
@@ -123,7 +144,10 @@ export function createJobScheduleHandler(overrides = {}) {
       const relationshipError = await validateRelationships(deps, session.businessId, existing, patch);
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
 
-      const job = { ...existing, ...patch, updatedAt: new Date().toISOString() };
+      const canonicalEmployeeIds = hasOwn(patch, 'assignedForemanId') || hasOwn(patch, 'assignedCrewEmployeeIds')
+        ? [...new Set([patch.assignedForemanId, ...(patch.assignedCrewEmployeeIds ?? existing.assignedCrewEmployeeIds ?? existing.assignedEmployeeIds ?? [])].filter(Boolean))]
+        : patch.assignedEmployeeIds;
+      const job = { ...existing, ...patch, ...(canonicalEmployeeIds ? { assignedEmployeeIds: canonicalEmployeeIds } : {}), updatedAt: new Date().toISOString() };
       await deps.updateJobForBusiness({ businessId: session.businessId, job });
       try {
         await deps.syncJobToExternalCalendars({ businessId: session.businessId, job });

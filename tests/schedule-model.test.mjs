@@ -123,3 +123,10 @@ test('Time Off follows employee, crew, and employee-derived division filters wit
   assert.deepEqual(filterScheduleEntries([timeOff], { divisionId: 'division-c' }), []);
   assert.deepEqual(filterScheduleEntries([timeOff], { jobId: 'job-a' }), []);
 });
+
+test('assigned Foreman colour takes precedence for OliveOps events only', () => {
+  const foreman = { id: 'foreman-a', name: 'Foreman A', schedulingColor: '#b91c1c' };
+  assert.equal(resolveScheduleColour({ colourBy: 'division', job: { status: 'scheduled' }, foreman, crew, division }).value, '#b91c1c');
+  assert.notEqual(resolveScheduleColour({ source: 'google', colourBy: 'crew', foreman, crew }).value, '#b91c1c');
+  assert.equal(resolveScheduleColour({ colourBy: 'crew', foreman: { ...foreman, schedulingColor: '#ffffff' }, crew }).value, crew.colour);
+});

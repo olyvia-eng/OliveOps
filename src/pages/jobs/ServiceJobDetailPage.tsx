@@ -19,18 +19,20 @@ const VISIT_STATUSES: ServiceVisitStatus[] = ['scheduled', 'in_progress', 'compl
 const visitStatusClass: Record<ServiceVisitStatus, string> = { scheduled: 'bg-blue-50 text-blue-700', in_progress: 'bg-amber-50 text-amber-700', completed: 'bg-emerald-50 text-emerald-700', skipped: 'bg-gray-100 text-gray-600', cancelled: 'bg-red-50 text-red-700' };
 const visitTime = (visit: ServiceVisit) => visit.scheduleAllDay ? 'All day' : visit.scheduledStartAt?.slice(11, 16) ?? 'Time not set';
 
-function VisitEditor({ visit, services, onClose, onSaved }: { visit?: ServiceVisit; services: ServiceJobService[]; onClose: () => void; onSaved: () => Promise<void> }) {
+function VisitEditor({ visit, services, employees, onClose, onSaved }: { visit?: ServiceVisit; services: ServiceJobService[]; employees: ReturnType<typeof useStore.getState>['employees']; onClose: () => void; onSaved: () => Promise<void> }) {
   const jobId = useParams<{ id: string }>().id ?? '';
   const [serviceId, setServiceId] = useState(visit?.serviceId ?? services[0]?.id ?? '');
   const [scheduledDate, setScheduledDate] = useState(visit?.scheduledDate ?? new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState(visit?.scheduledStartAt?.slice(11, 16) ?? '');
   const [durationMinutes, setDurationMinutes] = useState(60);
   const [notes, setNotes] = useState(visit?.notes ?? '');
+  const [assignedForemanId, setAssignedForemanId] = useState(visit?.assignedForemanId ?? '');
+  const [assignedCrewEmployeeIds, setAssignedCrewEmployeeIds] = useState<string[]>(visit?.assignedCrewEmployeeIds ?? visit?.assignedEmployeeIds?.filter((id) => id !== visit.assignedForemanId) ?? []);
   const [saving, setSaving] = useState(false);
   const save = async () => {
     setSaving(true);
     try {
-      const values = { scheduledDate, startTime, durationMinutes, notes };
+      const values = { scheduledDate, startTime, durationMinutes, notes, assignedForemanId: assignedForemanId || null, assignedCrewEmployeeIds };
       if (visit) await rescheduleServiceVisit(visit, values);
       else await createManualServiceVisit(jobId, serviceId, values);
       await onSaved(); onClose();
@@ -44,7 +46,7 @@ function VisitEditor({ visit, services, onClose, onSaved }: { visit?: ServiceVis
       <Input label="Date" type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} />
       <Input label="Start time" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} />
       <Input label="Duration (minutes)" type="number" min={1} max={1440} value={durationMinutes} onChange={(event) => setDurationMinutes(Number(event.target.value) || 60)} />
-    </div><TextArea className="mt-4" label="Visit notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+    </div><div className="mt-4 grid gap-4 sm:grid-cols-2"><Select label="Assigned Foreman" value={assignedForemanId} onChange={(event) => setAssignedForemanId(event.target.value)}><option value="">No assigned Foreman</option>{employees.filter((employee) => employee.active && employee.role === 'foreman').map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</Select><div><p className="mb-1 text-sm font-medium text-gray-700">Assigned Crew</p><div className="flex flex-wrap gap-2">{employees.filter((employee) => employee.active).map((employee) => { const selected = assignedCrewEmployeeIds.includes(employee.id); return <button key={employee.id} type="button" aria-pressed={selected} onClick={() => setAssignedCrewEmployeeIds((current) => selected ? current.filter((id) => id !== employee.id) : [...current, employee.id])} className={`rounded-md border px-2.5 py-1.5 text-sm ${selected ? 'border-brand-700 bg-brand-700 text-white' : 'border-brand-100 bg-white text-brand-700'}`}>{selected ? <Check size={13} className="mr-1 inline" /> : null}{employee.name}</button>; })}</div></div></div><TextArea className="mt-4" label="Visit notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
   </Modal>;
 }
 
@@ -52,7 +54,7 @@ export default function ServiceJobDetailPage({ currentUserRole }: { currentUserR
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, budgetDivisions, updateJob } = useStore();
+  const { jobs, customers, employees, budgetDivisions, updateJob } = useStore();
   const job = jobs.find((item) => item.id === id);
   const [form, setForm] = useState<Job | null>(job ?? null);
   const [visits, setVisits] = useState<ServiceVisit[]>([]);
@@ -117,7 +119,7 @@ export default function ServiceJobDetailPage({ currentUserRole }: { currentUserR
     {tab === 'schedule' ? <div><div className="mb-4 flex items-center justify-between"><div><h2 className="font-semibold">Upcoming Visits</h2><p className="text-sm text-brand-400">The company Schedule shows these Visits alongside Project Jobs.</p></div><Button variant="secondary" onClick={() => navigate('/schedule')}><CalendarDays /> Company Schedule</Button></div><div className="space-y-2">{upcoming.slice(0, 20).map((visit) => <Card key={visit.id} className="flex items-center justify-between p-4"><div><p className="font-medium">{services.find((service) => service.id === visit.serviceId)?.name}</p><p className="text-sm text-brand-400">{formatDate(visit.scheduledDate)} · {visitTime(visit)}</p></div><Badge label={visit.status} className={visitStatusClass[visit.status]} /></Card>)}{!upcoming.length ? <EmptyState title="No upcoming Visits" description="Generate a recurrence or add an as-needed Visit." /> : null}</div></div> : null}
     {tab === 'project-management' ? <JobSopsCard jobId={job.id} canManage={canManage} /> : null}
     {tab === 'analysis' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-4"><Card className="p-4"><p className="text-xs text-brand-400">Contracted Revenue</p><p className="mt-1 text-xl font-semibold">{formatCurrency(form.originalEstimateSnapshot?.contractedRevenue ?? 0)}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Projected Per Visit</p><p className="mt-1 text-xl font-semibold">{formatCurrency(form.originalEstimateSnapshot?.projectedPerVisitRevenue ?? 0)}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Visits Completed</p><p className="mt-1 text-xl font-semibold">{completed} / {visits.filter((visit) => visit.status !== 'cancelled').length}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Billing Ready</p><p className="mt-1 text-xl font-semibold">{readyToBill}</p></Card></div><Card className="p-5"><h2 className="font-semibold">Service performance</h2><p className="mt-2 text-sm text-brand-500">Visit completion and billing readiness use operational records. Actual cost and margin remain unavailable until labour, equipment, and material usage are captured against Visits.</p></Card></div> : null}
-    {visitEditor ? <VisitEditor visit={visitEditor === 'new' ? undefined : visitEditor} services={services} onClose={() => setVisitEditor(null)} onSaved={loadVisits} /> : null}
+    {visitEditor ? <VisitEditor visit={visitEditor === 'new' ? undefined : visitEditor} services={services} employees={employees} onClose={() => setVisitEditor(null)} onSaved={loadVisits} /> : null}
     {selectedVisit ? <VisitDetail visit={selectedVisit} onClose={() => setSelectedVisit(null)} onChanged={loadVisits} /> : null}
   </div>;
 }

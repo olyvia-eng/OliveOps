@@ -4,20 +4,23 @@ import test from 'node:test';
 
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('Schedule saves employee IDs, supports explicit crew removal, and cancel does not save', async () => {
+test('Schedule saves canonical assignments and a deduplicated compatibility union', async () => {
   const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
-  assert.match(editor, /assignedEmployeeIds: \[\.\.\.new Set\(form\.assignedEmployeeIds\)\]/);
+  assert.match(editor, /assignedForemanId: form\.assignedForemanId \|\| null/);
+  assert.match(editor, /assignedCrewEmployeeIds: \[\.\.\.new Set\(form\.assignedCrewEmployeeIds\)\]/);
+  assert.match(editor, /assignedEmployeeIds: \[\s*\.\.\.new Set\(\[form\.assignedForemanId, \.\.\.form\.assignedCrewEmployeeIds\]/);
   assert.match(editor, /crewId: form\.crewId \|\| null/);
   assert.match(editor, /if \(saved\) onExit\(\)/);
   assert.match(editor, /<Button variant="secondary" onClick=\{onExit\}>Cancel<\/Button>/);
   assert.doesNotMatch(editor, /employee\.name[^]*assignedEmployeeIds:/);
 });
 
-test('Schedule offers active employees and retains assigned inactive employees for removal', async () => {
+test('Schedule offers active Foremen and active crew employees without duplicate Foreman selection', async () => {
   const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
-  assert.match(editor, /employee\.active \|\| form\.assignedEmployeeIds\.includes\(employee\.id\)/);
-  assert.match(editor, /!employee\.active \? 'Inactive'/);
-  assert.match(editor, /crew\.active \|\| crew\.id === form\.crewId/);
+  assert.match(editor, /employee\.active && employee\.role === 'foreman'/);
+  assert.match(editor, /employee\.active && employee\.id !== form\.assignedForemanId/);
+  assert.match(editor, /assignedCrewEmployeeIds: current\.assignedCrewEmployeeIds\.filter/);
+  assert.doesNotMatch(editor, /label="Primary Crew"/);
 });
 
 test('successful Job updates reconcile from the API and failed updates roll back', async () => {

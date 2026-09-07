@@ -60,10 +60,14 @@ export function getEffectiveDivision(job, divisions, budgets) {
   };
 }
 
-export function resolveScheduleColour({ source = 'oliveops', colourBy, job, crew, division }) {
+export function resolveScheduleColour({ source = 'oliveops', colourBy, job, foreman, crew, division }) {
   if (source === 'time_off') return TIME_OFF_SCHEDULE_COLOUR;
   if (source === 'google') return GOOGLE_SCHEDULE_COLOUR;
   if (source === 'microsoft') return OUTLOOK_SCHEDULE_COLOUR;
+  if (foreman?.schedulingColor) {
+    const configured = SCHEDULE_COLOUR_PALETTE.find((colour) => colour.value.toLowerCase() === String(foreman.schedulingColor).toLowerCase());
+    if (configured) return configured;
+  }
   if (colourBy === 'status') return JOB_STATUS_COLOURS[job?.status] ?? NEUTRAL_SCHEDULE_COLOUR;
   const entity = colourBy === 'division' ? division : crew;
   if (!entity) return NEUTRAL_SCHEDULE_COLOUR;
@@ -112,13 +116,13 @@ export function getScheduleLegend(entries, colourBy) {
   const seen = new Map();
   for (const entry of entries) {
     if (entry.source !== 'oliveops') continue;
-    const entity = colourBy === 'crew' ? entry.crew : colourBy === 'division' ? entry.division : { id: entry.status, name: entry.status };
+    const entity = entry.foreman ?? (colourBy === 'crew' ? entry.crew : colourBy === 'division' ? entry.division : { id: entry.status, name: entry.status });
     const key = entity?.id ?? 'unassigned';
     if (seen.has(key)) continue;
     seen.set(key, {
       id: key,
       label: entity?.name ?? 'Unassigned',
-      colour: resolveScheduleColour({ colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division }),
+      colour: resolveScheduleColour({ colourBy, job: { status: entry.status }, foreman: entry.foreman, crew: entry.crew, division: entry.division }),
     });
   }
   return [...seen.values()];

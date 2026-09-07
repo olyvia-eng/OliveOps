@@ -21,11 +21,12 @@ test('Job schedule route fixes the Job identity and has no editable Job selector
 
 test('fixed Job schedule loads current values and displays immutable Job context', async () => {
   const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
-  assert.match(editor, /formFromJob\(job, equipmentAssets\)/);
+  assert.match(editor, /formFromJob\(job, equipmentAssets, crews\)/);
   assert.match(editor, /selectedJob\.jobNumber \?\? 'Not assigned'/);
   assert.match(editor, /selectedCustomer\?\.name \?\? 'Not assigned'/);
   assert.match(editor, /Current schedule/);
-  assert.match(editor, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\]/);
+  assert.match(editor, /job\.assignedForemanId \?\? legacyCrew\?\.leadEmployeeId/);
+  assert.match(editor, /job\.assignedCrewEmployeeIds \?\? job\.assignedEmployeeIds/);
   assert.match(editor, /getAssignedEquipmentForJob\(job, equipmentAssets\)/);
   assert.match(editor, /includeWeekends: job\.includeWeekends !== false/);
   assert.match(editor, /checked=\{form\.includeWeekends\}/);
@@ -64,6 +65,18 @@ test('schedule save is duplicate-safe and cannot mutate lifecycle status', async
   const fields = api.slice(api.indexOf('const SCHEDULE_FIELDS'), api.indexOf(']);', api.indexOf('const SCHEDULE_FIELDS')));
   assert.doesNotMatch(fields, /status/);
   assert.match(fields, /includeWeekends/);
+  assert.match(editor, /assignedForemanId: form\.assignedForemanId \|\| null/);
+  assert.match(editor, /assignedCrewEmployeeIds: \[\.\.\.new Set\(form\.assignedCrewEmployeeIds\)\]/);
+  assert.match(editor, /new Set\(\[form\.assignedForemanId, \.\.\.form\.assignedCrewEmployeeIds\]/);
+});
+
+test('Schedule exposes active Foremen and multi-select Assigned Crew without Primary Crew', async () => {
+  const editor = await source('../src/components/calendar/JobScheduleEditor.tsx');
+  assert.match(editor, /employee\.active && employee\.role === 'foreman'/);
+  assert.match(editor, /label="Assigned Foreman"/);
+  assert.match(editor, />Assigned Crew</);
+  assert.doesNotMatch(editor, /label="Primary Crew"/);
+  assert.match(editor, /employee\.id !== form\.assignedForemanId/);
 });
 
 test('Job and Schedule entry points use one editor with context-aware return navigation', async () => {

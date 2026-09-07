@@ -37,18 +37,11 @@ export default function AppLayout({ userId, userName, userFirstName, userLastNam
           isDesktopCollapsed={sidebarCollapsed}
           onToggleDesktopCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
         />
+        <div className="fixed right-14 top-2 z-40 lg:right-4">
+          <NotificationBell />
+        </div>
         {/* Content area shifts right on desktop, down on mobile */}
         <main className={`pt-14 lg:pt-0 min-h-screen transition-[margin] duration-200 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-72'}`}>
-          <div className="app-header-surface border-b">
-            <div className="p-3 sm:px-6 sm:py-3 max-w-7xl mx-auto">
-              <div className="flex items-center justify-between gap-3">
-                <div className="hidden lg:block" />
-                <div className="flex items-center gap-2">
-                  <NotificationBell />
-                </div>
-              </div>
-            </div>
-          </div>
           <div className={`mx-auto w-full p-4 sm:p-6 ${isHome ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
             <Outlet />
           </div>

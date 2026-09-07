@@ -6,14 +6,13 @@ const app = readFileSync('src/App.tsx', 'utf8');
 const sidebar = readFileSync('src/components/layout/Sidebar.tsx', 'utf8');
 const setup = readFileSync('src/pages/settings/SchedulingSetupPage.tsx', 'utf8');
 
-test('scheduling setup is owner-admin routed from company setup', () => {
-  assert.match(app, /path="settings\/scheduling"/);
-  assert.match(app, /canManageUsers \? <SchedulingSetupPage \/>/);
-  assert.match(sidebar, /Scheduling.*\/settings\/scheduling/);
-  assert.match(sidebar, /visible: canManageCompanySetup/);
+test('legacy scheduling setup is no longer exposed through routes or navigation', () => {
+  assert.doesNotMatch(app, /path="settings\/scheduling"/);
+  assert.doesNotMatch(app, /SchedulingSetupPage/);
+  assert.doesNotMatch(sidebar, /\/settings\/scheduling/);
 });
 
-test('scheduling setup manages operational division and crew fields', () => {
+test('legacy scheduling setup remains available as non-destructive compatibility infrastructure', () => {
   assert.match(setup, /saveDivision/);
   assert.match(setup, /saveCrew/);
   assert.match(setup, /Crew lead/);

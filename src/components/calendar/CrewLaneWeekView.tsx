@@ -29,8 +29,8 @@ function ScheduleBar({ span, colourBy, selected, hasConflict, canManage, onSelec
 }) {
   const { entry } = span;
   const colour = entry.source === 'time_off'
-    ? resolveScheduleColour({ source: 'time_off', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division })
-    : resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
+    ? resolveScheduleColour({ source: 'time_off', colourBy, job: { status: entry.status }, foreman: entry.foreman, crew: entry.crew, division: entry.division })
+    : resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, foreman: entry.foreman, crew: entry.crew, division: entry.division });
   const detail = [entry.crew?.name ?? (entry.source === 'oliveops' ? 'Unassigned crew' : ''), entry.summary, span.columnSpan > 2 ? entry.division?.name : ''].filter(Boolean).join(' · ');
   const time = entry.allDay ? '' : entry.timeLabel;
 

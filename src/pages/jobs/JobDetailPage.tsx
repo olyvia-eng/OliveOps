@@ -81,7 +81,10 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [showAllPhotos, setShowAllPhotos] = useState(false);
 
   const customer = customers.find((c) => c.id === job?.customerId);
-  const assignedEmployees = employees.filter((e) => job?.assignedEmployeeIds.includes(e.id));
+  const legacyCrew = crews.find((crew) => crew.id === job?.crewId);
+  const assignedForeman = employees.find((employee) => employee.id === (job?.assignedForemanId ?? legacyCrew?.leadEmployeeId));
+  const assignedCrewIds = job?.assignedCrewEmployeeIds ?? job?.assignedEmployeeIds ?? [];
+  const assignedEmployees = employees.filter((employee) => assignedCrewIds.includes(employee.id) && employee.id !== assignedForeman?.id);
   const assignedEquipment = useMemo(() => (job ? getAssignedEquipmentForJob(job, equipmentAssets) : []), [equipmentAssets, job]);
   const jobInvoices = useMemo(
     () => invoices.filter((invoice) => invoice.jobId === id),
@@ -110,6 +113,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [planInitializing, setPlanInitializing] = useState(false);
   const [jobInfo, setJobInfo] = useState(() => ({
     title: job?.title ?? '', description: job?.description ?? '', customerId: job?.customerId ?? '',
+    status: job?.status ?? 'scheduled' as JobStatus,
     propertyLabel: job?.propertyLabel ?? '', propertyAddressSnapshot: job?.propertyAddressSnapshot ?? '',
     startDate: job?.startDate ?? '', endDate: job?.endDate ?? '', scheduleNotes: job?.scheduleNotes ?? '', notes: job?.notes ?? '',
   }));
@@ -118,6 +122,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     if (!job) return;
     setJobInfo({
       title: job.title, description: job.description, customerId: job.customerId,
+      status: job.status,
       propertyLabel: job.propertyLabel ?? '', propertyAddressSnapshot: job.propertyAddressSnapshot ?? '',
       startDate: job.startDate, endDate: job.endDate ?? '', scheduleNotes: job.scheduleNotes ?? '', notes: job.notes,
     });
@@ -304,25 +309,13 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         <button onClick={() => navigate('/jobs')} className="flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 mb-2">
           <ArrowLeft size={15} /> Back to Jobs
         </button>
-        <div className="flex items-start justify-between gap-4">
+        <div>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Badge label={job.status} className={statusColor[job.status]} />
               <h1 className="text-2xl font-bold text-gray-900">{job.title}</h1>
             </div>
             <p className="text-gray-500">{customer?.name ?? '—'} · {formatScheduleTimeLabel(job)} · Started {formatDate(job.startDate)}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canManageSchedule ? <Button variant="secondary" onClick={() => navigate(`/jobs/${job.id}/schedule`)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'}</Button> : null}
-            <Select
-              label="Job Status"
-              value={job.status}
-              onChange={(e) => { void updateJob(job.id, { status: e.target.value as JobStatus }); }}
-            >
-              {(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'] as JobStatus[]).map((s) => (
-                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-              ))}
-            </Select>
           </div>
         </div>
       </div>
@@ -349,7 +342,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       {activeTab === 'info' && <div className="space-y-4">
         <Card className="space-y-4 p-4">
           <div><h2 className="font-semibold text-gray-900">Operational Job Information</h2><p className="text-sm text-gray-500">Changes here update the Job only. The sold Estimate remains unchanged.</p></div>
-          <div className="grid gap-3 sm:grid-cols-2"><Input label="Job Title" required value={jobInfo.title} onChange={(event) => setJobInfo((current) => ({ ...current, title: event.target.value }))} /><Select label="Customer" value={jobInfo.customerId} onChange={(event) => { const nextCustomer = customers.find((item) => item.id === event.target.value); const property = nextCustomer?.properties?.[0] ?? nextCustomer?.address; setJobInfo((current) => ({ ...current, customerId: event.target.value, propertyLabel: property?.nickname ?? '', propertyAddressSnapshot: property ? formatPropertyAddress(property) : '' })); }}><option value="">Select customer</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></div>
+          <div className="grid gap-3 sm:grid-cols-2"><Input label="Job Title" required value={jobInfo.title} onChange={(event) => setJobInfo((current) => ({ ...current, title: event.target.value }))} /><Select label="Job Status" value={jobInfo.status} onChange={(event) => setJobInfo((current) => ({ ...current, status: event.target.value as JobStatus }))}>{(['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'] as JobStatus[]).map((status) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}</Select><Select label="Customer" value={jobInfo.customerId} onChange={(event) => { const nextCustomer = customers.find((item) => item.id === event.target.value); const property = nextCustomer?.properties?.[0] ?? nextCustomer?.address; setJobInfo((current) => ({ ...current, customerId: event.target.value, propertyLabel: property?.nickname ?? '', propertyAddressSnapshot: property ? formatPropertyAddress(property) : '' })); }}><option value="">Select customer</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></div>
           <TextArea label="Description" value={jobInfo.description} onChange={(event) => setJobInfo((current) => ({ ...current, description: event.target.value }))} />
           <div className="grid gap-3 sm:grid-cols-2"><Input label="Property" value={jobInfo.propertyLabel} onChange={(event) => setJobInfo((current) => ({ ...current, propertyLabel: event.target.value }))} /><Input label="Property Address" value={jobInfo.propertyAddressSnapshot} onChange={(event) => setJobInfo((current) => ({ ...current, propertyAddressSnapshot: event.target.value }))} /></div>
           <div className="grid gap-3 sm:grid-cols-2"><Input label="Start Date" type="date" value={jobInfo.startDate} onChange={(event) => setJobInfo((current) => ({ ...current, startDate: event.target.value }))} /><Input label="End Date" type="date" value={jobInfo.endDate} onChange={(event) => setJobInfo((current) => ({ ...current, endDate: event.target.value }))} /></div>
@@ -401,7 +394,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'proposal' && (
-        <Card className="p-4">
+        <Card className="overflow-hidden rounded-lg border-brand-100 bg-white dark:border-brand-600 dark:bg-brand-700">
+          <div className="border-b border-brand-100 bg-brand-50/70 p-5 dark:border-brand-600 dark:bg-brand-800/60">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold text-gray-900">Original Proposal Baseline</h2>
@@ -413,6 +407,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
               </Link>
             ) : null}
           </div>
+          </div>
+          <div className="p-5">
           {job.originalEstimateSnapshot ? (
             <>
               <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
@@ -426,7 +422,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
                   .slice()
                   .sort((a, b) => a.sortOrder - b.sortOrder)
                   .map((workArea) => (
-                    <div key={workArea.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div key={workArea.id} className="rounded-lg border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/50">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="font-medium text-gray-900">{workArea.name}</p>
                         <p className="text-xs text-gray-500">Estimated Revenue {formatCurrency(workArea.estimatedRevenue)}</p>
@@ -439,6 +435,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
           ) : (
             <p className="mt-4 text-sm text-gray-500">This job was created without an estimate snapshot.</p>
           )}
+          </div>
         </Card>
       )}
 
@@ -458,8 +455,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
               <div><dt className="text-xs font-medium text-gray-500">Scheduled</dt><dd className="mt-1 font-semibold text-gray-900">{job.startDate ? `${formatDate(job.startDate)}${job.endDate && job.endDate !== job.startDate ? ` – ${formatDate(job.endDate)}` : ''}` : 'Unscheduled'}</dd></div>
               <div><dt className="text-xs font-medium text-gray-500">Time</dt><dd className="mt-1 font-semibold text-gray-900">{formatScheduleTimeLabel(job)}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Primary crew</dt><dd className="mt-1 font-semibold text-gray-900">{crews.find((crew) => crew.id === job.crewId)?.name ?? 'Not assigned'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Employees</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEmployees.length ? assignedEmployees.slice(0, 3).map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEmployees.length > 3 ? <Badge label={`+${assignedEmployees.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Assigned Foreman</dt><dd className="mt-1 font-semibold text-gray-900">{assignedForeman?.name ?? 'Not assigned'}</dd></div>
+              <div><dt className="text-xs font-medium text-gray-500">Assigned Crew</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEmployees.length ? assignedEmployees.slice(0, 3).map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEmployees.length > 3 ? <Badge label={`+${assignedEmployees.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
               <div><dt className="text-xs font-medium text-gray-500">Equipment</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEquipment.length ? assignedEquipment.slice(0, 3).map((asset) => <Badge key={asset.id} label={asset.name} className="bg-accent-50 text-accent-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEquipment.length > 3 ? <Badge label={`+${assignedEquipment.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
             </dl>
           </Card>

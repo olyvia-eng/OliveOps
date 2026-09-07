@@ -39,7 +39,7 @@ function createHarness(overrides = {}) {
   let writes = 0;
   const localCrews = new Map([['crew-a', { id: 'crew-a', active: true }], ['crew-inactive', { id: 'crew-inactive', active: false }]]);
   const localDivisions = new Map([['division-a', { id: 'division-a', active: true }]]);
-  const localEmployees = new Map([['emp-a', { id: 'emp-a', active: true }], ['emp-b', { id: 'emp-b', active: true }], ['emp-inactive', { id: 'emp-inactive', active: false }]]);
+  const localEmployees = new Map([['foreman-a', { id: 'foreman-a', role: 'foreman', active: true }], ['emp-a', { id: 'emp-a', role: 'crew_member', active: true }], ['emp-b', { id: 'emp-b', role: 'crew_member', active: true }], ['emp-inactive', { id: 'emp-inactive', role: 'crew_member', active: false }], ['foreman-inactive', { id: 'foreman-inactive', role: 'foreman', active: false }]]);
   const localEquipment = new Map([['equipment-a', { id: 'equipment-a' }], ['equipment-b', { id: 'equipment-b' }]]);
   const handler = createJobScheduleHandler({
     requireSession: async () => ({ businessId: 'biz-a', id: 'user-a', role: 'admin' }),
@@ -95,6 +95,39 @@ test('converted Job schedule assigns crew, employees, and equipment without chan
   assert.equal(harness.persisted.scheduledEndAt, '2026-09-04T15:30:00');
   assert.equal(harness.persisted.includeWeekends, false);
   assert.equal(harness.writes, 1);
+});
+
+test('canonical Foreman and Crew assignments persist with a deduplicated legacy union', async () => {
+  const harness = createHarness();
+  const response = await harness.patch({ assignedForemanId: 'foreman-a', assignedCrewEmployeeIds: ['emp-a', 'emp-b'] });
+  assert.equal(response.statusCode, 200);
+  assert.equal(harness.persisted.assignedForemanId, 'foreman-a');
+  assert.deepEqual(harness.persisted.assignedCrewEmployeeIds, ['emp-a', 'emp-b']);
+  assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a', 'emp-b']);
+});
+
+test('canonical assignment rejects non-Foremen, inactive Foremen, foreign employees, and duplicate roles', async () => {
+  const cases = [
+    [{ assignedForemanId: 'emp-a' }, 'Assigned Foreman must have the Foreman role.'],
+    [{ assignedForemanId: 'foreman-inactive' }, 'Assigned Foreman must be active.'],
+    [{ assignedForemanId: 'foreman-foreign' }, 'Assigned Foreman must belong to this business.'],
+    [{ assignedCrewEmployeeIds: ['emp-foreign'] }, 'Assigned Crew employees must belong to this business.'],
+    [{ assignedForemanId: 'foreman-a', assignedCrewEmployeeIds: ['foreman-a'] }, 'Assigned Foreman cannot also be in Assigned Crew.'],
+  ];
+  for (const [patch, error] of cases) {
+    const harness = createHarness();
+    const response = await harness.patch(patch);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.error, error);
+    assert.equal(harness.writes, 0);
+  }
+});
+
+test('adding a Foreman to a legacy schedule retains existing employee assignments', async () => {
+  const harness = createHarness({ job: { assignedEmployeeIds: ['emp-a'] } });
+  const response = await harness.patch({ assignedForemanId: 'foreman-a' });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a']);
 });
 
 test('legacy schedules include weekends and explicit weekday schedules persist', async () => {

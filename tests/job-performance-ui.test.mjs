@@ -117,3 +117,16 @@ test('Job Analysis restores a grouped Estimate and actual chart from the table c
   assert.match(workspaceSource, /dataKey="Actual"/);
   assert.match(workspaceSource, /Estimated and actual cost by category/);
 });
+
+test('Project Job header delegates status editing to Info and keeps scheduling in existing workflows', () => {
+  const header = detailSource.slice(detailSource.indexOf('<div className="mb-4">'), detailSource.indexOf('<div className="mb-6 overflow-x-auto">'));
+  assert.doesNotMatch(header, /Edit Schedule|Schedule Job|label="Job Status"/);
+  assert.match(detailSource, /<Select label="Job Status" value=\{jobInfo\.status\}/);
+  assert.match(detailSource, /updateJob\(job\.id, \{ \.\.\.jobInfo/);
+});
+
+test('Job Proposal uses OliveOps surfaces without changing PDF generation', () => {
+  assert.match(detailSource, /rounded-lg border-brand-100 bg-white dark:border-brand-600 dark:bg-brand-700/);
+  assert.match(detailSource, /bg-brand-50\/70/);
+  assert.match(detailSource, /dark:bg-brand-800\/50/);
+});

@@ -99,7 +99,7 @@ export function ColourBySelector({ value, onChange }: { value: CalendarColourBy;
       <span className="font-semibold uppercase tracking-[0.08em]">Colour by</span>
       <div className="inline-flex rounded-lg border border-brand-100 p-0.5 dark:border-brand-600">
         {(['crew', 'division', 'status'] as CalendarColourBy[]).map((option) => (
-          <button key={option} type="button" onClick={() => onChange(option)} className={`h-7 rounded-md px-2.5 font-semibold capitalize ${value === option ? 'bg-brand-100 text-brand-900 dark:bg-brand-600 dark:text-brand-50' : 'hover:text-brand-900 dark:hover:text-brand-50'}`}>{option}</button>
+          <button key={option} type="button" onClick={() => onChange(option)} className={`h-7 rounded-md px-2.5 font-semibold capitalize ${value === option ? 'bg-brand-100 text-brand-900 dark:bg-brand-600 dark:text-brand-50' : 'hover:text-brand-900 dark:hover:text-brand-50'}`}>{option === 'crew' ? 'Foreman' : option}</button>
         ))}
       </div>
     </div>

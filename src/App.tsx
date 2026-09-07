@@ -55,7 +55,6 @@ const FormsPage = lazy(() => import('./pages/operations/FormsPage'));
 const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
-const SchedulingSetupPage = lazy(() => import('./pages/settings/SchedulingSetupPage'));
 const CompanySettingsPage = lazy(() => import('./pages/settings/CompanySettingsPage'));
 const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
 const TrainingLibraryPage = lazy(() => import('./pages/training/TrainingLibraryPage'));
@@ -792,10 +791,6 @@ export default function App() {
                 element={canManageUsers ? <IntegrationsPage /> : <Navigate to="/" replace />}
               />
               <Route path="settings/personal-calendar" element={<PersonalCalendarSettingsPage />} />
-              <Route
-                path="settings/scheduling"
-                element={canManageUsers ? <SchedulingSetupPage /> : <Navigate to="/" replace />}
-              />
               <Route
                 path="settings/company"
                 element={canManageUsers ? <CompanySettingsPage /> : <Navigate to="/" replace />}

@@ -35,7 +35,7 @@ export default function WeeklyScheduleSummary({ days, entries, colourBy = 'crew'
         <div className="divide-y divide-brand-100 dark:divide-brand-600">
           {spans.map((span) => {
             const { entry } = span;
-            const colour = resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division });
+            const colour = resolveScheduleColour({ source: entry.source === 'external' ? entry.provider : 'oliveops', colourBy, job: { status: entry.status }, foreman: entry.foreman, crew: entry.crew, division: entry.division });
             const time = entry.allDay ? '' : entry.timeLabel;
             return (
               <div key={`${entry.source}:${entry.jobId ?? entry.externalEventId}`} className="grid min-h-14" style={{ gridTemplateColumns: gridTemplate }}>

@@ -18,8 +18,9 @@ type ScheduleFormState = {
   endTime: string;
   allDay: boolean;
   crewId: ID;
+  assignedForemanId: ID;
   divisionId: ID;
-  assignedEmployeeIds: ID[];
+  assignedCrewEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
   notes: string;
 };
@@ -31,6 +32,8 @@ export type SchedulePayload = JobScheduleUpdate & {
   scheduleConfirmed: boolean;
   scheduleNotes: string;
   crewId: ID | null;
+  assignedForemanId: ID | null;
+  assignedCrewEmployeeIds: ID[];
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
 };
@@ -60,7 +63,10 @@ const timeValueFromIso = (value?: string) => {
   return split.slice(0, 5);
 };
 
-const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[]): ScheduleFormState => ({
+const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[], crews: Crew[]): ScheduleFormState => {
+  const legacyCrew = crews.find((crew) => crew.id === job.crewId);
+  const assignedForemanId = job.assignedForemanId ?? legacyCrew?.leadEmployeeId ?? '';
+  return ({
   jobId: job.id,
   startDate: job.startDate ?? '',
   endDate: job.endDate ?? job.startDate ?? '',
@@ -68,11 +74,13 @@ const formFromJob = (job: Job, equipmentAssets: EquipmentAsset[]): ScheduleFormS
   endTime: timeValueFromIso(job.scheduledEndAt),
   allDay: job.scheduleAllDay !== false,
   crewId: job.crewId ?? '',
+  assignedForemanId,
   divisionId: job.divisionId ?? '',
-  assignedEmployeeIds: [...(job.assignedEmployeeIds ?? [])],
+  assignedCrewEmployeeIds: [...(job.assignedCrewEmployeeIds ?? job.assignedEmployeeIds ?? [])].filter((id) => id !== assignedForemanId),
   assignedEquipmentIds: getAssignedEquipmentForJob(job, equipmentAssets).map((asset) => asset.id),
   notes: job.scheduleNotes ?? '',
-});
+  });
+};
 
 export default function JobScheduleEditor({
   job,
@@ -87,7 +95,7 @@ export default function JobScheduleEditor({
   onExit,
   onSave,
 }: Props) {
-  const [form, setForm] = useState<ScheduleFormState>(() => formFromJob(job, equipmentAssets));
+  const [form, setForm] = useState<ScheduleFormState>(() => formFromJob(job, equipmentAssets, crews));
   const [saving, setSaving] = useState(false);
   const [confirmingTimeOff, setConfirmingTimeOff] = useState(false);
   const [rangeTimeOff, setRangeTimeOff] = useState<ScheduleTimeOff[]>(approvedTimeOff);
@@ -95,8 +103,8 @@ export default function JobScheduleEditor({
   const savingRef = useRef(false);
 
   useEffect(() => {
-    setForm(formFromJob(job, equipmentAssets));
-  }, [equipmentAssets, job]);
+    setForm(formFromJob(job, equipmentAssets, crews));
+  }, [crews, equipmentAssets, job]);
 
   useEffect(() => {
     if (!form.startDate) return;
@@ -123,9 +131,10 @@ export default function JobScheduleEditor({
   const employeeById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const equipmentById = useMemo(() => new Map(equipmentAssets.map((asset) => [asset.id, asset])), [equipmentAssets]);
   const crewById = useMemo(() => new Map(crews.map((crew) => [crew.id, crew])), [crews]);
+  const selectableForemen = useMemo(() => employees.filter((employee) => employee.active && employee.role === 'foreman'), [employees]);
   const selectableEmployees = useMemo(
-    () => employees.filter((employee) => employee.active || form.assignedEmployeeIds.includes(employee.id)),
-    [employees, form.assignedEmployeeIds]
+    () => employees.filter((employee) => employee.id !== form.assignedForemanId && (employee.active || form.assignedCrewEmployeeIds.includes(employee.id))),
+    [employees, form.assignedCrewEmployeeIds, form.assignedForemanId]
   );
   const availableEquipment = useMemo(
     () => equipmentAssets.filter((asset) => !asset.currentJobId || asset.currentJobId === selectedJob?.id),
@@ -135,9 +144,9 @@ export default function JobScheduleEditor({
   const toggleEmployee = (employeeId: string) => {
     setForm((current) => ({
       ...current,
-      assignedEmployeeIds: current.assignedEmployeeIds.includes(employeeId)
-        ? current.assignedEmployeeIds.filter((value) => value !== employeeId)
-        : [...current.assignedEmployeeIds, employeeId],
+      assignedCrewEmployeeIds: current.assignedCrewEmployeeIds.includes(employeeId)
+        ? current.assignedCrewEmployeeIds.filter((value) => value !== employeeId)
+        : [...current.assignedCrewEmployeeIds, employeeId],
     }));
   };
 
@@ -168,18 +177,18 @@ export default function JobScheduleEditor({
       jobs,
       scheduleWindow: draftScheduleWindow,
       crewId: form.crewId || undefined,
-      assignedEmployeeIds: form.assignedEmployeeIds,
+      assignedEmployeeIds: [form.assignedForemanId, ...form.assignedCrewEmployeeIds].filter(Boolean),
       assignedEquipmentIds: form.assignedEquipmentIds,
     });
-  }, [draftScheduleWindow, form.assignedEmployeeIds, form.assignedEquipmentIds, form.crewId, jobs, selectedJob]);
+  }, [draftScheduleWindow, form.assignedCrewEmployeeIds, form.assignedEquipmentIds, form.assignedForemanId, form.crewId, jobs, selectedJob]);
   const timeOffConflicts = useMemo(() => getEmployeeTimeOffConflicts({
-    employeeIds: form.assignedEmployeeIds,
+    employeeIds: [form.assignedForemanId, ...form.assignedCrewEmployeeIds].filter(Boolean),
     crewId: form.crewId || undefined,
     crews,
     startDate: form.startDate,
     endDate: form.endDate || form.startDate,
     approvedTimeOff: rangeTimeOff,
-  }), [crews, form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate, rangeTimeOff]);
+  }), [crews, form.assignedCrewEmployeeIds, form.assignedForemanId, form.crewId, form.endDate, form.startDate, rangeTimeOff]);
   const employeeAvailability = useMemo(() => new Map(employees.map((employee) => [employee.id, getEmployeeTimeOffConflicts({
     employeeIds: [employee.id],
     crews,
@@ -190,7 +199,7 @@ export default function JobScheduleEditor({
 
   useEffect(() => {
     setConfirmingTimeOff(false);
-  }, [form.assignedEmployeeIds, form.crewId, form.endDate, form.startDate]);
+  }, [form.assignedCrewEmployeeIds, form.assignedForemanId, form.crewId, form.endDate, form.startDate]);
 
   const crewConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingCrewId);
   const employeeConflicts = assignmentConflicts.filter((conflict) => conflict.conflictingEmployeeIds.length > 0);
@@ -222,7 +231,9 @@ export default function JobScheduleEditor({
       scheduleConfirmed: true,
       scheduleNotes: form.notes.trim(),
       crewId: form.crewId || null,
-      assignedEmployeeIds: [...new Set(form.assignedEmployeeIds)],
+      assignedForemanId: form.assignedForemanId || null,
+      assignedCrewEmployeeIds: [...new Set(form.assignedCrewEmployeeIds)],
+      assignedEmployeeIds: [...new Set([form.assignedForemanId, ...form.assignedCrewEmployeeIds].filter(Boolean))],
       assignedEquipmentIds: [...new Set(form.assignedEquipmentIds)],
     };
     if (!selectedJob.sourceEstimateId) payload.divisionId = form.divisionId || null;
@@ -272,9 +283,9 @@ export default function JobScheduleEditor({
           <Card className="p-4 sm:p-5">
           <h2 className="text-base font-semibold text-brand-900 dark:text-brand-50">Resources</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Select label="Primary Crew" value={form.crewId} onChange={(event) => setForm((current) => ({ ...current, crewId: event.target.value }))}>
-              <option value="">No primary crew</option>
-              {crews.filter((crew) => crew.active || crew.id === form.crewId).map((crew) => <option key={crew.id} value={crew.id}>{crew.name}</option>)}
+            <Select label="Assigned Foreman" value={form.assignedForemanId} onChange={(event) => setForm((current) => ({ ...current, assignedForemanId: event.target.value, assignedCrewEmployeeIds: current.assignedCrewEmployeeIds.filter((id) => id !== event.target.value) }))}>
+              <option value="">No assigned Foreman</option>
+              {selectableForemen.map((employee) => <option key={employee.id} value={employee.id}>{employee.name}</option>)}
             </Select>
             {selectedJob?.sourceEstimateId ? (
               <div>
@@ -289,10 +300,10 @@ export default function JobScheduleEditor({
             )}
           </div>
           <div className="mt-4 border-t border-brand-100 pt-4 dark:border-brand-600">
-            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Employees</h3>
+            <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Assigned Crew</h3>
             <div className="mt-3 flex flex-wrap gap-2">
               {selectableEmployees.map((employee) => {
-                const selected = form.assignedEmployeeIds.includes(employee.id);
+                const selected = form.assignedCrewEmployeeIds.includes(employee.id);
                 const unavailable = employeeAvailability.get(employee.id) ?? [];
                 return (
                   <button

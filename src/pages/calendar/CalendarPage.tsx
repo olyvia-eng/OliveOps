@@ -110,6 +110,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         const assignedEmployees = employees.filter((employee) => (job.assignedEmployeeIds ?? []).includes(employee.id));
         const assignedEquipment = getAssignedEquipmentForJob(job, equipmentAssets);
         const crew = crews.find((item) => item.id === job.crewId) ?? null;
+        const foreman = employees.find((employee) => employee.id === (job.assignedForemanId ?? crew?.leadEmployeeId)) ?? null;
         const division = getEffectiveDivision(job, divisions, budgets);
 
         return {
@@ -119,6 +120,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
           assignedEmployees,
           assignedEquipment,
           crew,
+          foreman,
           division,
           summary: formatCustomerPropertyLabel(job, customer),
           timeLabel: formatScheduleTimeLabel(job),
@@ -141,6 +143,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
     endKey: segment.endKey,
     allDay: segment.allDay,
     crew: entry.crew,
+    foreman: entry.foreman,
     division: entry.division,
     employeeIds: entry.job.assignedEmployeeIds ?? [],
     equipmentIds: entry.job.assignedEquipmentIds ?? [],
@@ -175,11 +178,12 @@ export default function CalendarPage({ currentUserRole }: Props) {
       endKey: visit.scheduledEndAt?.slice(0, 10) ?? visit.scheduledDate,
       allDay: visit.scheduleAllDay,
       crew: crews.find((candidate) => candidate.id === visit.crewId) ?? null,
+      foreman: employees.find((employee) => employee.id === (visit.assignedForemanId ?? job.assignedForemanId)) ?? null,
       division: divisions.find((candidate) => candidate.id === service?.divisionId) ?? null,
       employeeIds: visit.assignedEmployeeIds,
       equipmentIds: visit.assignedEquipmentIds,
     }];
-  }), [crews, customers, divisions, jobs, serviceVisits]);
+  }), [crews, customers, divisions, employees, jobs, serviceVisits]);
 
   const normalizedEntries = useMemo(() => [...oliveOpsEntries, ...serviceVisitEntries, ...timeOffEntries], [oliveOpsEntries, serviceVisitEntries, timeOffEntries]);
 
@@ -229,7 +233,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         employeeCount: entry.assignedEmployees.length,
         equipmentCount: entry.assignedEquipment.length,
         crewName: entry.crew?.name ?? 'Unassigned crew',
-        colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, crew: entry.crew, division: entry.division }),
+        colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, foreman: entry.foreman, crew: entry.crew, division: entry.division }),
         timeOffConflictCount: getJobTimeOffConflicts(entry.job, approvedTimeOff, crews).length,
       } satisfies CalendarEventExtendedProps,
     }];
@@ -253,7 +257,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         employeeCount: entry.employeeIds.length,
         equipmentCount: entry.equipmentIds.length,
         crewName: entry.crew?.name ?? 'Unassigned crew',
-        colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division }),
+        colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: { status: entry.status }, foreman: entry.foreman, crew: entry.crew, division: entry.division }),
       } satisfies CalendarEventExtendedProps,
     }));
     const timeOffEvents = filteredTimeOffEntries.map((entry) => ({

@@ -23,6 +23,20 @@ function serviceForJob(job, serviceId) {
 }
 
 async function validateAssignments(deps, businessId, input, existing = {}) {
+  if (input.assignedForemanId) {
+    const foreman = await deps.getEmployeeForBusiness(businessId, input.assignedForemanId);
+    if (!foreman) return 'Assigned Foreman must belong to this business.';
+    if (foreman.role !== 'foreman') return 'Assigned Foreman must have the Foreman role.';
+    if (foreman.active === false && input.assignedForemanId !== existing.assignedForemanId) return 'Assigned Foreman must be active.';
+  }
+  if (input.assignedCrewEmployeeIds !== undefined) {
+    if (!idList(input.assignedCrewEmployeeIds)) return 'Assigned Crew employees are invalid.';
+    if (input.assignedForemanId && input.assignedCrewEmployeeIds.includes(input.assignedForemanId)) return 'Assigned Foreman cannot also be in Assigned Crew.';
+    for (const id of input.assignedCrewEmployeeIds) {
+      const employee = await deps.getEmployeeForBusiness(businessId, id);
+      if (!employee || (employee.active === false && !existing.assignedCrewEmployeeIds?.includes(id))) return 'Assigned Crew employees must be active and belong to this business.';
+    }
+  }
   if (input.crewId && !await deps.getCrewForBusiness(businessId, input.crewId)) return 'Assigned crew must belong to this business.';
   if (input.assignedEmployeeIds !== undefined) {
     if (!idList(input.assignedEmployeeIds)) return 'Assigned employees are invalid.';
@@ -226,7 +240,9 @@ export function createServiceVisitsHandler(overrides = {}) {
       if (req.method === 'POST' && action === 'manual') {
         const scheduleError = validateSchedule(req.body, service); if (scheduleError) return res.status(400).json({ ok: false, error: scheduleError });
         const relationshipError = await validateAssignments(deps, session.businessId, req.body); if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
-        const visit = { id: deps.randomUUID(), businessId: session.businessId, jobId, serviceId, sourceEstimateServiceId: service.sourceEstimateServiceId, scheduledDate: req.body.scheduledDate, ...scheduledFields(req.body), crewId: req.body.crewId || service.operationalSchedule?.defaultCrewId, assignedEmployeeIds: req.body.assignedEmployeeIds ?? service.operationalSchedule?.defaultEmployeeIds ?? [], assignedEquipmentIds: req.body.assignedEquipmentIds ?? service.operationalSchedule?.defaultEquipmentIds ?? [], status: 'scheduled', billingTypeSnapshot: service.billingType, billingStatus: resolveVisitBillingStatus(service.billingType), source: 'manual', revision: 1, notes: String(req.body.notes ?? '').trim(), createdAt: nowIso, updatedAt: nowIso };
+        const assignedCrewEmployeeIds = req.body.assignedCrewEmployeeIds ?? req.body.assignedEmployeeIds ?? service.operationalSchedule?.defaultEmployeeIds ?? [];
+        const assignedForemanId = req.body.assignedForemanId || undefined;
+        const visit = { id: deps.randomUUID(), businessId: session.businessId, jobId, serviceId, sourceEstimateServiceId: service.sourceEstimateServiceId, scheduledDate: req.body.scheduledDate, ...scheduledFields(req.body), crewId: req.body.crewId || service.operationalSchedule?.defaultCrewId, assignedForemanId, assignedCrewEmployeeIds, assignedEmployeeIds: [...new Set([assignedForemanId, ...assignedCrewEmployeeIds].filter(Boolean))], assignedEquipmentIds: req.body.assignedEquipmentIds ?? service.operationalSchedule?.defaultEquipmentIds ?? [], status: 'scheduled', billingTypeSnapshot: service.billingType, billingStatus: resolveVisitBillingStatus(service.billingType), source: 'manual', revision: 1, notes: String(req.body.notes ?? '').trim(), createdAt: nowIso, updatedAt: nowIso };
         await deps.createServiceVisitForBusiness({ businessId: session.businessId, visit });
         await audit(deps, session, 'service_visit.created', { jobId, serviceId, visitId: visit.id });
         return res.status(201).json({ ok: true, visit });
@@ -262,7 +278,9 @@ export function createServiceVisitsHandler(overrides = {}) {
         } else if (action === 'reschedule') {
           const scheduleError = validateSchedule(req.body, service); if (scheduleError) return res.status(400).json({ ok: false, error: scheduleError });
           const relationshipError = await validateAssignments(deps, session.businessId, req.body, existing); if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
-          next = { ...next, scheduledDate: req.body.scheduledDate, ...scheduledFields(req.body), crewId: req.body.crewId ?? existing.crewId, assignedEmployeeIds: req.body.assignedEmployeeIds ?? existing.assignedEmployeeIds, assignedEquipmentIds: req.body.assignedEquipmentIds ?? existing.assignedEquipmentIds, notes: String(req.body.notes ?? existing.notes ?? '').trim(), isSeriesException: Boolean(existing.recurrenceKey) || existing.isSeriesException };
+          const assignedForemanId = req.body.assignedForemanId ?? existing.assignedForemanId;
+          const assignedCrewEmployeeIds = req.body.assignedCrewEmployeeIds ?? existing.assignedCrewEmployeeIds ?? req.body.assignedEmployeeIds ?? existing.assignedEmployeeIds;
+          next = { ...next, scheduledDate: req.body.scheduledDate, ...scheduledFields(req.body), crewId: req.body.crewId ?? existing.crewId, assignedForemanId, assignedCrewEmployeeIds, assignedEmployeeIds: [...new Set([assignedForemanId, ...assignedCrewEmployeeIds].filter(Boolean))], assignedEquipmentIds: req.body.assignedEquipmentIds ?? existing.assignedEquipmentIds, notes: String(req.body.notes ?? existing.notes ?? '').trim(), isSeriesException: Boolean(existing.recurrenceKey) || existing.isSeriesException };
         } else return res.status(405).json({ ok: false, error: 'Method not allowed' });
         const result = await deps.updateServiceVisitForBusiness({ businessId: session.businessId, visit: next, expectedRevision: existing.revision });
         if (!result.ok) return res.status(409).json({ ok: false, error: 'Visit changed since it was opened.' });

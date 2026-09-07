@@ -77,7 +77,8 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /status: statusFilter/);
   assert.match(calendarSource, /crewId: selectedEvent\.job\.crewId/);
   assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employee\.id\)/);
-  assert.match(scheduleEditorSource, /assignedEmployeeIds: \[\.\.\.\(job\.assignedEmployeeIds \?\? \[\]\)\],/);
+  assert.match(scheduleEditorSource, /job\.assignedForemanId \?\? legacyCrew\?\.leadEmployeeId/);
+  assert.match(scheduleEditorSource, /job\.assignedCrewEmployeeIds \?\? job\.assignedEmployeeIds/);
   assert.match(scheduleUtilsSource, /scheduleConfirmed/);
   assert.match(scheduleUtilsSource, /scheduledStartAt/);
   assert.match(scheduleUtilsSource, /scheduledEndAt/);
@@ -113,7 +114,8 @@ test('job detail page exposes the same schedule workflow and equipment context',
   assert.match(jobDetailSource, /Schedule Notes/);
   assert.match(jobDetailSource, /Job Resources[\s\S]*Equipment/);
   assert.match(jobDetailSource, /formatScheduleTimeLabel/);
-  assert.match(scheduleEditorSource, /Assigned Employees/);
+  assert.match(scheduleEditorSource, /Assigned Foreman/);
+  assert.match(scheduleEditorSource, /Assigned Crew/);
   assert.match(scheduleEditorSource, /Assigned Equipment/);
   assert.match(scheduleEditorSource, /Employee overlap warning/);
   assert.match(scheduleEditorSource, /Equipment conflict warning/);

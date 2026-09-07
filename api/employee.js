@@ -64,6 +64,7 @@ function buildEmployeeResponse(employee) {
     email: employee.email,
     phone: employee.phone,
     role: employee.role,
+    schedulingColor: employee.schedulingColor,
     hourlyRate: employee.hourlyRate,
     compensationType: employee.compensationType ?? 'hourly',
     labourType: employee.labourType ?? 'field_producing',

@@ -258,6 +258,8 @@ export interface ServiceVisit {
   scheduledEndAt?: string;
   scheduleAllDay: boolean;
   crewId?: ID;
+  assignedForemanId?: ID;
+  assignedCrewEmployeeIds?: ID[];
   assignedEmployeeIds: ID[];
   assignedEquipmentIds: ID[];
   status: ServiceVisitStatus;
@@ -865,6 +867,8 @@ export interface Job {
   customerId: ID;
   pricingBudgetId?: ID;
   crewId?: ID | null;
+  assignedForemanId?: ID | null;
+  assignedCrewEmployeeIds?: ID[];
   divisionId?: ID | null;
   propertyLabel?: string;
   propertyAddressSnapshot?: string;
@@ -912,6 +916,8 @@ export interface JobScheduleUpdate {
   scheduleConfirmed?: boolean;
   scheduleNotes?: string;
   crewId?: ID | null;
+  assignedForemanId?: ID | null;
+  assignedCrewEmployeeIds?: ID[];
   divisionId?: ID | null;
   assignedEmployeeIds?: ID[];
   assignedEquipmentIds?: ID[];
@@ -1070,6 +1076,7 @@ export interface Employee {
   email: string;
   phone: string;
   role: EmployeeRole;
+  schedulingColor?: string;
   hourlyRate: number;
   compensationType?: EmployeeCompensationType;
   labourType?: EmployeeLabourType;

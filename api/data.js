@@ -644,6 +644,9 @@ function validateEmployeeCostInputs(record) {
   if (record.labourType !== undefined && record.labourType !== 'field_producing' && record.labourType !== 'overhead') {
     return 'Employee labour classification is invalid.';
   }
+  if (record.schedulingColor !== undefined && !['#0f766e', '#1d4ed8', '#15803d', '#b45309', '#b91c1c', '#6d28d9', '#0e7490', '#be123c'].includes(String(record.schedulingColor).toLowerCase())) {
+    return 'Employee scheduling colour is invalid.';
+  }
   return null;
 }
 

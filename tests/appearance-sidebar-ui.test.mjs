@@ -54,7 +54,8 @@ test('Tinted Glass uses a white app header without changing other modes or green
   assert.match(clear, /--toolbar-surface: rgb\(255 255 255 \/ 0\.78\)/);
   assert.match(css, /\.app-header-surface \{\s*background: var\(--toolbar-surface\)/);
   assert.match(css, /\.app-header-surface \{\s*background: var\(--toolbar-fallback\)/);
-  assert.match(layout, /className="app-header-surface border-b"[\s\S]*<NotificationBell \/>/);
+  assert.doesNotMatch(layout, /className="app-header-surface border-b"/);
+  assert.match(layout, /fixed right-14 top-2 z-40 lg:right-4[\s\S]*<NotificationBell \/>/);
   assert.match(tailwind, /accent:[\s\S]*500:\s*'#6B8E23'/);
 });
 

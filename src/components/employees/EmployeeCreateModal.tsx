@@ -3,6 +3,7 @@ import { Button, Input, Modal, Select } from '../ui';
 import { useStore } from '../../store';
 import type { Employee, EmployeeRole, EmployeeLabourType } from '../../types';
 import type { BusinessUserSummary } from '../../auth/types';
+import SchedulingColourPicker, { DEFAULT_SCHEDULING_COLOR } from './SchedulingColourPicker';
 
 type AccountAccessMode = 'none' | 'link_existing' | 'create_login';
 
@@ -12,6 +13,7 @@ type EmployeeForm = {
   email: string;
   phone: string;
   role: EmployeeRole;
+  schedulingColor: string;
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
   labourType: EmployeeLabourType;
@@ -41,6 +43,7 @@ const emptyForm = (): EmployeeForm => ({
   email: '',
   phone: '',
   role: 'crew_member',
+  schedulingColor: DEFAULT_SCHEDULING_COLOR,
   hourlyRate: 30,
   compensationType: 'hourly',
   labourType: 'field_producing',
@@ -174,6 +177,7 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             email: form.email.trim(),
             phone: form.phone,
             role: form.role,
+            schedulingColor: form.schedulingColor,
             hourlyRate: form.hourlyRate,
             compensationType: form.compensationType,
             labourType: form.labourType,
@@ -222,6 +226,7 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
           <Input label="First Name *" required value={form.firstName} onChange={(event) => setField('firstName', event.target.value)} />
           <Input label="Last Name *" required value={form.lastName} onChange={(event) => setField('lastName', event.target.value)} />
         </div>
+        {form.role === 'foreman' ? <SchedulingColourPicker value={form.schedulingColor} onChange={(value) => setField('schedulingColor', value)} /> : null}
 
         <div>
           <Select label="Labour Class" value={form.labourClassId} onChange={(event) => setField('labourClassId', event.target.value)}>
