@@ -5,12 +5,11 @@ import { readFileSync } from 'node:fs';
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 
-test('proposal email actions stay manual until backend delivery exists', () => {
-  assert.match(estimatesSource, /Open Email Draft/);
-  assert.match(estimatesSource, /Open Email Draft uses your local email app only\./);
-  assert.doesNotMatch(estimatesSource, /Email draft opened\. Attach the proposal PDF and send\./);
-
-  assert.match(workspaceSource, /Open Email Draft/);
-  assert.match(workspaceSource, /OliveOps does not send proposal email directly yet\./);
-  assert.doesNotMatch(workspaceSource, /Email draft opened\. Attach the proposal PDF and send\./);
+test('proposal email uses one secure versioned delivery path', () => {
+  assert.match(estimatesSource, /Prepare and Send/);
+  assert.match(estimatesSource, /navigate\(`\/estimates\/\$\{proposalEstimate\.id\}\?tab=proposal`\)/);
+  assert.match(workspaceSource, /\/api\/proposal-delivery\?action=send/);
+  assert.match(workspaceSource, /Send to Customer/);
+  assert.match(workspaceSource, /Send New Version/);
+  assert.doesNotMatch(estimatesSource + workspaceSource, /mailto:|Open Email Draft|local email app only/);
 });

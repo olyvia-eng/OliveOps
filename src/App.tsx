@@ -59,6 +59,7 @@ const TrainingDetailPage = lazy(() => import('./pages/training/TrainingDetailPag
 const SopLibraryPage = lazy(() => import('./pages/sops/SopLibraryPage'));
 const SopEditorPage = lazy(() => import('./pages/sops/SopEditorPage'));
 const SopDetailPage = lazy(() => import('./pages/sops/SopDetailPage'));
+const PublicProposalPage = lazy(() => import('./pages/public/PublicProposalPage'));
 
 const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
@@ -494,6 +495,7 @@ export default function App() {
         )}
       >
       <Routes>
+        <Route path="proposal/:token" element={<PublicProposalPage />} />
         <Route
           path="employee-login"
           element={

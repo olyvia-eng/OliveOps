@@ -20,6 +20,10 @@ const customer = { name: 'Jamie Smith', company: 'Smith Family', email: 'jamie@e
 function estimate(areaCount = 1, descriptionsPerArea = 3) {
   return {
     id: 'estimate-a', customerId: 'customer-a', proposalNumber: 'PROP-2026-0042', title: 'Smith Backyard Patio', description: 'A practical outdoor space designed for the Smith family.', propertyAddressSnapshot: '20 Project Road', createdAt: '2026-09-01', validUntil: '2026-10-01', taxRate: 13, notes: 'Please provide access to the rear yard.',
+    paymentSchedule: [
+      { id: 'deposit', label: 'Deposit', type: 'percentage', percentage: 25, due: 'Upon acceptance', sortOrder: 0 },
+      { id: 'final', label: 'Final Payment', type: 'percentage', percentage: 75, due: 'Upon substantial completion', sortOrder: 1 },
+    ],
     workAreas: Array.from({ length: areaCount }, (_, areaIndex) => ({
       id: `area-${areaIndex}`, name: `Work Area ${areaIndex + 1}`, description: Array.from({ length: descriptionsPerArea }, (_, lineIndex) => `Complete customer scope item ${areaIndex + 1}.${lineIndex + 1} with a detailed description that wraps safely across the printable proposal page.`).join('\n'), sortOrder: areaIndex,
       lineItems: Array.from({ length: descriptionsPerArea }, (_, lineIndex) => ({
@@ -45,7 +49,7 @@ test('proposal PDF renders customer-safe scope, branding, exact projected totals
   const output = pdfText(pdf);
   const renderedText = pdfRenderedText(output);
 
-  for (const visible of ['PROPOSAL', 'Scope of Work', 'Proposal Total', 'Acceptance of Proposal', 'Green Earth Contracting', 'PROP-2026-0042', '10 Billing Street', '20 Project Road']) {
+  for (const visible of ['PROPOSAL', 'Scope of Work', 'Proposal Total', 'Payment Schedule', 'Deposit', 'Final Payment', 'Acceptance of Proposal', 'Green Earth Contracting', 'PROP-2026-0042', '10 Billing Street', '20 Project Road']) {
     assert.match(output, new RegExp(visible));
   }
   assert.doesNotMatch(output, /Work Area Total/);
@@ -60,7 +64,23 @@ test('proposal PDF renders customer-safe scope, branding, exact projected totals
   assert.match(output, /\$303\.00/);
   assert.match(output, /\$39\.39/);
   assert.match(output, /\$342\.39/);
-  assert.equal(pdf.getNumberOfPages(), 1);
+  assert.ok(pdf.getNumberOfPages() >= 1);
+});
+
+test('accepted PDF renders the immutable customer signature, accepted name, and authoritative date', () => {
+  const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
+  const output = pdfText(createEstimateProposalDocument(projection, { acceptance: {
+    customerName: 'Barbara Bartholomew',
+    acceptedAt: '2026-09-08T14:30:00.000Z',
+    signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    acceptanceStatementVersion: 1,
+  } }));
+  assert.match(output, /Accepted/);
+  assert.match(output, /Accepted by: Barbara Bartholomew/);
+  assert.match(output, /Accepted on: September 8, 2026/);
+  assert.match(output, /Electronic acceptance statement version 1/);
+  assert.match(output, /\/Subtype \/Image/);
+  assert.doesNotMatch(output, /Customer name|Signature\)/);
 });
 
 test('multiple Work Areas render every Work Area total without changing proposal totals', () => {

@@ -1,3 +1,5 @@
+import { calculateProposalPaymentSchedule } from './proposalPaymentSchedule.js';
+
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
@@ -37,6 +39,8 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
   const subtotal = projectedWorkAreas.reduce((sum, area) => sum + area.subtotal, 0);
   const taxRate = Math.max(0, number(estimate?.taxRate));
   const taxAmount = subtotal * (taxRate / 100);
+  const total = subtotal + taxAmount;
+  const paymentSchedule = calculateProposalPaymentSchedule(estimate?.paymentSchedule, total);
 
   return {
     company: {
@@ -58,10 +62,10 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
       taxLabel: text(business?.taxLabel) || 'Tax',
       subtotal,
       taxAmount,
-      total: subtotal + taxAmount,
+      total,
       notes: text(estimate?.notes),
       exclusions: text(estimate?.exclusions),
-      terms: text(business?.proposalTerms),
+      terms: text(estimate?.proposalTerms) || text(business?.proposalTerms),
     },
     customer: {
       displayName: text(customer?.company) || text(customer?.name) || 'Client',
@@ -71,5 +75,14 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
       phone: text(customer?.phone),
     },
     workAreas: projectedWorkAreas,
+    paymentSchedule: paymentSchedule.stages.map((stage) => ({
+      id: stage.id,
+      label: stage.label,
+      type: stage.type,
+      percentage: stage.percentage,
+      due: stage.due,
+      amount: stage.calculatedAmount,
+      sortOrder: stage.sortOrder,
+    })),
   };
 }

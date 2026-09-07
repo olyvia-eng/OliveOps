@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, FileDown, Mail, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, ExternalLink, FileDown, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
 import { emitAppToast } from '../../toast';
@@ -19,12 +19,14 @@ import {
 } from '../../utils/estimateModel';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import { createEstimateProposalDocument, fetchEstimateProposal, proposalPdfFileName } from '../../utils/estimateProposalPdf';
+import { calculateProposalPaymentSchedule } from '../../utils/proposalPaymentSchedule.js';
 import type {
   Address,
   Estimate,
   EstimateStatus,
   EstimateWorkArea,
   LineItemCategory,
+  ProposalPaymentStage,
 } from '../../types';
 
 type EstimateTab = 'info' | 'work-areas' | 'proposal' | 'analysis';
@@ -35,6 +37,17 @@ interface Props {
 
 type EstimateFormState = Omit<Estimate, 'id' | 'createdAt' | 'updatedAt' | 'lineItems' | 'workAreas'> & {
   workAreas: EstimateWorkArea[];
+};
+
+type ProposalVersionSummary = {
+  id: string;
+  versionNumber: number;
+  status: 'sent' | 'viewed' | 'accepted';
+  sentAt: string;
+  firstViewedAt?: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
+  signedPdfFileId?: string;
 };
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
@@ -88,6 +101,9 @@ const loadFormState = (estimate: Estimate): EstimateFormState => ({
   status: estimate.status,
   taxRate: estimate.taxRate,
   notes: estimate.notes,
+  exclusions: estimate.exclusions ?? '',
+  proposalTerms: estimate.proposalTerms ?? '',
+  paymentSchedule: (estimate.paymentSchedule ?? []).slice().sort((left, right) => left.sortOrder - right.sortOrder),
   validUntil: estimate.validUntil ? estimate.validUntil.slice(0, 10) : defaultValidUntil(),
   convertedToJobId: estimate.convertedToJobId,
   convertedAt: estimate.convertedAt,
@@ -112,7 +128,6 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     customers,
     budgets,
     updateEstimate,
-    sendEstimate,
     deleteEstimate,
     convertEstimateToJob,
   } = useStore();
@@ -126,6 +141,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const [confirmConvert, setConfirmConvert] = useState(false);
   const [convertingEstimateId, setConvertingEstimateId] = useState<string | null>(null);
   const [savingEstimate, setSavingEstimate] = useState(false);
+  const [sendingProposal, setSendingProposal] = useState(false);
+  const [proposalVersions, setProposalVersions] = useState<ProposalVersionSummary[]>([]);
+  const [latestProposalUrl, setLatestProposalUrl] = useState('');
   const saveInFlight = useRef(false);
   const hydratedEstimateId = useRef(id);
   const persistedFormBaseline = useRef<EstimateFormState | null>(estimate ? loadFormState(estimate) : null);
@@ -171,6 +189,14 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       });
     }
   }, [activeTab, canViewAnalysis, setSearchParams]);
+
+  useEffect(() => {
+    if (activeTab !== 'proposal' || !estimate) return;
+    void fetch(`/api/proposal-delivery?estimateId=${encodeURIComponent(estimate.id)}`, { credentials: 'include' }).then(async (response) => {
+      const payload = await response.json();
+      if (response.ok && payload.ok && Array.isArray(payload.versions)) setProposalVersions(payload.versions);
+    });
+  }, [activeTab, estimate]);
 
   const setField = (key: keyof EstimateFormState, value: unknown) => {
     setForm((current) => {
@@ -284,35 +310,36 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     }
   };
 
-  const sendProposalToClient = (item: Estimate) => {
+  const sendProposalToClient = async (item: Estimate) => {
+    const paymentCalculation = calculateProposalPaymentSchedule(item.paymentSchedule, analysis.total);
+    if (!paymentCalculation.valid) {
+      emitAppToast({ tone: 'error', message: paymentCalculation.errors[0] ?? 'Complete the Payment Schedule before sending.' });
+      return false;
+    }
     const proposalCustomer = customers.find((value) => value.id === item.customerId);
     if (!proposalCustomer?.email?.trim()) {
       emitAppToast({ tone: 'error', message: 'Customer email is missing. Add an email before sending.' });
-      return;
+      return false;
     }
-
-    void createProposalPdf(item.id);
-
-    const estimateWorkAreas = normalizeEstimateWorkAreas(item);
-    const subtotalValue = computeEstimateSubtotal(estimateWorkAreas);
-    const totalValue = computeEstimateTotal(subtotalValue, computeEstimateTax(subtotalValue, item.taxRate));
-    const proposalRef = item.proposalNumber?.trim();
-    const subject = encodeURIComponent(proposalRef ? `Proposal ${proposalRef}: ${item.title}` : `Proposal: ${item.title}`);
-    const body = encodeURIComponent(
-      [
-        `Hi ${proposalCustomer.name},`,
-        '',
-        `Please find attached our proposal for ${item.title}.`,
-        proposalRef ? `Proposal reference: ${proposalRef}.` : '',
-        `Total proposed amount: ${formatCurrency(totalValue)}.`,
-        item.validUntil ? `This proposal is valid until ${formatDate(item.validUntil)}.` : 'This proposal does not have an expiry date listed.',
-        '',
-        'Thank you,',
-      ].join('\n')
-    );
-
-    if (typeof window !== 'undefined') {
-      window.location.href = `mailto:${encodeURIComponent(proposalCustomer.email)}?subject=${subject}&body=${body}`;
+    const saved = await saveIfDirty({ force: true });
+    if (!saved) return false;
+    setSendingProposal(true);
+    try {
+      const response = await fetch(`/api/proposal-delivery?action=send&estimateId=${encodeURIComponent(item.id)}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estimateId: item.id, email: proposalCustomer.email }) });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Proposal could not be sent.');
+      setLatestProposalUrl(payload.viewUrl ?? '');
+      const versionResponse = await fetch(`/api/proposal-delivery?estimateId=${encodeURIComponent(item.id)}`, { credentials: 'include' });
+      const versionPayload = await versionResponse.json();
+      if (versionResponse.ok && versionPayload.ok) setProposalVersions(versionPayload.versions ?? []);
+      setForm((current) => current ? { ...current, status: 'sent', sentAt: payload.version.sentAt } : current);
+      emitAppToast({ tone: payload.emailSent ? 'success' : 'error', message: payload.emailSent ? 'Proposal sent securely.' : 'Proposal version created, but email delivery is not configured. Use the secure link.' });
+      return true;
+    } catch (error) {
+      emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Proposal could not be sent.' });
+      return false;
+    } finally {
+      setSendingProposal(false);
     }
   };
 
@@ -418,6 +445,52 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       costByCategory,
     };
   }, [form]);
+  const paymentCalculation = useMemo(() => calculateProposalPaymentSchedule(form?.paymentSchedule, analysis.total), [analysis.total, form?.paymentSchedule]);
+  const latestProposalVersion = proposalVersions[0];
+
+  const updatePayment = (paymentId: string, changes: Partial<ProposalPaymentStage>) => {
+    setForm((current) => current ? {
+      ...current,
+      paymentSchedule: (current.paymentSchedule ?? []).map((payment) => payment.id === paymentId ? { ...payment, ...changes } : payment),
+    } : current);
+  };
+
+  const addPayment = () => {
+    setForm((current) => {
+      if (!current) return current;
+      const payments = current.paymentSchedule ?? [];
+      return {
+        ...current,
+        paymentSchedule: [...payments, {
+          id: crypto.randomUUID(),
+          label: '',
+          type: 'percentage',
+          percentage: 0,
+          due: '',
+          sortOrder: payments.length,
+        }],
+      };
+    });
+  };
+
+  const removePayment = (paymentId: string) => {
+    setForm((current) => current ? {
+      ...current,
+      paymentSchedule: (current.paymentSchedule ?? []).filter((payment) => payment.id !== paymentId).map((payment, index) => ({ ...payment, sortOrder: index })),
+    } : current);
+  };
+
+  const movePayment = (paymentId: string, direction: -1 | 1) => {
+    setForm((current) => {
+      if (!current) return current;
+      const payments = [...(current.paymentSchedule ?? [])];
+      const index = payments.findIndex((payment) => payment.id === paymentId);
+      const destination = index + direction;
+      if (index < 0 || destination < 0 || destination >= payments.length) return current;
+      [payments[index], payments[destination]] = [payments[destination], payments[index]];
+      return { ...current, paymentSchedule: payments.map((payment, sortOrder) => ({ ...payment, sortOrder })) };
+    });
+  };
 
   if (!estimate || !form) {
     return (
@@ -670,9 +743,10 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
             />
           </Card>
         ) : (
+          <div className="space-y-4">
           <Card className="p-4 space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Proposal</h2>
-            <p className="text-sm text-gray-600">Generate a client-ready proposal and open a draft in your mail client. OliveOps does not send proposal email directly yet.</p>
+            <p className="text-sm text-gray-600">Preview the customer document, then send an immutable version for secure review and electronic acceptance.</p>
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm text-gray-700">
               <p><span className="font-medium text-gray-900">Proposal #:</span> {form.proposalNumber?.trim() || 'Not set'}</p>
               <p><span className="font-medium text-gray-900">Estimate:</span> {form.title}</p>
@@ -680,24 +754,20 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <p><span className="font-medium text-gray-900">Valid Until:</span> {form.validUntil ? formatDate(form.validUntil) : 'Not specified'}</p>
               <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(analysis.total)}</p>
             </div>
+            {latestProposalVersion ? <div className="grid gap-3 border-y border-gray-200 py-4 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs font-semibold uppercase text-gray-500">Status</p><p className="mt-1 font-semibold capitalize text-gray-900">{latestProposalVersion.status}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Sent</p><p className="mt-1 text-gray-900">{formatDateTime(latestProposalVersion.sentAt)}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Viewed</p><p className="mt-1 text-gray-900">{latestProposalVersion.firstViewedAt ? formatDateTime(latestProposalVersion.firstViewedAt) : 'Not yet'}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Accepted</p><p className="mt-1 text-gray-900">{latestProposalVersion.acceptedAt ? `${formatDateTime(latestProposalVersion.acceptedAt)}${latestProposalVersion.acceptedBy ? ` by ${latestProposalVersion.acceptedBy}` : ''}` : 'Not yet'}</p></div></div> : null}
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextArea label="Proposal-specific Terms and Conditions" rows={5} value={form.proposalTerms ?? ''} onChange={(event) => setField('proposalTerms', event.target.value)} />
+              <TextArea label="Customer-facing Exclusions" rows={5} value={form.exclusions ?? ''} onChange={(event) => setField('exclusions', event.target.value)} />
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={() => void createProposalPdf(estimate.id)}>
                 <FileDown size={14} /> Download PDF
               </Button>
-              <Button onClick={() => sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
-                <Mail size={14} /> Open Email Draft
+              <Button disabled={!paymentCalculation.valid || sendingProposal} onClick={() => void sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
+                <Send size={14} /> {sendingProposal ? 'Sending...' : latestProposalVersion ? 'Send New Version' : 'Send to Customer'}
               </Button>
-              {form.status === 'draft' ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    sendEstimate(estimate.id);
-                    setForm({ ...form, status: 'sent', sentAt: new Date().toISOString() });
-                  }}
-                >
-                  <Send size={14} /> Mark as Sent
-                </Button>
-              ) : null}
+              {latestProposalUrl ? <a href={latestProposalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700"><ExternalLink size={14} /> Open secure Proposal</a> : null}
+              {latestProposalVersion?.status === 'accepted' && latestProposalVersion.signedPdfFileId ? <a href={`/api/proposal-delivery?action=artifact&estimateId=${encodeURIComponent(estimate.id)}&versionNumber=${latestProposalVersion.versionNumber}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700"><FileDown size={14} /> View Accepted Proposal</a> : null}
               {form.status === 'accepted' && !form.convertedToJobId ? (
                 <Button onClick={openConvertModal}>
                   <RefreshCw size={14} /> Convert to Job
@@ -705,6 +775,38 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               ) : null}
             </div>
           </Card>
+          <Card className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h2 className="text-lg font-semibold text-gray-900">Payment Schedule</h2><p className="text-sm text-gray-600">Define how the customer will pay the Proposal total.</p></div>
+              <Button variant="secondary" onClick={addPayment}><Plus size={14} /> Add Payment</Button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {(form.paymentSchedule ?? []).map((payment, index) => {
+                const calculated = paymentCalculation.stages.find((stage) => stage.id === payment.id);
+                return (
+                  <div key={payment.id} className="grid gap-3 rounded-lg border border-gray-200 p-3 lg:grid-cols-[1.1fr_0.8fr_0.7fr_1.5fr_auto] lg:items-end">
+                    <Input label="Payment name" value={payment.label} onChange={(event) => updatePayment(payment.id, { label: event.target.value })} />
+                    <Select label="Amount type" value={payment.type} onChange={(event) => updatePayment(payment.id, { type: event.target.value as ProposalPaymentStage['type'], percentage: event.target.value === 'percentage' ? payment.percentage ?? 0 : undefined, amount: event.target.value === 'fixed' ? payment.amount ?? 0 : undefined })}><option value="percentage">Percentage</option><option value="fixed">Fixed Amount</option></Select>
+                    <Input label={payment.type === 'percentage' ? 'Percentage' : 'Amount'} type="number" min="0" step={payment.type === 'percentage' ? '0.01' : '0.01'} value={payment.type === 'percentage' ? payment.percentage ?? 0 : payment.amount ?? 0} onChange={(event) => updatePayment(payment.id, payment.type === 'percentage' ? { percentage: Number(event.target.value) } : { amount: Number(event.target.value) })} />
+                    <div><Input label="Due" value={payment.due} onChange={(event) => updatePayment(payment.id, { due: event.target.value })} /><p className="mt-1 text-xs text-gray-500">{payment.type === 'percentage' ? `${payment.percentage ?? 0}% (${formatCurrency(calculated?.calculatedAmount ?? 0)})` : formatCurrency(calculated?.calculatedAmount ?? 0)}</p></div>
+                    <div className="flex gap-1">
+                      <Button variant="secondary" aria-label={`Move ${payment.label || `payment ${index + 1}`} up`} disabled={index === 0} onClick={() => movePayment(payment.id, -1)}><ArrowUp size={14} /></Button>
+                      <Button variant="secondary" aria-label={`Move ${payment.label || `payment ${index + 1}`} down`} disabled={index === (form.paymentSchedule?.length ?? 0) - 1} onClick={() => movePayment(payment.id, 1)}><ArrowDown size={14} /></Button>
+                      <Button variant="danger" aria-label={`Delete ${payment.label || `payment ${index + 1}`}`} onClick={() => removePayment(payment.id)}><Trash2 size={14} /></Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {(form.paymentSchedule ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">No payment structure has been added.</p> : null}
+            </div>
+            <div className="mt-4 ml-auto max-w-sm space-y-2 border-t border-gray-200 pt-4 text-sm">
+              <div className="flex justify-between"><span className="text-gray-600">Proposal Total</span><span className="font-medium">{formatCurrency(paymentCalculation.proposalTotal)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-600">Scheduled Payments</span><span className="font-medium">{formatCurrency(paymentCalculation.scheduledTotal)}</span></div>
+              <div className={`flex justify-between font-semibold ${paymentCalculation.valid ? 'text-emerald-700' : 'text-rose-700'}`}><span>Remaining</span><span>{formatCurrency(paymentCalculation.remaining)}</span></div>
+              {!paymentCalculation.valid ? <p className="text-xs text-rose-700">{paymentCalculation.errors[0]}</p> : null}
+            </div>
+          </Card>
+          </div>
         )
       )}
 

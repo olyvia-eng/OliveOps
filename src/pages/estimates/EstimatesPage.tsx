@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ChevronRight, FileDown, FilterX, Mail, Plus, RefreshCw, Search, Trash2, Users, Wallet, FileText } from 'lucide-react';
+import { ChevronRight, FileDown, FilterX, Plus, RefreshCw, Search, Send, Trash2, Users, Wallet, FileText } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, EmptyState, Input, Modal, PageHeader, Select } from '../../components/ui';
 import { emitAppToast } from '../../toast';
@@ -322,38 +322,6 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
     }
   };
 
-  const sendProposalToClient = (estimate: Estimate) => {
-    const customer = customers.find((value) => value.id === estimate.customerId);
-    if (!customer?.email?.trim()) {
-      emitAppToast({ tone: 'error', message: 'Customer email is missing. Add an email before sending.' });
-      return;
-    }
-
-    void createProposalPdf(estimate.id);
-
-    const estimateWorkAreas = normalizeEstimateWorkAreas(estimate);
-    const subtotalValue = computeEstimateSubtotal(estimateWorkAreas);
-    const totalValue = computeEstimateTotal(subtotalValue, computeEstimateTax(subtotalValue, estimate.taxRate));
-    const proposalRef = estimate.proposalNumber?.trim();
-    const subject = encodeURIComponent(proposalRef ? `Proposal ${proposalRef}: ${estimate.title}` : `Proposal: ${estimate.title}`);
-    const body = encodeURIComponent(
-      [
-        `Hi ${customer.name},`,
-        '',
-        `Please find attached our proposal for ${estimate.title}.`,
-        proposalRef ? `Proposal reference: ${proposalRef}.` : '',
-        `Total proposed amount: ${formatCurrency(totalValue)}.`,
-        estimate.validUntil ? `This proposal is valid until ${formatDate(estimate.validUntil)}.` : 'This proposal does not have an expiry date listed.',
-        '',
-        'Thank you,',
-      ].join('\n')
-    );
-
-    if (typeof window !== 'undefined') {
-      window.location.href = `mailto:${encodeURIComponent(customer.email)}?subject=${subject}&body=${body}`;
-    }
-  };
-
   return (
     <div>
       <PageHeader
@@ -613,10 +581,11 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
             <Button
               onClick={() => {
                 if (!proposalEstimate) return;
-                sendProposalToClient(proposalEstimate);
+                setProposalEstimateId(null);
+                navigate(`/estimates/${proposalEstimate.id}?tab=proposal`);
               }}
             >
-              <Mail size={14} /> Open Email Draft
+              <Send size={14} /> Prepare and Send
             </Button>
           </>
         )}
@@ -631,7 +600,7 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
               <p><span className="font-medium text-gray-900">Valid Until:</span> {proposalEstimate.validUntil ? formatDate(proposalEstimate.validUntil) : 'Not specified'}</p>
               <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(computeEstimateTotal(computeEstimateSubtotal(normalizeEstimateWorkAreas(proposalEstimate)), computeEstimateTax(computeEstimateSubtotal(normalizeEstimateWorkAreas(proposalEstimate)), proposalEstimate.taxRate)))}</p>
             </div>
-            <p className="text-xs text-gray-500">Open Email Draft uses your local email app only. Attach the downloaded PDF and send it manually.</p>
+            <p className="text-xs text-gray-500">Open the Proposal workspace to configure payments, preview, and send a secure version for customer acceptance.</p>
           </div>
         ) : null}
       </Modal>

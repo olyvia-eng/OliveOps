@@ -615,6 +615,7 @@ export async function getBusinessProfile(businessId) {
     businessAddress: typeof result.Item.businessAddress === 'string' ? result.Item.businessAddress : '',
     taxLabel: typeof result.Item.taxLabel === 'string' ? result.Item.taxLabel : '',
     proposalTerms: typeof result.Item.proposalTerms === 'string' ? result.Item.proposalTerms : '',
+    logoFileId: typeof result.Item.logoFileId === 'string' ? result.Item.logoFileId : '',
     logoDataUrl: typeof result.Item.logoDataUrl === 'string' ? result.Item.logoDataUrl : '',
     timezone: normalizeBusinessTimeZone(result.Item.timezone),
     pricingBudgetId: typeof result.Item.pricingBudgetId === 'string' && result.Item.pricingBudgetId.trim() ? result.Item.pricingBudgetId.trim() : null,
@@ -630,7 +631,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? current.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
@@ -641,6 +642,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
       ':businessAddress': profile.businessAddress ?? current.businessAddress,
       ':taxLabel': profile.taxLabel ?? current.taxLabel,
       ':proposalTerms': profile.proposalTerms ?? current.proposalTerms,
+      ':logoFileId': profile.logoFileId ?? current.logoFileId,
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
@@ -4327,10 +4329,17 @@ function mapEstimateRecordFromItem(item) {
     lineItems: item.lineItems ?? [],
     taxRate: item.taxRate,
     notes: item.notes,
+    exclusions: item.exclusions,
+    proposalTerms: item.proposalTerms,
+    paymentSchedule: Array.isArray(item.paymentSchedule) ? item.paymentSchedule : [],
     validUntil: item.validUntil,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     sentAt: item.sentAt,
+    activeProposalVersionId: item.activeProposalVersionId,
+    proposalVersionNumber: item.proposalVersionNumber,
+    acceptedAt: item.acceptedAt,
+    acceptedBy: item.acceptedBy,
     templateId: item.templateId,
   };
 }

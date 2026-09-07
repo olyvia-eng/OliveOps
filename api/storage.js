@@ -53,7 +53,9 @@ const FORM_SIGNATURE_ENTITY_TYPE = 'form-signature';
 const FORM_ATTACHMENT_ENTITY_TYPE = 'form-attachment';
 const TRAINING_ENTITY_TYPE = 'training';
 const SOP_ENTITY_TYPE = 'sop';
+const BUSINESS_PROFILE_ENTITY_TYPE = 'business-profile';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
+const BUSINESS_LOGO_MAX_BYTES = 200 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PDF_MIME_TYPE = 'application/pdf';
@@ -78,6 +80,7 @@ const ATTACHMENT_ALLOWLIST = {
   [SOP_ENTITY_TYPE]: new Set(['attachment', 'document']),
   [FORM_SIGNATURE_ENTITY_TYPE]: new Set(['signature']),
   [FORM_ATTACHMENT_ENTITY_TYPE]: new Set(['photo']),
+  [BUSINESS_PROFILE_ENTITY_TYPE]: new Set(['logo']),
 };
 
 const COMPLETION_ALLOWED_KEYS = new Set(['action', 'fileId', 'checksum', 'etag']);
@@ -294,6 +297,13 @@ export function createStorageHandler(overrides = {}) {
   }
 
   async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, accessMode = 'read' }) {
+    if (entityType === BUSINESS_PROFILE_ENTITY_TYPE) {
+      return {
+        entity: { id: session.businessId },
+        allowed: entityId === session.businessId && canManageDocuments(session.role),
+      };
+    }
+
     if (entityType === SOP_ENTITY_TYPE) {
       const sop = await deps.getSopDefinitionForBusiness(session.businessId, entityId);
       if (!sop) return null;
@@ -445,6 +455,9 @@ export function createStorageHandler(overrides = {}) {
           }
           if (entityType === SOP_ENTITY_TYPE && normalizedCategory === 'attachment' && !SOP_ATTACHMENT_MIME_TYPES.has(validation.mimeType)) {
             return res.status(400).json({ ok: false, error: 'SOP attachments must be PDF, DOC, or DOCX files.' });
+          }
+          if (entityType === BUSINESS_PROFILE_ENTITY_TYPE && (!['image/jpeg', 'image/png'].includes(validation.mimeType) || validation.sizeBytes > BUSINESS_LOGO_MAX_BYTES)) {
+            return res.status(400).json({ ok: false, error: 'Company logos must be PNG or JPEG files no larger than 200 KB.' });
           }
 
           let formContext;
@@ -698,7 +711,7 @@ export function createStorageHandler(overrides = {}) {
           const attachmentField = file.entityType === DOCUMENT_ENTITY_TYPE
             ? undefined
             : getAttachmentFieldForCategory({ entityType: file.entityType, category: normalizedCategory });
-          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
+          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE, BUSINESS_PROFILE_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
             return res.status(400).json({ ok: false, error: 'Unsupported attachment category.' });
           }
 

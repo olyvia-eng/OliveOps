@@ -170,6 +170,16 @@ export interface EstimateWorkArea {
 
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
 
+export interface ProposalPaymentStage {
+  id: ID;
+  label: string;
+  type: 'percentage' | 'fixed';
+  percentage?: number;
+  amount?: number;
+  due: string;
+  sortOrder: number;
+}
+
 export interface Estimate {
   id: ID;
   customerId: ID;
@@ -187,10 +197,17 @@ export interface Estimate {
   lineItems: LineItem[] | EstimateLineItem[];
   taxRate: number; // percentage
   notes: string;
+  exclusions?: string;
+  proposalTerms?: string;
+  paymentSchedule?: ProposalPaymentStage[];
   validUntil: string;
   createdAt: string;
   updatedAt: string;
   sentAt?: string;
+  activeProposalVersionId?: ID;
+  proposalVersionNumber?: number;
+  acceptedAt?: string;
+  acceptedBy?: string;
   templateId?: ID;
 }
 

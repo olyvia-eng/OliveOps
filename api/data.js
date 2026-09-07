@@ -1271,6 +1271,22 @@ function validateEstimateRecord(record) {
   }
   if (typeof record.description !== 'string') return 'Estimate description must be a string.';
   if (typeof record.notes !== 'string') return 'Estimate notes must be a string.';
+  if (record.exclusions !== undefined && typeof record.exclusions !== 'string') return 'Estimate exclusions must be a string.';
+  if (record.proposalTerms !== undefined && typeof record.proposalTerms !== 'string') return 'Estimate proposal terms must be a string.';
+  if (record.paymentSchedule !== undefined) {
+    if (!Array.isArray(record.paymentSchedule) || record.paymentSchedule.length > 50) return 'Estimate payment schedule is invalid.';
+    const paymentIds = new Set();
+    for (const payment of record.paymentSchedule) {
+      if (!payment || typeof payment !== 'object' || !isNonEmptyString(payment.id) || paymentIds.has(payment.id)) return 'Estimate payment ids must be unique.';
+      paymentIds.add(payment.id);
+      if (!isNonEmptyString(payment.label) || payment.label.length > 120) return 'Estimate payment name is invalid.';
+      if (payment.type !== 'percentage' && payment.type !== 'fixed') return 'Estimate payment type is invalid.';
+      if (!isNonEmptyString(payment.due) || payment.due.length > 500) return 'Estimate payment due description is invalid.';
+      if (!Number.isInteger(payment.sortOrder) || payment.sortOrder < 0) return 'Estimate payment order is invalid.';
+      if (payment.type === 'percentage' && (!isFiniteNumber(payment.percentage) || payment.percentage <= 0 || payment.percentage > 100)) return 'Estimate payment percentage is invalid.';
+      if (payment.type === 'fixed' && (!isFiniteNumber(payment.amount) || payment.amount <= 0)) return 'Estimate payment amount is invalid.';
+    }
+  }
   const validUntilDate = typeof record.validUntil === 'string' ? record.validUntil.slice(0, 10) : '';
   if (!isNonEmptyString(validUntilDate) || !isValidDateOnly(validUntilDate)) {
     return 'Estimate valid-until date must use YYYY-MM-DD format.';

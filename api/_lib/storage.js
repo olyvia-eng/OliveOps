@@ -205,6 +205,30 @@ async function readObjectRange({ client, key, range }) {
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
+export async function readStoredFile({ businessId, key }) {
+  if (!isStorageKeyScopedToBusiness({ businessId, key })) throw Object.assign(new Error('Unauthorized storage key.'), { statusCode: 403 });
+  const result = await getS3Client().send(new GetObjectCommand({ Bucket: getBucketName(), Key: key }));
+  if (!result.Body) return new Uint8Array();
+  if (typeof result.Body.transformToByteArray === 'function') return result.Body.transformToByteArray();
+  const chunks = [];
+  for await (const chunk of result.Body) chunks.push(chunk);
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+}
+
+export async function writeStoredFile({ businessId, key, bytes, mimeType, writeOnce = true }) {
+  if (!isStorageKeyScopedToBusiness({ businessId, key })) throw Object.assign(new Error('Unauthorized storage key.'), { statusCode: 403 });
+  const body = Buffer.from(bytes);
+  const result = await getS3Client().send(new PutObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+    Body: body,
+    ContentType: mimeType,
+    ContentLength: body.length,
+    ...(writeOnce ? { IfNoneMatch: '*' } : {}),
+  }));
+  return { ok: true, etag: typeof result.ETag === 'string' ? result.ETag.replaceAll('"', '') : '', sizeBytes: body.length };
+}
+
 export function validatePdfParts(firstBytes, tailBytes) {
   const hasHeader = Buffer.from(firstBytes).toString('latin1').startsWith('%PDF-');
   const hasEof = Buffer.from(tailBytes).toString('latin1').includes('%%EOF');

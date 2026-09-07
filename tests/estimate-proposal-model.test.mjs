@@ -7,6 +7,11 @@ const estimate = {
   id: 'estimate-a', proposalNumber: 'PROP-2026-0042', title: 'Patio & Grading', description: 'A customer introduction.',
   propertyAddressSnapshot: '20 Project Road, Toronto, ON', createdAt: '2026-09-01T10:00:00.000Z', validUntil: '2026-10-01', taxRate: 13,
   notes: 'Customer-facing note.', internalNotes: 'Never print this.', estimatedProfit: 9000, margin: 40, overhead: 2000,
+  proposalTerms: 'Proposal-specific terms.',
+  paymentSchedule: [
+    { id: 'deposit', label: 'Deposit', type: 'percentage', percentage: 25, due: 'Upon acceptance', sortOrder: 0 },
+    { id: 'final', label: 'Final Payment', type: 'percentage', percentage: 75, due: 'Upon substantial completion', sortOrder: 1 },
+  ],
   workAreas: [{
     id: 'patio', name: 'Patio', description: 'Excavate and prepare the patio area\n\nInstall interlocking stone\u0000\u0007', sortOrder: 0,
     lineItems: [
@@ -39,6 +44,8 @@ test('proposal projection exposes customer scope and exact stored totals without
   assert.equal(projection.proposal.subtotal, 3400);
   assert.equal(projection.proposal.taxAmount, 442);
   assert.equal(projection.proposal.total, 3842);
+  assert.equal(projection.proposal.terms, 'Proposal-specific terms.');
+  assert.deepEqual(projection.paymentSchedule.map((payment) => payment.amount), [960.5, 2881.5]);
   assert.equal(projection.customer.billingAddress, '11 Accounts Avenue, Toronto, ON, M3M 3M3, Canada');
   assert.equal(projection.proposal.projectAddress, '20 Project Road, Toronto, ON');
   assert.deepEqual(estimate, before, 'projection must not mutate the Estimate');
@@ -65,7 +72,7 @@ test('legacy Work Areas without customer scope use a fixed fallback without muta
 });
 
 test('proposal projection omits optional content and rejects external logos cleanly', () => {
-  const projection = buildEstimateProposalProjection({ estimate: { ...estimate, notes: '', exclusions: '' }, customer: { name: 'Client' }, business: { name: 'Contractor', logoDataUrl: 'https://tracker.example/logo.png' } });
+  const projection = buildEstimateProposalProjection({ estimate: { ...estimate, notes: '', exclusions: '', proposalTerms: '', paymentSchedule: [] }, customer: { name: 'Client' }, business: { name: 'Contractor', logoDataUrl: 'https://tracker.example/logo.png' } });
   assert.equal(projection.company.logoDataUrl, '');
   assert.equal(projection.company.phone, '');
   assert.equal(projection.customer.billingAddress, '');

@@ -1,11 +1,12 @@
-import { getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness } from './_lib/authRepo.js';
+import { getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, getFileForBusiness } from './_lib/authRepo.js';
 import { requireSession } from './_lib/session.js';
+import { readStoredFile } from './_lib/storage.js';
 import { buildEstimateProposalProjection } from '../src/utils/estimateProposalModel.js';
 
 const READ_ROLES = ['owner', 'admin', 'foreman'];
 
 export function createEstimateProposalHandler(overrides = {}) {
-  const deps = { requireSession, getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, ...overrides };
+  const deps = { requireSession, getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, getFileForBusiness, readStoredFile, ...overrides };
 
   return async function estimateProposalHandler(req, res) {
     const session = await deps.requireSession(req, res, READ_ROLES, 'estimates');
@@ -26,6 +27,13 @@ export function createEstimateProposalHandler(overrides = {}) {
       deps.getBusinessProfile(session.businessId),
     ]);
     if (!customer || !business) return res.status(404).json({ ok: false, error: 'Proposal data not found.' });
+    if (business.logoFileId) {
+      const logo = await deps.getFileForBusiness(session.businessId, business.logoFileId);
+      if (logo?.uploadStatus === 'uploaded' && logo.entityType === 'business-profile' && ['image/png', 'image/jpeg'].includes(logo.mimeType)) {
+        const bytes = await deps.readStoredFile({ businessId: session.businessId, key: logo.objectKey ?? logo.key });
+        business.logoDataUrl = `data:${logo.mimeType};base64,${Buffer.from(bytes).toString('base64')}`;
+      }
+    }
 
     return res.status(200).json({
       ok: true,
