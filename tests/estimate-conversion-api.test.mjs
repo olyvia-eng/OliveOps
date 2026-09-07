@@ -163,6 +163,7 @@ test('convert-to-job creates a Service Job without Project operational Work Area
     getEstimateForBusiness: async () => estimate,
     reserveNextJobNumberForBusiness: async () => 'JOB-2027-0001',
     convertEstimateToJobForBusiness: async () => ({ ok: true }),
+    createGeneratedServiceVisitsForBusiness: async ({ visits }) => ({ created: visits, existing: [] }),
   });
   const res = createMockRes();
 
@@ -175,15 +176,44 @@ test('convert-to-job creates a Service Job without Project operational Work Area
   assert.equal(res.body.job.operationalWorkAreas, undefined);
   assert.equal(res.body.job.scheduleOccurrences, undefined);
   assert.deepEqual(res.body.job.workAreas, []);
-  assert.deepEqual(res.body.job.services, estimate.services);
   assert.deepEqual(res.body.job.originalEstimateSnapshot.services, estimate.services);
   assert.notEqual(res.body.job.services, res.body.job.originalEstimateSnapshot.services);
+  assert.equal(res.body.job.services[0].sourceEstimateServiceId, 'service-1');
+  assert.equal(res.body.job.services[0].status, 'active');
+  assert.equal(res.body.job.services[0].operationalSchedule.revision, 1);
+  assert.deepEqual(res.body.job.services[0].pricingSnapshot.lineItems, estimate.services[0].lineItems);
+  assert.notEqual(res.body.job.services[0].pricingSnapshot.lineItems, estimate.services[0].lineItems);
   assert.equal(res.body.job.originalContractRevenue, 3200);
   assert.equal(res.body.job.currentContractRevenue, 3200);
   assert.equal(res.body.job.estimatedCost, 1595);
   assert.equal(res.body.job.originalEstimateSnapshot.estimatedProfit, 1605);
   assert.equal(res.body.job.originalEstimateSnapshot.acceptedProposalVersionId, 'proposal-version-3');
   assert.equal(res.body.job.originalEstimateSnapshot.proposalVersionNumber, 3);
+  assert.equal(res.body.visitGeneration.ok, true);
+  assert.equal(res.body.visitGeneration.createdCount, 29);
+});
+
+test('convert-to-job keeps a committed Service Job when initial Visit generation is recoverable', async () => {
+  const estimate = {
+    ...baseEstimate(),
+    workType: 'service',
+    services: [{ id: 'service-1', name: 'As needed cleanup', description: '', sortOrder: 0, scheduleType: 'as_needed', billingType: 'time_and_material', lineItems: [] }],
+  };
+  let committed = false;
+  const handler = createEstimatesHandler({
+    requireSession: async () => baseSession(),
+    getEstimateForBusiness: async () => estimate,
+    reserveNextJobNumberForBusiness: async () => 'JOB-2027-0002',
+    convertEstimateToJobForBusiness: async () => { committed = true; return { ok: true }; },
+    createGeneratedServiceVisitsForBusiness: async () => { throw new Error('temporary write failure'); },
+  });
+  const res = createMockRes();
+
+  await handler({ method: 'POST', query: { action: 'convert-to-job' }, body: { estimateId: estimate.id } }, res);
+
+  assert.equal(committed, true);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.visitGeneration, { ok: false, recoverable: true, error: 'Initial Visits could not be generated. Retry from the Service Job.' });
 });
 
 test('convert-to-job preserves accepted equipment cost and charge-out snapshots', async () => {

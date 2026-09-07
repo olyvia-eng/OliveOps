@@ -214,6 +214,68 @@ export interface EstimateService {
   timeAndMaterialPricing?: ServiceTimeAndMaterialPricing;
 }
 
+export type ServiceOperationalStatus = 'active' | 'paused' | 'completed' | 'cancelled';
+export interface ServiceOperationalSchedule {
+  startDate?: string;
+  endDate?: string;
+  preferredWeekdays?: number[];
+  monthlyDay?: number;
+  startTime?: string;
+  durationMinutes?: number;
+  defaultCrewId?: ID;
+  defaultEmployeeIds?: ID[];
+  defaultEquipmentIds?: ID[];
+  revision: number;
+  effectiveFrom?: string;
+}
+export interface ServiceJobService extends EstimateService {
+  sourceEstimateServiceId: ID;
+  status: ServiceOperationalStatus;
+  pricingSnapshot: {
+    billingType: ServiceBillingType;
+    lineItems: ServiceEstimateLineItem[];
+    pricing?: ServicePricingOverride;
+    contractPricing?: ServiceContractPricing;
+    perVisitPricing?: ServicePerVisitPricing;
+    timeAndMaterialPricing?: ServiceTimeAndMaterialPricing;
+  };
+  operationalSchedule: ServiceOperationalSchedule;
+}
+
+export type ServiceVisitStatus = 'scheduled' | 'in_progress' | 'completed' | 'skipped' | 'cancelled';
+export type ServiceVisitBillingStatus = 'included' | 'pending' | 'ready' | 'invoiced' | 'not_billable' | 'pending_usage';
+export type ServiceVisitSource = 'recurrence' | 'manual' | 'one_time';
+export interface ServiceVisit {
+  id: ID;
+  businessId?: ID;
+  jobId: ID;
+  serviceId: ID;
+  sourceEstimateServiceId?: ID;
+  scheduledDate: string;
+  originalRecurrenceDate?: string;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  scheduleAllDay: boolean;
+  crewId?: ID;
+  assignedEmployeeIds: ID[];
+  assignedEquipmentIds: ID[];
+  status: ServiceVisitStatus;
+  billingTypeSnapshot: ServiceBillingType;
+  billingStatus: ServiceVisitBillingStatus;
+  source: ServiceVisitSource;
+  seriesId?: string;
+  recurrenceSequence?: number;
+  recurrenceKey?: string;
+  isSeriesException?: boolean;
+  notes: string;
+  statusReason?: string;
+  completedAt?: string;
+  completedByUserId?: ID;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
 
 export interface ProposalPaymentStage {
@@ -715,7 +777,7 @@ export interface Job {
   description: string;
   workAreas?: string[];
   operationalWorkAreas?: JobWorkArea[];
-  services?: EstimateService[];
+  services?: ServiceJobService[];
   originalEstimateSnapshot?: JobEstimateSnapshot;
   planningSnapshotVersion?: number;
   planningRevision?: number;

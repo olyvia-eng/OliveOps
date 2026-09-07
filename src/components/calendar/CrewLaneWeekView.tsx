@@ -37,7 +37,7 @@ function ScheduleBar({ span, colourBy, selected, hasConflict, canManage, onSelec
   return (
     <button
       type="button"
-      draggable={canManage && entry.source === 'oliveops'}
+      draggable={canManage && entry.source === 'oliveops' && entry.eventType !== 'service_visit'}
       onDragStart={(event) => {
         if (!entry.jobId) return;
         event.dataTransfer.effectAllowed = 'move';
@@ -120,7 +120,7 @@ export default function CrewLaneWeekView({ days, entries, activeCrews, colourBy,
                   const isToday = dayKey(day) === todayKey;
                   return <div key={dayKey(day)} className={`relative border-l border-brand-100 first:border-l-0 dark:border-brand-600 ${index > 4 ? 'bg-brand-50/60 dark:bg-brand-800/40' : ''} ${isToday ? 'bg-accent-50/70 dark:bg-accent-900/10' : ''}`} style={{ gridColumn: index + 1, gridRow: `1 / span ${rowCount}` }} onDragOver={(event) => { if (canManage) event.preventDefault(); }} onDrop={(event) => { const raw = event.dataTransfer.getData('application/x-oliveops-job'); if (!raw) return; const payload = JSON.parse(raw) as { jobId: string; startKey: string }; onShiftJob(payload.jobId, differenceInCalendarDays(day, parseISO(payload.startKey))); }} />;
                 })}
-                {spans.map((span) => <ScheduleBar key={`${span.entry.source}:${span.entry.jobId ?? span.entry.externalEventId ?? span.entry.timeOffRequestId}:${span.entry.startKey}:${span.entry.endKey}`} span={span} colourBy={colourBy} selected={span.entry.jobId === selectedJobId} hasConflict={Boolean(span.entry.jobId && conflictJobIds.has(span.entry.jobId))} canManage={canManage} onSelect={onSelect} />)}
+                {spans.map((span) => <ScheduleBar key={`${span.entry.source}:${span.entry.visitId ?? span.entry.jobId ?? span.entry.externalEventId ?? span.entry.timeOffRequestId}:${span.entry.startKey}:${span.entry.endKey}`} span={span} colourBy={colourBy} selected={(span.entry.visitId ?? span.entry.jobId) === selectedJobId} hasConflict={Boolean(span.entry.eventType !== 'service_visit' && span.entry.jobId && conflictJobIds.has(span.entry.jobId))} canManage={canManage} onSelect={onSelect} />)}
               </div>
             </div>
           );

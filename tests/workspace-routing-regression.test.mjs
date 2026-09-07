@@ -43,13 +43,14 @@ test('Project and Service work have separate list routes and grouped navigation'
   assert.match(sidebarItemSource, /resolveWorkType\(estimate\)[\s\S]*resolveWorkType\(job\)/);
 });
 
-test('Service workspaces model agreements without generating Visits or Project Work Areas', () => {
+test('Service Estimates avoid operations while Service Jobs expose Visit operations without Project Work Areas', () => {
   assert.match(serviceEstimatesSource, /workType: 'service'/);
   assert.match(serviceEstimateWorkspaceSource, /scheduleType[\s\S]*billingType[\s\S]*estimatedVisits/);
   assert.match(serviceEstimateWorkspaceSource, /This does not generate Visits\./);
   assert.doesNotMatch(serviceEstimateWorkspaceSource, /operationalWorkAreas|createDefaultEstimateWorkArea/);
   assert.match(serviceJobsSource, /resolveWorkType\(job\) === 'service'/);
-  assert.match(serviceJobWorkspaceSource, /No Visits have been generated\./);
+  assert.match(serviceJobWorkspaceSource, /key: 'visits'/);
+  assert.match(serviceJobWorkspaceSource, /key: 'project-management'/);
   assert.match(appSource, /ProjectEstimateWorkAreaRoute[\s\S]*<Navigate to=\{`\/estimates\/\$\{id\}`\} replace \/>/);
   assert.match(appSource, /ProjectJobScheduleRoute[\s\S]*<Navigate to=\{`\/jobs\/\$\{id\}`\} replace \/>/);
 });

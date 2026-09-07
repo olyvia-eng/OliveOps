@@ -12,6 +12,8 @@ import {
 } from '../src/utils/jobPlanModel.js';
 import { normalizeEstimateServices, resolveWorkType } from '../src/utils/workTypeModel.js';
 import { calculateServiceEstimateTotals } from '../src/utils/servicePricingModel.js';
+import { buildGeneratedServiceVisits } from '../src/utils/serviceVisitModel.js';
+import { createGeneratedServiceVisitsForBusiness } from './_lib/serviceVisitRepo.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -208,10 +210,10 @@ function buildServiceEstimateSnapshot(estimate, services) {
 }
 
 function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
-  const services = normalizeEstimateServices(estimate.services, generateId);
-  const totals = calculateServiceEstimateTotals(services, estimate.taxRate);
-  const firstServiceStart = services.map((service) => service.startDate).filter(Boolean).sort()[0];
-  const lastServiceEnd = services.map((service) => service.endDate).filter(Boolean).sort().at(-1);
+  const acceptedServices = normalizeEstimateServices(estimate.services, generateId);
+  const totals = calculateServiceEstimateTotals(acceptedServices, estimate.taxRate);
+  const firstServiceStart = acceptedServices.map((service) => service.startDate).filter(Boolean).sort()[0];
+  const lastServiceEnd = acceptedServices.map((service) => service.endDate).filter(Boolean).sort().at(-1);
   const jobStartDate = isNonEmptyString(startDate)
     ? startDate
     : (estimate.serviceStartDate ?? firstServiceStart ?? convertedAt.slice(0, 10));
@@ -236,8 +238,33 @@ function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actor
     title: convertedJobTitle(estimate, title, jobNumber),
     description: typeof estimate.description === 'string' ? estimate.description : '',
     workAreas: [],
-    services: structuredClone(services),
-    originalEstimateSnapshot: buildServiceEstimateSnapshot(estimate, services),
+    services: acceptedServices.map((service) => ({
+      ...structuredClone(service),
+      sourceEstimateServiceId: service.id,
+      status: 'active',
+      pricingSnapshot: {
+        billingType: service.billingType,
+        lineItems: structuredClone(service.lineItems ?? []),
+        pricing: structuredClone(service.pricing),
+        contractPricing: structuredClone(service.contractPricing),
+        perVisitPricing: structuredClone(service.perVisitPricing),
+        timeAndMaterialPricing: structuredClone(service.timeAndMaterialPricing),
+      },
+      operationalSchedule: {
+        startDate: service.startDate,
+        endDate: service.endDate,
+        preferredWeekdays: service.scheduleType === 'recurring' && service.startDate
+          ? [new Date(`${service.startDate}T12:00:00.000Z`).getUTCDay()]
+          : [],
+        monthlyDay: service.startDate ? Number(service.startDate.slice(8, 10)) : undefined,
+        startTime: '',
+        durationMinutes: 60,
+        defaultEmployeeIds: [],
+        defaultEquipmentIds: [],
+        revision: 1,
+      },
+    })),
+    originalEstimateSnapshot: buildServiceEstimateSnapshot(estimate, acceptedServices),
     status: 'scheduled',
     startDate: jobStartDate,
     endDate: jobEndDate,
@@ -318,6 +345,7 @@ export function createEstimatesHandler(overrides = {}) {
     getEstimateForBusiness,
     reserveNextJobNumberForBusiness,
     convertEstimateToJobForBusiness,
+    createGeneratedServiceVisitsForBusiness,
     ...overrides,
   };
 
@@ -394,9 +422,26 @@ export function createEstimatesHandler(overrides = {}) {
         return res.status(409).json({ ok: false, error: 'Estimate could not be converted due to a data conflict.' });
       }
 
+      let visitGeneration = null;
+      if (job.workType === 'service') {
+        const visits = job.services.flatMap((service) => buildGeneratedServiceVisits({
+          businessId: session.businessId,
+          job,
+          service,
+          now: convertedAt,
+        }));
+        try {
+          const generated = await deps.createGeneratedServiceVisitsForBusiness({ businessId: session.businessId, visits });
+          visitGeneration = { ok: true, createdCount: generated.created.length, existingCount: generated.existing.length };
+        } catch {
+          visitGeneration = { ok: false, recoverable: true, error: 'Initial Visits could not be generated. Retry from the Service Job.' };
+        }
+      }
+
       return res.status(200).json({
         ok: true,
         job,
+        visitGeneration,
         estimate: {
           id: estimate.id,
           status: 'converted',

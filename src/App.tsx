@@ -100,7 +100,7 @@ function JobDetailRoute({ currentUserRole, currentUserId }: { currentUserRole: s
   const { id } = useParams<{ id: string }>();
   const job = useStore((state) => state.jobs.find((item) => item.id === id));
   return resolveWorkType(job) === 'service'
-    ? <ServiceJobDetailPage />
+    ? <ServiceJobDetailPage currentUserRole={currentUserRole} />
     : <JobDetailPage currentUserRole={currentUserRole} currentUserId={currentUserId} />;
 }
 

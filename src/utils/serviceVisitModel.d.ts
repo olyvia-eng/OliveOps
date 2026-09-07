@@ -1,0 +1,10 @@
+import type { Job, ServiceJobService, ServiceVisit, ServiceVisitStatus } from '../types';
+export function serviceVisitSeriesId(jobId: string, serviceId: string): string;
+export function serviceVisitOccurrenceKey(jobId: string, serviceId: string, recurrenceDate: string): string;
+export function serviceVisitId(jobId: string, serviceId: string, recurrenceDate: string): string;
+export function resolveVisitBillingStatus(billingType: string, visitStatus?: ServiceVisitStatus): ServiceVisit['billingStatus'];
+export function canTransitionVisitStatus(from: ServiceVisitStatus, to: ServiceVisitStatus): boolean;
+export function validateVisitStatusTransition(from: ServiceVisitStatus, to: ServiceVisitStatus): string | null;
+export function generateServiceOccurrenceDates(service: ServiceJobService): string[];
+export function buildGeneratedServiceVisits(input: { businessId: string; job: Job; service: ServiceJobService; now?: string }): ServiceVisit[];
+export function synchronizeServiceVisits(existingVisits: ServiceVisit[], generatedVisits: ServiceVisit[], today: string): { create: ServiceVisit[]; update: ServiceVisit[]; cancel: ServiceVisit[]; preserve: ServiceVisit[] };

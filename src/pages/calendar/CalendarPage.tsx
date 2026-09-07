@@ -15,7 +15,7 @@ import {
 import { AlertTriangle, Plus } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, Modal, PageHeader, Select } from '../../components/ui';
-import type { CalendarColourBy, CalendarPreferences, CalendarView } from '../../types';
+import type { CalendarColourBy, CalendarPreferences, CalendarView, ServiceVisit } from '../../types';
 import { CalendarFilters, CalendarLegend, CalendarToolbar, ColourBySelector, ScheduleEventCard } from '../../components/calendar/CalendarControls';
 import CrewLaneWeekView from '../../components/calendar/CrewLaneWeekView';
 import { formatDate, statusColor } from '../../utils';
@@ -29,6 +29,8 @@ import {
   getJobScheduleWindow,
   getScheduleSegments,
 } from '../../utils/jobSchedule';
+import { resolveWorkType } from '../../utils/workTypeModel.js';
+import { listScheduleServiceVisits, rescheduleServiceVisit } from '../jobs/serviceVisitApi';
 
 interface Props {
   currentUserRole: string;
@@ -36,7 +38,9 @@ interface Props {
 
 type CalendarEventExtendedProps = {
   source: 'oliveops' | 'time_off';
+  eventType?: 'project_job' | 'service_visit';
   jobId?: string;
+  visitId?: string;
   segmentStartKey?: string;
   summary: string;
   timeLabel: string;
@@ -90,12 +94,14 @@ export default function CalendarPage({ currentUserRole }: Props) {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedTimeOffId, setSelectedTimeOffId] = useState<string | null>(null);
   const [approvedTimeOff, setApprovedTimeOff] = useState<ScheduleTimeOff[]>([]);
+  const [serviceVisits, setServiceVisits] = useState<ServiceVisit[]>([]);
   const [pendingTimeOffOverride, setPendingTimeOffOverride] = useState<{ conflicts: EmployeeTimeOffConflict[]; proceed: () => void; cancel: () => void } | null>(null);
   const [visibleRange, setVisibleRange] = useState(() => getWeekRange(initialCalendarDate.current));
   const canManageSchedule = canManageScheduleRole(currentUserRole);
 
   const allScheduledJobs = useMemo(() => {
     return jobs
+      .filter((job) => resolveWorkType(job) === 'project')
       .map((job) => {
         const schedule = getJobScheduleWindow(job);
         if (!schedule) return null;
@@ -149,7 +155,33 @@ export default function CalendarPage({ currentUserRole }: Props) {
     };
   }), [approvedTimeOff, crews, employees]);
 
-  const normalizedEntries = useMemo(() => [...oliveOpsEntries, ...timeOffEntries], [oliveOpsEntries, timeOffEntries]);
+  const serviceVisitEntries = useMemo(() => serviceVisits.flatMap((visit) => {
+    const job = jobs.find((candidate) => candidate.id === visit.jobId);
+    if (!job) return [];
+    const service = job.services?.find((candidate) => candidate.id === visit.serviceId);
+    const customer = customers.find((candidate) => candidate.id === job.customerId);
+    return [{
+      source: 'oliveops' as const,
+      eventType: 'service_visit' as const,
+      visitId: visit.id,
+      jobId: visit.jobId,
+      title: service?.name ?? job.title,
+      summary: `${job.title}${customer ? ` · ${customer.name}` : ''}`,
+      timeLabel: visit.scheduleAllDay ? '' : visit.scheduledStartAt?.slice(11, 16) ?? '',
+      status: visit.status,
+      start: visit.scheduledStartAt,
+      end: visit.scheduledEndAt,
+      startKey: visit.scheduledDate,
+      endKey: visit.scheduledEndAt?.slice(0, 10) ?? visit.scheduledDate,
+      allDay: visit.scheduleAllDay,
+      crew: crews.find((candidate) => candidate.id === visit.crewId) ?? null,
+      division: divisions.find((candidate) => candidate.id === service?.divisionId) ?? null,
+      employeeIds: visit.assignedEmployeeIds,
+      equipmentIds: visit.assignedEquipmentIds,
+    }];
+  }), [crews, customers, divisions, jobs, serviceVisits]);
+
+  const normalizedEntries = useMemo(() => [...oliveOpsEntries, ...serviceVisitEntries, ...timeOffEntries], [oliveOpsEntries, serviceVisitEntries, timeOffEntries]);
 
   const filteredEntries = useMemo(() => filterScheduleEntries(normalizedEntries, {
     divisionId: divisionFilter,
@@ -167,7 +199,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
     return allScheduledJobs.filter((entry) => visibleJobIds.has(entry.job.id));
   }, [allScheduledJobs, filteredEntries]);
   const filteredTimeOffEntries = useMemo(() => filteredEntries.filter((entry) => entry.source === 'time_off'), [filteredEntries]);
-  const filteredOliveOpsEntries = useMemo(() => filteredEntries.filter((entry) => entry.source === 'oliveops'), [filteredEntries]);
+  const filteredOliveOpsEntries = useMemo(() => filteredEntries.filter((entry) => entry.source === 'oliveops' && entry.eventType !== 'service_visit'), [filteredEntries]);
+  const filteredServiceVisitEntries = useMemo(() => filteredEntries.filter((entry) => entry.eventType === 'service_visit'), [filteredEntries]);
 
   const legendItems = useMemo(() => getScheduleLegend(filteredEntries, preferences.colourBy), [filteredEntries, preferences.colourBy]);
 
@@ -187,6 +220,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
       textColor: 'inherit',
       extendedProps: {
         source: 'oliveops' as const,
+        eventType: 'project_job' as const,
         jobId: entry.job.id,
         segmentStartKey: segment.startKey,
         summary: entry.summary,
@@ -200,6 +234,28 @@ export default function CalendarPage({ currentUserRole }: Props) {
       } satisfies CalendarEventExtendedProps,
     }];
     });
+    const serviceVisitEvents = filteredServiceVisitEntries.map((entry) => ({
+      id: `service-visit:${entry.visitId}`,
+      groupId: entry.jobId,
+      title: entry.title,
+      start: entry.allDay ? entry.startKey : entry.start,
+      end: entry.allDay ? exclusiveEndDateKey(entry.endKey) : entry.end,
+      allDay: entry.allDay,
+      backgroundColor: 'transparent', borderColor: 'transparent', textColor: 'inherit',
+      extendedProps: {
+        source: 'oliveops' as const,
+        eventType: 'service_visit' as const,
+        visitId: entry.visitId,
+        jobId: entry.jobId,
+        summary: entry.summary ?? '',
+        timeLabel: entry.timeLabel ?? '',
+        status: entry.status,
+        employeeCount: entry.employeeIds.length,
+        equipmentCount: entry.equipmentIds.length,
+        crewName: entry.crew?.name ?? 'Unassigned crew',
+        colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: { status: entry.status }, crew: entry.crew, division: entry.division }),
+      } satisfies CalendarEventExtendedProps,
+    }));
     const timeOffEvents = filteredTimeOffEntries.map((entry) => ({
       id: `time-off:${entry.timeOffRequestId}`,
       title: entry.title,
@@ -224,8 +280,8 @@ export default function CalendarPage({ currentUserRole }: Props) {
         timeOffRequest: entry.timeOffRequest,
       } satisfies CalendarEventExtendedProps,
     }));
-    return [...oliveOpsEvents, ...timeOffEvents];
-  }, [allScheduledJobs, approvedTimeOff, crews, filteredOliveOpsEntries, filteredTimeOffEntries, preferences.colourBy]);
+    return [...oliveOpsEvents, ...serviceVisitEvents, ...timeOffEvents];
+  }, [allScheduledJobs, approvedTimeOff, crews, filteredOliveOpsEntries, filteredServiceVisitEntries, filteredTimeOffEntries, preferences.colourBy]);
 
   const currentRangeHasEvents = useMemo(() => {
     const firstKey = format(visibleRange.start, 'yyyy-MM-dd');
@@ -320,6 +376,20 @@ export default function CalendarPage({ currentUserRole }: Props) {
   }, [visibleRange.end, visibleRange.start]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const startDate = format(visibleRange.start, 'yyyy-MM-dd');
+    const endDate = format(subDays(visibleRange.end, 1), 'yyyy-MM-dd');
+    const loadVisits = async () => {
+      try { setServiceVisits(await listScheduleServiceVisits(startDate, endDate, controller.signal)); }
+      catch (error) { if ((error as Error).name !== 'AbortError') setServiceVisits([]); }
+    };
+    void loadVisits();
+    const refreshOnFocus = () => void loadVisits();
+    window.addEventListener('focus', refreshOnFocus);
+    return () => { controller.abort(); window.removeEventListener('focus', refreshOnFocus); };
+  }, [visibleRange.end, visibleRange.start]);
+
+  useEffect(() => {
     if (selectedJobId && !scheduledJobs.some((entry) => entry.job.id === selectedJobId)) {
       setSelectedJobId(null);
     }
@@ -405,6 +475,19 @@ export default function CalendarPage({ currentUserRole }: Props) {
     const props = eventDrop.event.extendedProps as CalendarEventExtendedProps;
     const jobId = props.jobId;
 
+    if (props.eventType === 'service_visit') {
+      const visit = serviceVisits.find((candidate) => candidate.id === props.visitId);
+      if (!visit || !start) { eventDrop.revert(); return; }
+      const durationMinutes = visit.scheduledStartAt && visit.scheduledEndAt
+        ? Math.max(1, Math.round((parseISO(visit.scheduledEndAt).getTime() - parseISO(visit.scheduledStartAt).getTime()) / 60000))
+        : 60;
+      try {
+        const result = await rescheduleServiceVisit(visit, { scheduledDate: format(start, 'yyyy-MM-dd'), startTime: eventDrop.event.allDay ? '' : format(start, 'HH:mm'), durationMinutes });
+        setServiceVisits((current) => current.map((candidate) => candidate.id === visit.id ? result.visit : candidate));
+      } catch { eventDrop.revert(); }
+      return;
+    }
+
     if (!start || !jobId || !props.segmentStartKey) {
       eventDrop.revert();
       return;
@@ -449,13 +532,13 @@ export default function CalendarPage({ currentUserRole }: Props) {
 
   const renderEventContent = (content: any) => {
     const props = content.event.extendedProps as CalendarEventExtendedProps;
-    const selected = props.jobId === selectedJobId;
+    const selected = props.eventType !== 'service_visit' && props.jobId === selectedJobId;
     const compact = content.view.type === 'dayGridMonth';
 
     const detail = props.source === 'time_off'
       ? 'All Day'
       : [props.timeLabel, props.employeeCount > 0 ? `${props.employeeCount} people` : '', props.equipmentCount > 0 ? `${props.equipmentCount} equip` : '', props.timeOffConflictCount ? `${props.timeOffConflictCount} unavailable` : ''].filter(Boolean).join(' · ');
-    return <ScheduleEventCard title={content.event.title} summary={props.source === 'time_off' ? props.summary : `${props.crewName} · ${props.summary}`} detail={detail} colour={props.colour} compact={compact} selected={selected} />;
+    return <ScheduleEventCard title={content.event.title} summary={props.source === 'time_off' ? props.summary : `${props.eventType === 'service_visit' ? 'Service Visit' : props.crewName} · ${props.summary}`} detail={detail} colour={props.colour} compact={compact} selected={selected} />;
   };
 
   const openScheduleEditor = (jobId: string) => {
@@ -513,6 +596,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
               canManage={canManageSchedule}
               onSelect={(entry) => {
                 if (entry.source === 'time_off') { setSelectedTimeOffId(entry.timeOffRequestId ?? null); setSelectedJobId(null); }
+                else if (entry.eventType === 'service_visit' && entry.jobId) navigate(`/jobs/${entry.jobId}?tab=visits&visit=${entry.visitId}`);
                 else { setSelectedJobId(entry.jobId ?? null); setSelectedTimeOffId(null); }
               }}
               onShiftJob={(jobId, dayDelta) => void handleWeekShift(jobId, dayDelta)}
@@ -542,6 +626,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
             eventClick={(eventClick) => {
               const props = eventClick.event.extendedProps as CalendarEventExtendedProps;
               if (props.source === 'time_off') { setSelectedTimeOffId(props.timeOffRequest?.id ?? null); setSelectedJobId(null); }
+              else if (props.eventType === 'service_visit' && props.jobId) navigate(`/jobs/${props.jobId}?tab=visits&visit=${props.visitId}`);
               else { setSelectedJobId(props.jobId ?? null); setSelectedTimeOffId(null); }
             }}
             eventDrop={(eventDrop) => void handleEventDrop(eventDrop)}

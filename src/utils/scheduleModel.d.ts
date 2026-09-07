@@ -9,6 +9,8 @@ export function resolveScheduleColour(input: { source?: 'oliveops' | 'time_off' 
 
 export interface NormalizedScheduleEntry {
   source: 'oliveops' | 'external' | 'time_off';
+  eventType?: 'project_job' | 'service_visit';
+  visitId?: string;
   provider?: ExternalCalendarProvider;
   jobId?: string;
   googleEventId?: string;
