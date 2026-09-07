@@ -269,7 +269,7 @@ export default async function handler(req, res) {
     return createTimeCorrectionsHandler(req, res);
   }
 
-  const session = await requireSession(req, res, ['owner', 'admin', 'crew_member']);
+  const session = await requireSession(req, res, ['owner', 'admin', 'foreman', 'crew_member']);
   if (!session) return;
 
   if (req.method === 'GET' && action === 'active-unbillable-categories') {

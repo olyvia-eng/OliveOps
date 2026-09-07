@@ -66,3 +66,23 @@ test('a core repository failure still fails bootstrap', async () => {
   assert.equal(res.statusCode, 500);
   assert.deepEqual(res.body, { ok: false, error: 'Could not load business data' });
 });
+
+test('Today and Upcoming Visit summaries include only canonical tenant Crew metadata', async () => {
+  const data = coreData();
+  data.crews = [{ id: 'crew-a', name: 'North Crew', active: true, labourRate: 999 }];
+  data.jobs = [{ id: 'job-a', title: 'Job A', workType: 'service', customerId: 'customer-a', services: [{ id: 'service-a', name: 'Weekly mowing' }] }];
+  const res = response();
+  await handler({
+    loadCoreBootstrapData: async () => data,
+    listServiceVisitsForSchedule: async (_businessId, today) => [
+      { id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, crewId: 'crew-a', status: 'scheduled' },
+      { id: 'visit-b', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, crewId: 'crew-missing', status: 'scheduled' },
+    ],
+  })({ method: 'GET' }, res);
+
+  assert.deepEqual(res.body.todayServiceVisits[0].crew, { id: 'crew-a', name: 'North Crew' });
+  assert.equal(res.body.todayServiceVisits[0].crewId, 'crew-a');
+  assert.equal('labourRate' in res.body.todayServiceVisits[0].crew, false);
+  assert.equal(res.body.todayServiceVisits[1].crewId, 'crew-missing');
+  assert.equal('crew' in res.body.todayServiceVisits[1], false);
+});

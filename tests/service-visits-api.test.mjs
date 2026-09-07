@@ -140,6 +140,38 @@ test('explicit completion blocks active linked Time Entries and replays safely a
   assert.equal(run.audits.filter((event) => event.action === 'service_visit.completed').length, 1);
 });
 
+test('employee Visit detail exposes safe Crew and current published SOP summaries', async () => {
+  const definitions = {
+    current: { id: 'current', status: 'published', active: true, currentVersion: 3 },
+    archived: { id: 'archived', status: 'published', active: false, currentVersion: 1 },
+  };
+  const run = harness({
+    requireSession: async () => ({ businessId: 'biz-a', id: 'user-a', employeeId: 'employee-a', role: 'crew_member', name: 'A User' }),
+    getCrewForBusiness: async (businessId, id) => businessId === 'biz-a' && id === 'crew-a' ? { id, name: 'North Crew', active: true, labourRate: 999 } : null,
+    listTimeEntriesForBusiness: async () => [],
+    listFormSubmissionsForBusiness: async () => [],
+    listFormsForBusiness: async () => [],
+    listFilesForBusiness: async () => [],
+    listJobSopAssociationsForBusiness: async () => [{ sopId: 'current' }, { sopId: 'archived' }, { sopId: 'missing' }],
+    getSopDefinitionForBusiness: async (businessId, sopId) => businessId === 'biz-a' ? definitions[sopId] ?? null : null,
+    getSopVersionForBusiness: async (businessId, sopId, version) => businessId === 'biz-a' && sopId === 'current' && version === 3
+      ? { sopId, version, title: 'Current procedure', category: 'Safety', shortDescription: 'Use the current process.', contentMode: 'structured', privateNotes: 'Do not expose' }
+      : null,
+  });
+  run.service.description = 'Maintain turf and edges.';
+  run.visits = [{ id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', crewId: 'crew-a', assignedEmployeeIds: ['employee-a'], status: 'scheduled', revision: 1 }];
+
+  const result = await run.call('GET', 'detail', {}, { jobId: 'job-a', visitId: 'visit-a' });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.service.description, 'Maintain turf and edges.');
+  assert.deepEqual(result.body.crew, { id: 'crew-a', name: 'North Crew' });
+  assert.deepEqual(result.body.sops, [{ sopId: 'current', version: 3, title: 'Current procedure', category: 'Safety', shortDescription: 'Use the current process.', contentMode: 'structured' }]);
+  assert.equal('labourRate' in result.body.crew, false);
+  assert.equal('privateNotes' in result.body.sops[0], false);
+  assert.equal('analysis' in result.body, false);
+});
+
 test('employee Visit detail and mutations fail closed when the Visit is not assigned', async () => {
   const run = harness({ requireSession: async () => ({ businessId: 'biz-a', id: 'user-b', employeeId: 'employee-b', role: 'crew_member' }) });
   run.visits = [{ id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', assignedEmployeeIds: ['employee-a'], status: 'scheduled', revision: 1 }];

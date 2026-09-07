@@ -28,7 +28,7 @@ function requirementId(formId, context) {
 
 function safeContext({ job, equipment, division, service, serviceVisit }) {
   return {
-    jobId: job?.id,
+    jobId: job?.id ?? serviceVisit?.jobId,
     jobName: job?.title,
     equipmentId: equipment?.id,
     equipmentName: equipment?.name,

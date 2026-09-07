@@ -27,11 +27,11 @@ A crew member can access a Visit when their employee ID is in `assignedEmployeeI
 }
 ```
 
-Today is calculated in the business timezone. Upcoming Visits end seven business dates after today. Visit queries use the chronological index and are not unbounded scans.
+Today is calculated in the business timezone. Upcoming Visits end seven business dates after today. The backend queries the tenant partition, filters to the bounded schedule window, and paginates through all matching records; clients do not depend on a secondary index.
 
 ## 5. Visit Summary
 
-Employee Visit summaries contain Visit, Job, Service, customer/property, address, schedule, assignment, status, billing type, `hasRequiredForms`, and `hasSops` fields. They do not contain wages, labour rates, margin, profit, or internal pricing.
+Employee Visit summaries contain Visit, Job, Service, customer/property, address, schedule, assignment, status, billing type, `hasRequiredForms`, and `hasSops` fields. `crewId` remains available for compatibility. When that ID resolves to a Crew in the authenticated tenant, the summary also contains `crew: { "id": "crew-1", "name": "North Crew" }`. It does not contain wages, labour rates, margin, profit, or internal pricing.
 
 ## 6. Active Clock Bootstrap
 
@@ -46,18 +46,28 @@ When `activeTimeEntry.serviceVisitId` is present, bootstrap also returns its can
   "ok": true,
   "visit": {},
   "job": { "id": "job-1", "title": "Property service" },
-  "service": { "id": "service-1", "name": "Weekly mowing", "billingType": "per_visit" },
+  "service": { "id": "service-1", "name": "Weekly mowing", "description": "Mow, trim, and clear hard surfaces.", "billingType": "per_visit" },
+  "crew": { "id": "crew-1", "name": "North Crew" },
   "timeEntries": [],
   "forms": [],
   "formSubmissions": [],
   "photos": [],
-  "sops": [],
+  "sops": [
+    {
+      "sopId": "sop-1",
+      "version": 3,
+      "title": "Mower startup and shutdown",
+      "category": "Equipment",
+      "shortDescription": "Daily operating procedure.",
+      "contentMode": "structured"
+    }
+  ],
   "completion": {},
   "analysis": {}
 }
 ```
 
-`analysis` and Time Entry cost snapshots are management-only. Crew detail omits them.
+`service.description` and `crew` are optional. `crew` is omitted when no tenant Crew resolves. SOP associations resolve to the exact current version only when the canonical definition is active and published; draft, archived, deleted, foreign-tenant, and missing-version records are omitted. Use `sopId` with `GET /api/sops?action=my-detail&sopId={sopId}` to load the renderable current snapshot, and verify the returned `version` matches the summary. `analysis` and Time Entry cost snapshots are management-only. Crew detail omits them.
 
 ## 8. Canonical Identity
 
@@ -142,6 +152,8 @@ Required after-clock-out workflows inherit `serviceId` and `serviceVisitId` from
 
 A successful create returns HTTP `201`. Replaying the same client ID returns HTTP `200` with `replayed: true`. Notes are Visit-wide and include author and server timestamp. Audit action: `service_visit.note_added`.
 
+Note requests may return `NOTE_REQUIRED`, `INVALID_CLIENT_SUBMISSION_ID`, `VISIT_NOT_FOUND`, `VISIT_NOT_ASSIGNED`, or `VISIT_REVISION_CONFLICT`.
+
 ## 19. Visit Photos
 
 Use the existing storage prepare/complete flow with `entityType: "service-visit"`, `category: "photo"`, `entityId` equal to the Visit ID, plus canonical `jobId` and `serviceId`. Existing file validation, tenant keys, MIME/size checks, checksum or ETag completion, and download authorization remain authoritative.
@@ -170,6 +182,8 @@ Detail returns completed/missing Form IDs, photo count, note count, and active T
 
 Completion is allowed from `scheduled` or `in_progress`; it sets `completedAt`, `completedByUserId`, billing readiness, and audit action `service_visit.completed`. The legacy status endpoint rejects a request to mark a Visit completed.
 
+That legacy rejection uses `EXPLICIT_VISIT_COMPLETION_REQUIRED`.
+
 ## 22. Completion Errors
 
 - `VISIT_HAS_ACTIVE_TIME_ENTRIES`: at least one linked Time Entry is still clocked in.
@@ -179,6 +193,20 @@ Completion is allowed from `scheduled` or `in_progress`; it sets `completedAt`, 
 - `VISIT_STATUS_INVALID`: the Visit is completed, skipped, cancelled, or otherwise not completable.
 - `VISIT_NOT_ASSIGNED`: the employee is not assigned to the Visit.
 - `VISIT_REVISION_CONFLICT`: another request updated the Visit first; refresh and retry.
+- `VISIT_NOT_FOUND`: the Visit does not exist in the authenticated tenant or does not match the supplied Job and Service.
+- `INVALID_CLIENT_SUBMISSION_ID`: the completion replay ID is absent or invalid.
+
+Clock-in and switch-activity may additionally return these exact Visit context codes:
+
+- `SERVICE_CONTEXT_INVALID`: Service and Visit identity is incomplete or was supplied for a non-Job activity.
+- `SERVICE_JOB_MISMATCH`: Service/Visit identity does not belong to the supplied Job, or Service work was mixed with a Project Work Area.
+- `JOB_NOT_FOUND`: the selected Job cannot be loaded during canonical Visit validation.
+- `VISIT_NOT_FOUND`: the Visit was not found in the authenticated tenant.
+- `VISIT_NOT_ASSIGNED`: the employee is not authorized for the Job or Visit.
+- `VISIT_CANCELLED`: the Visit is cancelled.
+- `VISIT_ALREADY_COMPLETED`: the Visit is already completed.
+- `VISIT_SKIPPED`: the Visit was skipped.
+- `VISIT_STATUS_INVALID`: the Visit state does not allow work to begin.
 
 ## 23. Completion Replay
 

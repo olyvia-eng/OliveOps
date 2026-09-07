@@ -61,6 +61,13 @@ test('clocking authorization allows self-service and blocks other employees for 
   assert.equal(canClockForEmployee(session, 'emp-2'), false);
 });
 
+test('clocking authorization allows foreman self-service without delegated clocking', () => {
+  const session = { role: 'foreman', employeeId: 'emp-1', businessId: 'biz-1' };
+
+  assert.equal(canClockForEmployee(session, 'emp-1'), true);
+  assert.equal(canClockForEmployee(session, 'emp-2'), false);
+});
+
 test('owners and admins can clock any employee', () => {
   const ownerSession = { role: 'owner', employeeId: 'emp-1', businessId: 'biz-1' };
   const adminSession = { role: 'admin', employeeId: 'emp-1', businessId: 'biz-1' };

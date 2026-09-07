@@ -3,6 +3,7 @@ import { createAuditEventForBusiness, getBusinessProfile, getEmployeeForBusiness
 import { normalizeBusinessTimeZone, getBusinessDateParts } from './_lib/businessTime.js';
 import { getCrewForBusiness } from './_lib/schedulingConfig.js';
 import { listJobSopAssociationsForBusiness } from './_lib/jobSopRepo.js';
+import { getSopDefinitionForBusiness, getSopVersionForBusiness } from './_lib/sopRepo.js';
 import { requireSession } from './_lib/session.js';
 import { createGeneratedServiceVisitsForBusiness, createServiceVisitForBusiness, getServiceVisitForBusiness, listServiceVisitsForJob, listServiceVisitsForSchedule, updateOperationalServiceForBusiness, updateServiceVisitForBusiness } from './_lib/serviceVisitRepo.js';
 import { buildGeneratedServiceVisits, resolveVisitBillingStatus, synchronizeServiceVisits, validateVisitStatusTransition } from '../src/utils/serviceVisitModel.js';
@@ -88,8 +89,23 @@ function safeTimeEntry(entry, includeCost) {
   };
 }
 
+async function resolveSopSummary(deps, businessId, association) {
+  const definition = await deps.getSopDefinitionForBusiness(businessId, association.sopId);
+  if (definition?.status !== 'published' || definition.active !== true || Number(definition.currentVersion) <= 0) return null;
+  const version = await deps.getSopVersionForBusiness(businessId, association.sopId, definition.currentVersion);
+  if (!version) return null;
+  return {
+    sopId: version.sopId,
+    version: version.version,
+    title: version.title,
+    category: version.category,
+    shortDescription: version.shortDescription,
+    contentMode: version.contentMode,
+  };
+}
+
 export function createServiceVisitsHandler(overrides = {}) {
-  const deps = { requireSession, getJobForBusiness, getBusinessProfile, getCrewForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getServiceVisitForBusiness, listServiceVisitsForJob, listServiceVisitsForSchedule, createServiceVisitForBusiness, createGeneratedServiceVisitsForBusiness, updateOperationalServiceForBusiness, updateServiceVisitForBusiness, createAuditEventForBusiness, listTimeEntriesForBusiness, listFormSubmissionsForBusiness, listFormsForBusiness, listFilesForBusiness, listJobSopAssociationsForBusiness, randomUUID, now: () => new Date(), ...overrides };
+  const deps = { requireSession, getJobForBusiness, getBusinessProfile, getCrewForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getServiceVisitForBusiness, listServiceVisitsForJob, listServiceVisitsForSchedule, createServiceVisitForBusiness, createGeneratedServiceVisitsForBusiness, updateOperationalServiceForBusiness, updateServiceVisitForBusiness, createAuditEventForBusiness, listTimeEntriesForBusiness, listFormSubmissionsForBusiness, listFormsForBusiness, listFilesForBusiness, listJobSopAssociationsForBusiness, getSopDefinitionForBusiness, getSopVersionForBusiness, randomUUID, now: () => new Date(), ...overrides };
   return async function serviceVisitsHandler(req, res) {
     const session = await deps.requireSession(req, res, ALL_ROLES, 'jobs');
     if (!session) return;
@@ -112,11 +128,15 @@ export function createServiceVisitsHandler(overrides = {}) {
         const service = serviceForJob(job, visit?.serviceId);
         if (!visit || !service) return res.status(404).json({ ok: false, code: 'VISIT_NOT_FOUND', error: 'Service Visit was not found.' });
         if (!await canAccessVisit(deps, session, visit)) return res.status(403).json({ ok: false, code: 'VISIT_NOT_ASSIGNED', error: 'This Visit is not assigned to the employee.' });
-        const [allEntries, submissions, forms, files, sops] = await Promise.all([
+        const [allEntries, submissions, forms, files, sopAssociations, crew] = await Promise.all([
           deps.listTimeEntriesForBusiness(session.businessId), deps.listFormSubmissionsForBusiness(session.businessId),
           deps.listFormsForBusiness(session.businessId), deps.listFilesForBusiness(session.businessId),
           deps.listJobSopAssociationsForBusiness(session.businessId, jobId),
+          visit.crewId ? deps.getCrewForBusiness(session.businessId, visit.crewId) : null,
         ]);
+        const sops = (await Promise.all(sopAssociations.map((association) => resolveSopSummary(deps, session.businessId, association))))
+          .filter(Boolean)
+          .sort((left, right) => left.title.localeCompare(right.title));
         const timeEntries = allEntries.filter((entry) => entry.serviceVisitId === visit.id);
         const visitSubmissions = submissions.filter((submission) => submission.serviceVisitId === visit.id);
         const photos = files.filter((file) => file.entityType === 'service-visit' && file.entityId === visit.id && file.category === 'photo' && file.uploadStatus === 'uploaded');
@@ -131,7 +151,7 @@ export function createServiceVisitsHandler(overrides = {}) {
           activeTimeEntryCount: timeEntries.filter((entry) => entry.status === 'clocked_in').length,
         };
         const includeCost = WRITE_ROLES.includes(session.role) || !session.role;
-        return res.status(200).json({ ok: true, visit, job: { id: job.id, title: job.title, customerId: job.customerId, propertyId: job.propertyId }, service: { id: service.id, name: service.name, billingType: service.billingType }, timeEntries: timeEntries.map((entry) => safeTimeEntry(entry, includeCost)), forms: forms.filter((form) => requirements.requiredFormIds.includes(form.id)).map((form) => ({ id: form.id, name: form.name, completionRequirement: form.completionRequirement })), formSubmissions: visitSubmissions, photos: photos.map((file) => ({ id: file.id, fileName: file.fileName, mimeType: file.mimeType, uploadedAt: file.uploadedAt })), sops, completion, ...(includeCost ? { analysis: calculateServiceVisitAnalysis({ visit, service, timeEntries, actualCosts: job.costEntries ?? [] }) } : {}) });
+        return res.status(200).json({ ok: true, visit, job: { id: job.id, title: job.title, customerId: job.customerId, propertyId: job.propertyId }, service: { id: service.id, name: service.name, description: service.description, billingType: service.billingType }, ...(crew ? { crew: { id: crew.id, name: crew.name } } : {}), timeEntries: timeEntries.map((entry) => safeTimeEntry(entry, includeCost)), forms: forms.filter((form) => requirements.requiredFormIds.includes(form.id)).map((form) => ({ id: form.id, name: form.name, completionRequirement: form.completionRequirement })), formSubmissions: visitSubmissions, photos: photos.map((file) => ({ id: file.id, fileName: file.fileName, mimeType: file.mimeType, uploadedAt: file.uploadedAt })), sops, completion, ...(includeCost ? { analysis: calculateServiceVisitAnalysis({ visit, service, timeEntries, actualCosts: job.costEntries ?? [] }) } : {}) });
       }
       if (req.method === 'GET') {
         if (!WRITE_ROLES.includes(session.role) && session.role) return res.status(403).json({ ok: false, error: 'Forbidden' });

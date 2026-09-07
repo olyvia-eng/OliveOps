@@ -138,7 +138,7 @@ export function canClockForEmployee(session, employeeId) {
 
   const role = normalizeRole(session.role);
   if (role === 'owner' || role === 'admin') return true;
-  if (role !== 'crew_member') return false;
+  if (role !== 'foreman' && role !== 'crew_member') return false;
 
   return typeof session.employeeId === 'string' && session.employeeId === employeeId;
 }

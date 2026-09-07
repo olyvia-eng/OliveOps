@@ -173,11 +173,13 @@ export function createBootstrapHandler(overrides = {}) {
     const visibleServiceVisits = serviceVisits.filter((visit) => isEmployeeAssignedToServiceVisit(session, visit, crews));
     const jobById = new Map(jobs.map((job) => [job.id, job]));
     const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+    const crewById = new Map(crews.map((crew) => [crew.id, crew]));
     const jobsWithSops = new Set(jobSopAssociations.map((association) => association.jobId));
     const mobileServiceVisit = (visit) => {
       const job = jobById.get(visit.jobId);
       const service = job?.services?.find((candidate) => candidate.id === visit.serviceId);
       const customer = customerById.get(job?.customerId);
+      const crew = crewById.get(visit.crewId);
       return {
         id: visit.id, jobId: visit.jobId, serviceId: visit.serviceId,
         jobName: job?.title ?? 'Service Job', serviceName: service?.name ?? 'Service',
@@ -185,7 +187,8 @@ export function createBootstrapHandler(overrides = {}) {
         propertyAddress: job?.propertyAddressSnapshot ?? customer?.address ?? '',
         scheduledDate: visit.scheduledDate, scheduledStartAt: visit.scheduledStartAt,
         scheduledEndAt: visit.scheduledEndAt, scheduleAllDay: visit.scheduleAllDay,
-        crewId: visit.crewId, status: visit.status, billingType: visit.billingTypeSnapshot,
+        crewId: visit.crewId, ...(crew ? { crew: { id: crew.id, name: crew.name } } : {}),
+        status: visit.status, billingType: visit.billingTypeSnapshot,
         hasRequiredForms: forms.some((form) => form.status === 'active' && form.assignedTo === 'job' && form.assignmentValue === visit.jobId && form.completionRequirement === 'required'),
         hasSops: jobsWithSops.has(visit.jobId),
       };

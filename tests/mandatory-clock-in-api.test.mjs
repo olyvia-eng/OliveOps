@@ -144,6 +144,19 @@ function seedJob(store, { businessId, id, status, employeeId, operationalWorkAre
   });
 }
 
+function seedServiceVisit(store, { businessId, employeeId, jobId = 'service-job-a', serviceId = 'service-a', visitId = 'visit-a' }) {
+  const pk = `BUSINESS#${businessId}`;
+  store.set(key(pk, `JOB#${jobId}`), {
+    PK: pk, SK: `JOB#${jobId}`, entityType: 'JOB', businessId, jobId, id: jobId, title: jobId,
+    workType: 'service', status: 'in_progress', assignedEmployeeIds: [employeeId], assignedEquipmentIds: [],
+    services: [{ id: serviceId, name: 'Weekly mowing', status: 'active' }],
+  });
+  store.set(key(pk, `SERVICE_VISIT#${jobId}#${visitId}`), {
+    PK: pk, SK: `SERVICE_VISIT#${jobId}#${visitId}`, entityType: 'SERVICE_VISIT', businessId,
+    id: visitId, jobId, serviceId, assignedEmployeeIds: [employeeId], status: 'scheduled', revision: 1,
+  });
+}
+
 async function clockingRequest(token, { method = 'POST', action, body = {}, query = {} }) {
   const res = response();
   await clockingHandler({ method, query: { action, ...query }, headers: { authorization: `Bearer ${token}` }, body }, res);
@@ -227,6 +240,44 @@ test('no applicable forms preserves normal clock-in and no-pending recovery cont
   assert.equal(result.body.timeEntry.status, 'clocked_in');
   assert.ok(context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${result.body.timeEntry.id}`)));
   assert.equal(context.store.get(key(`BUSINESS#${context.businessId}#EMPLOYEE#${context.employeeId}`, 'ACTIVE_SHIFT')).activeEntryId, result.body.timeEntry.id);
+});
+
+test('foreman completes required before-clock-in workflow for a tenant-scoped Service Visit', async (t) => {
+  const context = await setup(t, { role: 'foreman', forms: [{ id: 'required-a' }] });
+  seedServiceVisit(context.store, context);
+  const visitIdentity = { workType: 'job', jobIds: ['service-job-a'], serviceId: 'service-a', serviceVisitId: 'visit-a' };
+
+  const initiated = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: clockInBody(context.employeeId, visitIdentity),
+  });
+  assert.equal(initiated.statusCode, 202, JSON.stringify(initiated.body));
+  assert.equal(initiated.body.clockInIntent.serviceVisitId, 'visit-a');
+  const requirement = initiated.body.requiredForms[0];
+  assert.deepEqual(
+    { jobId: requirement.context.jobId, serviceId: requirement.context.serviceId, serviceVisitId: requirement.context.serviceVisitId },
+    { jobId: 'service-job-a', serviceId: 'service-a', serviceVisitId: 'visit-a' },
+  );
+  const submitted = await formRequest(context.token, workflowSubmission(initiated.body, requirement, {
+    jobId: 'service-job-a', serviceId: 'service-a', serviceVisitId: 'visit-a',
+  }));
+  assert.equal(submitted.statusCode, 201, JSON.stringify(submitted.body));
+
+  const finalized = await clockingRequest(context.token, {
+    action: 'clock-in-finalize',
+    body: { workflowOccurrenceId: initiated.body.workflowOccurrenceId },
+  });
+  assert.equal(finalized.statusCode, 200);
+  assert.equal(finalized.body.timeEntry.serviceId, 'service-a');
+  assert.equal(finalized.body.timeEntry.serviceVisitId, 'visit-a');
+  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, 'SERVICE_VISIT#service-job-a#visit-a')).status, 'in_progress');
+
+  const foreign = await clockingRequest(context.token, {
+    action: 'switch-activity',
+    body: { workType: 'job', jobIds: ['foreign-service-job'], serviceId: 'service-a', serviceVisitId: 'visit-a', idempotencyKey: 'foreign-switch' },
+  });
+  assert.equal(foreign.statusCode, 400);
+  assert.equal(foreign.body.error, 'Job is invalid.');
 });
 
 test('employee-adjusted clock-in is denied without the authenticated employee permission', async (t) => {
