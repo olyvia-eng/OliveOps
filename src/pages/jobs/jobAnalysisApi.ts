@@ -1,6 +1,6 @@
 import type { EquipmentAsset, JobAnalysisPayload, MaterialCatalogItem, SubcontractorCatalogItem, Vendor, JobWorkArea } from '../../types';
 
-export type JobAnalysisReferences = { vendors: Vendor[]; equipment: EquipmentAsset[]; materials: MaterialCatalogItem[]; subcontractors: SubcontractorCatalogItem[]; workAreas: JobWorkArea[] };
+export type JobAnalysisReferences = { vendors: Vendor[]; equipment: EquipmentAsset[]; materials: MaterialCatalogItem[]; subcontractors: SubcontractorCatalogItem[]; estimateMaterials: JobAnalysisPayload['materialComparisons']; workAreas: JobWorkArea[] };
 
 async function request<T>(jobId: string, options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; scopeWorkAreaId?: string; action?: string; body?: Record<string, unknown> } = {}): Promise<T> {
   const query = new URLSearchParams({ jobId });

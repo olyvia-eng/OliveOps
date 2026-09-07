@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateBillDraftTotals, createCustomBillLine, createMaterialBillLine, createSubcontractorBillLine } from '../src/components/jobs/jobBillLineModel.js';
+import { calculateBillDraftTotals, createCustomBillLine, createEstimateMaterialBillLine, createMaterialBillLine, createSubcontractorBillLine } from '../src/components/jobs/jobBillLineModel.js';
 
 test('Material Catalog selection creates an editable actual-cost snapshot without mutating the Catalog', () => {
   const material = { id: 'material-a', name: 'Interlock Paver', unit: 'sq ft', defaultUnitCost: 4.5, notes: '', createdAt: '', updatedAt: '' };
@@ -18,6 +18,14 @@ test('custom bill lines remain unlinked and editable', () => {
   assert.equal(line.materialCatalogItemId, undefined);
   assert.equal(line.quantity, 1);
   assert.equal(line.unit, 'ea');
+});
+
+test('accepted Estimate selection retains exact snapshot lineage and editable actual defaults', () => {
+  const line = createEstimateMaterialBillLine({ estimateMaterialSnapshotId: 'estimate-line-a', materialCatalogItemId: 'material-a', description: 'Pavers', remainingQuantity: -5, unit: 'sq ft', estimatedUnitCost: 4.5, workAreaId: 'patio' });
+  assert.deepEqual(line, { estimateMaterialSnapshotId: 'estimate-line-a', materialCatalogItemId: 'material-a', description: 'Pavers', quantity: 0, unit: 'sq ft', unitCost: 4.5, workAreaId: 'patio' });
+  line.quantity = 20;
+  line.unitCost = 4.72;
+  assert.equal(calculateBillDraftTotals([line], 0).total, 94.4);
 });
 
 test('Subcontractor Catalog selection snapshots default direct cost without changing the Catalog', () => {

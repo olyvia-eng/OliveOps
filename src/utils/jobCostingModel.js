@@ -59,11 +59,17 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     subcontractor: billCost(subcontractorBills),
   };
   const materialComparisonsById = new Map();
-  for (const area of includedAreas) for (const line of area.lineItems ?? []) {
-    if (line.category !== 'material' || !line.materialCatalogItemId) continue;
-    const current = materialComparisonsById.get(line.materialCatalogItemId) ?? {
+  const estimateKeysByCatalogId = new Map();
+  for (const area of includedAreas) for (const [lineIndex, line] of (area.lineItems ?? []).entries()) {
+    if (line.category !== 'material') continue;
+    const estimateMaterialSnapshotId = line.id || `legacy:${area.id}:${lineIndex}`;
+    const key = `estimate:${estimateMaterialSnapshotId}`;
+    const current = materialComparisonsById.get(key) ?? {
+      estimateMaterialSnapshotId,
       materialCatalogItemId: line.materialCatalogItemId,
       description: line.itemName || line.description || 'Material',
+      workAreaId: area.id,
+      workAreaName: area.name,
       unit: line.unit || 'ea',
       estimatedQuantity: 0,
       estimatedTotalCost: 0,
@@ -72,13 +78,27 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     };
     current.estimatedQuantity += Number(line.quantity || 0);
     current.estimatedTotalCost += immutableLineCost(line) ?? 0;
-    materialComparisonsById.set(line.materialCatalogItemId, current);
+    materialComparisonsById.set(key, current);
+    if (line.materialCatalogItemId) {
+      const estimateKeys = estimateKeysByCatalogId.get(line.materialCatalogItemId) ?? [];
+      estimateKeys.push(key);
+      estimateKeysByCatalogId.set(line.materialCatalogItemId, estimateKeys);
+    }
   }
   for (const bill of vendorBills) for (const line of bill.lineItems ?? []) {
-    if (!line.materialCatalogItemId || !recordInScope(line)) continue;
-    const current = materialComparisonsById.get(line.materialCatalogItemId) ?? {
+    if (!recordInScope(line) || (!line.estimateMaterialSnapshotId && !line.materialCatalogItemId)) continue;
+    const legacyEstimateKeys = line.materialCatalogItemId ? estimateKeysByCatalogId.get(line.materialCatalogItemId) ?? [] : [];
+    const key = line.estimateMaterialSnapshotId
+      ? `estimate:${line.estimateMaterialSnapshotId}`
+      : legacyEstimateKeys.length === 1
+        ? legacyEstimateKeys[0]
+        : `catalog:${line.materialCatalogItemId}`;
+    const current = materialComparisonsById.get(key) ?? {
+      estimateMaterialSnapshotId: line.estimateMaterialSnapshotId,
       materialCatalogItemId: line.materialCatalogItemId,
       description: line.description || 'Material',
+      workAreaId: line.workAreaId,
+      workAreaName: areas?.find((area) => area.id === line.workAreaId)?.name,
       unit: line.unit || 'ea',
       estimatedQuantity: 0,
       estimatedTotalCost: 0,
@@ -88,7 +108,7 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     current.actualQuantity += Number(line.quantity || 0);
     current.actualTotalCost += Number(line.lineTotal || 0);
     if (!current.description || current.description === 'Material') current.description = line.description || 'Material';
-    materialComparisonsById.set(line.materialCatalogItemId, current);
+    materialComparisonsById.set(key, current);
   }
   const materialComparisons = [...materialComparisonsById.values()].map((item) => ({
     ...item,
@@ -98,6 +118,9 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
     actualQuantity: money(item.actualQuantity),
     actualUnitCost: item.actualQuantity > 0 ? money(item.actualTotalCost / item.actualQuantity) : null,
     actualTotalCost: money(item.actualTotalCost),
+    remainingQuantity: money(item.estimatedQuantity - item.actualQuantity),
+    quantityVariance: money(item.actualQuantity - item.estimatedQuantity),
+    costVariance: money(item.actualTotalCost - item.estimatedTotalCost),
   })).sort((left, right) => left.description.localeCompare(right.description));
   const categories = JOB_COST_CATEGORIES.map((category) => ({
     category,

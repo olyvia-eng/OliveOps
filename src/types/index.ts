@@ -577,6 +577,7 @@ export interface Vendor {
 export interface JobCostLineItem {
   id: ID;
   description: string;
+  estimateMaterialSnapshotId?: ID;
   materialCatalogItemId?: ID;
   quantity: number;
   unit: string;
@@ -632,7 +633,7 @@ export interface JobAnalysisPayload {
   scopeWorkAreaId: string;
   baselineAvailable: boolean;
   categories: Array<{ category: 'labour' | 'equipment' | 'material' | 'subcontractor'; estimated: number | null; actual: number | null; variance: number | null }>;
-  materialComparisons: Array<{ materialCatalogItemId: ID; description: string; unit: string; estimatedQuantity: number; estimatedUnitCost: number | null; estimatedTotalCost: number; actualQuantity: number; actualUnitCost: number | null; actualTotalCost: number }>;
+  materialComparisons: Array<{ estimateMaterialSnapshotId?: ID; materialCatalogItemId?: ID; description: string; workAreaId?: ID; workAreaName?: string; unit: string; estimatedQuantity: number; estimatedUnitCost: number | null; estimatedTotalCost: number; actualQuantity: number; actualUnitCost: number | null; actualTotalCost: number; remainingQuantity: number; quantityVariance: number; costVariance: number }>;
   labour: import('../utils/jobLabourSummary.js').JobLabourSummary;
   equipmentUsage: JobEquipmentUsage[];
   vendorBills: JobCostBill[];

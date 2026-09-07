@@ -44,7 +44,7 @@ test('Job Analysis renders the complete scoped cost workspace', () => {
 });
 
 test('Vendor and Subcontractor Bills use catalog-first editable line-item workflows', () => {
-  for (const label of ['Add from Material Catalog', 'Custom Line', 'Material / Description', 'Quantity', 'Unit Cost', 'Work Area', 'Subtotal', 'Tax', 'Total', 'Choose from Subcontractor Catalog']) assert.match(workspaceSource, new RegExp(label));
+  for (const label of ['Add from Estimate', 'Add from Material Catalog', 'Custom Line', 'Material / Description', 'Quantity', 'Unit Cost', 'Work Area', 'Subtotal', 'Tax', 'Total', 'Choose from Subcontractor Catalog']) assert.match(workspaceSource, new RegExp(label));
   assert.match(workspaceSource, /materialCatalogItemId/);
   assert.match(workspaceSource, /line\.quantity \* line\.unitCost/);
   assert.match(workspaceSource, /createMaterialBillLine/);
@@ -108,4 +108,12 @@ test('actual and variance modes filter zero slices and retain genuine unavailabl
   assert.match(summarySource, /useDeferredValue\(performance\)/);
   assert.match(summarySource, /deferredPerformance !== performance/);
   assert.match(analysisApiSource, /query\.set\('scopeWorkAreaId', options\.scopeWorkAreaId\)/);
+});
+
+test('Job Analysis restores a grouped Estimate and actual chart from the table category data', () => {
+  assert.match(workspaceSource, /<CostComparisonChart rows=\{analysis\.categories\} \/>/);
+  assert.match(workspaceSource, /<BarChart data=\{data\}/);
+  assert.match(workspaceSource, /dataKey="Estimated"/);
+  assert.match(workspaceSource, /dataKey="Actual"/);
+  assert.match(workspaceSource, /Estimated and actual cost by category/);
 });

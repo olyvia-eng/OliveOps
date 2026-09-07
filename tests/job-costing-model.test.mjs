@@ -32,12 +32,30 @@ test('material comparisons join accepted estimates to actual purchases by Catalo
   const result = calculateJobCostAnalysis({ job: materialJob, vendorBills: [vendorBill] });
 
   assert.deepEqual(result.materialComparisons, [{
-    materialCatalogItemId: 'material-stone', description: 'Stone', unit: 't',
+    estimateMaterialSnapshotId: 'legacy:area-a:2', materialCatalogItemId: 'material-stone', description: 'Stone', workAreaId: 'area-a', workAreaName: undefined, unit: 't',
     estimatedQuantity: 2, estimatedUnitCost: 100, estimatedTotalCost: 200,
     actualQuantity: 3, actualUnitCost: 225, actualTotalCost: 675,
+    remainingQuantity: -1, quantityVariance: 1, costVariance: 475,
   }]);
   assert.equal(result.categories.find((row) => row.category === 'material').actual, 675);
   assert.equal(materialJob.originalEstimateSnapshot.workAreas[0].lineItems[2].directCostPerUnit, 100);
+});
+
+test('material comparisons aggregate repeated purchases by exact Estimate line without crossing Work Areas', () => {
+  const materialJob = { id: 'job-a', originalEstimateSnapshot: { subtotal: 1000, workAreas: [
+    { id: 'front', name: 'Front', lineItems: [{ id: 'front-stone', category: 'material', materialCatalogItemId: 'stone', itemName: 'Stone', quantity: 10, unit: 't', directCostPerUnit: 20 }] },
+    { id: 'back', name: 'Back', lineItems: [{ id: 'back-stone', category: 'material', materialCatalogItemId: 'stone', itemName: 'Stone', quantity: 5, unit: 't', directCostPerUnit: 25 }] },
+  ] } };
+  const vendorBills = [
+    calculateJobBill({ lineItems: [{ estimateMaterialSnapshotId: 'front-stone', materialCatalogItemId: 'stone', description: 'Stone', quantity: 6, unit: 't', unitCost: 22, workAreaId: 'front' }] }, 'vendor'),
+    calculateJobBill({ lineItems: [{ estimateMaterialSnapshotId: 'front-stone', materialCatalogItemId: 'stone', description: 'Stone', quantity: 7, unit: 't', unitCost: 24, workAreaId: 'front' }] }, 'vendor'),
+  ];
+  const result = calculateJobCostAnalysis({ job: materialJob, vendorBills });
+  const front = result.materialComparisons.find((row) => row.estimateMaterialSnapshotId === 'front-stone');
+  const back = result.materialComparisons.find((row) => row.estimateMaterialSnapshotId === 'back-stone');
+
+  assert.deepEqual({ actualQuantity: front.actualQuantity, actualTotalCost: front.actualTotalCost, remainingQuantity: front.remainingQuantity, costVariance: front.costVariance }, { actualQuantity: 13, actualTotalCost: 300, remainingQuantity: -3, costVariance: 100 });
+  assert.deepEqual({ actualQuantity: back.actualQuantity, actualTotalCost: back.actualTotalCost, remainingQuantity: back.remainingQuantity }, { actualQuantity: 0, actualTotalCost: 0, remainingQuantity: 5 });
 });
 
 test('bill totals are server calculated and invalid values are rejected', () => {

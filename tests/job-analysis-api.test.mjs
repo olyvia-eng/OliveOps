@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createJobAnalysisHandler } from '../api/job-analysis.js';
 
 const response = () => ({ statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } });
-const job = { id: 'job-a', workType: 'project', operationalWorkAreas: [{ id: 'area-a', name: 'Front', lineItems: [] }], originalEstimateSnapshot: { subtotal: 1000, workAreas: [] } };
+const job = { id: 'job-a', workType: 'project', operationalWorkAreas: [{ id: 'area-a', name: 'Front', lineItems: [] }], originalEstimateSnapshot: { subtotal: 1000, workAreas: [{ id: 'area-a', name: 'Front', lineItems: [{ id: 'estimate-material-a', category: 'material', materialCatalogItemId: 'material-a', itemName: 'Interlock Paver', quantity: 100, unit: 'sq ft', internalUnitCost: 4.5 }] }] } };
 const baseDeps = (overrides = {}) => ({
   requireSession: async () => ({ id: 'user-a', name: 'Admin', businessId: 'biz-a', role: 'admin' }),
   getJobForBusiness: async (businessId, id) => businessId === 'biz-a' && id === 'job-a' ? job : null,
@@ -51,10 +51,11 @@ test('Vendor Bill retains tenant Material identity and snapshots an editable act
   await handler({ method: 'POST', query: { jobId: 'job-a' }, body: {
     recordType: 'vendor', vendorId: 'vendor-a', invoiceDate: '2026-09-01', taxRate: 13,
     subtotal: 1, taxAmount: 1, total: 1,
-    lineItems: [{ materialCatalogItemId: 'material-a', description: 'Interlock Paver', quantity: 500, unit: 'sq ft', unitCost: 4.72, lineTotal: 1, workAreaId: 'area-a' }],
+    lineItems: [{ estimateMaterialSnapshotId: 'estimate-material-a', materialCatalogItemId: 'material-a', description: 'Interlock Paver', quantity: 500, unit: 'sq ft', unitCost: 4.72, lineTotal: 1, workAreaId: 'area-a' }],
   } }, res);
 
   assert.equal(res.statusCode, 201);
+  assert.equal(saved.lineItems[0].estimateMaterialSnapshotId, 'estimate-material-a');
   assert.equal(saved.lineItems[0].materialCatalogItemId, 'material-a');
   assert.equal(saved.lineItems[0].description, 'Interlock Paver');
   assert.equal(saved.lineItems[0].unit, 'sq ft');
@@ -146,4 +147,24 @@ test('Bill attachments must be uploaded and linked to the same bill and Job', as
   }));
   const res = response(); await handler({ method: 'POST', query: { jobId: 'job-a' }, body: { recordType: 'vendor', vendorId: 'vendor-a', invoiceDate: '2026-09-01', attachmentFileId: 'file-a', lineItems: [{ quantity: 1, unitCost: 10 }] } }, res);
   assert.equal(res.statusCode, 400); assert.match(res.body.error, /attachment/);
+});
+
+test('Vendor Bill rejects arbitrary or inconsistent accepted Estimate material references', async () => {
+  let saveCount = 0;
+  const handler = createJobAnalysisHandler(baseDeps({
+    getVendorForBusiness: async () => ({ id: 'vendor-a', name: 'Supply Co' }),
+    getMaterialCatalogItemForBusiness: async (_businessId, id) => ({ id }),
+    getJobCostRecordForBusiness: async () => null,
+    putJobCostRecordForBusiness: async () => { saveCount += 1; return { ok: true }; },
+  }));
+  for (const line of [
+    { estimateMaterialSnapshotId: 'foreign-line', workAreaId: 'area-a' },
+    { estimateMaterialSnapshotId: 'estimate-material-a', materialCatalogItemId: 'different-material', workAreaId: 'area-a' },
+    { estimateMaterialSnapshotId: 'estimate-material-a' },
+  ]) {
+    const res = response();
+    await handler({ method: 'POST', query: { jobId: 'job-a' }, body: { recordType: 'vendor', vendorId: 'vendor-a', invoiceDate: '2026-09-01', lineItems: [{ description: 'Stone', quantity: 1, unitCost: 10, ...line }] } }, res);
+    assert.equal(res.statusCode, 400);
+  }
+  assert.equal(saveCount, 0);
 });

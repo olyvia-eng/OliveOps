@@ -15,6 +15,16 @@ export const createMaterialBillLine = (material, workAreaId = '') => ({
   workAreaId,
 });
 
+export const createEstimateMaterialBillLine = (material) => ({
+  estimateMaterialSnapshotId: material.estimateMaterialSnapshotId,
+  ...(material.materialCatalogItemId ? { materialCatalogItemId: material.materialCatalogItemId } : {}),
+  description: material.description,
+  quantity: Math.max(0, material.remainingQuantity),
+  unit: material.unit,
+  unitCost: material.estimatedUnitCost ?? 0,
+  workAreaId: material.workAreaId,
+});
+
 export const createSubcontractorBillLine = (subcontractor, workAreaId = '') => ({
   description: subcontractor.trade || subcontractor.name,
   quantity: 1,

@@ -35,6 +35,16 @@ function validateWorkArea(job, workAreaId) {
   return id || undefined;
 }
 
+function findEstimateMaterial(job, snapshotId) {
+  for (const area of job.originalEstimateSnapshot?.workAreas ?? []) {
+    for (const [lineIndex, line] of (area.lineItems ?? []).entries()) {
+      const id = line.id || `legacy:${area.id}:${lineIndex}`;
+      if (id === snapshotId) return line.category === 'material' ? { area, line, id } : null;
+    }
+  }
+  return null;
+}
+
 function validateBillDates(body) {
   const invoiceDate = dateValue(body.invoiceDate, 'Invoice date');
   const dueDate = dateValue(body.dueDate, 'Due date', true);
@@ -85,7 +95,9 @@ export function createJobAnalysisHandler(overrides = {}) {
           const scoped = calculateJobCostAnalysis({ job, employees, labourClasses, timeEntries, timeCorrections, ...records, scopeWorkAreaId: area.id });
           return { workAreaId: area.id, workAreaName: area.name, estimatedHours: scoped.labour.estimated.hours, actualHours: scoped.labour.actual.hours, estimatedCost: scoped.summary.estimatedTotalCost, actualCost: scoped.summary.actualCostToDate, variance: scoped.summary.remainingEstimatedCost };
         });
-        return res.status(200).json({ ok: true, analysis, references: { vendors, equipment, materials, subcontractors, workAreas: job.operationalWorkAreas ?? [] } });
+        const entireJobAnalysis = scopeWorkAreaId === 'entire-job' ? analysis : calculateJobCostAnalysis({ job, employees, labourClasses, timeEntries, timeCorrections, ...records });
+        const estimateMaterials = entireJobAnalysis.materialComparisons.filter((line) => line.estimateMaterialSnapshotId);
+        return res.status(200).json({ ok: true, analysis, references: { vendors, equipment, materials, subcontractors, estimateMaterials, workAreas: job.operationalWorkAreas ?? [] } });
       }
 
       const action = text(req.query?.action ?? req.body?.action);
@@ -131,9 +143,18 @@ export function createJobAnalysisHandler(overrides = {}) {
         if (recordType === 'subcontractor' && !subcontractor) throw new Error('Subcontractor must belong to this business.');
         const lineItems = [];
         for (const line of Array.isArray(req.body.lineItems) ? req.body.lineItems : []) {
+          const estimateMaterialSnapshotId = text(line.estimateMaterialSnapshotId) || undefined;
           const materialCatalogItemId = text(line.materialCatalogItemId) || undefined;
+          const workAreaId = validateWorkArea(job, line.workAreaId);
+          if (estimateMaterialSnapshotId) {
+            if (recordType !== 'vendor') throw new Error('Estimate materials can only be added to Vendor Bills.');
+            const estimateMaterial = findEstimateMaterial(job, estimateMaterialSnapshotId);
+            if (!estimateMaterial) throw new Error('Estimate material must belong to this Job accepted Estimate.');
+            if (workAreaId !== estimateMaterial.area.id) throw new Error('Estimate material Work Area must match the accepted Estimate.');
+            if (materialCatalogItemId && materialCatalogItemId !== estimateMaterial.line.materialCatalogItemId) throw new Error('Estimate material Catalog reference must match the accepted Estimate.');
+          }
           if (materialCatalogItemId && !await deps.getMaterialCatalogItemForBusiness(session.businessId, materialCatalogItemId)) throw new Error('Material must belong to this business.');
-          lineItems.push({ id: text(line.id) || deps.randomUUID(), description: text(line.description), materialCatalogItemId, quantity: Number(line.quantity), unit: text(line.unit) || 'ea', unitCost: Number(line.unitCost), workAreaId: validateWorkArea(job, line.workAreaId) });
+          lineItems.push({ id: text(line.id) || deps.randomUUID(), description: text(line.description), estimateMaterialSnapshotId, materialCatalogItemId, quantity: Number(line.quantity), unit: text(line.unit) || 'ea', unitCost: Number(line.unitCost), workAreaId });
         }
         record = calculateJobBill({ id, jobId, recordType, vendorId: vendor?.id, vendorNameSnapshot: vendor?.name, subcontractorId: subcontractor?.id, subcontractorNameSnapshot: subcontractor?.name, invoiceNumber: text(req.body.invoiceNumber), ...dates, description: text(req.body.description), notes: text(req.body.notes), taxRate: Number(req.body.taxRate ?? 0), lineItems }, recordType);
         record.attachmentFileId = await validateAttachment(deps, session, text(req.body.attachmentFileId) || existing?.attachmentFileId, jobId, id);
