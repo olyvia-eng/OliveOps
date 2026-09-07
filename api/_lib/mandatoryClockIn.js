@@ -20,13 +20,13 @@ export function createClockInOccurrenceId({ businessId, employeeId, idempotencyK
 
 function requirementId(formId, context) {
   const digest = createHash('sha256')
-    .update([formId, context.jobId, context.equipmentId, context.divisionId].filter(Boolean).join('|'))
+    .update([formId, context.jobId, context.equipmentId, context.divisionId, context.serviceId, context.serviceVisitId].filter(Boolean).join('|'))
     .digest('hex')
     .slice(0, 24);
   return `requirement-${digest}`;
 }
 
-function safeContext({ job, equipment, division }) {
+function safeContext({ job, equipment, division, service, serviceVisit }) {
   return {
     jobId: job?.id,
     jobName: job?.title,
@@ -34,6 +34,8 @@ function safeContext({ job, equipment, division }) {
     equipmentName: equipment?.name,
     divisionId: division?.id ?? job?.divisionId,
     divisionName: division?.name,
+    ...(service?.id ? { serviceId: service.id, serviceName: service.name } : {}),
+    ...(serviceVisit?.id ? { serviceVisitId: serviceVisit.id } : {}),
   };
 }
 
@@ -104,7 +106,7 @@ function assignmentContext({ form, employee, crews, divisions, jobs, equipment }
   return isFormAssignedToEmployee({ form, employee, crews, divisions, ...context }) ? context : null;
 }
 
-export function resolveBeforeClockInForms({ forms = [], fields = [], submissions = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [], instant = new Date(), timeZone }) {
+export function resolveBeforeClockInForms({ forms = [], fields = [], submissions = [], employee, crews = [], divisions = [], jobs = [], equipment = [], customers = [], service, serviceVisit, instant = new Date(), timeZone }) {
   const actionableJobs = jobs.filter(isJobOperationallyActive);
   const applicable = [];
   for (const form of forms) {
@@ -112,7 +114,7 @@ export function resolveBeforeClockInForms({ forms = [], fields = [], submissions
     if (isClockDeliverySatisfied({ form, deliveryType: 'before_clock_in', employeeId: employee.id, submissions, instant, timeZone })) continue;
     const context = assignmentContext({ form, employee, crews, divisions, jobs: actionableJobs, equipment });
     if (!context || !isFormAssignedToEmployee({ form, employee, crews, divisions, ...context })) continue;
-    const packagedContext = safeContext(context);
+    const packagedContext = safeContext({ ...context, service, serviceVisit });
     const rule = runtimeDeliveryRule(form);
     const completionRequirement = rule.completionBehavior === 'blocking' ? 'required' : 'reminder';
     applicable.push({

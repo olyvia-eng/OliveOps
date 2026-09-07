@@ -28,6 +28,8 @@ import {
 import { WORK_AREA_CLOCKING_CONTRACT_VERSION } from './jobWorkAreas.js';
 import { calculateEmployeeLabourCost } from '../../src/utils/employeeLabourCost.js';
 import { canClockForEmployee } from './authorization.js';
+import { resolveServiceVisitContext } from './serviceVisitContext.js';
+import { buildStartServiceVisitTransactionItems } from './serviceVisitRepo.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -112,6 +114,15 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
   if (!employee?.active) return { ok: false, status: 409, code: 'employee_form_context_unavailable', error: 'Active employee form context is unavailable.' };
   const intentResult = await resolvePersistedClockInIntent(session.businessId, workflow.clockInIntent);
   if (!intentResult.ok) return intentResult;
+  const serviceContext = await resolveServiceVisitContext({
+    session,
+    workType: workflow.clockInIntent.workType,
+    jobIds: workflow.clockInIntent.jobIds ?? [],
+    workAreaId: workflow.clockInIntent.workAreaId,
+    serviceId: workflow.clockInIntent.serviceId,
+    serviceVisitId: workflow.clockInIntent.serviceVisitId,
+  });
+  if (!serviceContext.ok) return serviceContext;
 
   const activeEntries = await listTimeEntriesForBusiness(session.businessId, { consistentRead: true });
   if (activeEntries.some((entry) => entry.employeeId === workflow.employeeId && entry.status === 'clocked_in')) {
@@ -137,6 +148,8 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
     workType: intent.workType,
     workAreaId: intentResult.workArea.workAreaId,
     workAreaNameSnapshot: intentResult.workArea.workAreaNameSnapshot,
+    serviceId: serviceContext.serviceId,
+    serviceVisitId: serviceContext.serviceVisitId,
     unbillableCategoryId: intentResult.unbillableCategory?.id,
     unbillableCategoryName: intentResult.unbillableCategory?.name,
     clockIn: clockInAt,
@@ -163,10 +176,13 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
     workType: intent.workType,
     workAreaId: timeEntry.workAreaId,
     workAreaNameSnapshot: timeEntry.workAreaNameSnapshot,
+    serviceId: timeEntry.serviceId,
+    serviceVisitId: timeEntry.serviceVisitId,
     unbillableCategoryId: timeEntry.unbillableCategoryId,
     unbillableCategoryName: timeEntry.unbillableCategoryName,
     employeeName: employee.name,
     workflowFinalizationItems: buildClockInWorkflowFinalizationItems({ businessId: session.businessId, workflow, finalizedAt, timeEntry }),
+    additionalTransactionItems: buildStartServiceVisitTransactionItems({ businessId: session.businessId, visit: serviceContext.visit, startedAt: clockInAt, actorUserId: session.id, actorName: employee.name, auditEventId: `${session.id}:${workflow.requestId}:service-visit-started` }),
   });
 
   try {

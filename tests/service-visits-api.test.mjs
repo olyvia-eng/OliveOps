@@ -114,3 +114,40 @@ test('operational Service updates surface concurrent schedule changes', async ()
   assert.equal(result.statusCode, 409);
   assert.equal(result.body.error, 'Service schedule changed since it was opened.');
 });
+
+test('explicit completion blocks active linked Time Entries and replays safely after clock-out', async () => {
+  let entries = [{ id: 'entry-a', serviceVisitId: 'visit-a', status: 'clocked_in' }];
+  const run = harness({
+    requireSession: async () => ({ businessId: 'biz-a', id: 'user-a', employeeId: 'employee-a', role: 'crew_member', name: 'A User' }),
+    listTimeEntriesForBusiness: async () => structuredClone(entries),
+    listFormSubmissionsForBusiness: async () => [],
+    listFilesForBusiness: async () => [],
+  });
+  run.visits = [{ id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', assignedEmployeeIds: ['employee-a'], status: 'in_progress', billingTypeSnapshot: 'per_visit', billingStatus: 'pending', revision: 2 }];
+  const body = { jobId: 'job-a', serviceId: 'service-a', visitId: 'visit-a', clientSubmissionId: 'complete-1' };
+
+  const blocked = await run.call('POST', 'complete', body);
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.body.code, 'VISIT_HAS_ACTIVE_TIME_ENTRIES');
+
+  entries = [{ ...entries[0], status: 'clocked_out' }];
+  const completed = await run.call('POST', 'complete', body);
+  assert.equal(completed.statusCode, 200);
+  assert.equal(completed.body.visit.status, 'completed');
+  const replay = await run.call('POST', 'complete', body);
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.body.replayed, true);
+  assert.equal(run.audits.filter((event) => event.action === 'service_visit.completed').length, 1);
+});
+
+test('employee Visit detail and mutations fail closed when the Visit is not assigned', async () => {
+  const run = harness({ requireSession: async () => ({ businessId: 'biz-a', id: 'user-b', employeeId: 'employee-b', role: 'crew_member' }) });
+  run.visits = [{ id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', assignedEmployeeIds: ['employee-a'], status: 'scheduled', revision: 1 }];
+
+  const detail = await run.call('GET', 'detail', {}, { jobId: 'job-a', visitId: 'visit-a' });
+  assert.equal(detail.statusCode, 403);
+  assert.equal(detail.body.code, 'VISIT_NOT_ASSIGNED');
+  const completion = await run.call('POST', 'complete', { jobId: 'job-a', serviceId: 'service-a', visitId: 'visit-a', clientSubmissionId: 'complete-1' });
+  assert.equal(completion.statusCode, 403);
+  assert.equal(completion.body.code, 'VISIT_NOT_ASSIGNED');
+});

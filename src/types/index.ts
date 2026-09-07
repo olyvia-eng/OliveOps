@@ -227,6 +227,7 @@ export interface ServiceOperationalSchedule {
   defaultEquipmentIds?: ID[];
   revision: number;
   effectiveFrom?: string;
+  completionRequirements?: { requiredFormIds?: ID[]; minimumPhotoCount?: number; noteRequired?: boolean };
 }
 export interface ServiceJobService extends EstimateService {
   sourceEstimateServiceId: ID;
@@ -271,6 +272,8 @@ export interface ServiceVisit {
   statusReason?: string;
   completedAt?: string;
   completedByUserId?: ID;
+  completionClientSubmissionId?: string;
+  visitNotes?: Array<{ id: ID; clientSubmissionId: string; text: string; authorUserId: ID; authorName?: string; createdAt: string }>;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -634,6 +637,8 @@ export type JobStatus = 'scheduled' | 'in_progress' | 'on_hold' | 'completed' | 
 export interface CostEntry {
   id: ID;
   category: LineItemCategory;
+  serviceId?: ID;
+  serviceVisitId?: ID;
   description: string;
   quantity: number;
   unit: string;
@@ -1088,6 +1093,8 @@ export interface TimeEntry {
   jobIds?: ID[];
   workType: TimeEntryWorkType;
   workAreaId?: ID;
+  serviceId?: ID;
+  serviceVisitId?: ID;
   workAreaNameSnapshot?: string;
   unbillableCategoryId?: ID;
   unbillableCategoryName?: string;

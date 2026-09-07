@@ -115,3 +115,33 @@ export async function updateServiceVisitForBusiness({ businessId, visit, expecte
     throw error;
   }
 }
+
+export function buildStartServiceVisitTransactionItem({ businessId, visit, startedAt }) {
+  if (!visit || visit.status !== 'scheduled') return null;
+  return {
+    Update: {
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: visitSk(visit.jobId, visit.id) },
+      UpdateExpression: 'SET #status = :inProgress, #updatedAt = :startedAt, #revision = #revision + :one',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :scheduled AND #revision = :expectedRevision',
+      ExpressionAttributeNames: { '#status': 'status', '#updatedAt': 'updatedAt', '#revision': 'revision' },
+      ExpressionAttributeValues: { ':inProgress': 'in_progress', ':scheduled': 'scheduled', ':startedAt': startedAt, ':one': 1, ':expectedRevision': visit.revision },
+    },
+  };
+}
+
+export function buildStartServiceVisitTransactionItems({ businessId, visit, startedAt, actorUserId, actorName, auditEventId }) {
+  const update = buildStartServiceVisitTransactionItem({ businessId, visit, startedAt });
+  if (!update) return [];
+  return [update, {
+    Put: {
+      TableName: tableName,
+      Item: {
+        PK: businessPk(businessId), SK: `AUDIT#${auditEventId}`, entityType: 'AUDIT_EVENT', businessId,
+        eventId: auditEventId, action: 'service_visit.work_started', actorUserId, actorName: actorName || actorUserId,
+        actorEmail: '', createdAt: startedAt, metadata: { jobId: visit.jobId, serviceId: visit.serviceId, visitId: visit.id },
+      },
+      ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    },
+  }];
+}

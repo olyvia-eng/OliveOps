@@ -39,12 +39,25 @@ import {
 } from './_lib/budgetGroups.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
-import { normalizeBusinessTimeZone } from './_lib/businessTime.js';
+import { getBusinessDateParts, normalizeBusinessTimeZone } from './_lib/businessTime.js';
 import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from './_lib/mandatoryClockOut.js';
 import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
 import { getEligibleJobWorkAreas, WORK_AREA_CLOCKING_CONTRACT_VERSION } from './_lib/jobWorkAreas.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
 import { listTrainingAssignmentsForBusiness, presentTrainingAssignments } from './_lib/trainingRepo.js';
+import { listServiceVisitsForSchedule } from './_lib/serviceVisitRepo.js';
+import { isEmployeeAssignedToServiceVisit } from './_lib/serviceVisitContext.js';
+import { listAllJobSopAssociationsForBusiness } from './_lib/jobSopRepo.js';
+
+const dateKeyFor = (instant, timeZone) => {
+  const parts = getBusinessDateParts(instant, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+const addDateKeyDays = (dateKey, days) => {
+  const date = new Date(`${dateKey}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -80,8 +93,11 @@ export default async function handler(req, res) {
           thresholdHours: DEFAULT_FORGOTTEN_CLOCK_OUT_THRESHOLD_HOURS,
         })
       : false;
+    const timeZone = normalizeBusinessTimeZone(businessProfile?.timezone);
+    const today = dateKeyFor(new Date(), timeZone);
+    const upcomingEndDate = addDateKeyDays(today, 7);
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments] = await Promise.all([
+    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments, serviceVisits, jobSopAssociations] = await Promise.all([
       listFormsForBusiness(session.businessId),
       listFormFieldsForBusiness(session.businessId),
       listFormSubmissionsForBusiness(session.businessId),
@@ -115,6 +131,8 @@ export default async function handler(req, res) {
       listTimeEntriesForBusiness(session.businessId),
       listTimeCorrectionsForBusiness(session.businessId),
       listTrainingAssignmentsForBusiness(session.businessId),
+      listServiceVisitsForSchedule(session.businessId, today, upcomingEndDate),
+      listAllJobSopAssociationsForBusiness(session.businessId),
     ]);
 
     const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
@@ -124,6 +142,29 @@ export default async function handler(req, res) {
       hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
       eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
     }));
+    const visibleServiceVisits = serviceVisits.filter((visit) => isEmployeeAssignedToServiceVisit(session, visit, crews));
+    const jobById = new Map(jobs.map((job) => [job.id, job]));
+    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+    const jobsWithSops = new Set(jobSopAssociations.map((association) => association.jobId));
+    const mobileServiceVisit = (visit) => {
+      const job = jobById.get(visit.jobId);
+      const service = job?.services?.find((candidate) => candidate.id === visit.serviceId);
+      const customer = customerById.get(job?.customerId);
+      return {
+        id: visit.id, jobId: visit.jobId, serviceId: visit.serviceId,
+        jobName: job?.title ?? 'Service Job', serviceName: service?.name ?? 'Service',
+        customerName: customer?.name ?? '', propertyName: job?.propertyLabel ?? '',
+        propertyAddress: job?.propertyAddressSnapshot ?? customer?.address ?? '',
+        scheduledDate: visit.scheduledDate, scheduledStartAt: visit.scheduledStartAt,
+        scheduledEndAt: visit.scheduledEndAt, scheduleAllDay: visit.scheduleAllDay,
+        crewId: visit.crewId, status: visit.status, billingType: visit.billingTypeSnapshot,
+        hasRequiredForms: forms.some((form) => form.status === 'active' && form.assignedTo === 'job' && form.assignmentValue === visit.jobId && form.completionRequirement === 'required'),
+        hasSops: jobsWithSops.has(visit.jobId),
+      };
+    };
+    const activeVisitContext = activeTimeEntry?.serviceVisitId
+      ? mobileServiceVisit(serviceVisits.find((visit) => visit.id === activeTimeEntry.serviceVisitId) ?? activeTimeEntry)
+      : null;
     const employeeTrainingAssignments = typeof session.employeeId === 'string'
       ? presentTrainingAssignments(trainingAssignments.filter((assignment) => assignment.employeeId === session.employeeId && !assignment.revokedAt), { timeZone: businessProfile?.timezone })
       : [];
@@ -139,7 +180,11 @@ export default async function handler(req, res) {
         workAreaClockingVersion: WORK_AREA_CLOCKING_CONTRACT_VERSION,
         ...normalizeMobileTimePermissions(sessionEmployee?.mobileTimePermissions),
       },
-      timezone: normalizeBusinessTimeZone(businessProfile?.timezone),
+      timezone: timeZone,
+      serviceVisitHorizonDays: 7,
+      todayServiceVisits: visibleServiceVisits.filter((visit) => visit.scheduledDate === today).map(mobileServiceVisit),
+      upcomingServiceVisits: visibleServiceVisits.filter((visit) => visit.scheduledDate > today).map(mobileServiceVisit),
+      activeTimeEntry: activeTimeEntry ? { ...activeTimeEntry, ...(activeVisitContext ? { jobName: activeVisitContext.jobName, serviceName: activeVisitContext.serviceName, propertyName: activeVisitContext.propertyName } : {}) } : null,
       trainingAttentionCount: overdueTrainingCount + dueSoonTrainingCount,
       overdueTrainingCount,
       dueSoonTrainingCount,

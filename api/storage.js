@@ -38,6 +38,8 @@ import { listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { isFormAssignedToEmployee } from './_lib/formsEngine.js';
 import { findClockInWorkflowRequirement, getClockInWorkflowForBusiness } from './_lib/mandatoryClockIn.js';
 import { findWorkflowRequirement, getClockOutWorkflowForBusiness } from './_lib/mandatoryClockOut.js';
+import { getServiceVisitForBusiness } from './_lib/serviceVisitRepo.js';
+import { isEmployeeAssignedToServiceVisit } from './_lib/serviceVisitContext.js';
 import {
   getTrainingDefinitionForBusiness,
   getTrainingVersionForBusiness,
@@ -72,6 +74,7 @@ const ATTACHMENT_ALLOWLIST = {
   expense: new Set(['receipt']),
   document: DOCUMENT_CATEGORIES,
   job: new Set(['document', 'photo', 'misc']),
+  'service-visit': new Set(['photo']),
   customer: new Set(['document', 'photo', 'misc']),
   estimate: new Set(['document', 'photo', 'misc']),
   employee: new Set(['document', 'photo', 'misc']),
@@ -261,6 +264,7 @@ const defaultDeps = {
   getFormForBusiness,
   getFormSubmissionForBusiness,
   getJobForBusiness,
+  getServiceVisitForBusiness,
   getEmployeeForBusiness,
   getFeedbackForBusiness,
   getTimeEntryForBusiness,
@@ -296,7 +300,7 @@ export function createStorageHandler(overrides = {}) {
       ?? null;
   }
 
-  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, accessMode = 'read' }) {
+  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, jobId, accessMode = 'read' }) {
     if (entityType === BUSINESS_PROFILE_ENTITY_TYPE) {
       return {
         entity: { id: session.businessId },
@@ -369,6 +373,16 @@ export function createStorageHandler(overrides = {}) {
       if (directlyAllowed || !job.crewId) return { entity: job, allowed: directlyAllowed };
       const crews = await deps.listCrewsForBusiness(session.businessId);
       return { entity: job, allowed: canAccessAttachmentRecord({ session, entityType, entity: job, accessMode, context: { crews } }) };
+    }
+
+    if (entityType === 'service-visit') {
+      let resolvedJobId = typeof jobId === 'string' ? jobId.trim() : '';
+      if (!resolvedJobId && fileId) resolvedJobId = (await deps.getFileForBusiness(session.businessId, fileId))?.jobId ?? '';
+      if (!resolvedJobId) return null;
+      const visit = await deps.getServiceVisitForBusiness(session.businessId, resolvedJobId, entityId);
+      if (!visit) return null;
+      const crews = await deps.listCrewsForBusiness(session.businessId);
+      return { entity: visit, allowed: isEmployeeAssignedToServiceVisit(session, visit, crews) };
     }
 
     if (entityType === 'customer') {
@@ -470,6 +484,8 @@ export function createStorageHandler(overrides = {}) {
             const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
             const equipmentId = typeof body.equipmentId === 'string' ? body.equipmentId.trim() : '';
             const divisionId = typeof body.divisionId === 'string' ? body.divisionId.trim() : '';
+            const serviceId = typeof body.serviceId === 'string' ? body.serviceId.trim() : '';
+            const serviceVisitId = typeof body.serviceVisitId === 'string' ? body.serviceVisitId.trim() : '';
             if (entityType === FORM_SIGNATURE_ENTITY_TYPE && (validation.mimeType !== 'image/png' || validation.sizeBytes > SIGNATURE_MAX_BYTES)) {
               return res.status(400).json({ ok: false, error: 'Signatures must be PNG files no larger than 2 MB.' });
             }
@@ -532,6 +548,8 @@ export function createStorageHandler(overrides = {}) {
               jobId: jobId || undefined,
               equipmentId: equipmentId || undefined,
               divisionId: divisionId || undefined,
+              serviceId: serviceId || undefined,
+              serviceVisitId: serviceVisitId || undefined,
               submitterEmployeeId: employee.id,
               submitterUserId: session.id,
               ...(entityType === FORM_SIGNATURE_ENTITY_TYPE ? {
@@ -541,9 +559,19 @@ export function createStorageHandler(overrides = {}) {
             };
           }
 
+          if (entityType === 'service-visit') {
+            const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
+            const serviceId = typeof body.serviceId === 'string' ? body.serviceId.trim() : '';
+            if (!jobId || !serviceId) return res.status(400).json({ ok: false, error: 'Service Visit upload context is invalid.' });
+            formContext = { jobId, serviceId, serviceVisitId: entityId };
+          }
+
           const resolvedEntity = entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE
             ? { entity: { id: entityId }, allowed: true }
-            : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, accessMode: 'write' });
+            : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, jobId: body.jobId, accessMode: 'write' });
+          if (entityType === 'service-visit' && resolvedEntity?.entity?.serviceId !== formContext?.serviceId) {
+            return res.status(403).json({ ok: false, error: 'Forbidden' });
+          }
           if (!resolvedEntity?.entity || !resolvedEntity.allowed) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }

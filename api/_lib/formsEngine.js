@@ -93,14 +93,16 @@ export function isFormAssignedToEmployee({ form, employee, crews = [], divisions
   return false;
 }
 
-export function buildFormCompletionScope({ form, trigger, instant = new Date(), timeZone, job, equipment, division }) {
+export function buildFormCompletionScope({ form, trigger, instant = new Date(), timeZone, job, equipment, division, service, serviceVisit }) {
   const periodKey = CONTEXT_TRIGGERS.has(trigger)
     ? undefined
     : getPeriodKeyForTrigger(trigger, instant, normalizeBusinessTimeZone(timeZone));
   const jobId = text(job?.id);
   const equipmentId = text(equipment?.id);
   const divisionId = text(division?.id || job?.divisionId);
-  const contextKey = [jobId && `job:${jobId}`, equipmentId && `equipment:${equipmentId}`, divisionId && `division:${divisionId}`]
+  const serviceId = text(service?.id);
+  const serviceVisitId = text(serviceVisit?.id);
+  const contextKey = [jobId && `job:${jobId}`, equipmentId && `equipment:${equipmentId}`, divisionId && `division:${divisionId}`, serviceId && `service:${serviceId}`, serviceVisitId && `visit:${serviceVisitId}`]
     .filter(Boolean)
     .join('|');
   return {
@@ -110,6 +112,8 @@ export function buildFormCompletionScope({ form, trigger, instant = new Date(), 
     jobId: jobId || undefined,
     equipmentId: equipmentId || undefined,
     divisionId: divisionId || undefined,
+    serviceId: serviceId || undefined,
+    serviceVisitId: serviceVisitId || undefined,
     contextKey: contextKey || undefined,
   };
 }
@@ -131,6 +135,8 @@ export function isSubmissionSatisfiedForScope({ submission, employeeId, scope, t
   if (submission.jobId && scope.jobId && submission.jobId !== scope.jobId) return false;
   if (submission.equipmentId && scope.equipmentId && submission.equipmentId !== scope.equipmentId) return false;
   if (submission.divisionId && scope.divisionId && submission.divisionId !== scope.divisionId) return false;
+  if (submission.serviceId && scope.serviceId && submission.serviceId !== scope.serviceId) return false;
+  if (submission.serviceVisitId && scope.serviceVisitId && submission.serviceVisitId !== scope.serviceVisitId) return false;
   if (submission.trigger || submission.periodKey) return true;
   return legacySubmissionMatches({ submission, scope, timeZone });
 }

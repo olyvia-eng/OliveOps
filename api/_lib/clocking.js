@@ -160,10 +160,13 @@ export function buildClockInTransaction({
   workType = 'job',
   workAreaId,
   workAreaNameSnapshot,
+  serviceId,
+  serviceVisitId,
   unbillableCategoryId,
   unbillableCategoryName,
   employeeName = '',
   workflowFinalizationItems = [],
+  additionalTransactionItems = [],
 }) {
   const eventOccurredAt = clockInAt ?? nowIso();
   const receivedAt = serverReceivedAt ?? nowIso();
@@ -180,6 +183,8 @@ export function buildClockInTransaction({
     workType,
     workAreaId: workType === 'job' ? workAreaId ?? null : undefined,
     workAreaNameSnapshot: workType === 'job' ? workAreaNameSnapshot ?? null : undefined,
+    serviceId: workType === 'job' ? serviceId : undefined,
+    serviceVisitId: workType === 'job' ? serviceVisitId : undefined,
     unbillableCategoryId: workType === 'non_billable' ? unbillableCategoryId : undefined,
     unbillableCategoryName: workType === 'non_billable' ? unbillableCategoryName : undefined,
     clockIn: eventOccurredAt,
@@ -251,6 +256,8 @@ export function buildClockInTransaction({
       workType,
       workAreaId: workType === 'job' ? workAreaId ?? null : undefined,
       workAreaNameSnapshot: workType === 'job' ? workAreaNameSnapshot ?? null : undefined,
+      ...(workType === 'job' && serviceId ? { serviceId } : {}),
+      ...(workType === 'job' && serviceVisitId ? { serviceVisitId } : {}),
       unbillableCategoryId: workType === 'non_billable' ? unbillableCategoryId : undefined,
       unbillableCategoryName: workType === 'non_billable' ? unbillableCategoryName : undefined,
       clockIn: eventOccurredAt,
@@ -296,6 +303,7 @@ export function buildClockInTransaction({
         },
       },
       ...workflowFinalizationItems,
+      ...additionalTransactionItems,
     ],
   };
 }
@@ -383,6 +391,8 @@ export function buildClockOutTransaction({
   workType,
   workAreaId,
   workAreaNameSnapshot,
+  serviceId,
+  serviceVisitId,
   clockIn,
   createdAt,
   employeeName = '',
@@ -423,6 +433,8 @@ export function buildClockOutTransaction({
       jobIds,
       workType,
       workAreaId: workType === 'job' ? workAreaId ?? null : undefined,
+      ...(workType === 'job' && serviceId ? { serviceId } : {}),
+      ...(workType === 'job' && serviceVisitId ? { serviceVisitId } : {}),
       workAreaNameSnapshot: workType === 'job' ? workAreaNameSnapshot ?? null : undefined,
       clockIn,
       clockOut: eventOccurredAt,
@@ -612,6 +624,7 @@ export function buildSwitchActivityTransaction({
   source,
   auditEventId,
   employeeName = '',
+  additionalTransactionItems = [],
 }) {
   const eventOccurredAt = switchedAt ?? nowIso();
   const receivedAt = serverReceivedAt ?? nowIso();
@@ -633,6 +646,8 @@ export function buildSwitchActivityTransaction({
       workType: nextTimeEntry.workType,
       workAreaId: nextTimeEntry.workType === 'job' ? nextTimeEntry.workAreaId ?? null : undefined,
       workAreaNameSnapshot: nextTimeEntry.workType === 'job' ? nextTimeEntry.workAreaNameSnapshot ?? null : undefined,
+      serviceId: nextTimeEntry.workType === 'job' ? nextTimeEntry.serviceId : undefined,
+      serviceVisitId: nextTimeEntry.workType === 'job' ? nextTimeEntry.serviceVisitId : undefined,
       unbillableCategoryId: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryId : undefined,
       unbillableCategoryName: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryName : undefined,
       clockIn: eventOccurredAt,
@@ -660,6 +675,8 @@ export function buildSwitchActivityTransaction({
     workType: nextTimeEntry.workType,
     workAreaId: nextTimeEntry.workType === 'job' ? nextTimeEntry.workAreaId ?? null : undefined,
     workAreaNameSnapshot: nextTimeEntry.workType === 'job' ? nextTimeEntry.workAreaNameSnapshot ?? null : undefined,
+    serviceId: nextTimeEntry.workType === 'job' ? nextTimeEntry.serviceId : undefined,
+    serviceVisitId: nextTimeEntry.workType === 'job' ? nextTimeEntry.serviceVisitId : undefined,
     unbillableCategoryId: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryId : undefined,
     unbillableCategoryName: nextTimeEntry.workType === 'non_billable' ? nextTimeEntry.unbillableCategoryName : undefined,
     clockIn: eventOccurredAt,
@@ -695,6 +712,8 @@ export function buildSwitchActivityTransaction({
       newJobIds: Array.isArray(nextTimeEntry.jobIds) ? nextTimeEntry.jobIds : [],
       previousWorkAreaId: previousTimeEntry.workType === 'job' ? previousTimeEntry.workAreaId ?? null : undefined,
       newWorkAreaId: nextTimeEntry.workType === 'job' ? nextTimeEntry.workAreaId ?? null : undefined,
+      previousServiceVisitId: previousTimeEntry.workType === 'job' ? previousTimeEntry.serviceVisitId : undefined,
+      newServiceVisitId: nextTimeEntry.workType === 'job' ? nextTimeEntry.serviceVisitId : undefined,
       source,
       eventOccurredAt,
       serverReceivedAt: receivedAt,
@@ -782,6 +801,7 @@ export function buildSwitchActivityTransaction({
           ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
         },
       },
+      ...additionalTransactionItems,
     ],
   };
 }

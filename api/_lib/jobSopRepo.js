@@ -40,6 +40,10 @@ export async function listJobSopAssociationsForBusiness(businessId, jobId) {
   return (await queryPrefix(businessId, `JOB_SOP#${jobId}#`)).map(withoutKeys);
 }
 
+export async function listAllJobSopAssociationsForBusiness(businessId) {
+  return (await queryPrefix(businessId, 'JOB_SOP#')).map(withoutKeys);
+}
+
 export async function addJobSopAssociationForBusiness({ businessId, jobId, sopId, actor }) {
   const existing = await getJobSopAssociationForBusiness(businessId, jobId, sopId);
   if (existing) return existing;

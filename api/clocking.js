@@ -62,6 +62,9 @@ import {
   reconstructCurrentShiftTimeline,
   validateCurrentShiftWorkAreaSegments,
 } from './_lib/currentShiftWorkAreas.js';
+import { resolveServiceVisitContext } from './_lib/serviceVisitContext.js';
+import { resolveWorkType } from '../src/utils/workTypeModel.js';
+import { buildStartServiceVisitTransactionItems } from './_lib/serviceVisitRepo.js';
 
 const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 
@@ -247,14 +250,17 @@ async function validateClockingJobs({ session, jobIds }) {
   return { ok: true, jobs };
 }
 
-async function validateClockingSelection({ session, workType, jobIds, workAreaId, contractVersion }) {
+async function validateClockingSelection({ session, workType, jobIds, workAreaId, serviceId, serviceVisitId, contractVersion }) {
   const jobValidation = await validateClockingJobs({ session, jobIds });
   if (!jobValidation.ok) return jobValidation;
-  if (workType !== 'job') return { ok: true, workAreaId: null, workAreaNameSnapshot: null };
+  const serviceContext = await resolveServiceVisitContext({ session, workType, jobIds, workAreaId, serviceId, serviceVisitId });
+  if (!serviceContext.ok) return serviceContext;
+  if (workType !== 'job') return { ok: true, workAreaId: null, workAreaNameSnapshot: null, ...serviceContext };
   if (Number(contractVersion) >= WORK_AREA_CLOCKING_CONTRACT_VERSION && jobIds.length !== 1) {
     return { ok: false, status: 400, code: 'job_selection_invalid', error: 'Select one Job for Job Work.' };
   }
-  return resolveClockingWorkArea({ job: jobValidation.jobs[0], workType, workAreaId, contractVersion });
+  if (resolveWorkType(jobValidation.jobs[0]) === 'service') return { ok: true, workAreaId: null, workAreaNameSnapshot: null, ...serviceContext };
+  return { ...resolveClockingWorkArea({ job: jobValidation.jobs[0], workType, workAreaId, contractVersion }), ...serviceContext };
 }
 
 export default async function handler(req, res) {
@@ -511,6 +517,8 @@ export default async function handler(req, res) {
       workType: requestedWorkType,
       jobIds: requestedJobIds,
       workAreaId: req.body?.workAreaId,
+      serviceId: req.body?.serviceId,
+      serviceVisitId: req.body?.serviceVisitId,
       contractVersion: clockingContractVersion,
     });
     if (!workAreaValidation.ok) {
@@ -545,6 +553,8 @@ export default async function handler(req, res) {
       jobIds: requestedJobIds,
       clockingContractVersion,
       workAreaId: workAreaValidation.workAreaId,
+      serviceId: workAreaValidation.serviceId,
+      serviceVisitId: workAreaValidation.serviceVisitId,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
         : undefined,
@@ -620,6 +630,7 @@ export default async function handler(req, res) {
       const selectedJobs = jobs.filter((job) => requestedJobIds.includes(job.id));
       const applicableForms = resolveBeforeClockInForms({
         forms, fields, submissions, employee, crews, divisions, jobs: selectedJobs, equipment, customers,
+        service: workAreaValidation.service, serviceVisit: workAreaValidation.visit,
         instant: eventTime.eventOccurredAt, timeZone: profile?.timezone,
       });
       reminderForms = applicableForms.reminderForms;
@@ -644,6 +655,8 @@ export default async function handler(req, res) {
             clockingContractVersion,
             workAreaId: workAreaValidation.workAreaId,
             workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
+            serviceId: workAreaValidation.serviceId,
+            serviceVisitId: workAreaValidation.serviceVisitId,
             unbillableCategoryId: requestedUnbillableCategory?.id,
             unbillableCategoryName: requestedUnbillableCategory?.name,
             requestedClockInAt: requestedClockInTime.requestedClockInAt,
@@ -688,6 +701,8 @@ export default async function handler(req, res) {
       workType: requestedWorkType,
       workAreaId: workAreaValidation.workAreaId,
       workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
+      serviceId: workAreaValidation.serviceId,
+      serviceVisitId: workAreaValidation.serviceVisitId,
       unbillableCategoryId: requestedWorkType === 'non_billable'
         ? requestedUnbillableCategory.id
         : undefined,
@@ -695,6 +710,7 @@ export default async function handler(req, res) {
         ? requestedUnbillableCategory.name
         : undefined,
       employeeName: employee.name,
+      additionalTransactionItems: buildStartServiceVisitTransactionItems({ businessId: session.businessId, visit: workAreaValidation.visit, startedAt: clockInAt, actorUserId: session.id, actorName: employee.name, auditEventId: `${session.id}:${requestId}:service-visit-started` }),
     });
 
     try {
@@ -707,6 +723,8 @@ export default async function handler(req, res) {
         workType: requestedWorkType,
         workAreaId: workAreaValidation.workAreaId,
         workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
+        serviceId: workAreaValidation.serviceId,
+        serviceVisitId: workAreaValidation.serviceVisitId,
         unbillableCategoryId: requestedWorkType === 'non_billable'
           ? requestedUnbillableCategory.id
           : undefined,
@@ -882,6 +900,8 @@ export default async function handler(req, res) {
       const entryJobs = jobs.filter((job) => entryJobIds.includes(job.id));
       const applicableForms = resolveAfterClockOutForms({
         forms, fields, submissions, employee, crews, divisions, jobs: entryJobs, equipment, customers,
+        service: activeEntry.serviceId ? entryJobs[0]?.services?.find((service) => service.id === activeEntry.serviceId) : undefined,
+        serviceVisit: activeEntry.serviceVisitId ? { id: activeEntry.serviceVisitId } : undefined,
         instant: clockOutAt, timeZone: profile?.timezone,
       });
       reminderForms = applicableForms.reminderForms;
@@ -929,6 +949,8 @@ export default async function handler(req, res) {
             workType: activeEntry.workType,
             workAreaId: activeEntry.workAreaId,
             workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
+            ...(activeEntry.serviceId ? { serviceId: activeEntry.serviceId } : {}),
+            ...(activeEntry.serviceVisitId ? { serviceVisitId: activeEntry.serviceVisitId } : {}),
             clockIn: activeEntry.clockIn,
             createdAt: activeEntry.createdAt,
             ...costSnapshot,
@@ -943,6 +965,8 @@ export default async function handler(req, res) {
           workType: activeEntry.workType,
           workAreaId: activeEntry.workAreaId,
           workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
+          ...(activeEntry.serviceId ? { serviceId: activeEntry.serviceId } : {}),
+          ...(activeEntry.serviceVisitId ? { serviceVisitId: activeEntry.serviceVisitId } : {}),
           clockIn: activeEntry.clockIn,
           clockOut: clockOutAt,
           breakMinutes: req.body?.breakMinutes ?? 0,
@@ -1003,6 +1027,8 @@ export default async function handler(req, res) {
       workType: activeEntry.workType,
       workAreaId: activeEntry.workAreaId,
       workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
+      serviceId: activeEntry.serviceId,
+      serviceVisitId: activeEntry.serviceVisitId,
       clockIn: activeEntry.clockIn,
       createdAt: activeEntry.createdAt,
       employeeName: employee?.name ?? '',
@@ -1019,6 +1045,8 @@ export default async function handler(req, res) {
         workType: activeEntry.workType,
         workAreaId: activeEntry.workAreaId,
         workAreaNameSnapshot: activeEntry.workAreaNameSnapshot,
+        ...(activeEntry.serviceId ? { serviceId: activeEntry.serviceId } : {}),
+        ...(activeEntry.serviceVisitId ? { serviceVisitId: activeEntry.serviceVisitId } : {}),
         clockIn: activeEntry.clockIn,
         clockOut: clockOutAt,
         breakMinutes: req.body?.breakMinutes ?? 0,
@@ -1112,6 +1140,8 @@ export default async function handler(req, res) {
       workType: nextWorkType,
       jobIds: nextJobIds,
       workAreaId: req.body?.workAreaId,
+      serviceId: req.body?.serviceId,
+      serviceVisitId: req.body?.serviceVisitId,
       contractVersion: clockingContractVersion,
     });
     if (!workAreaValidation.ok) {
@@ -1132,6 +1162,8 @@ export default async function handler(req, res) {
       jobIds: nextJobIds,
       clockingContractVersion,
       workAreaId: workAreaValidation.workAreaId,
+      serviceId: workAreaValidation.serviceId,
+      serviceVisitId: workAreaValidation.serviceVisitId,
       unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
       requestId,
       idempotencyKey: clientIdempotencyKey,
@@ -1199,6 +1231,8 @@ export default async function handler(req, res) {
         jobIds: nextWorkType === 'non_billable' ? [] : nextJobIds,
         workAreaId: workAreaValidation.workAreaId,
         workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
+        serviceId: workAreaValidation.serviceId,
+        serviceVisitId: workAreaValidation.serviceVisitId,
         unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategory.id : undefined,
         unbillableCategoryName: nextWorkType === 'non_billable' ? requestedUnbillableCategory.name : undefined,
       },
@@ -1211,6 +1245,7 @@ export default async function handler(req, res) {
       source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'mobile',
       auditEventId: `${session.id}:${requestId}:switch-activity`,
       employeeName: employee.name,
+      additionalTransactionItems: buildStartServiceVisitTransactionItems({ businessId: session.businessId, visit: workAreaValidation.visit, startedAt: switchedAt, actorUserId: session.id, actorName: employee.name, auditEventId: `${session.id}:${requestId}:service-visit-started` }),
     });
 
     try {
@@ -1223,6 +1258,8 @@ export default async function handler(req, res) {
         workType: nextWorkType,
         workAreaId: workAreaValidation.workAreaId,
         workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
+        serviceId: workAreaValidation.serviceId,
+        serviceVisitId: workAreaValidation.serviceVisitId,
         unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategory.id : undefined,
         unbillableCategoryName: nextWorkType === 'non_billable' ? requestedUnbillableCategory.name : undefined,
         clockIn: switchedAt,

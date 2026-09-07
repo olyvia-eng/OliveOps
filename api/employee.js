@@ -41,6 +41,7 @@ import {
   getClockInWorkflowForBusiness,
 } from './_lib/mandatoryClockIn.js';
 import { finalizeCompletedMandatoryWorkflow } from './_lib/mandatoryClockingFinalization.js';
+import { resolveServiceVisitContext } from './_lib/serviceVisitContext.js';
 
 const FORM_TRIGGERS = new Set(['before_clock_in', 'after_clock_out', 'before_starting_job', 'after_completing_job', 'after_leaving_job', 'job_completed', 'daily', 'weekly', 'monthly', 'on_demand']);
 const CLIENT_SUBMISSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -154,6 +155,8 @@ function safeContext(context) {
     jobId: context.job?.id, jobName: context.job?.title,
     equipmentId: context.equipment?.id, equipmentName: context.equipment?.name,
     divisionId: context.division?.id || context.job?.divisionId, divisionName: context.division?.name,
+    ...(context.service?.id ? { serviceId: context.service.id, serviceName: context.service.name } : {}),
+    ...(context.serviceVisit?.id ? { serviceVisitId: context.serviceVisit.id } : {}),
   };
 }
 
@@ -222,7 +225,7 @@ function completedSubmissions(data) {
     }));
 }
 
-function requestedContext(req, data) {
+async function requestedContext(req, data, session) {
   const payload = req.body?.data ?? req.body ?? {};
   const jobId = text(payload.jobId ?? req.query?.jobId);
   const equipmentId = text(payload.equipmentId ?? req.query?.equipmentId);
@@ -233,6 +236,13 @@ function requestedContext(req, data) {
   if (equipmentId && (!equipment || !job?.assignedEquipmentIds?.includes(equipmentId))) return { error: 'Equipment context is not assigned through this job.' };
   const division = divisionId ? data.divisions.find((candidate) => candidate.id === divisionId) : data.divisions.find((candidate) => candidate.id === job?.divisionId);
   if (divisionId && (!division || (job && job.divisionId !== divisionId))) return { error: 'Division context is invalid.' };
+  const serviceId = text(payload.serviceId ?? req.query?.serviceId);
+  const serviceVisitId = text(payload.serviceVisitId ?? req.query?.serviceVisitId);
+  if (serviceId || serviceVisitId) {
+    const result = await resolveServiceVisitContext({ session: { ...session, employeeId: data.employee.id }, workType: 'job', jobIds: jobId ? [jobId] : [], serviceId, serviceVisitId });
+    if (!result.ok) return { error: result.error, code: result.code };
+    return { job: result.job, equipment, division, service: result.service, serviceVisit: result.visit };
+  }
   return { job, equipment, division };
 }
 
@@ -244,19 +254,23 @@ function workflowRequirementContext(requirement, data) {
   if (context.equipmentId && (!equipment || !job?.assignedEquipmentIds?.includes(equipment.id))) return { error: 'Workflow equipment context is no longer available to this employee.' };
   const division = context.divisionId ? data.divisions.find((candidate) => candidate.id === context.divisionId) : undefined;
   if (context.divisionId && !division) return { error: 'Workflow Division context is no longer available.' };
-  return { job, equipment, division };
+  return {
+    job, equipment, division,
+    service: context.serviceId ? { id: context.serviceId, name: context.serviceName } : undefined,
+    serviceVisit: context.serviceVisitId ? { id: context.serviceVisitId } : undefined,
+  };
 }
 
 function workflowContextMatchesPayload(requirement, payload) {
   const expected = requirement.context ?? {};
-  return ['jobId', 'equipmentId', 'divisionId'].every((field) => {
+  return ['jobId', 'equipmentId', 'divisionId', 'serviceId', 'serviceVisitId'].every((field) => {
     const supplied = text(payload?.[field]);
     return !supplied || supplied === text(expected[field]);
   });
 }
 
 function deterministicSubmissionId({ employeeId, scope, workflowOccurrenceId, workflowRequirementId }) {
-  const key = [employeeId, scope.formId, scope.trigger, scope.periodKey, scope.jobId, scope.equipmentId, scope.divisionId, workflowOccurrenceId, workflowRequirementId].filter(Boolean).join('|');
+  const key = [employeeId, scope.formId, scope.trigger, scope.periodKey, scope.jobId, scope.equipmentId, scope.divisionId, scope.serviceId, scope.serviceVisitId, workflowOccurrenceId, workflowRequirementId].filter(Boolean).join('|');
   return `form-${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
 }
 
@@ -268,6 +282,8 @@ function submissionPayloadFingerprint({ formId, trigger, scope, responses, workf
       jobId: scope.jobId ?? null,
       equipmentId: scope.equipmentId ?? null,
       divisionId: scope.divisionId ?? null,
+      serviceId: scope.serviceId ?? null,
+      serviceVisitId: scope.serviceVisitId ?? null,
     },
     workflowOccurrenceId: workflowOccurrenceId ?? null,
     workflowRequirementId: workflowRequirementId ?? null,
@@ -311,7 +327,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET' && req.query.action === 'required') {
     const trigger = text(req.query.trigger);
     if (!FORM_TRIGGERS.has(trigger) || trigger === 'on_demand') return res.status(400).json({ ok: false, error: 'A required Form trigger is invalid.' });
-    const context = requestedContext(req, data);
+    const context = await requestedContext(req, data, session);
     if (context.error) return res.status(403).json({ ok: false, error: context.error });
     const forms = getMissingRequiredFormsForTrigger({ ...data, trigger, ...context, instant: new Date(), timeZone: data.timeZone });
     return res.status(200).json({ ok: true, trigger, timezone: data.timeZone, forms: forms.map((form) => packageFor({ form, trigger, context, data, instant: new Date() })) });
@@ -398,7 +414,7 @@ export default async function handler(req, res) {
     }
     const context = workflowRequirement
       ? workflowRequirementContext(workflowRequirement, data)
-      : requestedContext(req, data);
+      : await requestedContext(req, data, session);
     if (context.error) return res.status(403).json({ ok: false, error: context.error });
     if (!workflowRequirement && !isFormAssignedToEmployee({ form, employee: data.employee, crews: data.crews, divisions: data.divisions, ...context })) return res.status(403).json({ ok: false, error: 'This form is not assigned or available to this employee.' });
     const fields = workflowRequirement?.form?.fields
@@ -456,7 +472,9 @@ export default async function handler(req, res) {
         && text(file.workflowRequirementId) === workflowRequirementId
         && text(file.jobId) === text(payload?.jobId)
         && text(file.equipmentId) === text(payload?.equipmentId)
-        && text(file.divisionId) === text(payload?.divisionId);
+        && text(file.divisionId) === text(payload?.divisionId)
+        && text(file.serviceId) === text(payload?.serviceId)
+        && text(file.serviceVisitId) === text(payload?.serviceVisitId);
       if (!matchesContext || (!file.checksumSha256 && !file.etag)) {
         return res.status(400).json({ ok: false, fieldId: response.fieldId, error: `${response.labelSnapshot}: photo artifact is invalid or incomplete.` });
       }
@@ -502,6 +520,7 @@ export default async function handler(req, res) {
     const submission = {
       id: trigger === 'on_demand' ? generateId() : deterministicSubmissionId({ employeeId: data.employee.id, scope, workflowOccurrenceId, workflowRequirementId }),
       formId: form.id, employeeId: data.employee.id, jobId: scope.jobId, equipmentId: scope.equipmentId, divisionId: scope.divisionId,
+      serviceId: scope.serviceId, serviceVisitId: scope.serviceVisitId,
       trigger, periodKey: scope.periodKey, submittedAt, status: form.requiresApproval ? 'pending_review' : 'submitted', submittedBy: data.employee.name, submittedByUserId: session.id,
       deliveryOccurrenceId: scheduledOccurrence?.occurrenceId,
       dueDate: scheduledOccurrence?.dueDate,

@@ -1,5 +1,18 @@
 import type { Job, ServiceJobService, ServiceVisit, ServiceVisitStatus } from '../../types';
 
+export interface ServiceVisitDetail {
+  visit: ServiceVisit;
+  job: { id: string; title: string; customerId?: string; propertyId?: string };
+  service: { id: string; name: string; billingType: string };
+  timeEntries: Array<{ id: string; employeeId: string; employeeName?: string; status: string; clockIn: string; clockOut?: string; breakMinutes: number; labourCostTotalSnapshot?: number }>;
+  forms: Array<{ id: string; name: string; completionRequirement?: string }>;
+  formSubmissions: Array<{ id: string; formId: string; submittedAt: string; status: string }>;
+  photos: Array<{ id: string; fileName: string; mimeType: string; uploadedAt?: string }>;
+  sops: Array<{ sopId: string }>;
+  completion: { missingFormIds: string[]; photoCount: number; noteCount: number; activeTimeEntryCount: number; minimumPhotoCount: number; noteRequired: boolean };
+  analysis?: { estimatedLabourHours: number; actualLabourHours: number; estimatedCostPerVisit: number; actualVisitCost: number; costVariance: number; allocatedVisitRevenue: number };
+}
+
 async function request<T>(options: {
   method?: 'GET' | 'POST' | 'PATCH';
   action?: string;
@@ -27,6 +40,9 @@ async function request<T>(options: {
 }
 
 export const listServiceVisits = (jobId: string) => request<{ ok: true; visits: ServiceVisit[] }>({ jobId });
+export const getServiceVisitDetail = (visit: ServiceVisit) => request<{ ok: true } & ServiceVisitDetail>({ action: 'detail', jobId: visit.jobId, visitId: visit.id });
+export const addServiceVisitNote = (visit: ServiceVisit, text: string, clientSubmissionId: string) => request<{ ok: true; visit: ServiceVisit }>({ method: 'POST', action: 'add-note', jobId: visit.jobId, visitId: visit.id, body: { serviceId: visit.serviceId, visitId: visit.id, text, clientSubmissionId } });
+export const completeServiceVisit = (visit: ServiceVisit, clientSubmissionId: string) => request<{ ok: true; visit: ServiceVisit; replayed?: boolean }>({ method: 'POST', action: 'complete', jobId: visit.jobId, visitId: visit.id, body: { serviceId: visit.serviceId, visitId: visit.id, clientSubmissionId } });
 export const listScheduleServiceVisits = (startDate: string, endDate: string, signal?: AbortSignal) => {
   const query = new URLSearchParams({ action: 'schedule', startDate, endDate });
   return fetch(`/api/service-visits?${query}`, { credentials: 'include', signal })

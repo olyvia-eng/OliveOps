@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, CalendarDays, Check, Clock3, Plus, RefreshCw, Save } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, Clock3, FileCheck2, Image, Plus, RefreshCw, Save, StickyNote } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import JobSopsCard from '../../components/jobs/JobSopsCard';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
@@ -7,7 +7,7 @@ import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import type { Job, JobStatus, ServiceJobService, ServiceVisit, ServiceVisitStatus } from '../../types';
 import { formatCurrency, formatDate, statusColor } from '../../utils';
-import { createManualServiceVisit, generateServiceVisits, listServiceVisits, rescheduleServiceVisit, updateOperationalService, updateServiceVisitStatus } from './serviceVisitApi';
+import { addServiceVisitNote, completeServiceVisit, createManualServiceVisit, generateServiceVisits, getServiceVisitDetail, listServiceVisits, rescheduleServiceVisit, updateOperationalService, type ServiceVisitDetail } from './serviceVisitApi';
 
 type Tab = 'overview' | 'services' | 'visits' | 'schedule' | 'project-management' | 'analysis';
 const TABS: Array<{ key: Tab; label: string }> = [
@@ -58,6 +58,7 @@ export default function ServiceJobDetailPage({ currentUserRole }: { currentUserR
   const [visits, setVisits] = useState<ServiceVisit[]>([]);
   const [loadingVisits, setLoadingVisits] = useState(true);
   const [visitEditor, setVisitEditor] = useState<ServiceVisit | 'new' | null>(null);
+  const [selectedVisit, setSelectedVisit] = useState<ServiceVisit | null>(null);
   const [visitFilter, setVisitFilter] = useState<ServiceVisitStatus | 'all'>('all');
   const [saving, setSaving] = useState(false);
   const requestedTab = searchParams.get('tab') as Tab | null;
@@ -88,10 +89,7 @@ export default function ServiceJobDetailPage({ currentUserRole }: { currentUserR
     const saved = await updateJob(job.id, { ...form, workType: 'service', title: form.title.trim(), description: form.description ?? '', notes: form.notes ?? '' });
     setSaving(false); if (saved) emitAppToast({ tone: 'success', message: 'Service Job saved.' });
   };
-  const setVisitStatus = async (visit: ServiceVisit, status: ServiceVisitStatus) => {
-    try { await updateServiceVisitStatus(visit, status); await loadVisits(); emitAppToast({ tone: 'success', message: `Visit marked ${status.replace('_', ' ')}.` }); }
-    catch (error) { emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Visit status could not be changed.' }); }
-  };
+  const setVisitStatus = (visit: ServiceVisit, _status: ServiceVisitStatus) => setSelectedVisit(visit);
   const generate = async (service: ServiceJobService, sync: boolean) => {
     try { const result = await generateServiceVisits(job.id, service.id, sync); await loadVisits(); emitAppToast({ tone: 'success', message: sync ? `Series updated: ${result.createdCount} added, ${result.cancelledCount ?? 0} cancelled.` : `${result.createdCount} Visits added.` }); }
     catch (error) { emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Visits could not be generated.' }); }
@@ -120,5 +118,42 @@ export default function ServiceJobDetailPage({ currentUserRole }: { currentUserR
     {tab === 'project-management' ? <JobSopsCard jobId={job.id} canManage={canManage} /> : null}
     {tab === 'analysis' ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-4"><Card className="p-4"><p className="text-xs text-brand-400">Contracted Revenue</p><p className="mt-1 text-xl font-semibold">{formatCurrency(form.originalEstimateSnapshot?.contractedRevenue ?? 0)}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Projected Per Visit</p><p className="mt-1 text-xl font-semibold">{formatCurrency(form.originalEstimateSnapshot?.projectedPerVisitRevenue ?? 0)}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Visits Completed</p><p className="mt-1 text-xl font-semibold">{completed} / {visits.filter((visit) => visit.status !== 'cancelled').length}</p></Card><Card className="p-4"><p className="text-xs text-brand-400">Billing Ready</p><p className="mt-1 text-xl font-semibold">{readyToBill}</p></Card></div><Card className="p-5"><h2 className="font-semibold">Service performance</h2><p className="mt-2 text-sm text-brand-500">Visit completion and billing readiness use operational records. Actual cost and margin remain unavailable until labour, equipment, and material usage are captured against Visits.</p></Card></div> : null}
     {visitEditor ? <VisitEditor visit={visitEditor === 'new' ? undefined : visitEditor} services={services} onClose={() => setVisitEditor(null)} onSaved={loadVisits} /> : null}
+    {selectedVisit ? <VisitDetail visit={selectedVisit} onClose={() => setSelectedVisit(null)} onChanged={loadVisits} /> : null}
   </div>;
+}
+
+function VisitDetail({ visit, onClose, onChanged }: { visit: ServiceVisit; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [detail, setDetail] = useState<ServiceVisitDetail | null>(null);
+  const [note, setNote] = useState('');
+  const [working, setWorking] = useState(false);
+  const load = useCallback(async () => {
+    try { setDetail(await getServiceVisitDetail(visit)); }
+    catch (error) { emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Visit details could not be loaded.' }); }
+  }, [visit]);
+  useEffect(() => { void load(); }, [load]);
+  const addNote = async () => {
+    if (!note.trim() || working) return;
+    setWorking(true);
+    try { await addServiceVisitNote(visit, note.trim(), crypto.randomUUID()); setNote(''); await load(); await onChanged(); }
+    catch (error) { emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Visit note could not be added.' }); }
+    finally { setWorking(false); }
+  };
+  const complete = async () => {
+    if (working) return;
+    setWorking(true);
+    try { await completeServiceVisit(visit, crypto.randomUUID()); await onChanged(); onClose(); emitAppToast({ tone: 'success', message: 'Visit completed.' }); }
+    catch (error) { emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Visit could not be completed.' }); }
+    finally { setWorking(false); }
+  };
+  return <Modal open onClose={onClose} title="Visit details" size="large" footer={<><Button variant="secondary" onClick={onClose}>Close</Button>{detail && ['scheduled', 'in_progress'].includes(detail.visit.status) ? <Button disabled={working} onClick={() => void complete()}><Check /> Complete Visit</Button> : null}</>}>
+    {!detail ? <p className="py-8 text-sm text-brand-400">Loading Visit...</p> : <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-lg font-semibold">{detail.service.name}</p><p className="text-sm text-brand-400">{formatDate(detail.visit.scheduledDate)} · {visitTime(detail.visit)}</p></div><Badge label={detail.visit.status} className={visitStatusClass[detail.visit.status]} /></div>
+      <div className="grid gap-3 sm:grid-cols-4"><Card className="p-3"><p className="text-xs text-brand-400">Time Entries</p><p className="mt-1 text-xl font-semibold">{detail.timeEntries.length}</p></Card><Card className="p-3"><p className="text-xs text-brand-400">Forms</p><p className="mt-1 text-xl font-semibold">{detail.formSubmissions.length}</p></Card><Card className="p-3"><p className="text-xs text-brand-400">Photos</p><p className="mt-1 text-xl font-semibold">{detail.photos.length}</p></Card><Card className="p-3"><p className="text-xs text-brand-400">SOPs</p><p className="mt-1 text-xl font-semibold">{detail.sops.length}</p></Card></div>
+      {detail.analysis ? <div><h3 className="mb-2 text-sm font-semibold">Estimated vs actual</h3><dl className="grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-brand-400">Labour hours</dt><dd className="font-medium">{detail.analysis.actualLabourHours} / {detail.analysis.estimatedLabourHours}</dd></div><div><dt className="text-brand-400">Visit cost</dt><dd className="font-medium">{formatCurrency(detail.analysis.actualVisitCost)} / {formatCurrency(detail.analysis.estimatedCostPerVisit)}</dd></div><div><dt className="text-brand-400">Cost variance</dt><dd className="font-medium">{formatCurrency(detail.analysis.costVariance)}</dd></div></dl></div> : null}
+      <div><h3 className="mb-2 text-sm font-semibold">Field activity</h3>{detail.timeEntries.length ? <div className="divide-y divide-brand-100 border-y border-brand-100">{detail.timeEntries.map((entry) => <div key={entry.id} className="flex justify-between gap-3 py-2 text-sm"><span>{entry.employeeName ?? 'Employee'} · {new Date(entry.clockIn).toLocaleString()}</span><Badge label={entry.status === 'clocked_in' ? 'Active' : 'Closed'} className={entry.status === 'clocked_in' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'} /></div>)}</div> : <p className="text-sm text-brand-400">No time recorded.</p>}</div>
+      <div><div className="mb-2 flex items-center gap-2"><FileCheck2 size={16} /><h3 className="text-sm font-semibold">Completion evidence</h3></div><p className="text-sm text-brand-500">{detail.completion.activeTimeEntryCount ? `${detail.completion.activeTimeEntryCount} active timer(s)` : 'All timers closed'} · {detail.completion.missingFormIds.length ? `${detail.completion.missingFormIds.length} required Form(s) outstanding` : 'Required Forms complete'} · {detail.completion.photoCount} photo(s)</p></div>
+      <div><div className="mb-2 flex items-center gap-2"><StickyNote size={16} /><h3 className="text-sm font-semibold">Visit notes</h3></div><div className="space-y-2">{detail.visit.visitNotes?.map((item) => <div key={item.id} className="border-l-2 border-brand-200 pl-3 text-sm"><p>{item.text}</p><p className="mt-1 text-xs text-brand-400">{item.authorName ?? 'Employee'} · {new Date(item.createdAt).toLocaleString()}</p></div>)}{!detail.visit.visitNotes?.length ? <p className="text-sm text-brand-400">No Visit notes.</p> : null}</div><div className="mt-3 flex items-end gap-2"><TextArea className="flex-1" label="Add note" value={note} onChange={(event) => setNote(event.target.value)} /><Button title="Add Visit note" disabled={!note.trim() || working} onClick={() => void addNote()}><StickyNote /> Add</Button></div></div>
+      {detail.photos.length ? <div><div className="mb-2 flex items-center gap-2"><Image size={16} /><h3 className="text-sm font-semibold">Photos</h3></div><div className="flex flex-wrap gap-2">{detail.photos.map((photo) => <Badge key={photo.id} label={photo.fileName} className="bg-brand-50 text-brand-600" />)}</div></div> : null}
+    </div>}
+  </Modal>;
 }
