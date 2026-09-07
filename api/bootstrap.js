@@ -59,33 +59,91 @@ const addDateKeyDays = (dateKey, days) => {
   return date.toISOString().slice(0, 10);
 };
 
-export default async function handler(req, res) {
+const CORE_BOOTSTRAP_LOADERS = {
+  forms: listFormsForBusiness,
+  formFields: listFormFieldsForBusiness,
+  formSubmissions: listFormSubmissionsForBusiness,
+  formResponses: listFormResponsesForBusiness,
+  budgets: listBudgetsForBusiness,
+  budgetDivisions: listBudgetDivisionsForBusiness,
+  budgetDivisionPlanningItems: listDivisionPlanningItemsForBusiness,
+  budgetGroups: listBudgetGroupsForBusiness,
+  equipmentBudgetAllocations: listEquipmentBudgetAllocationsForBusiness,
+  crews: listCrewsForBusiness,
+  divisions: listDivisionsForBusiness,
+  customers: listCustomersForBusiness,
+  jobs: listJobsForBusiness,
+  estimates: listEstimatesForBusiness,
+  invoices: listInvoicesForBusiness,
+  expenses: listExpensesForBusiness,
+  equipmentAssets: listEquipmentAssetsForBusiness,
+  unbillableTimeCategories: listUnbillableTimeCategoriesForBusiness,
+  materialCatalogItems: listMaterialCatalogItemsForBusiness,
+  subcontractorCatalogItems: listSubcontractorCatalogItemsForBusiness,
+  labourClasses: listLabourClassesForBusiness,
+  templates: listTemplatesForBusiness,
+  budgetItems: listBudgetItemsForBusiness,
+  budgetRates: listBudgetRatesForBusiness,
+  labourBudgetPlans: listLabourBudgetPlansForBusiness,
+  labourHoursSalesGoals: listLabourHoursSalesGoalsForBusiness,
+  revenueSalesGoals: listRevenueSalesGoalsForBusiness,
+  employees: listEmployeesForBusiness,
+  tasks: listTasksForBusiness,
+  jobTaskHeadings: listJobTaskHeadingsForBusiness,
+  timeEntries: listTimeEntriesForBusiness,
+  timeCorrections: listTimeCorrectionsForBusiness,
+  trainingAssignments: listTrainingAssignmentsForBusiness,
+  jobSopAssociations: listAllJobSopAssociationsForBusiness,
+};
+
+export async function loadCoreBootstrapData(businessId, loaders = CORE_BOOTSTRAP_LOADERS) {
+  const entries = Object.entries(loaders);
+  const values = await Promise.all(entries.map(([, loader]) => loader(businessId)));
+  return Object.fromEntries(entries.map(([key], index) => [key, values[index]]));
+}
+
+export function createBootstrapHandler(overrides = {}) {
+  const deps = {
+    requireSession,
+    getBusinessProfile,
+    getEmployeeForBusiness,
+    getActiveShiftForEmployee,
+    getTimeEntryForBusiness,
+    getPendingClockOutWorkflowForEmployee,
+    getPendingClockInWorkflowForEmployee,
+    loadCoreBootstrapData,
+    listServiceVisitsForSchedule,
+    logServiceVisitError: (error) => console.error('[bootstrap:service-visits]', error),
+    ...overrides,
+  };
+
+  return async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
-  const session = await requireSession(req, res);
+  const session = await deps.requireSession(req, res);
   if (!session) return;
 
   try {
     const [businessProfile, sessionEmployee] = await Promise.all([
-      getBusinessProfile(session.businessId),
+      deps.getBusinessProfile(session.businessId),
       typeof session.employeeId === 'string'
-        ? getEmployeeForBusiness(session.businessId, session.employeeId)
+        ? deps.getEmployeeForBusiness(session.businessId, session.employeeId)
         : null,
     ]);
     const activeShift = typeof session.employeeId === 'string'
-      ? await getActiveShiftForEmployee({ businessId: session.businessId, employeeId: session.employeeId })
+      ? await deps.getActiveShiftForEmployee({ businessId: session.businessId, employeeId: session.employeeId })
       : null;
     const activeTimeEntry = activeShift?.activeEntryId
-      ? await getTimeEntryForBusiness(session.businessId, activeShift.activeEntryId)
+      ? await deps.getTimeEntryForBusiness(session.businessId, activeShift.activeEntryId)
       : null;
     const pendingClockOutWorkflow = typeof session.employeeId === 'string'
-      ? await getPendingClockOutWorkflowForEmployee(session.businessId, session.employeeId)
+      ? await deps.getPendingClockOutWorkflowForEmployee(session.businessId, session.employeeId)
       : null;
     const pendingClockInWorkflow = typeof session.employeeId === 'string'
-      ? await getPendingClockInWorkflowForEmployee(session.businessId, session.employeeId)
+      ? await deps.getPendingClockInWorkflowForEmployee(session.businessId, session.employeeId)
       : null;
     const possibleForgottenClockOut = activeTimeEntry?.clockIn
       ? isPossiblyForgottenClockOut({
@@ -97,43 +155,13 @@ export default async function handler(req, res) {
     const today = dateKeyFor(new Date(), timeZone);
     const upcomingEndDate = addDateKeyDays(today, 7);
 
-    const [forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments, serviceVisits, jobSopAssociations] = await Promise.all([
-      listFormsForBusiness(session.businessId),
-      listFormFieldsForBusiness(session.businessId),
-      listFormSubmissionsForBusiness(session.businessId),
-      listFormResponsesForBusiness(session.businessId),
-      listBudgetsForBusiness(session.businessId),
-      listBudgetDivisionsForBusiness(session.businessId),
-      listDivisionPlanningItemsForBusiness(session.businessId),
-      listBudgetGroupsForBusiness(session.businessId),
-      listEquipmentBudgetAllocationsForBusiness(session.businessId),
-      listCrewsForBusiness(session.businessId),
-      listDivisionsForBusiness(session.businessId),
-      listCustomersForBusiness(session.businessId),
-      listJobsForBusiness(session.businessId),
-      listEstimatesForBusiness(session.businessId),
-      listInvoicesForBusiness(session.businessId),
-      listExpensesForBusiness(session.businessId),
-      listEquipmentAssetsForBusiness(session.businessId),
-      listUnbillableTimeCategoriesForBusiness(session.businessId),
-      listMaterialCatalogItemsForBusiness(session.businessId),
-      listSubcontractorCatalogItemsForBusiness(session.businessId),
-      listLabourClassesForBusiness(session.businessId),
-      listTemplatesForBusiness(session.businessId),
-      listBudgetItemsForBusiness(session.businessId),
-      listBudgetRatesForBusiness(session.businessId),
-      listLabourBudgetPlansForBusiness(session.businessId),
-      listLabourHoursSalesGoalsForBusiness(session.businessId),
-      listRevenueSalesGoalsForBusiness(session.businessId),
-      listEmployeesForBusiness(session.businessId),
-      listTasksForBusiness(session.businessId),
-      listJobTaskHeadingsForBusiness(session.businessId),
-      listTimeEntriesForBusiness(session.businessId),
-      listTimeCorrectionsForBusiness(session.businessId),
-      listTrainingAssignmentsForBusiness(session.businessId),
-      listServiceVisitsForSchedule(session.businessId, today, upcomingEndDate),
-      listAllJobSopAssociationsForBusiness(session.businessId),
-    ]);
+    const { forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments, jobSopAssociations } = await deps.loadCoreBootstrapData(session.businessId);
+    let serviceVisits = [];
+    try {
+      serviceVisits = await deps.listServiceVisitsForSchedule(session.businessId, today, upcomingEndDate);
+    } catch (error) {
+      deps.logServiceVisitError(error);
+    }
 
     const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
     const visibleJobIds = new Set(visibleJobs.map((job) => job.id));
@@ -182,6 +210,7 @@ export default async function handler(req, res) {
       },
       timezone: timeZone,
       serviceVisitHorizonDays: 7,
+      serviceVisits: visibleServiceVisits,
       todayServiceVisits: visibleServiceVisits.filter((visit) => visit.scheduledDate === today).map(mobileServiceVisit),
       upcomingServiceVisits: visibleServiceVisits.filter((visit) => visit.scheduledDate > today).map(mobileServiceVisit),
       activeTimeEntry: activeTimeEntry ? { ...activeTimeEntry, ...(activeVisitContext ? { jobName: activeVisitContext.jobName, serviceName: activeVisitContext.serviceName, propertyName: activeVisitContext.propertyName } : {}) } : null,
@@ -231,4 +260,7 @@ export default async function handler(req, res) {
   } catch {
     return res.status(500).json({ ok: false, error: 'Could not load business data' });
   }
+  };
 }
+
+export default createBootstrapHandler();

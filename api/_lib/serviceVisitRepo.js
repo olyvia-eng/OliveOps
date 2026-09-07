@@ -1,12 +1,9 @@
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { TIME_ENTRY_INDEX_NAME, TIME_ENTRY_INDEX_PK, TIME_ENTRY_INDEX_SK } from './timeEntryPagination.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const visitSk = (jobId, visitId) => `SERVICE_VISIT#${jobId}#${visitId}`;
 const visitPrefix = (jobId) => `SERVICE_VISIT#${jobId}#`;
-const schedulePk = (businessId) => `BUSINESS#${businessId}#SERVICE_VISITS`;
-const scheduleSk = (visit) => `${visit.scheduledDate}#${visit.scheduledStartAt ?? 'ALL_DAY'}#${visit.jobId}#${visit.id}`;
 
 function visitItem(businessId, visit) {
   return {
@@ -16,14 +13,12 @@ function visitItem(businessId, visit) {
     businessId,
     visitId: visit.id,
     ...visit,
-    [TIME_ENTRY_INDEX_PK]: schedulePk(businessId),
-    [TIME_ENTRY_INDEX_SK]: scheduleSk(visit),
   };
 }
 
 function mapVisit(item) {
   if (!item) return null;
-  const { PK: _PK, SK: _SK, entityType: _entityType, [TIME_ENTRY_INDEX_PK]: _indexPk, [TIME_ENTRY_INDEX_SK]: _indexSk, ...visit } = item;
+  const { PK: _PK, SK: _SK, entityType: _entityType, timeEntryIndexPk: _indexPk, timeEntryIndexSk: _indexSk, ...visit } = item;
   return visit;
 }
 
@@ -49,21 +44,23 @@ export async function listServiceVisitsForJob(businessId, jobId) {
 }
 
 export async function listServiceVisitsForSchedule(businessId, startDate, endDate) {
+  const partitionKey = businessPk(businessId);
   const items = [];
   let exclusiveStartKey;
   do {
     const result = await ddb.send(new QueryCommand({
       TableName: tableName,
-      IndexName: TIME_ENTRY_INDEX_NAME,
-      KeyConditionExpression: '#indexPk = :pk AND #indexSk BETWEEN :start AND :end',
-      ExpressionAttributeNames: { '#indexPk': TIME_ENTRY_INDEX_PK, '#indexSk': TIME_ENTRY_INDEX_SK },
-      ExpressionAttributeValues: { ':pk': schedulePk(businessId), ':start': `${startDate}#`, ':end': `${endDate}#\uffff` },
+      KeyConditionExpression: 'PK = :pk',
+      ExpressionAttributeValues: { ':pk': partitionKey },
       ExclusiveStartKey: exclusiveStartKey,
     }));
     items.push(...(result.Items ?? []));
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
-  return items.map(mapVisit);
+  return items
+    .filter((item) => item.PK === partitionKey && item.entityType === 'SERVICE_VISIT' && item.scheduledDate >= startDate && item.scheduledDate <= endDate)
+    .map(mapVisit)
+    .sort((left, right) => `${left.scheduledDate}#${left.scheduledStartAt ?? ''}#${left.jobId}#${left.id}`.localeCompare(`${right.scheduledDate}#${right.scheduledStartAt ?? ''}#${right.jobId}#${right.id}`));
 }
 
 export async function updateOperationalServiceForBusiness({ businessId, jobId, serviceIndex, service, expectedRevision, updatedAt }) {
