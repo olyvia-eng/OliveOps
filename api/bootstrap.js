@@ -48,6 +48,7 @@ import { listTrainingAssignmentsForBusiness, presentTrainingAssignments } from '
 import { listServiceVisitsForSchedule } from './_lib/serviceVisitRepo.js';
 import { isEmployeeAssignedToServiceVisit } from './_lib/serviceVisitContext.js';
 import { listAllJobSopAssociationsForBusiness } from './_lib/jobSopRepo.js';
+import { normalizeBusinessFeatures } from '../shared/businessFeatures.js';
 
 const dateKeyFor = (instant, timeZone) => {
   const parts = getBusinessDateParts(instant, timeZone);
@@ -211,6 +212,7 @@ export function createBootstrapHandler(overrides = {}) {
         workAreaClockingVersion: WORK_AREA_CLOCKING_CONTRACT_VERSION,
         ...normalizeMobileTimePermissions(sessionEmployee?.mobileTimePermissions),
       },
+      features: normalizeBusinessFeatures(businessProfile?.features),
       timezone: timeZone,
       serviceVisitHorizonDays: 7,
       serviceVisits: visibleServiceVisits,

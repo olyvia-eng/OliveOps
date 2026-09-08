@@ -19,6 +19,7 @@ import {
   timeEntryIndexAttributes,
 } from './timeEntryPagination.js';
 import { removeJobSopAssociationsForJob } from './jobSopRepo.js';
+import { DEFAULT_BUSINESS_FEATURES, normalizeBusinessFeatures } from '../../shared/businessFeatures.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -533,6 +534,7 @@ export async function createBusinessWithOwner({ businessName, ownerName, firstNa
     businessId,
     name: businessName.trim(),
     timezone: normalizeBusinessTimeZone(timezone),
+    features: { ...DEFAULT_BUSINESS_FEATURES },
     createdAt,
     updatedAt: createdAt,
   };
@@ -620,6 +622,7 @@ export async function getBusinessProfile(businessId) {
     logoFileId: typeof result.Item.logoFileId === 'string' ? result.Item.logoFileId : '',
     logoDataUrl: typeof result.Item.logoDataUrl === 'string' ? result.Item.logoDataUrl : '',
     timezone: normalizeBusinessTimeZone(result.Item.timezone),
+    features: normalizeBusinessFeatures(result.Item.features),
     pricingBudgetId: typeof result.Item.pricingBudgetId === 'string' && result.Item.pricingBudgetId.trim() ? result.Item.pricingBudgetId.trim() : null,
     createdAt: result.Item.createdAt,
     updatedAt: result.Item.updatedAt ?? result.Item.createdAt,
@@ -633,7 +636,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, features = :features, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? current.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
@@ -645,6 +648,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
       ':taxLabel': profile.taxLabel ?? current.taxLabel,
       ':proposalTerms': profile.proposalTerms ?? current.proposalTerms,
       ':logoFileId': profile.logoFileId ?? current.logoFileId,
+      ':features': normalizeBusinessFeatures(profile.features ?? current.features),
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',

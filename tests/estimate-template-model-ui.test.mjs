@@ -74,8 +74,8 @@ test('Template application creates independent IDs and preserves provenance', ()
 });
 
 test('Template routes use role-aware list, workspace, and nested builder pages', () => {
-  assert.match(appSource, /path="estimates\/templates" element=\{<TemplatesPage currentUserRole=\{sessionUser\.role\} \/>\}/);
-  assert.match(appSource, /path="estimates\/templates\/:templateId" element=\{<TemplateWorkspacePage currentUserRole=\{sessionUser\.role\} \/>\}/);
+  assert.match(appSource, /path="estimates\/templates"[^\n]+FeatureRoute feature="projects"[^\n]+TemplatesPage currentUserRole=\{sessionUser\.role\}/);
+  assert.match(appSource, /path="estimates\/templates\/:templateId"[^\n]+FeatureRoute feature="projects"[^\n]+TemplateWorkspacePage currentUserRole=\{sessionUser\.role\}/);
   assert.match(appSource, /path="estimates\/templates\/:templateId\/work-areas\/:workAreaId"/);
   assert.match(templatesSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(workspaceSource, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);

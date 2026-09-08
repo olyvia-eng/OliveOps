@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { requireSession } from './_lib/session.js';
-import { createAuditEventForBusiness, getCustomerForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getFileForBusiness, getJobForBusiness } from './_lib/authRepo.js';
+import { createAuditEventForBusiness, getBusinessProfile, getCustomerForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getFileForBusiness, getJobForBusiness } from './_lib/authRepo.js';
 import { getServiceVisitForBusiness } from './_lib/serviceVisitRepo.js';
 import {
   commitSnowIdempotentMutation, deleteSnowStopForBusiness, getSnowEventForBusiness, getSnowOccurrenceForBusiness, getSnowRouteForBusiness,
@@ -14,6 +14,7 @@ import {
   DEFAULT_SNOW_SERVICE_TYPES, SNOW_EVENT_TRANSITIONS, SNOW_OCCURRENCE_TRANSITIONS, SNOW_ROUTE_TRANSITIONS, SNOW_STOP_TRANSITIONS,
   canTransitionSnowState, deriveSnowStopAttention, nextSnowStop, normalizeBreadcrumbBatch, normalizeGpsEvidence, snowRouteProgress,
 } from '../src/utils/snowOperationsModel.js';
+import { isBusinessFeatureEnabled } from '../shared/businessFeatures.js';
 
 const ALL_ROLES = ['owner', 'admin', 'foreman', 'crew_member'];
 const ADMIN_ROLES = ['owner', 'admin'];
@@ -66,7 +67,7 @@ async function commitCommand(deps, session, body, action, response, writes, at) 
 }
 
 export function createSnowOperationsHandler(overrides = {}) {
-  const deps = { requireSession, randomUUID, now: () => new Date(), createAuditEventForBusiness, getCustomerForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getFileForBusiness, getJobForBusiness, getServiceVisitForBusiness, commitSnowIdempotentMutation, deleteSnowStopForBusiness, getSnowEventForBusiness, getSnowOccurrenceForBusiness, getSnowRouteForBusiness, getSnowServiceTypeForBusiness, getSnowStopForBusiness, listSnowBreadcrumbsForStop, listSnowEventsForBusiness, listSnowEvidenceForStop, listSnowOccurrencesForRoute, listSnowOccurrencesForStop, listSnowRoutesForEvent, listSnowServiceTypesForBusiness, listSnowStopsForRoute, putSnowBreadcrumbBatchForBusiness, putSnowEventForBusiness, putSnowEvidenceForBusiness, putSnowOccurrenceForBusiness, putSnowRouteForBusiness, putSnowServiceTypeForBusiness, putSnowStopForBusiness, ...overrides };
+  const deps = { requireSession, randomUUID, now: () => new Date(), createAuditEventForBusiness, getBusinessProfile, getCustomerForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getFileForBusiness, getJobForBusiness, getServiceVisitForBusiness, commitSnowIdempotentMutation, deleteSnowStopForBusiness, getSnowEventForBusiness, getSnowOccurrenceForBusiness, getSnowRouteForBusiness, getSnowServiceTypeForBusiness, getSnowStopForBusiness, listSnowBreadcrumbsForStop, listSnowEventsForBusiness, listSnowEvidenceForStop, listSnowOccurrencesForRoute, listSnowOccurrencesForStop, listSnowRoutesForEvent, listSnowServiceTypesForBusiness, listSnowStopsForRoute, putSnowBreadcrumbBatchForBusiness, putSnowEventForBusiness, putSnowEvidenceForBusiness, putSnowOccurrenceForBusiness, putSnowRouteForBusiness, putSnowServiceTypeForBusiness, putSnowStopForBusiness, ...overrides };
   return async function snowOperationsHandler(req, res) {
     const session = await deps.requireSession(req, res, ALL_ROLES, 'jobs');
     if (!session) return;
@@ -74,6 +75,10 @@ export function createSnowOperationsHandler(overrides = {}) {
     const body = typeof req.body === 'object' && req.body ? req.body : {};
     const now = deps.now().toISOString();
     try {
+      const business = await deps.getBusinessProfile(session.businessId);
+      if (!isBusinessFeatureEnabled(business?.features, 'snowOperations')) {
+        return res.status(403).json({ ok: false, error: 'Snow Operations is not enabled for your company.' });
+      }
       if (req.method === 'GET' && action === 'events') {
         if (!ADMIN_ROLES.includes(session.role)) return res.status(403).json({ ok: false, error: 'Forbidden' });
         const events = (await deps.listSnowEventsForBusiness(session.businessId)).sort((a, b) => b.startAt.localeCompare(a.startAt));

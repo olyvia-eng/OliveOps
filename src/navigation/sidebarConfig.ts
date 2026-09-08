@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { BusinessUserRole } from '../auth/types';
 import type { SidebarConfig, SidebarNavItem, SidebarSectionConfig } from './types';
+import { normalizeBusinessFeatures, type BusinessFeatures } from '../../shared/businessFeatures.js';
 
 const ownerAdminRoles: BusinessUserRole[] = ['owner', 'admin'];
 
@@ -43,8 +44,8 @@ const NAVIGATION_CONFIG: SidebarConfig = {
           label: 'Estimates',
           icon: icon(FileText),
           children: [
-            { id: 'workflow-project-estimates', type: 'link', to: '/estimates/projects', label: 'Projects' },
-            { id: 'workflow-service-estimates', type: 'link', to: '/estimates/services', label: 'Services' },
+            { id: 'workflow-project-estimates', type: 'link', to: '/estimates/projects', label: 'Projects', feature: 'projects' },
+            { id: 'workflow-service-estimates', type: 'link', to: '/estimates/services', label: 'Services', feature: 'recurringServices' },
           ],
         },
         {
@@ -53,12 +54,12 @@ const NAVIGATION_CONFIG: SidebarConfig = {
           label: 'Jobs',
           icon: icon(Briefcase),
           children: [
-            { id: 'workflow-project-jobs', type: 'link', to: '/jobs/projects', label: 'Projects' },
-            { id: 'workflow-service-jobs', type: 'link', to: '/jobs/services', label: 'Services' },
+            { id: 'workflow-project-jobs', type: 'link', to: '/jobs/projects', label: 'Projects', feature: 'projects' },
+            { id: 'workflow-service-jobs', type: 'link', to: '/jobs/services', label: 'Services', feature: 'recurringServices' },
           ],
         },
         { id: 'workflow-schedule', type: 'link', to: '/schedule', label: 'Schedule', icon: icon(CalendarDays) },
-        { id: 'workflow-snow-operations', type: 'link', to: '/snow-operations', label: 'Snow Operations', icon: icon(Snowflake), roles: ownerAdminRoles },
+        { id: 'workflow-snow-operations', type: 'link', to: '/snow-operations', label: 'Snow Operations', icon: icon(Snowflake), roles: ownerAdminRoles, feature: 'snowOperations' },
       ],
     },
     {
@@ -103,37 +104,39 @@ const includesRole = (roles: BusinessUserRole[] | undefined, userRole: BusinessU
   return roles.includes(userRole);
 };
 
-const filterNavItem = (item: SidebarNavItem, userRole: BusinessUserRole): SidebarNavItem | null => {
+const filterNavItem = (item: SidebarNavItem, userRole: BusinessUserRole, features: BusinessFeatures): SidebarNavItem | null => {
   if (!includesRole(item.roles, userRole)) return null;
+  if (item.feature && !features[item.feature]) return null;
 
   if (item.type !== 'group') return item;
 
   const children = item.children
-    .map((child) => filterNavItem(child, userRole))
+    .map((child) => filterNavItem(child, userRole, features))
     .filter((child): child is SidebarNavItem => child !== null);
 
   if (children.length === 0) return null;
   return { ...item, children };
 };
 
-const filterSection = (section: SidebarSectionConfig, userRole: BusinessUserRole): SidebarSectionConfig | null => {
+const filterSection = (section: SidebarSectionConfig, userRole: BusinessUserRole, features: BusinessFeatures): SidebarSectionConfig | null => {
   if (!includesRole(section.roles, userRole)) return null;
 
   const items = section.items
-    .map((item) => filterNavItem(item, userRole))
+    .map((item) => filterNavItem(item, userRole, features))
     .filter((item): item is SidebarNavItem => item !== null);
 
   if (items.length === 0) return null;
   return { ...section, items };
 };
 
-export const getSidebarConfig = (userRole: BusinessUserRole): SidebarConfig => {
+export const getSidebarConfig = (userRole: BusinessUserRole, value?: BusinessFeatures): SidebarConfig => {
+  const features = normalizeBusinessFeatures(value);
   const topLevel = NAVIGATION_CONFIG.topLevel
-    .map((item) => filterNavItem(item, userRole))
+    .map((item) => filterNavItem(item, userRole, features))
     .filter((item): item is SidebarNavItem => item !== null);
 
   const sections = NAVIGATION_CONFIG.sections
-    .map((section) => filterSection(section, userRole))
+    .map((section) => filterSection(section, userRole, features))
     .filter((section): section is SidebarSectionConfig => section !== null);
 
   return {

@@ -1,6 +1,6 @@
 import { getDisplayName } from './auth/displayName';
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
 import type { BusinessUserSummary, SessionUser } from './auth/types';
 import { useStore } from './store';
@@ -9,6 +9,7 @@ import { APP_TOAST_EVENT, type AppToastDetail, emitAppToast } from './toast';
 import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from './utils/estimatePersistenceState.js';
 import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
 import { resolveWorkType } from './utils/workTypeModel.js';
+import { DEFAULT_BUSINESS_FEATURES, normalizeBusinessFeatures, type BusinessFeatureKey, type BusinessFeatures } from '../shared/businessFeatures.js';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
@@ -58,6 +59,7 @@ const DocumentsPage = lazy(() => import('./pages/data-center/DocumentsPage'));
 const UnbillableTimeCategoriesPage = lazy(() => import('./pages/settings/UnbillableTimeCategoriesPage'));
 const IntegrationsPage = lazy(() => import('./pages/settings/IntegrationsPage'));
 const CompanySettingsPage = lazy(() => import('./pages/settings/CompanySettingsPage'));
+const CompanyFeaturesPage = lazy(() => import('./pages/settings/CompanyFeaturesPage'));
 const PersonalCalendarSettingsPage = lazy(() => import('./pages/settings/PersonalCalendarSettingsPage'));
 const TrainingLibraryPage = lazy(() => import('./pages/training/TrainingLibraryPage'));
 const TrainingBuilderPage = lazy(() => import('./pages/training/TrainingBuilderPage'));
@@ -71,6 +73,7 @@ const STORE_OWNER_KEY = 'oliveops.store.ownerBusinessId';
 
 function clearBusinessDataStore() {
   useStore.setState({
+    businessFeatures: { ...DEFAULT_BUSINESS_FEATURES },
     forms: [], formFields: [], formSubmissions: [], formResponses: [], budgets: [], budgetDivisions: [],
     budgetDivisionPlanningItems: [], budgetGroups: [], equipmentBudgetAllocations: [], crews: [], divisions: [],
     budgetRates: [], customers: [], estimates: [], expenses: [], equipmentAssets: [], unbillableTimeCategories: [],
@@ -84,25 +87,51 @@ function LegacyCalendarRedirect() {
   return <Navigate to={`/schedule${location.search}`} replace />;
 }
 
-function WorkListRedirect({ to }: { to: string }) {
+const featureNames: Record<BusinessFeatureKey, string> = {
+  projects: 'Projects',
+  recurringServices: 'Recurring Services',
+  snowOperations: 'Snow Operations',
+};
+
+function FeatureUnavailablePage({ feature }: { feature: BusinessFeatureKey }) {
+  return (
+    <div className="mx-auto max-w-xl py-12">
+      <h1 className="text-2xl font-semibold text-brand-900 dark:text-brand-50">{featureNames[feature]} is not enabled</h1>
+      <p className="mt-2 text-sm leading-6 text-brand-500 dark:text-brand-200">This feature is not enabled for your company. An owner or administrator can enable it from Company Setup.</p>
+      <Link to="/home" className="mt-6 inline-flex rounded-md bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">Return home</Link>
+    </div>
+  );
+}
+
+function FeatureRoute({ feature, children }: { feature: BusinessFeatureKey; children: ReactNode }) {
+  const enabled = useStore((state) => state.businessFeatures[feature]);
+  return enabled ? children : <FeatureUnavailablePage feature={feature} />;
+}
+
+function WorkListRedirect({ kind }: { kind: 'estimates' | 'jobs' }) {
   const location = useLocation();
-  return <Navigate to={`${to}${location.search}`} replace />;
+  const features = useStore((state) => state.businessFeatures);
+  if (features.projects) return <Navigate to={`/${kind}/projects${location.search}`} replace />;
+  if (features.recurringServices) return <Navigate to={`/${kind}/services${location.search}`} replace />;
+  return <FeatureUnavailablePage feature="projects" />;
 }
 
 function EstimateDetailRoute({ currentUserRole }: { currentUserRole: string }) {
   const { id } = useParams<{ id: string }>();
   const estimate = useStore((state) => state.estimates.find((item) => item.id === id));
-  return resolveWorkType(estimate) === 'service'
-    ? <ServiceEstimateWorkspacePage />
-    : <EstimateWorkspacePage currentUserRole={currentUserRole} />;
+  const workType = resolveWorkType(estimate);
+  const enabled = useStore((state) => state.businessFeatures[workType === 'service' ? 'recurringServices' : 'projects']);
+  if (!enabled) return <FeatureUnavailablePage feature={workType === 'service' ? 'recurringServices' : 'projects'} />;
+  return workType === 'service' ? <ServiceEstimateWorkspacePage /> : <EstimateWorkspacePage currentUserRole={currentUserRole} />;
 }
 
 function JobDetailRoute({ currentUserRole, currentUserId }: { currentUserRole: string; currentUserId: string }) {
   const { id } = useParams<{ id: string }>();
   const job = useStore((state) => state.jobs.find((item) => item.id === id));
-  return resolveWorkType(job) === 'service'
-    ? <ServiceJobDetailPage currentUserRole={currentUserRole} />
-    : <JobDetailPage currentUserRole={currentUserRole} currentUserId={currentUserId} />;
+  const workType = resolveWorkType(job);
+  const enabled = useStore((state) => state.businessFeatures[workType === 'service' ? 'recurringServices' : 'projects']);
+  if (!enabled) return <FeatureUnavailablePage feature={workType === 'service' ? 'recurringServices' : 'projects'} />;
+  return workType === 'service' ? <ServiceJobDetailPage currentUserRole={currentUserRole} /> : <JobDetailPage currentUserRole={currentUserRole} currentUserId={currentUserId} />;
 }
 
 function ProjectEstimateWorkAreaRoute({ currentUserRole }: { currentUserRole: string }) {
@@ -209,6 +238,7 @@ export default function App() {
         jobTaskHeadings?: JobTaskHeading[];
         timeEntries?: TimeEntry[];
         timeCorrections?: TimeCorrectionRequest[];
+        features?: BusinessFeatures;
       }>(response);
 
       if (!response.ok || !payload?.ok) {
@@ -224,6 +254,7 @@ export default function App() {
 
       useStore.setState((state) => ({
         ...state,
+        businessFeatures: normalizeBusinessFeatures(payload.features),
         forms: payload.forms ?? [],
         formFields: payload.formFields ?? [],
         formSubmissions: payload.formSubmissions ?? [],
@@ -568,7 +599,7 @@ export default function App() {
             <>
               <Route path="login" element={<Navigate to="/employee-login" replace />} />
               <Route path="signup" element={<Navigate to="/employee-login" replace />} />
-              <Route path="snow-assignment" element={<SnowAssignmentPage />} />
+              <Route path="snow-assignment" element={<FeatureRoute feature="snowOperations"><SnowAssignmentPage /></FeatureRoute>} />
               <Route path="settings/personal-calendar" element={<PersonalCalendarSettingsPage />} />
               <Route path="*" element={<Navigate to="/employee-login" replace />} />
             </>
@@ -694,29 +725,29 @@ export default function App() {
                   />
                 }
               />
-              <Route path="estimates" element={<WorkListRedirect to="/estimates/projects" />} />
-              <Route path="estimates/projects" element={<EstimatesPage currentUserRole={sessionUser.role} />} />
-              <Route path="estimates/services" element={<ServiceEstimatesPage />} />
+              <Route path="estimates" element={<WorkListRedirect kind="estimates" />} />
+              <Route path="estimates/projects" element={<FeatureRoute feature="projects"><EstimatesPage currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="estimates/services" element={<FeatureRoute feature="recurringServices"><ServiceEstimatesPage /></FeatureRoute>} />
               <Route
                 path="estimates/:id"
                 element={<EstimateDetailRoute currentUserRole={sessionUser.role} />}
               />
               <Route
                 path="estimates/:id/work-areas/:workAreaId"
-                element={<ProjectEstimateWorkAreaRoute currentUserRole={sessionUser.role} />}
+                element={<FeatureRoute feature="projects"><ProjectEstimateWorkAreaRoute currentUserRole={sessionUser.role} /></FeatureRoute>}
               />
-              <Route path="estimates/templates" element={<TemplatesPage currentUserRole={sessionUser.role} />} />
-              <Route path="estimates/templates/:templateId" element={<TemplateWorkspacePage currentUserRole={sessionUser.role} />} />
-              <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs" element={<WorkListRedirect to="/jobs/projects" />} />
-              <Route path="jobs/projects" element={<JobsPage currentUserRole={sessionUser.role} />} />
-              <Route path="jobs/services" element={<ServiceJobsPage />} />
+              <Route path="estimates/templates" element={<FeatureRoute feature="projects"><TemplatesPage currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="estimates/templates/:templateId" element={<FeatureRoute feature="projects"><TemplateWorkspacePage currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="estimates/templates/:templateId/work-areas/:workAreaId" element={<FeatureRoute feature="projects"><TemplateWorkAreaBuilderPage currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="jobs" element={<WorkListRedirect kind="jobs" />} />
+              <Route path="jobs/projects" element={<FeatureRoute feature="projects"><JobsPage currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="jobs/services" element={<FeatureRoute feature="recurringServices"><ServiceJobsPage /></FeatureRoute>} />
               <Route path="jobs/:id" element={<JobDetailRoute currentUserRole={sessionUser.role} currentUserId={sessionUser.id} />} />
               <Route path="jobs/:id/sops/:sopId" element={<SopDetailPage jobContext />} />
-              <Route path="jobs/:id/schedule" element={<ProjectJobScheduleRoute currentUserRole={sessionUser.role} />} />
-              <Route path="jobs/:id/work-areas/:workAreaId" element={<ProjectJobWorkAreaRoute currentUserRole={sessionUser.role} />} />
+              <Route path="jobs/:id/schedule" element={<FeatureRoute feature="projects"><ProjectJobScheduleRoute currentUserRole={sessionUser.role} /></FeatureRoute>} />
+              <Route path="jobs/:id/work-areas/:workAreaId" element={<FeatureRoute feature="projects"><ProjectJobWorkAreaRoute currentUserRole={sessionUser.role} /></FeatureRoute>} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
-              <Route path="snow-operations" element={canManageUsers ? <SnowOperationsPage /> : <Navigate to="/home" replace />} />
+              <Route path="snow-operations" element={canManageUsers ? <FeatureRoute feature="snowOperations"><SnowOperationsPage /></FeatureRoute> : <Navigate to="/home" replace />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage currentUserRole={sessionUser.role} />} />
@@ -798,6 +829,10 @@ export default function App() {
               <Route
                 path="settings/company"
                 element={canManageUsers ? <CompanySettingsPage /> : <Navigate to="/" replace />}
+              />
+              <Route
+                path="settings/features"
+                element={canManageUsers ? <CompanyFeaturesPage /> : <Navigate to="/" replace />}
               />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -19,6 +19,7 @@ import SidebarItem from './SidebarItem';
 import SidebarSection from './SidebarSection';
 import FeedbackModal from '../feedback/FeedbackModal';
 import type { AppearanceStyle, ThemePreference } from './useUiPreferences';
+import { useStore } from '../../store';
 
 const ACTION_ROUTE_MAP: Record<string, string> = {
   'placeholder-leads': '/revenue/leads',
@@ -82,7 +83,8 @@ export default function Sidebar({
   const hoverTimerRef = useRef<number | null>(null);
   const [displayName, setDisplayName] = useState(userName);
   const [displayEmail, setDisplayEmail] = useState(userEmail);
-  const navigation = useMemo(() => getSidebarConfig(userRole), [userRole]);
+  const businessFeatures = useStore((state) => state.businessFeatures);
+  const navigation = useMemo(() => getSidebarConfig(userRole, businessFeatures), [businessFeatures, userRole]);
   const isDesktopVisuallyExpanded = !isDesktopCollapsed || isDesktopHoverExpanded;
 
   const clearHoverTimer = () => {
@@ -138,13 +140,14 @@ export default function Sidebar({
 
   const companySetupItems = useMemo(() => {
     return [
-      { label: 'Estimate Templates', path: '/estimates/templates', visible: true },
+      { label: 'Estimate Templates', path: '/estimates/templates', visible: businessFeatures.projects },
       { label: 'Company Settings', path: '/settings/company', visible: canManageCompanySetup },
+      { label: 'Features', path: '/settings/features', visible: canManageCompanySetup },
       { label: 'Users & Access', path: '/user-access', visible: canManageCompanySetup },
       { label: 'Integrations', path: '/settings/integrations', visible: canManageCompanySetup },
       { label: 'Unbillable Categories', path: '/settings/unbillable-time-categories', visible: canManageCompanySetup },
     ].filter((item) => item.visible);
-  }, [canManageCompanySetup]);
+  }, [businessFeatures.projects, canManageCompanySetup]);
 
   const isCompanySetupItemActive = (path: string) => {
     return location.pathname === path || location.pathname.startsWith(`${path}/`);

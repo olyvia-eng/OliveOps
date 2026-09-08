@@ -36,8 +36,8 @@ test('Project and Service work have separate list routes and grouped navigation'
   for (const route of ['estimates/projects', 'estimates/services', 'jobs/projects', 'jobs/services']) {
     assert.match(appSource, new RegExp(`path="${route}"`));
   }
-  assert.match(appSource, /<WorkListRedirect to="\/estimates\/projects" \/>/);
-  assert.match(appSource, /<WorkListRedirect to="\/jobs\/projects" \/>/);
+  assert.match(appSource, /<WorkListRedirect kind="estimates" \/>/);
+  assert.match(appSource, /<WorkListRedirect kind="jobs" \/>/);
   assert.match(sidebarConfigSource, /type: 'group',[\s\S]*label: 'Estimates'[\s\S]*to: '\/estimates\/projects'[\s\S]*to: '\/estimates\/services'/);
   assert.match(sidebarConfigSource, /type: 'group',[\s\S]*label: 'Jobs'[\s\S]*to: '\/jobs\/projects'[\s\S]*to: '\/jobs\/services'/);
   assert.match(sidebarItemSource, /resolveWorkType\(estimate\)[\s\S]*resolveWorkType\(job\)/);

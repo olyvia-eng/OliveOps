@@ -51,6 +51,7 @@ import {
 import { nextEstimateUpdatedAtModel, shouldApplySequencedResponseModel } from '../utils/estimatePersistenceState.js';
 import { shouldApplyBudgetResponseModel } from '../utils/budgetPersistenceState.js';
 import { classifyClockingResponse, type PendingClockingWorkflow } from '../utils/clockingResponse.js';
+import { DEFAULT_BUSINESS_FEATURES, type BusinessFeatures } from '../../shared/businessFeatures.js';
 
 const estimateMutationSequences = new Map<ID, number>();
 const budgetMutationSequences = new Map<ID, number>();
@@ -121,6 +122,7 @@ function dataUrl(entity: string, id?: string) {
 // ─── Store definition ─────────────────────────────────────────────────────────
 
 interface AppState {
+  businessFeatures: BusinessFeatures;
   budgets: Budget[];
   budgetDivisions: BudgetDivision[];
   budgetDivisionPlanningItems: BudgetDivisionPlanningItem[];
@@ -332,6 +334,7 @@ interface AppState {
 }
 
 export const useStore = create<AppState>()((set, get) => ({
+  businessFeatures: { ...DEFAULT_BUSINESS_FEATURES },
   budgets: [],
   budgetDivisions: [],
   budgetDivisionPlanningItems: [],

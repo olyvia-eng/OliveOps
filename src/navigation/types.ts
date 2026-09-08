@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { BusinessUserRole } from '../auth/types';
+import type { BusinessFeatureKey } from '../../shared/businessFeatures.js';
 
 export type NavRole = BusinessUserRole;
 
@@ -8,6 +9,7 @@ type NavBase = {
   label: string;
   icon?: LucideIcon;
   roles?: NavRole[];
+  feature?: BusinessFeatureKey;
 };
 
 export type SidebarLinkItem = NavBase & {

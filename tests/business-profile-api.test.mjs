@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import businessHandler from '../api/business.js';
-import { createMobileSessionForUser } from '../api/_lib/authRepo.js';
+import { createBusinessWithOwner, createMobileSessionForUser } from '../api/_lib/authRepo.js';
 import { ddb } from '../api/_lib/db.js';
 
 const key = (pk, sk) => `${pk}|${sk}`;
@@ -19,8 +19,14 @@ function installDdb(t) {
       const itemKey = key(input.Key.PK, input.Key.SK);
       const existing = store.get(itemKey);
       if (!existing) throw Object.assign(new Error('missing'), { name: 'ConditionalCheckFailedException' });
-      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], legalName: input.ExpressionAttributeValues[':legalName'], phone: input.ExpressionAttributeValues[':phone'], email: input.ExpressionAttributeValues[':email'], website: input.ExpressionAttributeValues[':website'], businessAddress: input.ExpressionAttributeValues[':businessAddress'], taxLabel: input.ExpressionAttributeValues[':taxLabel'], proposalTerms: input.ExpressionAttributeValues[':proposalTerms'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
+      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], legalName: input.ExpressionAttributeValues[':legalName'], phone: input.ExpressionAttributeValues[':phone'], email: input.ExpressionAttributeValues[':email'], website: input.ExpressionAttributeValues[':website'], businessAddress: input.ExpressionAttributeValues[':businessAddress'], taxLabel: input.ExpressionAttributeValues[':taxLabel'], proposalTerms: input.ExpressionAttributeValues[':proposalTerms'], features: input.ExpressionAttributeValues[':features'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
       store.set(itemKey, next);
+      return {};
+    }
+    if (type === 'TransactWriteCommand') {
+      for (const operation of input.TransactItems) {
+        if (operation.Put) store.set(key(operation.Put.Item.PK, operation.Put.Item.SK), { ...operation.Put.Item });
+      }
       return {};
     }
     return original(command);
@@ -91,4 +97,29 @@ test('legacy Business pricingBudgetId remains readable but profile updates leave
   assert.equal(saved.statusCode, 200);
   assert.equal(saved.body.business.pricingBudgetId, 'legacy-budget');
   assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).pricingBudgetId, 'legacy-budget');
+});
+
+test('new businesses persist the Phase 1 feature defaults', async (t) => {
+  const store = installDdb(t);
+  const created = await createBusinessWithOwner({ businessName: 'New Company', firstName: 'New', lastName: 'Owner', email: 'new-owner@example.com', password: 'password123', timezone: 'America/Toronto' });
+  assert.equal(created.ok, true);
+  const profile = [...store.values()].find((item) => item.entityType === 'BUSINESS');
+  assert.deepEqual(profile.features, { projects: true, recurringServices: true, snowOperations: false });
+});
+
+test('feature toggles preserve tenant data and do not affect another business', async (t) => {
+  const store = installDdb(t);
+  store.set(key('BUSINESS#biz-a', 'PROFILE'), { PK: 'BUSINESS#biz-a', SK: 'PROFILE', entityType: 'BUSINESS', businessId: 'biz-a', name: 'Business A', features: { projects: true, recurringServices: true, snowOperations: false }, createdAt: '2026-01-01T00:00:00.000Z' });
+  store.set(key('BUSINESS#biz-b', 'PROFILE'), { PK: 'BUSINESS#biz-b', SK: 'PROFILE', entityType: 'BUSINESS', businessId: 'biz-b', name: 'Business B', features: { projects: false, recurringServices: true, snowOperations: true }, createdAt: '2026-01-01T00:00:00.000Z' });
+  store.set(key('BUSINESS#biz-a', 'JOB#project-a'), { PK: 'BUSINESS#biz-a', SK: 'JOB#project-a', entityType: 'JOB', id: 'project-a', workType: 'project' });
+  await seedUser(store, { userId: 'owner-features', role: 'owner', token: 'owner-features-token' });
+
+  const disabled = await request('owner-features-token', 'PATCH', { features: { projects: false, recurringServices: false, snowOperations: false }, businessId: 'biz-b' });
+  assert.equal(disabled.statusCode, 200);
+  const enabled = await request('owner-features-token', 'PATCH', { features: { projects: true, recurringServices: true, snowOperations: true }, businessId: 'biz-b' });
+  assert.equal(enabled.statusCode, 200);
+
+  assert.equal(store.get(key('BUSINESS#biz-a', 'JOB#project-a')).id, 'project-a');
+  assert.deepEqual(store.get(key('BUSINESS#biz-b', 'PROFILE')).features, { projects: false, recurringServices: true, snowOperations: true });
+  assert.deepEqual(enabled.body.business.features, { projects: true, recurringServices: true, snowOperations: true });
 });

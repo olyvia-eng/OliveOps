@@ -23,6 +23,7 @@ function harness(options = {}) {
     requireSession: async () => session,
     now: () => new Date('2027-12-02T01:00:00.000Z'),
     randomUUID: () => `generated-${++sequence}`,
+    getBusinessProfile: async (businessId) => businessId === 'biz-a' ? { features: { projects: true, recurringServices: true, snowOperations: true } } : null,
     createAuditEventForBusiness: async ({ auditEvent }) => state.audits.push(clone(auditEvent)),
     getSnowEventForBusiness: async (businessId, id) => businessId === 'biz-a' ? find(state.events, id) : null,
     getSnowRouteForBusiness: async (businessId, eventId, id) => businessId === 'biz-a' ? clone(state.routes.find((item) => item.id === id && item.snowEventId === eventId) ?? null) : null,
@@ -81,6 +82,17 @@ function harness(options = {}) {
 
 const scope = { eventId: 'event-a', routeId: 'route-a', stopId: 'stop-a' };
 const command = (clientSubmissionId, extra = {}) => ({ clientSubmissionId, deviceCapturedAt: '2027-12-02T00:59:00.000Z', gps: { latitude: 45.4, longitude: -75.7, accuracyMeters: 12 }, ...extra });
+
+test('disabled Snow Operations blocks the specialized API without touching stored records', async () => {
+  const run = harness({ overrides: { getBusinessProfile: async () => ({ features: { projects: true, recurringServices: true, snowOperations: false } }) } });
+  const before = structuredClone(run.state);
+  const result = await run.call('GET', 'events');
+  assert.equal(result.statusCode, 403);
+  assert.match(result.body.error, /not enabled/i);
+  assert.deepEqual(run.state.events, before.events);
+  assert.deepEqual(run.state.routes, before.routes);
+  assert.deepEqual(run.state.stops, before.stops);
+});
 
 test('unassigned employees cannot access or mutate a Snow Route', async () => {
   const run = harness({ session: { businessId: 'biz-a', id: 'user-b', employeeId: 'employee-b', role: 'crew_member' } });
