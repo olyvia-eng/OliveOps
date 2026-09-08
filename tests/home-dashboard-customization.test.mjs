@@ -9,16 +9,18 @@ const sidebarWidgetsSource = readFileSync('src/pages/home/PersonalDashboardSideb
 const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf8');
 const employeePortalSource = readFileSync('src/pages/employees/EmployeePortalPage.tsx', 'utf8');
 const clockedInWidgetSource = readFileSync('src/pages/home/ClockedInNowWidget.tsx', 'utf8');
-const clockedInApiSource = readFileSync('api/clocked-in-now.js', 'utf8');
-const clockingRepositorySource = readFileSync('api/_lib/clocking.js', 'utf8');
+const bootstrapSource = readFileSync('api/bootstrap.js', 'utf8');
 
-test('Home widgets support drag, accessible movement, removal, add, and reset', () => {
+test('Home widgets use handle-only mouse and touch drag with removal, add, and reset', () => {
   assert.match(dashboardSource, /<CustomizableWidgetGrid/);
   assert.match(gridSource, /draggable/);
   assert.match(gridSource, /onDragStart/);
   assert.match(gridSource, /onDrop/);
-  assert.match(gridSource, /Move .* earlier/);
-  assert.match(gridSource, /Move .* later/);
+  assert.match(gridSource, /onPointerDown/);
+  assert.match(gridSource, /onPointerMove/);
+  assert.match(gridSource, /onPointerUp/);
+  assert.match(gridSource, /touch-none cursor-grab/);
+  assert.doesNotMatch(gridSource, /ArrowLeft|ArrowRight|Move .* earlier|Move .* later/);
   assert.match(gridSource, /title="Remove widget"/);
   assert.match(gridSource, /aria-label={`Remove \$\{widget\.title\}`}/);
   assert.match(gridSource, /Add a widget/);
@@ -29,7 +31,7 @@ test('widget order is loaded and saved through user-scoped preferences', () => {
   assert.match(preferencesHookSource, /fetch\('\/api\/home-dashboard-preferences'/);
   assert.match(preferencesHookSource, /method: 'PATCH'/);
   assert.match(preferencesHookSource, /body: JSON\.stringify\(\{ widgetIds: nextWidgetIds, taskFilterLabels: nextLabels, customTaskTabs: nextTabs, taskFilterOrder: nextOrder, dismissedTodayTaskIds: nextDismissedIds, deletedTaskTabId \}\)/);
-  assert.match(gridSource, /onChange\(next\)/);
+  assert.match(gridSource, /onChange\(reorderHomeWidgetIds\(widgetIds, draggedId, targetId\)\)/);
 });
 
 test('personal sidebar cards are independently movable widgets', () => {
@@ -65,16 +67,14 @@ test('Finance widgets are optional and only defined for financial roles', () => 
   assert.match(dashboardSource, /Budgeted Profit/);
 });
 
-test('Clocked In Now is an independently loaded owner/admin widget with a recoverable failure state', () => {
+test('Clocked In Now derives from authenticated bootstrap state without a fetch loop', () => {
   assert.match(dashboardSource, /canViewFinancials \? \[/);
   assert.match(dashboardSource, /id: 'clocked-in-now'/);
-  assert.match(clockedInWidgetSource, /fetch\('\/api\/clocked-in-now'/);
-  assert.match(clockedInWidgetSource, /Could not load active employees\./);
-  assert.match(clockedInWidgetSource, /No employees currently clocked in\./);
+  assert.match(dashboardSource, /buildClockedInNowItems\(timeEntries, employees, jobs\)/);
+  assert.doesNotMatch(clockedInWidgetSource, /fetch\(|Retry|setInterval.*fetch/);
+  assert.match(clockedInWidgetSource, /No employees are currently clocked in\./);
   assert.match(clockedInWidgetSource, /items\.slice\(0, 6\)/);
   assert.match(clockedInWidgetSource, /to="\/time-reports"/);
-  assert.match(clockedInApiSource, /requireSession\(req, res, \['owner', 'admin'\]\)/);
-  assert.match(clockingRepositorySource, /new BatchGetCommand/);
-  assert.match(clockingRepositorySource, /activeShiftPk\(businessId, employeeId\)/);
-  assert.match(clockingRepositorySource, /activeEntryIdByEmployee\.get\(entry\.employeeId\) === entry\.entryId/);
+  assert.match(bootstrapSource, /loadCoreBootstrapData\(session\.businessId\)/);
+  assert.match(bootstrapSource, /timeEntries: filterRecordsForSession\(session, 'time-entries', timeEntries\)/);
 });

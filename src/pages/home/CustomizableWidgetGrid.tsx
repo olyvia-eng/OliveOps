@@ -1,7 +1,8 @@
-import { useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, GripVertical, LayoutGrid, Plus, RotateCcw, X } from 'lucide-react';
+import { useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from 'react';
+import { GripVertical, LayoutGrid, Plus, RotateCcw, X } from 'lucide-react';
 import { Button, Card, Modal } from '../../components/ui';
 import type { HomeWidgetId } from './useHomeDashboardPreferences';
+import { reorderHomeWidgetIds } from './homeWidgetOrderModel.js';
 
 export interface HomeWidgetDefinition {
   id: HomeWidgetId;
@@ -74,25 +75,12 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
     .filter((value): value is HomeWidgetDefinition => Boolean(value))
     .filter((value) => !widgetIds.includes(value.id));
 
-  const moveWidget = (id: HomeWidgetId, offset: number) => {
-    const fromIndex = widgetIds.indexOf(id);
-    const toIndex = fromIndex + offset;
-    if (fromIndex < 0 || toIndex < 0 || toIndex >= widgetIds.length) return;
-    const next = [...widgetIds];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    onChange(next);
-  };
+  const pointerDropTarget = useRef<HomeWidgetId | null>(null);
+  const pointerDraggedId = useRef<HomeWidgetId | null>(null);
 
   const dropWidget = (targetId: HomeWidgetId) => {
     if (!draggedId || draggedId === targetId) return;
-    const next = [...widgetIds];
-    const fromIndex = next.indexOf(draggedId);
-    const toIndex = next.indexOf(targetId);
-    if (fromIndex < 0 || toIndex < 0) return;
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    onChange(next);
+    onChange(reorderHomeWidgetIds(widgetIds, draggedId, targetId));
     setDraggedId(null);
   };
 
@@ -100,6 +88,32 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
     setDraggedId(id);
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', id);
+  };
+
+  const startPointerDrag = (event: PointerEvent<HTMLButtonElement>, id: HomeWidgetId) => {
+    if (event.pointerType === 'mouse') return;
+    pointerDraggedId.current = id;
+    pointerDropTarget.current = id;
+    setDraggedId(id);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'mouse' || !draggedId) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-home-widget-id]');
+    const targetId = target?.dataset.homeWidgetId as HomeWidgetId | undefined;
+    if (targetId && widgetIds.includes(targetId)) pointerDropTarget.current = targetId;
+  };
+
+  const finishPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === 'mouse') return;
+    const sourceId = pointerDraggedId.current;
+    const targetId = pointerDropTarget.current;
+    if (sourceId && targetId && sourceId !== targetId) onChange(reorderHomeWidgetIds(widgetIds, sourceId, targetId));
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    pointerDraggedId.current = null;
+    pointerDropTarget.current = null;
+    setDraggedId(null);
   };
 
   const addWidget = (id: HomeWidgetId) => {
@@ -124,6 +138,7 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
           {visibleDefinitions.map((widget, index) => (
             <section
               key={widget.id}
+              data-home-widget-id={widget.id}
               className={`relative min-w-0 ${mediumSpanClass[mediumSpans[index] - 1]} ${largeSpanClass[largeSpans[index] - 1]} ${customizing ? 'rounded-lg outline outline-2 outline-dashed outline-brand-300 dark:outline-brand-500' : ''} ${draggedId === widget.id ? 'opacity-50' : ''}`}
               onDragOver={(event) => { if (customizing) event.preventDefault(); }}
               onDrop={() => dropWidget(widget.id)}
@@ -131,9 +146,7 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
             >
               {customizing ? (
                 <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-md border border-brand-100 bg-white p-1 shadow-sm dark:border-brand-600 dark:bg-brand-700">
-                  <button type="button" className="grid h-7 w-7 place-items-center rounded text-brand-500 hover:bg-brand-50 disabled:opacity-30 dark:text-brand-200 dark:hover:bg-brand-600" onClick={() => moveWidget(widget.id, -1)} disabled={index === 0} title="Move earlier" aria-label={`Move ${widget.title} earlier`}><ArrowLeft size={14} /></button>
-                  <button type="button" draggable onDragStart={(event) => startDrag(event, widget.id)} onDragEnd={() => setDraggedId(null)} className="grid h-7 w-7 cursor-grab place-items-center rounded text-brand-500 hover:bg-brand-50 active:cursor-grabbing dark:text-brand-200 dark:hover:bg-brand-600" title="Drag to rearrange" aria-label={`Drag ${widget.title}`}><GripVertical size={15} /></button>
-                  <button type="button" className="grid h-7 w-7 place-items-center rounded text-brand-500 hover:bg-brand-50 disabled:opacity-30 dark:text-brand-200 dark:hover:bg-brand-600" onClick={() => moveWidget(widget.id, 1)} disabled={index === widgetIds.length - 1} title="Move later" aria-label={`Move ${widget.title} later`}><ArrowRight size={14} /></button>
+                  <button type="button" draggable onDragStart={(event) => startDrag(event, widget.id)} onDragEnd={() => setDraggedId(null)} onPointerDown={(event) => startPointerDrag(event, widget.id)} onPointerMove={movePointerDrag} onPointerUp={finishPointerDrag} onPointerCancel={finishPointerDrag} className="grid h-7 w-7 touch-none cursor-grab place-items-center rounded text-brand-500 hover:bg-brand-50 active:cursor-grabbing dark:text-brand-200 dark:hover:bg-brand-600" title="Drag to rearrange" aria-label={`Drag ${widget.title}`}><GripVertical size={15} /></button>
                   <button type="button" className="grid h-7 w-7 place-items-center rounded text-brand-500 hover:bg-accent-50 hover:text-accent-700" onClick={() => onChange(widgetIds.filter((id) => id !== widget.id))} title="Remove widget" aria-label={`Remove ${widget.title}`}><X size={14} /></button>
                 </div>
               ) : null}

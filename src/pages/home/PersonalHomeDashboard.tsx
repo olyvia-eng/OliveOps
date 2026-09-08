@@ -33,6 +33,7 @@ import {
 } from './PersonalDashboardSidebar';
 import useHomeDashboardPreferences from './useHomeDashboardPreferences';
 import ClockedInNowWidget from './ClockedInNowWidget';
+import { buildClockedInNowItems } from './clockedInNowModel.js';
 
 interface PersonalHomeDashboardProps {
   currentUserId: string;
@@ -77,6 +78,7 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
   const hoursToday = useMemo(() => getHoursLoggedToday(timeEntries, employee?.id, now), [employee?.id, timeEntries]);
   const upcoming = useMemo(() => buildUpcomingItems({ jobs: personalJobs, tasks: rootTasks, externalEvents, customers, now, limit: 5 }), [customers, externalEvents, personalJobs, rootTasks]);
   const activity = useMemo(() => buildRecentActivity({ jobs: personalJobs, tasks: rootTasks, timeEntries, corrections: timeCorrections, employeeId: employee?.id, limit: 5 }), [employee?.id, personalJobs, rootTasks, timeCorrections, timeEntries]);
+  const clockedInNow = useMemo(() => buildClockedInNowItems(timeEntries, employees, jobs), [employees, jobs, timeEntries]);
 
   const selectedJobId = searchParams.get('homeJob');
   const selectedJob = personalJobs.find((job) => job.id === selectedJobId) ?? null;
@@ -149,7 +151,7 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     { id: 'activity', title: 'Recent Activity', description: 'Recent changes to your work and time.', size: 'medium', category: 'Personal', content: <RecentActivityWidget activity={activity} /> },
     { id: 'quick-actions', title: 'Quick Actions', description: 'Shortcuts to common personal workflows.', size: 'medium', category: 'Personal', content: <QuickActionsWidget showTimeClock={Boolean(onOpenTimeClock)} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} /> },
     ...(canViewFinancials ? [
-      { id: 'clocked-in-now', title: 'Clocked In Now', description: 'Employees with an active time entry.', size: 'medium', category: 'Operations', content: <ClockedInNowWidget /> },
+      { id: 'clocked-in-now', title: 'Clocked In Now', description: 'Employees with an active time entry.', size: 'medium', category: 'Operations', content: <ClockedInNowWidget items={clockedInNow} /> },
     ] satisfies HomeWidgetDefinition[] : []),
     ...(canViewFinancials ? [
       { id: 'finance-outstanding-invoices', title: 'Outstanding Invoices', description: 'Open invoice count and value from Finance.', size: 'small', category: 'Finance', content: <StatCard label="Outstanding Invoices" value={formatCurrency(openInvoices.reduce((total, invoice) => total + invoice.amount, 0))} sub={`${openInvoices.length} open invoice${openInvoices.length === 1 ? '' : 's'}`} icon={<Receipt />} color="text-brand-700 dark:text-brand-100" /> },
