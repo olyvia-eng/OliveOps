@@ -19,7 +19,9 @@ test('both Estimate proposal actions use the shared ID-only authorized PDF path'
 test('proposal renderer has guarded pagination, compact continuation headers, and per-page footer numbering', () => {
   assert.match(renderer, /const ensureSpace = \(height\) =>/);
   assert.match(renderer, /heading\('Work Areas', 57\)/);
-  assert.match(renderer, /ensureSpace\(57 \+ firstScopeHeight\)/);
+  assert.match(renderer, /const cardHeight = areaName\.length \* 14 \+ scopeHeight \+ 73/);
+  assert.match(renderer, /ensureSpace\(cardHeight \+ 16\)/);
+  assert.match(renderer, /doc\.roundedRect\(MARGIN, cursorY - 16, CONTENT_WIDTH, cardHeight, 8, 8, 'FD'\)/);
   assert.match(renderer, /heading\('Payment Schedule', Math\.max/);
   assert.match(renderer, /ensureSpace\(options\.acceptance \? 150 : 142\)/);
   assert.match(renderer, /Page \$\{page\} of \$\{pageCount\}/);

@@ -13,7 +13,6 @@ export default function UnbillableTimeCategoriesPage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [sortOrder, setSortOrder] = useState('0');
   const [active, setActive] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -27,7 +26,6 @@ export default function UnbillableTimeCategoriesPage() {
   const resetForm = () => {
     setName('');
     setDescription('');
-    setSortOrder('0');
     setActive(true);
     setEditingId(null);
   };
@@ -39,22 +37,15 @@ export default function UnbillableTimeCategoriesPage() {
     setEditingId(category.id);
     setName(category.name);
     setDescription(category.description ?? '');
-    setSortOrder(String(category.sortOrder));
     setActive(category.active);
   };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const trimmedName = name.trim();
-    const parsedOrder = Number(sortOrder);
 
     if (!trimmedName) {
       emitAppToast({ tone: 'error', message: 'Category name is required.' });
-      return;
-    }
-
-    if (!Number.isFinite(parsedOrder)) {
-      emitAppToast({ tone: 'error', message: 'Sort order must be a number.' });
       return;
     }
 
@@ -62,7 +53,6 @@ export default function UnbillableTimeCategoriesPage() {
       updateUnbillableTimeCategory(editingId, {
         name: trimmedName,
         description: description.trim(),
-        sortOrder: parsedOrder,
         active,
       });
       emitAppToast({ tone: 'success', message: 'Category updated.' });
@@ -73,7 +63,7 @@ export default function UnbillableTimeCategoriesPage() {
     addUnbillableTimeCategory({
       name: trimmedName,
       description: description.trim(),
-      sortOrder: parsedOrder,
+      sortOrder: categories.reduce((highest, category) => Math.max(highest, category.sortOrder), -1) + 1,
       active,
     });
     emitAppToast({ tone: 'success', message: 'Category created.' });
@@ -105,12 +95,6 @@ export default function UnbillableTimeCategoriesPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               maxLength={200}
-            />
-            <Input
-              label="Sort Order"
-              type="number"
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value)}
             />
             <label className="inline-flex items-center gap-2 text-sm text-gray-700">
               <input
@@ -146,11 +130,10 @@ export default function UnbillableTimeCategoriesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 text-gray-500 text-left text-xs">
-                    <th className="px-4 py-2 font-medium">Name</th>
-                    <th className="py-2 font-medium">Description</th>
-                    <th className="py-2 font-medium">Sort</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Actions</th>
+                    <th className="w-1/4 px-4 py-2 font-medium">Name</th>
+                    <th className="w-2/5 py-2 font-medium">Description</th>
+                    <th className="w-1/6 py-2 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -158,9 +141,8 @@ export default function UnbillableTimeCategoriesPage() {
                     <tr key={category.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-medium text-gray-800">{category.name}</td>
                       <td className="py-2 text-gray-600">{category.description || '—'}</td>
-                      <td className="py-2 text-gray-600">{category.sortOrder}</td>
                       <td className="py-2 text-gray-600">{category.active ? 'Active' : 'Archived'}</td>
-                      <td className="py-2">
+                      <td className="py-2 pr-4">
                         <div className="inline-flex gap-2">
                           <Button size="sm" variant="secondary" onClick={() => beginEdit(category.id)}>
                             Edit

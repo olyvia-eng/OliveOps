@@ -4,11 +4,13 @@ const PAGE_WIDTH = 612;
 const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const CONTENT_BOTTOM = 735;
-const CHARCOAL = [38, 45, 51];
-const INK = [31, 41, 48];
-const MUTED = [92, 103, 112];
-const LIGHT = [242, 243, 243];
-const DIVIDER = [196, 201, 204];
+const OLIVE_DEEP = [74, 100, 24];
+const OLIVE = [107, 142, 35];
+const OLIVE_TINT = [238, 244, 227];
+const OLIVE_BORDER = [202, 223, 162];
+const INK = [15, 23, 42];
+const MUTED = [71, 85, 105];
+const DIVIDER = [226, 232, 240];
 const WHITE = [255, 255, 255];
 
 const clean = (value) => Array.from(String(value ?? '')).filter((character) => {
@@ -49,7 +51,7 @@ export function createEstimateProposalDocument(projection, options = {}) {
     doc.line(left, y, right, y);
   };
   const continuationHeader = () => {
-    doc.setFillColor(...CHARCOAL);
+    doc.setFillColor(...OLIVE_DEEP);
     doc.rect(0, 0, PAGE_WIDTH, 50, 'F');
     setText(10, WHITE, 'bold');
     doc.text(companyName, MARGIN, 30, { maxWidth: 300 });
@@ -66,9 +68,11 @@ export function createEstimateProposalDocument(projection, options = {}) {
   };
   const heading = (value, followingHeight = 0) => {
     ensureSpace(32 + followingHeight);
-    setText(10, INK, 'bold');
+    setText(10, OLIVE_DEEP, 'bold');
     doc.text(clean(value).toUpperCase(), MARGIN, cursorY);
-    divider(cursorY + 8);
+    doc.setDrawColor(...OLIVE);
+    doc.setLineWidth(1.4);
+    doc.line(MARGIN, cursorY + 8, PAGE_WIDTH - MARGIN, cursorY + 8);
     cursorY += 25;
   };
   const formattedText = (value) => {
@@ -91,8 +95,8 @@ export function createEstimateProposalDocument(projection, options = {}) {
     }
   };
 
-  doc.setFillColor(...CHARCOAL);
-  doc.rect(0, 0, PAGE_WIDTH, 104, 'F');
+  doc.setFillColor(...OLIVE_DEEP);
+  doc.roundedRect(24, 18, PAGE_WIDTH - 48, 92, 12, 12, 'F');
   let logoRendered = false;
   if (projection.company.logoDataUrl) {
     try {
@@ -101,7 +105,9 @@ export function createEstimateProposalDocument(projection, options = {}) {
       const scale = Math.min(66 / properties.width, 56 / properties.height);
       const logoWidth = properties.width * scale;
       const logoHeight = properties.height * scale;
-      doc.addImage(projection.company.logoDataUrl, format, MARGIN, 24 + (56 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
+      doc.setFillColor(...WHITE);
+      doc.roundedRect(MARGIN, 30, 70, 56, 6, 6, 'F');
+      doc.addImage(projection.company.logoDataUrl, format, MARGIN + (70 - logoWidth) / 2, 30 + (56 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
       logoRendered = true;
     } catch { /* Invalid snapshot logos fall back to the company name. */ }
   }
@@ -116,8 +122,10 @@ export function createEstimateProposalDocument(projection, options = {}) {
   setText(10, WHITE, 'bold');
   doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 63, { align: 'right' });
 
-  doc.setFillColor(...LIGHT);
-  doc.rect(0, 104, PAGE_WIDTH, 72, 'F');
+  doc.setFillColor(...OLIVE_TINT);
+  doc.setDrawColor(...OLIVE_BORDER);
+  doc.setLineWidth(0.8);
+  doc.roundedRect(MARGIN, 122, CONTENT_WIDTH, 66, 8, 8, 'FD');
   const information = [
     ['PREPARED FOR', [projection.customer.displayName, projection.customer.contactName].map(clean).filter(Boolean).join('\n')],
     ['PROPERTY', projection.proposal.projectAddress || projection.proposal.title],
@@ -128,12 +136,12 @@ export function createEstimateProposalDocument(projection, options = {}) {
   let columnX = MARGIN;
   information.forEach(([label, value], index) => {
     setText(7.5, MUTED, 'bold');
-    doc.text(label, columnX, 125);
+    doc.text(label, columnX, 141);
     setText(9, INK, 'bold');
-    doc.text(lines(value || '-', columnWidths[index] - 10).slice(0, 3), columnX, 142);
+    doc.text(lines(value || '-', columnWidths[index] - 10).slice(0, 3), columnX, 158);
     columnX += columnWidths[index];
   });
-  cursorY = 202;
+  cursorY = 214;
 
   if (clean(projection.proposal.introduction)) {
     heading('Introduction', 17);
@@ -145,7 +153,7 @@ export function createEstimateProposalDocument(projection, options = {}) {
     heading('Services', 57);
     for (const service of projection.services ?? []) {
       ensureSpace(88);
-      setText(12, INK, 'bold');
+      setText(12, OLIVE_DEEP, 'bold');
       doc.text(lines(service.name, CONTENT_WIDTH - 170), MARGIN, cursorY);
       const price = service.billingType === 'contract'
         ? currency(service.contractPrice)
@@ -178,32 +186,40 @@ export function createEstimateProposalDocument(projection, options = {}) {
   } else {
     heading('Work Areas', 57);
     for (const area of projection.workAreas) {
-    const scopeLines = area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'];
-    const firstScopeHeight = lines(clean(scopeLines[0]).replace(/^[-*•]\s+|^\d+[.)]\s+/, ''), CONTENT_WIDTH - 18).length * 12 + 6;
-    ensureSpace(57 + firstScopeHeight);
-    const areaName = lines(area.name, CONTENT_WIDTH - 125);
-    setText(12, INK, 'bold');
-    doc.text(areaName, MARGIN, cursorY);
-    doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-    cursorY += areaName.length * 14 + 7;
-    divider(cursorY);
-    cursorY += 18;
-    setText(9, INK, 'bold');
-    doc.text('Scope of Work', MARGIN, cursorY);
-    cursorY += 17;
-    for (const scopeLine of scopeLines) {
-      const line = clean(scopeLine);
-      const numbered = /^(\d+[.)])\s+/.exec(line);
-      const marker = numbered?.[1] ?? '•';
-      const content = line.replace(/^[-*•]\s+|^\d+[.)]\s+/, '');
-      const wrapped = lines(content, CONTENT_WIDTH - 18);
-      ensureSpace(wrapped.length * 12 + 6);
-      setText(9.5, MUTED);
-      doc.text(marker, MARGIN, cursorY);
-      doc.text(wrapped, MARGIN + 16, cursorY);
-      cursorY += wrapped.length * 12 + 6;
-    }
-    cursorY += 11;
+      const scopeLines = area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'];
+      const areaName = lines(area.name, CONTENT_WIDTH - 157);
+      const scopeEntries = scopeLines.map((scopeLine) => {
+        const line = clean(scopeLine);
+        const numbered = /^(\d+[.)])\s+/.exec(line);
+        return {
+          marker: numbered?.[1] ?? '•',
+          wrapped: lines(line.replace(/^[-*•]\s+|^\d+[.)]\s+/, ''), CONTENT_WIDTH - 50),
+        };
+      });
+      const scopeHeight = scopeEntries.reduce((height, entry) => height + entry.wrapped.length * 12 + 6, 0);
+      const cardHeight = areaName.length * 14 + scopeHeight + 73;
+      ensureSpace(cardHeight + 16);
+
+      doc.setFillColor(...WHITE);
+      doc.setDrawColor(...OLIVE_BORDER);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(MARGIN, cursorY - 16, CONTENT_WIDTH, cardHeight, 8, 8, 'FD');
+      setText(12, OLIVE_DEEP, 'bold');
+      doc.text(areaName, MARGIN + 16, cursorY);
+      doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN - 16, cursorY, { align: 'right' });
+      cursorY += areaName.length * 14 + 10;
+      divider(cursorY, MARGIN + 16, PAGE_WIDTH - MARGIN - 16);
+      cursorY += 18;
+      setText(9, INK, 'bold');
+      doc.text('Scope of Work', MARGIN + 16, cursorY);
+      cursorY += 17;
+      for (const entry of scopeEntries) {
+        setText(9.5, MUTED);
+        doc.text(entry.marker, MARGIN + 16, cursorY);
+        doc.text(entry.wrapped, MARGIN + 32, cursorY);
+        cursorY += entry.wrapped.length * 12 + 6;
+      }
+      cursorY += 28;
     }
   }
 
@@ -229,6 +245,11 @@ export function createEstimateProposalDocument(projection, options = {}) {
 
   ensureSpace(projection.workType === 'service' ? 120 : 64);
   const totalsX = PAGE_WIDTH - MARGIN - 260;
+  const totalsPanelHeight = projection.workType === 'service' ? 108 : 67;
+  doc.setFillColor(...OLIVE_TINT);
+  doc.setDrawColor(...OLIVE_BORDER);
+  doc.setLineWidth(0.8);
+  doc.roundedRect(totalsX - 14, cursorY - 17, 274, totalsPanelHeight, 8, 8, 'FD');
   if (projection.workType === 'service' && projection.servicePricingSummary) {
     setText(9.5, INK);
     doc.text('Contracted services', totalsX, cursorY);
@@ -245,9 +266,11 @@ export function createEstimateProposalDocument(projection, options = {}) {
   doc.text(`${projection.workType === 'service' ? 'Estimated ' : ''}${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, totalsX, cursorY);
   doc.text(currency(projection.proposal.taxAmount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
   cursorY += 13;
-  divider(cursorY, totalsX);
+  doc.setDrawColor(...OLIVE);
+  doc.setLineWidth(1.2);
+  doc.line(totalsX, cursorY, PAGE_WIDTH - MARGIN, cursorY);
   cursorY += 22;
-  setText(13, INK, 'bold');
+  setText(13, OLIVE_DEEP, 'bold');
   doc.text(projection.workType === 'service' ? 'ESTIMATED TOTAL' : 'TOTAL', totalsX, cursorY);
   doc.text(currency(projection.proposal.total), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
   cursorY += 33;
@@ -294,7 +317,7 @@ export function createEstimateProposalDocument(projection, options = {}) {
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
-    doc.setFillColor(...CHARCOAL);
+    doc.setFillColor(...OLIVE_DEEP);
     doc.rect(0, 752, PAGE_WIDTH, 40, 'F');
     setText(8.5, WHITE, 'bold');
     doc.text([companyName, clean(projection.company.email)].filter(Boolean).join('  |  '), MARGIN, 776, { maxWidth: 325 });
