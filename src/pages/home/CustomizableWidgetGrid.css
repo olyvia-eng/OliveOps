@@ -1,0 +1,61 @@
+.home-dashboard-grid .react-grid-item {
+  min-width: 0;
+}
+
+.home-dashboard-grid .react-grid-item > .home-widget-shell {
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.home-layout-is-editing .react-grid-item > .home-widget-shell,
+.home-layout-is-editing > .grid > section > .home-widget-shell {
+  outline: 1px dashed rgb(72 117 87 / 0.5);
+  outline-offset: -1px;
+}
+
+.home-layout-is-editing .react-grid-item.react-draggable-dragging {
+  z-index: 30;
+  filter: drop-shadow(0 16px 16px rgb(21 45 31 / 0.18));
+}
+
+.home-layout-is-editing .react-grid-item.react-draggable-dragging > .home-widget-shell {
+  outline-style: solid;
+  outline-color: rgb(72 117 87 / 0.85);
+}
+
+.home-layout-is-editing .react-grid-placeholder {
+  border: 1px dashed rgb(72 117 87 / 0.7);
+  border-radius: 8px;
+  background: rgb(218 237 222 / 0.62);
+  opacity: 1;
+}
+
+.dark .home-layout-is-editing .react-grid-placeholder {
+  border-color: rgb(171 210 181 / 0.58);
+  background: rgb(49 84 64 / 0.7);
+}
+
+.home-layout-is-editing .react-grid-item > .react-resizable-handle::after {
+  right: 7px;
+  bottom: 7px;
+  width: 9px;
+  height: 9px;
+  border-color: #487557;
+}
+
+.home-dashboard-grid .react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.home-layout-is-editing .home-dashboard-grid .react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-dashboard-grid .react-grid-item {
+    transition: none;
+  }
+}

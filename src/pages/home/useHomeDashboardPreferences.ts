@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { HomeTaskFilter } from './homeDashboardModel.js';
 import type { TaskTab } from '../../types';
+import { defaultHomeDashboardLayout, normalizeHomeDashboardLayout, type HomeWidgetLayoutItem } from './homeDashboardLayoutModel.js';
 
 export const PERSONAL_HOME_WIDGET_IDS = [
   'due-today',
@@ -60,6 +61,7 @@ const normalizeTaskFilterOrder = (value: unknown, customTaskTabs: TaskTab[]): st
 
 export default function useHomeDashboardPreferences(canViewFinancials: boolean) {
   const [widgetIds, setWidgetIds] = useState<HomeWidgetId[]>(() => allowedWidgetIds(canViewFinancials));
+  const [widgetLayout, setWidgetLayout] = useState<HomeWidgetLayoutItem[]>(() => defaultHomeDashboardLayout(allowedWidgetIds(canViewFinancials)));
   const [taskFilterLabels, setTaskFilterLabels] = useState<Record<HomeTaskFilter, string>>(DEFAULT_TASK_FILTER_LABELS);
   const [customTaskTabs, setCustomTaskTabs] = useState<TaskTab[]>([]);
   const [taskFilterOrder, setTaskFilterOrder] = useState<string[]>(DEFAULT_TASK_FILTER_ORDER);
@@ -69,10 +71,12 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
   useEffect(() => {
     const controller = new AbortController();
     void fetch('/api/home-dashboard-preferences', { credentials: 'include', signal: controller.signal })
-      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; preferences?: { widgetIds?: unknown; taskFilterLabels?: Partial<Record<HomeTaskFilter, string>>; customTaskTabs?: unknown; taskFilterOrder?: unknown; dismissedTodayTaskIds?: unknown } } }))
+      .then(async (response) => ({ response, payload: await response.json() as { ok?: boolean; preferences?: { widgetIds?: unknown; widgetLayout?: unknown; taskFilterLabels?: Partial<Record<HomeTaskFilter, string>>; customTaskTabs?: unknown; taskFilterOrder?: unknown; dismissedTodayTaskIds?: unknown } } }))
       .then(({ response, payload }) => {
         if (!response.ok || !payload.ok) return;
-        setWidgetIds(normalizeWidgetIds(payload.preferences?.widgetIds, canViewFinancials));
+        const nextWidgetIds = normalizeWidgetIds(payload.preferences?.widgetIds, canViewFinancials);
+        setWidgetIds(nextWidgetIds);
+        setWidgetLayout(normalizeHomeDashboardLayout(payload.preferences?.widgetLayout, nextWidgetIds));
         setTaskFilterLabels({ ...DEFAULT_TASK_FILTER_LABELS, ...payload.preferences?.taskFilterLabels, today: 'Today' });
         const nextCustomTabs = normalizeCustomTaskTabs(payload.preferences?.customTaskTabs);
         setCustomTaskTabs(nextCustomTabs);
@@ -80,25 +84,45 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
         setDismissedTodayTaskIds(Array.isArray(payload.preferences?.dismissedTodayTaskIds) ? payload.preferences.dismissedTodayTaskIds.filter((id): id is string => typeof id === 'string') : []);
       })
       .catch((error: Error) => {
-        if (error.name !== 'AbortError') setWidgetIds(allowedWidgetIds(canViewFinancials));
+        if (error.name !== 'AbortError') {
+          const nextWidgetIds = allowedWidgetIds(canViewFinancials);
+          setWidgetIds(nextWidgetIds);
+          setWidgetLayout(defaultHomeDashboardLayout(nextWidgetIds));
+        }
       })
       .finally(() => setHydrated(true));
     return () => controller.abort();
   }, [canViewFinancials]);
 
-  const savePreferences = (nextWidgetIds: HomeWidgetId[], nextLabels: Record<HomeTaskFilter, string>, nextTabs: TaskTab[], nextOrder: string[], nextDismissedIds: string[], deletedTaskTabId?: string) => {
+  const savePreferences = (nextWidgetIds: HomeWidgetId[], nextWidgetLayout: HomeWidgetLayoutItem[], nextLabels: Record<HomeTaskFilter, string>, nextTabs: TaskTab[], nextOrder: string[], nextDismissedIds: string[], deletedTaskTabId?: string) => {
     void fetch('/api/home-dashboard-preferences', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ widgetIds: nextWidgetIds, taskFilterLabels: nextLabels, customTaskTabs: nextTabs, taskFilterOrder: nextOrder, dismissedTodayTaskIds: nextDismissedIds, deletedTaskTabId }),
+      body: JSON.stringify({ widgetIds: nextWidgetIds, widgetLayout: nextWidgetLayout, taskFilterLabels: nextLabels, customTaskTabs: nextTabs, taskFilterOrder: nextOrder, dismissedTodayTaskIds: nextDismissedIds, deletedTaskTabId }),
     });
   };
 
   const saveWidgetIds = (nextValue: HomeWidgetId[]) => {
     const next = normalizeWidgetIds(nextValue, canViewFinancials);
+    const nextLayout = normalizeHomeDashboardLayout(widgetLayout, next);
     setWidgetIds(next);
-    savePreferences(next, taskFilterLabels, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
+    setWidgetLayout(nextLayout);
+    savePreferences(next, nextLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
+  };
+
+  const saveDashboard = (nextValue: HomeWidgetId[], nextLayoutValue: HomeWidgetLayoutItem[]) => {
+    const nextWidgetIds = normalizeWidgetIds(nextValue, canViewFinancials);
+    const nextLayout = normalizeHomeDashboardLayout(nextLayoutValue, nextWidgetIds);
+    setWidgetIds(nextWidgetIds);
+    setWidgetLayout(nextLayout);
+    savePreferences(nextWidgetIds, nextLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
+  };
+
+  const saveWidgetLayout = (nextValue: HomeWidgetLayoutItem[]) => {
+    const nextLayout = normalizeHomeDashboardLayout(nextValue, widgetIds);
+    setWidgetLayout(nextLayout);
+    savePreferences(widgetIds, nextLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
   };
 
   const saveTaskFilterLabel = (filter: HomeTaskFilter, value: string) => {
@@ -106,13 +130,13 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     const label = value.trim().slice(0, 30) || DEFAULT_TASK_FILTER_LABELS[filter];
     const next = { ...taskFilterLabels, [filter]: label };
     setTaskFilterLabels(next);
-    savePreferences(widgetIds, next, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
+    savePreferences(widgetIds, widgetLayout, next, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
   };
 
   const saveTaskFilterOrder = (value: string[]) => {
     const next = normalizeTaskFilterOrder(value, customTaskTabs);
     setTaskFilterOrder(next);
-    savePreferences(widgetIds, taskFilterLabels, customTaskTabs, next, dismissedTodayTaskIds);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, customTaskTabs, next, dismissedTodayTaskIds);
   };
 
   const createCustomTaskTab = (value: string) => {
@@ -124,7 +148,7 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     const nextOrder = [...taskFilterOrder, tab.id];
     setCustomTaskTabs(nextTabs);
     setTaskFilterOrder(nextOrder);
-    savePreferences(widgetIds, taskFilterLabels, nextTabs, nextOrder, dismissedTodayTaskIds);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, nextTabs, nextOrder, dismissedTodayTaskIds);
     return { ok: true, tab };
   };
 
@@ -135,7 +159,7 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     const nextTabs = customTaskTabs.map((tab) => tab.id === id ? { ...tab, name } : tab);
     if (!nextTabs.some((tab) => tab.id === id)) return { ok: false, error: 'Task tab not found.' };
     setCustomTaskTabs(nextTabs);
-    savePreferences(widgetIds, taskFilterLabels, nextTabs, taskFilterOrder, dismissedTodayTaskIds);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, nextTabs, taskFilterOrder, dismissedTodayTaskIds);
     return { ok: true };
   };
 
@@ -145,24 +169,25 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     const nextOrder = taskFilterOrder.filter((value) => value !== id);
     setCustomTaskTabs(nextTabs);
     setTaskFilterOrder(nextOrder);
-    savePreferences(widgetIds, taskFilterLabels, nextTabs, nextOrder, dismissedTodayTaskIds, id);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, nextTabs, nextOrder, dismissedTodayTaskIds, id);
     return true;
   };
 
   const dismissTodayTask = (taskId: string) => {
     const next = Array.from(new Set([...dismissedTodayTaskIds, taskId])).slice(-200);
     setDismissedTodayTaskIds(next);
-    savePreferences(widgetIds, taskFilterLabels, customTaskTabs, taskFilterOrder, next);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, next);
   };
 
   const restoreTodayTask = (taskId: string) => {
     const next = dismissedTodayTaskIds.filter((id) => id !== taskId);
     setDismissedTodayTaskIds(next);
-    savePreferences(widgetIds, taskFilterLabels, customTaskTabs, taskFilterOrder, next);
+    savePreferences(widgetIds, widgetLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, next);
   };
 
   return {
     widgetIds,
+    widgetLayout,
     hydrated,
     availableWidgetIds: allowedWidgetIds(canViewFinancials),
     taskFilterLabels,
@@ -170,6 +195,8 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     taskFilterOrder,
     dismissedTodayTaskIds,
     saveWidgetIds,
+    saveWidgetLayout,
+    saveDashboard,
     saveTaskFilterLabel,
     saveTaskFilterOrder,
     createCustomTaskTab,
@@ -177,6 +204,12 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     deleteCustomTaskTab,
     dismissTodayTask,
     restoreTodayTask,
-    resetWidgetIds: () => saveWidgetIds(allowedWidgetIds(canViewFinancials)),
+    resetWidgetIds: () => {
+      const nextWidgetIds = allowedWidgetIds(canViewFinancials);
+      const nextLayout = defaultHomeDashboardLayout(nextWidgetIds);
+      setWidgetIds(nextWidgetIds);
+      setWidgetLayout(nextLayout);
+      savePreferences(nextWidgetIds, nextLayout, taskFilterLabels, customTaskTabs, taskFilterOrder, dismissedTodayTaskIds);
+    },
   };
 }

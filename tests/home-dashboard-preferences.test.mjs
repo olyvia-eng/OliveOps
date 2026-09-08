@@ -8,6 +8,7 @@ import {
   allowedHomeWidgetIds,
   normalizeHomeDashboardPreferences,
 } from '../api/_lib/homeDashboardPreferences.js';
+import { HOME_WIDGET_LAYOUT_SPECS } from '../src/pages/home/homeDashboardLayoutModel.js';
 
 const apiSource = readFileSync('api/home-dashboard-preferences.js', 'utf8');
 
@@ -26,24 +27,39 @@ test('field roles cannot persist company Operations or Finance widgets', () => {
 });
 
 test('widget preferences remove unknown and duplicate ids while preserving order', () => {
-  assert.deepEqual(normalizeHomeDashboardPreferences({ widgetIds: ['tasks', 'unknown', 'calendar', 'tasks'] }, 'admin'), {
-    widgetIds: ['tasks', 'calendar'],
-    taskFilterOrder: ['all', 'today', 'overdue', 'week', 'completed'],
-  });
+  const normalized = normalizeHomeDashboardPreferences({ widgetIds: ['tasks', 'unknown', 'calendar', 'tasks'] }, 'admin');
+  assert.deepEqual(normalized.widgetIds, ['tasks', 'calendar']);
+  assert.deepEqual(normalized.widgetLayout.map((item) => item.widgetId), ['tasks', 'calendar']);
+  assert.deepEqual(normalized.taskFilterOrder, ['all', 'today', 'overdue', 'week', 'completed']);
 });
 
 test('task filter labels and dismissed Today tasks are normalized per user', () => {
-  assert.deepEqual(normalizeHomeDashboardPreferences({
+  const normalized = normalizeHomeDashboardPreferences({
     widgetIds: ['tasks'],
     taskFilterLabels: { all: 'To do', today: 'Now', unknown: 'Nope', overdue: '   ' },
     taskFilterOrder: ['completed', 'today', 'all', 'completed', 'unknown'],
     dismissedTodayTaskIds: ['task-1', 'task-1', '', 42],
-  }, 'admin'), {
-    widgetIds: ['tasks'],
-    taskFilterLabels: { all: 'To do' },
-    taskFilterOrder: ['completed', 'today', 'all', 'overdue', 'week'],
-    dismissedTodayTaskIds: ['task-1'],
-  });
+  }, 'admin');
+  assert.deepEqual(normalized.widgetIds, ['tasks']);
+  assert.deepEqual(normalized.taskFilterLabels, { all: 'To do' });
+  assert.deepEqual(normalized.taskFilterOrder, ['completed', 'today', 'all', 'overdue', 'week']);
+  assert.deepEqual(normalized.dismissedTodayTaskIds, ['task-1']);
+});
+
+test('dashboard geometry is role-filtered, bounded, and migrated from order-only preferences', () => {
+  const migrated = normalizeHomeDashboardPreferences({ widgetIds: ['calendar', 'tasks'] }, 'owner');
+  assert.deepEqual(migrated.widgetLayout.map((item) => item.widgetId), ['calendar', 'tasks']);
+
+  const normalized = normalizeHomeDashboardPreferences({
+    widgetIds: ['calendar', 'finance-budget-profit'],
+    widgetLayout: [
+      { widgetId: 'calendar', x: 99, y: -4, width: 1, height: 1 },
+      { widgetId: 'finance-budget-profit', x: 0, y: 20, width: 4, height: 3 },
+      { widgetId: 'unknown', x: 0, y: 0, width: 12, height: 12 },
+    ],
+  }, 'crew_member');
+  assert.deepEqual(normalized.widgetIds, ['calendar']);
+  assert.deepEqual(normalized.widgetLayout, [{ widgetId: 'calendar', x: 6, y: 0, width: HOME_WIDGET_LAYOUT_SPECS.calendar.minWidth, height: HOME_WIDGET_LAYOUT_SPECS.calendar.minHeight }]);
 });
 
 test('custom task tabs keep stable ids, unique names, and persisted mixed ordering', () => {

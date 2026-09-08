@@ -1,5 +1,6 @@
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { normalizeHomeDashboardLayout } from '../../src/pages/home/homeDashboardLayoutModel.js';
 
 export const PERSONAL_HOME_WIDGET_IDS = [
   'due-today',
@@ -26,7 +27,7 @@ export const TASK_FILTER_IDS = ['all', 'today', 'overdue', 'week', 'completed'];
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const preferencesSk = (userId) => `HOME_DASHBOARD_PREFERENCES#${userId}`;
-const WIDGET_CATALOG_VERSION = 2;
+const WIDGET_CATALOG_VERSION = 3;
 
 export function allowedHomeWidgetIds(role) {
   return role === 'owner' || role === 'admin'
@@ -43,7 +44,7 @@ export function normalizeHomeDashboardPreferences(value, role) {
     if (typeof id !== 'string' || !allowed.has(id) || widgetIds.includes(id)) continue;
     widgetIds.push(id);
   }
-  const normalized = { widgetIds };
+  const normalized = { widgetIds, widgetLayout: normalizeHomeDashboardLayout(value?.widgetLayout, widgetIds) };
   const taskFilterLabels = {};
   for (const id of TASK_FILTER_IDS) {
     if (id === 'today') continue;
@@ -104,6 +105,7 @@ export async function getHomeDashboardPreferencesForUser(businessId, userId, rol
   }
   return normalizeHomeDashboardPreferences({
     widgetIds,
+    widgetLayout: result.Item.widgetLayout,
     taskFilterLabels: result.Item.taskFilterLabels,
     customTaskTabs: result.Item.customTaskTabs,
     taskFilterOrder: result.Item.taskFilterOrder,
@@ -123,6 +125,7 @@ export async function saveHomeDashboardPreferencesForUser({ businessId, userId, 
       userId,
       widgetCatalogVersion: WIDGET_CATALOG_VERSION,
       widgetIds: normalized.widgetIds,
+      widgetLayout: normalized.widgetLayout,
       taskFilterLabels: normalized.taskFilterLabels,
       customTaskTabs: normalized.customTaskTabs,
       taskFilterOrder: normalized.taskFilterOrder,

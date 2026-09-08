@@ -11,15 +11,13 @@ const employeePortalSource = readFileSync('src/pages/employees/EmployeePortalPag
 const clockedInWidgetSource = readFileSync('src/pages/home/ClockedInNowWidget.tsx', 'utf8');
 const bootstrapSource = readFileSync('api/bootstrap.js', 'utf8');
 
-test('Home widgets use handle-only mouse and touch drag with removal, add, and reset', () => {
+test('Home widgets use an edit-only header drag surface with interactive controls excluded', () => {
   assert.match(dashboardSource, /<CustomizableWidgetGrid/);
-  assert.match(gridSource, /draggable/);
-  assert.match(gridSource, /onDragStart/);
-  assert.match(gridSource, /onDrop/);
-  assert.match(gridSource, /onPointerDown/);
-  assert.match(gridSource, /onPointerMove/);
-  assert.match(gridSource, /onPointerUp/);
-  assert.match(gridSource, /touch-none cursor-grab/);
+  assert.match(gridSource, /from 'react-grid-layout'/);
+  assert.match(gridSource, /home-widget-drag-handle/);
+  assert.match(gridSource, /handle: '\.home-widget-drag-handle'/);
+  assert.match(gridSource, /cancel: 'button,a,input,select,textarea,\[role="button"\],\[role="tab"\]'/);
+  assert.match(gridSource, /enabled: editing/);
   assert.doesNotMatch(gridSource, /ArrowLeft|ArrowRight|Move .* earlier|Move .* later/);
   assert.match(gridSource, /title="Remove widget"/);
   assert.match(gridSource, /aria-label={`Remove \$\{widget\.title\}`}/);
@@ -27,11 +25,14 @@ test('Home widgets use handle-only mouse and touch drag with removal, add, and r
   assert.match(gridSource, /Reset layout/);
 });
 
-test('widget order is loaded and saved through user-scoped preferences', () => {
+test('widget order and geometry are loaded and saved through user-scoped preferences', () => {
   assert.match(preferencesHookSource, /fetch\('\/api\/home-dashboard-preferences'/);
   assert.match(preferencesHookSource, /method: 'PATCH'/);
-  assert.match(preferencesHookSource, /body: JSON\.stringify\(\{ widgetIds: nextWidgetIds, taskFilterLabels: nextLabels, customTaskTabs: nextTabs, taskFilterOrder: nextOrder, dismissedTodayTaskIds: nextDismissedIds, deletedTaskTabId \}\)/);
-  assert.match(gridSource, /onChange\(reorderHomeWidgetIds\(widgetIds, draggedId, targetId\)\)/);
+  assert.match(preferencesHookSource, /body: JSON\.stringify\(\{ widgetIds: nextWidgetIds, widgetLayout: nextWidgetLayout/);
+  assert.match(preferencesHookSource, /normalizeHomeDashboardLayout\(payload\.preferences\?\.widgetLayout, nextWidgetIds\)/);
+  assert.match(gridSource, /onChange\(homeWidgetIdsFromLayout\(nextLayout\), nextLayout\)/);
+  assert.match(dashboardSource, /widgetLayout=\{dashboardPreferences\.widgetLayout\}/);
+  assert.match(dashboardSource, /onChange=\{dashboardPreferences\.saveDashboard\}/);
 });
 
 test('personal sidebar cards are independently movable widgets', () => {
@@ -41,15 +42,17 @@ test('personal sidebar cards are independently movable widgets', () => {
   assert.match(sidebarWidgetsSource, /export function QuickActionsWidget/);
 });
 
-test('Home uses preferred widget sizes in a responsive grid that fills incomplete rows', () => {
-  assert.match(gridSource, /size: 'small' \| 'medium' \| 'large'/);
-  assert.match(gridSource, /md:grid-cols-6 xl:grid-cols-12/);
-  assert.match(gridSource, /function balancedSpans/);
-  assert.match(gridSource, /fillRow\(spans\.length\)/);
-  assert.match(dashboardSource, /id: 'calendar'.*size: 'large'/);
-  assert.match(dashboardSource, /id: 'tasks'.*size: 'large'/);
-  assert.match(dashboardSource, /id: 'activity'.*size: 'medium'/);
-  assert.match(dashboardSource, /id: 'quick-actions'.*size: 'medium'/);
+test('Home uses collision-managed responsive geometry and a simple mobile stack', () => {
+  assert.match(gridSource, /layouts=\{\{ lg: toGridLayout\(widgetLayout, 12\), md: toGridLayout\(widgetLayout, 8\) \}\}/);
+  assert.match(gridSource, /cols=\{\{ lg: 12, md: 8 \}\}/);
+  assert.match(gridSource, /resizeConfig=\{\{ enabled: editing, handles: \['se'\] \}\}/);
+  assert.match(gridSource, /onDragStop=\{\(layout\) => persistGridLayout\(layout\)\}/);
+  assert.match(gridSource, /onResizeStop=\{\(layout\) => persistGridLayout\(layout\)\}/);
+  assert.match(gridSource, /max-width: 767px/);
+  assert.match(gridSource, /mobile \? <div className="grid grid-cols-1 gap-4">/);
+  assert.match(gridSource, /minW: Math\.ceil\(spec\.minWidth \* scale\)/);
+  assert.match(gridSource, /minH: spec\.minHeight/);
+  assert.doesNotMatch(dashboardSource, /size: '(small|medium|large)'/);
 });
 
 test('Home dashboard containers use the wider application layout', () => {
