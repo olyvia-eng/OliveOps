@@ -11,6 +11,7 @@ import { emptyEquipmentInfoFormValue, normalizeEquipmentInfoForm, type Equipment
 import { calculateAnnualEquipmentCost, calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
 import { overheadAllocatedAmount, overheadAllocationForDivision, overheadAllocationTotal, overheadAllocationsAreValid, splitOverheadAllocationsEvenly } from '../../pages/budget/overheadAllocationModel.js';
 import { resolveEmployeeCostInputs } from '../../utils/employeeLabourCost';
+import { resolveBudgetEquipmentName } from '../../utils/equipmentDisplayModel.js';
 
 const config = {
   labour: {
@@ -402,6 +403,9 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   {items.map((item, index) => {
                     const labour = calculateDivisionLabour(item);
                     const labourShare = calculateDivisionLabourShare(item, division.id);
+                    const displayName = category === 'equipment'
+                      ? resolveBudgetEquipmentName(item, equipmentAssets)
+                      : item.name || item.description || 'Unnamed item';
                     return (
                       <tr
                         key={item.id}
@@ -417,16 +421,16 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1 text-brand-400">
                             <GripVertical size={16} />
-                            <button type="button" aria-label={`Move ${item.name ?? item.description} earlier`} disabled={!canEdit || index === 0} onClick={() => move(item, -1)}>
+                            <button type="button" aria-label={`Move ${displayName} earlier`} disabled={!canEdit || index === 0} onClick={() => move(item, -1)}>
                               <ArrowUp size={15} />
                             </button>
-                            <button type="button" aria-label={`Move ${item.name ?? item.description} later`} disabled={!canEdit || index === items.length - 1} onClick={() => move(item, 1)}>
+                            <button type="button" aria-label={`Move ${displayName} later`} disabled={!canEdit || index === items.length - 1} onClick={() => move(item, 1)}>
                               <ArrowDown size={15} />
                             </button>
                           </div>
                         </td>
                         <td className="px-3 py-3">
-                          <p className="font-semibold">{item.name || item.description}</p>
+                          <p className="font-semibold">{displayName}</p>
                           {item.description && item.name !== item.description ? <p className="text-xs text-brand-400">{item.description}</p> : null}
                         </td>
                         <td className="px-3 py-3 text-brand-500 dark:text-brand-300">
@@ -741,23 +745,35 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               <section className="border-t border-gray-200 pt-5">
                 <h3 className="text-sm font-semibold text-gray-900">Allocate Annual Equipment Cost</h3>
                 <p className="mt-1 text-xs text-gray-500">Allocation controls cost responsibility and which Division Equipment views show this asset.</p>
+                <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(9rem,0.85fr)_minmax(8rem,0.75fr)] gap-3 px-3 text-xs font-semibold uppercase text-gray-500 lg:grid">
+                  <span>Division</span>
+                  <span>Months</span>
+                  <span>Sellable Hours</span>
+                  <span className="text-right">Annual Cost</span>
+                </div>
                 <div className="mt-3 space-y-2">
                   {activeDivisions.map((item) => {
                     const allocation = draft.equipmentDivisionAllocations?.find((value) => value.divisionId === item.id);
                     const months = allocation?.months ?? 0;
                     const sellableHours = allocation?.sellableHours ?? 0;
                     return (
-                      <div key={item.id} className="grid items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:grid-cols-[minmax(0,1fr)_9rem_10rem_10rem]">
+                      <div key={item.id} className="grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(9rem,0.85fr)_minmax(8rem,0.75fr)] lg:items-center">
                         <label htmlFor={`equipment-allocation-${item.id}`} className="text-sm font-medium text-gray-900">
                           {item.name}
                           {item.id === division.id ? <span className="ml-2 text-xs font-normal text-brand-600">Current Division</span> : null}
                         </label>
-                        <div className="flex items-center gap-2">
+                        <div className="min-w-0">
+                          <label htmlFor={`equipment-allocation-${item.id}`} className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Months</label>
                           <Input id={`equipment-allocation-${item.id}`} type="number" min={0} max={12} step={0.25} value={months} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'months', numberValue(event.target.value))} />
-                          <span className="text-xs text-gray-500">months</span>
                         </div>
-                        <Input aria-label={`${item.name} sellable equipment hours`} type="number" min={0} step={1} value={sellableHours} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'sellableHours', numberValue(event.target.value))} />
-                        <p className="text-right text-sm font-semibold text-gray-900">{formatCurrency((equipmentCostBreakdown.totalEquipmentCostPerYear * months) / 12)}</p>
+                        <div className="min-w-0">
+                          <label htmlFor={`equipment-sellable-hours-${item.id}`} className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Sellable Hours</label>
+                          <Input id={`equipment-sellable-hours-${item.id}`} aria-label={`${item.name} sellable equipment hours`} type="number" min={0} step={1} value={sellableHours} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'sellableHours', numberValue(event.target.value))} />
+                        </div>
+                        <div>
+                          <span className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Annual Cost</span>
+                          <p className="text-sm font-semibold text-gray-900 lg:text-right">{formatCurrency((equipmentCostBreakdown.totalEquipmentCostPerYear * months) / 12)}</p>
+                        </div>
                       </div>
                     );
                   })}

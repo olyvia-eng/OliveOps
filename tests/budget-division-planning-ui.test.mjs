@@ -6,6 +6,7 @@ const workspace = readFileSync('src/pages/budget/DivisionWorkspacePage.tsx', 'ut
 const planner = readFileSync('src/components/budget/DivisionPlanningTab.tsx', 'utf8');
 const analysis = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx', 'utf8');
 const importer = readFileSync('src/components/budget/BudgetPlanImportDialog.tsx', 'utf8');
+const budgetPage = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const store = readFileSync('src/store/index.ts', 'utf8');
 
 test('all four Division planning tabs provide intentional Add and Import empty states', () => {
@@ -25,8 +26,8 @@ test('planning tabs retain Add and Import actions and allow every category to be
   assert.match(planner, /onDragStart/);
   assert.match(planner, /reorderBudgetDivisionPlanningItems/);
   assert.match(planner, /category === 'labour' \|\| category === 'equipment'/);
-  assert.match(planner, /Move \$\{item\.name \?\? item\.description\} earlier/);
-  assert.match(planner, /Move \$\{item\.name \?\? item\.description\} later/);
+  assert.match(planner, /Move \$\{displayName\} earlier/);
+  assert.match(planner, /Move \$\{displayName\} later/);
 });
 
 test('import dialog exposes Budget and Division selectors, preview selection, duplicates, and destination confirmation', () => {
@@ -106,6 +107,29 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(sharedForm, /Payment Frequency \(# per year\)/);
   assert.doesNotMatch(equipmentBranch, /label="Annual payment"|label="Utilization hours"|label="Planned amount"/);
   assert.doesNotMatch(sharedForm, /Fuel Price Unit|Fuel Burned per Hour|Months Used Per Year|Budget Sell Rate/);
+});
+
+test('equipment allocation renders one independently labelled Months and Sellable Hours input per Division', () => {
+  const allocationBranch = planner.slice(planner.indexOf('Allocate Annual Equipment Cost'), planner.indexOf('{equipmentError'));
+
+  assert.match(allocationBranch, /activeDivisions\.map/);
+  assert.match(allocationBranch, />Division<\/span>/);
+  assert.match(allocationBranch, />Months<\/span>/);
+  assert.match(allocationBranch, />Sellable Hours<\/span>/);
+  assert.match(allocationBranch, />Annual Cost<\/span>/);
+  assert.match(allocationBranch, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(7rem,0\.65fr\)_minmax\(9rem,0\.85fr\)_minmax\(8rem,0\.75fr\)\]/);
+  assert.equal((allocationBranch.match(/setEquipmentDivisionAllocation\(item\.id, 'months'/g) ?? []).length, 1);
+  assert.equal((allocationBranch.match(/setEquipmentDivisionAllocation\(item\.id, 'sellableHours'/g) ?? []).length, 1);
+  assert.match(allocationBranch, /equipmentAllocationTotal} of 12 months allocated/);
+  assert.match(allocationBranch, /totalEquipmentCostPerYear \* months\) \/ 12/);
+});
+
+test('equipment names use one fallback resolver throughout Budget planning displays', () => {
+  assert.match(planner, /resolveBudgetEquipmentName\(item, equipmentAssets\)/);
+  assert.match(importer, /resolveBudgetEquipmentName\(item, equipmentAssets\)/);
+  assert.match(analysis, /resolveBudgetEquipmentName\(row\.item, equipmentAssets\)/);
+  assert.match(budgetPage, /resolveBudgetEquipmentName\(item, equipmentAssets\)/);
+  assert.match(budgetPage, /resolveBudgetEquipmentName\(b, equipmentAssets\)/);
 });
 
 test('linked Budget equipment uses one editable local draft without Catalog rehydration', () => {

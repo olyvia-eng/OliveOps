@@ -14,6 +14,7 @@ import {
 import { formatTargetMarginPercent } from "../../pages/budget/budgetAnalysisSummaryModel.js";
 import { buildOverheadRecoveryModel } from "../../pages/budget/overheadRecoveryModel.js";
 import OverheadRecoveryEditor from "./OverheadRecoveryEditor";
+import { resolveBudgetEquipmentName } from "../../utils/equipmentDisplayModel.js";
 
 interface Props {
   budget: Budget;
@@ -187,7 +188,9 @@ export default function BudgetPricingAnalysis({
             return (
               <tr key={row.key} id={`pricing-${row.divisionId}-${row.item.id}`}>
                 <td className="px-4 py-3 font-medium">
-                  {row.item.name || row.item.description}
+                  {row.item.category === "equipment"
+                    ? resolveBudgetEquipmentName(row.item, equipmentAssets)
+                    : row.item.name || row.item.description}
                 </td>
                 <td className="px-4 py-3 text-gray-500">{row.divisionName}</td>
                 <td className="px-4 py-3 text-right">

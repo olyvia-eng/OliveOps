@@ -36,6 +36,7 @@ import {
 } from '../../utils/equipmentAllocation.js';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { resolveBudgetEquipmentName } from '../../utils/equipmentDisplayModel.js';
 
 type BudgetTab = 'analysis' | 'revenue' | 'labour' | 'materials' | 'equipment' | 'subcontractors' | 'overhead';
 type LabourTableView = 'all' | 'hourly' | 'salaried';
@@ -2329,7 +2330,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                                   <button
                                     type="button"
                                     draggable
-                                    aria-label={`Reorder ${linkedAsset?.name ?? item.description}. Use up and down arrow keys to move.`}
+                                    aria-label={`Reorder ${resolveBudgetEquipmentName(item, equipmentAssets)}. Use up and down arrow keys to move.`}
                                     className="cursor-grab rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 active:cursor-grabbing"
                                     onDragStart={() => setDraggedEquipmentId(item.id)}
                                     onDragEnd={() => setDraggedEquipmentId(null)}
@@ -2351,7 +2352,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                                 </td>
                               ) : null}
                               <td className="px-4 py-2 text-gray-700">
-                                <p className="font-medium text-gray-900">{linkedAsset?.name ?? item.description}</p>
+                                <p className="font-medium text-gray-900">{resolveBudgetEquipmentName(item, equipmentAssets)}</p>
                                 <p className="text-xs text-gray-500 mt-1">{linkedAsset ? linkedAsset.type : 'Unlinked custom budget row'}</p>
                                 <p className="text-xs text-gray-500 mt-1">{item.equipmentClassification === 'overhead' ? 'Overhead Equipment' : 'Billable Equipment'}</p>
                               </td>
@@ -2594,7 +2595,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                       <td className="px-4 py-2 text-gray-700">{b.costCode?.trim() ? b.costCode : '—'}</td>
                       <td className="px-4 py-2 text-gray-700">
                         <div className="flex items-center gap-2">
-                          <span>{b.description}</span>
+                          <span>{b.category === 'equipment' ? resolveBudgetEquipmentName(b, equipmentAssets) : b.description}</span>
                           {b.category === 'equipment' && (
                             <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
                               {normalizeEquipmentCostType(b.equipmentCostType).replace('_', ' ')}
@@ -2652,7 +2653,7 @@ export default function BudgetPage({ currentUserRole }: BudgetPageProps) {
                         <td className="px-4 py-2 text-gray-700">{b.costCode?.trim() ? b.costCode : '—'}</td>
                         <td className="px-4 py-2 text-gray-700">
                           <div className="flex items-center gap-2">
-                            <span>{b.description}</span>
+                            <span>{b.category === 'equipment' ? resolveBudgetEquipmentName(b, equipmentAssets) : b.description}</span>
                             {b.category === 'equipment' && (
                               <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 capitalize">
                                   {normalizeEquipmentCostType(b.equipmentCostType).replace('_', ' ')}
