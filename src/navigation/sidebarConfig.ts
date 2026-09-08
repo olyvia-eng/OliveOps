@@ -9,6 +9,7 @@ import {
   FolderOpen,
   PackageSearch,
   Receipt,
+  Snowflake,
   LayoutDashboard,
   GraduationCap,
   BookOpenText,
@@ -57,6 +58,7 @@ const NAVIGATION_CONFIG: SidebarConfig = {
           ],
         },
         { id: 'workflow-schedule', type: 'link', to: '/schedule', label: 'Schedule', icon: icon(CalendarDays) },
+        { id: 'workflow-snow-operations', type: 'link', to: '/snow-operations', label: 'Snow Operations', icon: icon(Snowflake), roles: ownerAdminRoles },
       ],
     },
     {

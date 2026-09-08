@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Clock, LogOut, ShieldCheck } from 'lucide-react';
+import { Clock, LogOut, ShieldCheck, Snowflake } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button, Card, Input, Modal, Select } from '../../components/ui';
 import { durationHours, formatDateTime } from '../../utils';
@@ -273,6 +273,11 @@ export default function EmployeePortalPage({ sessionEmployeeEmail, currentUserId
           </div>
           <Button variant="secondary" onClick={handleLogout}>Log Out</Button>
         </div>
+
+        <Link to="/snow-assignment" className="mb-4 flex min-h-14 items-center justify-between rounded-lg bg-brand-900 px-4 py-3 text-white shadow-sm">
+          <span className="flex items-center gap-3"><Snowflake className="h-5 w-5" /><span><span className="block text-sm font-semibold">Tonight’s Snow Assignment</span><span className="block text-xs text-brand-200">Open route and field workflow</span></span></span>
+          <span aria-hidden>›</span>
+        </Link>
 
         {portalView === 'calendar' ? <PersonalHomeDashboard currentUserId={currentUserId} currentUserName={employee?.name || sessionEmployeeEmail || 'Team member'} currentUserEmail={sessionEmployeeEmail} currentUserRole={currentUserRole} onOpenSchedule={() => setPortalView('schedule')} onOpenTimeClock={() => setPortalView('clock')} /> : null}
 

@@ -37,6 +37,8 @@ const TimeReportsPage = lazy(() => import('./pages/reports/TimeReportsPage'));
 const TimeOffRequestsPage = lazy(() => import('./pages/employees/TimeOffRequestsPage'));
 const EmployeePortalPage = lazy(() => import('./pages/employees/EmployeePortalPage'));
 const CalendarPage = lazy(() => import('./pages/calendar/CalendarPage'));
+const SnowOperationsPage = lazy(() => import('./pages/snow/SnowOperationsPage'));
+const SnowAssignmentPage = lazy(() => import('./pages/snow/SnowAssignmentPage'));
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const SignupPage = lazy(() => import('./pages/auth/SignupPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
@@ -566,6 +568,7 @@ export default function App() {
             <>
               <Route path="login" element={<Navigate to="/employee-login" replace />} />
               <Route path="signup" element={<Navigate to="/employee-login" replace />} />
+              <Route path="snow-assignment" element={<SnowAssignmentPage />} />
               <Route path="settings/personal-calendar" element={<PersonalCalendarSettingsPage />} />
               <Route path="*" element={<Navigate to="/employee-login" replace />} />
             </>
@@ -713,6 +716,7 @@ export default function App() {
               <Route path="jobs/:id/schedule" element={<ProjectJobScheduleRoute currentUserRole={sessionUser.role} />} />
               <Route path="jobs/:id/work-areas/:workAreaId" element={<ProjectJobWorkAreaRoute currentUserRole={sessionUser.role} />} />
               <Route path="schedule" element={<CalendarPage currentUserRole={sessionUser.role} />} />
+              <Route path="snow-operations" element={canManageUsers ? <SnowOperationsPage /> : <Navigate to="/home" replace />} />
               <Route path="calendar" element={<LegacyCalendarRedirect />} />
               <Route path="budgets" element={<BudgetsOverviewPage currentUserRole={sessionUser.role} />} />
               <Route path="budgets/:budgetId/divisions/:divisionId" element={<DivisionWorkspacePage currentUserRole={sessionUser.role} />} />

@@ -40,6 +40,7 @@ import { findClockInWorkflowRequirement, getClockInWorkflowForBusiness } from '.
 import { findWorkflowRequirement, getClockOutWorkflowForBusiness } from './_lib/mandatoryClockOut.js';
 import { getServiceVisitForBusiness } from './_lib/serviceVisitRepo.js';
 import { isEmployeeAssignedToServiceVisit } from './_lib/serviceVisitContext.js';
+import { getSnowEventForBusiness, getSnowOccurrenceForBusiness, getSnowRouteForBusiness, getSnowStopForBusiness } from './_lib/snowRepo.js';
 import {
   getTrainingDefinitionForBusiness,
   getTrainingVersionForBusiness,
@@ -77,6 +78,7 @@ const ATTACHMENT_ALLOWLIST = {
   document: DOCUMENT_CATEGORIES,
   job: new Set(['document', 'photo', 'misc']),
   'service-visit': new Set(['photo']),
+  'snow-occurrence': new Set(['before-photo', 'after-photo']),
   [JOB_COST_BILL_ENTITY_TYPE]: new Set(['invoice']),
   customer: new Set(['document', 'photo', 'misc']),
   estimate: new Set(['document', 'photo', 'misc']),
@@ -268,6 +270,10 @@ const defaultDeps = {
   getFormSubmissionForBusiness,
   getJobForBusiness,
   getServiceVisitForBusiness,
+  getSnowEventForBusiness,
+  getSnowOccurrenceForBusiness,
+  getSnowRouteForBusiness,
+  getSnowStopForBusiness,
   getJobCostRecordForBusiness,
   getEmployeeForBusiness,
   getFeedbackForBusiness,
@@ -304,7 +310,7 @@ export function createStorageHandler(overrides = {}) {
       ?? null;
   }
 
-  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, jobId, accessMode = 'read' }) {
+  async function resolveAttachmentEntityWithDeps({ session, entityType, entityId, fileId, jobId, eventId, routeId, stopId, accessMode = 'read' }) {
     if (entityType === BUSINESS_PROFILE_ENTITY_TYPE) {
       return {
         entity: { id: session.businessId },
@@ -387,6 +393,23 @@ export function createStorageHandler(overrides = {}) {
       if (!visit) return null;
       const crews = await deps.listCrewsForBusiness(session.businessId);
       return { entity: visit, allowed: isEmployeeAssignedToServiceVisit(session, visit, crews) };
+    }
+
+    if (entityType === 'snow-occurrence') {
+      const storedFile = fileId ? await deps.getFileForBusiness(session.businessId, fileId) : null;
+      const resolvedEventId = typeof eventId === 'string' && eventId.trim() ? eventId.trim() : storedFile?.snowEventId;
+      const resolvedRouteId = typeof routeId === 'string' && routeId.trim() ? routeId.trim() : storedFile?.snowRouteId;
+      const resolvedStopId = typeof stopId === 'string' && stopId.trim() ? stopId.trim() : storedFile?.routeStopId;
+      if (!resolvedEventId || !resolvedRouteId || !resolvedStopId) return null;
+      const [event, route, stop, occurrence] = await Promise.all([
+        deps.getSnowEventForBusiness(session.businessId, resolvedEventId),
+        deps.getSnowRouteForBusiness(session.businessId, resolvedEventId, resolvedRouteId),
+        deps.getSnowStopForBusiness(session.businessId, resolvedEventId, resolvedRouteId, resolvedStopId),
+        deps.getSnowOccurrenceForBusiness(session.businessId, resolvedEventId, resolvedRouteId, resolvedStopId, entityId),
+      ]);
+      if (!event || !route || !stop || !occurrence || route.snowEventId !== event.id || stop.snowRouteId !== route.id || occurrence.routeStopId !== stop.id) return null;
+      const allowed = canManageDocuments(session.role) || Boolean(session.employeeId && route.assignedEmployeeIds?.includes(session.employeeId));
+      return { entity: occurrence, allowed };
     }
 
     if (entityType === JOB_COST_BILL_ENTITY_TYPE) {
@@ -581,6 +604,16 @@ export function createStorageHandler(overrides = {}) {
             formContext = { jobId, serviceId, serviceVisitId: entityId };
           }
 
+          if (entityType === 'snow-occurrence') {
+            const snowEventId = typeof body.snowEventId === 'string' ? body.snowEventId.trim() : '';
+            const snowRouteId = typeof body.snowRouteId === 'string' ? body.snowRouteId.trim() : '';
+            const routeStopId = typeof body.routeStopId === 'string' ? body.routeStopId.trim() : '';
+            if (!snowEventId || !snowRouteId || !routeStopId || !FORM_PHOTO_MIME_TYPES.has(validation.mimeType) || validation.sizeBytes > FORM_PHOTO_MAX_BYTES) {
+              return res.status(400).json({ ok: false, error: 'Snow evidence must be a JPEG, PNG, or WebP image no larger than 8 MB with complete Route context.' });
+            }
+            formContext = { snowEventId, snowRouteId, routeStopId };
+          }
+
           if (entityType === JOB_COST_BILL_ENTITY_TYPE) {
             const jobId = typeof body.jobId === 'string' ? body.jobId.trim() : '';
             if (!jobId) return res.status(400).json({ ok: false, error: 'Bill upload context is invalid.' });
@@ -589,7 +622,7 @@ export function createStorageHandler(overrides = {}) {
 
           const resolvedEntity = entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE
             ? { entity: { id: entityId }, allowed: true }
-            : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, jobId: body.jobId, accessMode: 'write' });
+            : await resolveAttachmentEntityWithDeps({ session, entityType, entityId, jobId: body.jobId, eventId: body.snowEventId, routeId: body.snowRouteId, stopId: body.routeStopId, accessMode: 'write' });
           if (entityType === 'service-visit' && resolvedEntity?.entity?.serviceId !== formContext?.serviceId) {
             return res.status(403).json({ ok: false, error: 'Forbidden' });
           }
@@ -603,7 +636,7 @@ export function createStorageHandler(overrides = {}) {
             mimeType: validation.mimeType,
             sizeBytes: validation.sizeBytes,
           });
-          if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE) plan.writeOnce = true;
+          if (entityType === FORM_SIGNATURE_ENTITY_TYPE || entityType === FORM_ATTACHMENT_ENTITY_TYPE || entityType === 'snow-occurrence') plan.writeOnce = true;
 
           const pendingRecord = buildPendingFileRecord({
             session,
@@ -760,7 +793,7 @@ export function createStorageHandler(overrides = {}) {
           const attachmentField = file.entityType === DOCUMENT_ENTITY_TYPE
             ? undefined
             : getAttachmentFieldForCategory({ entityType: file.entityType, category: normalizedCategory });
-          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE, BUSINESS_PROFILE_ENTITY_TYPE, JOB_COST_BILL_ENTITY_TYPE].includes(file.entityType) && !attachmentField) {
+          if (![DOCUMENT_ENTITY_TYPE, FORM_SIGNATURE_ENTITY_TYPE, FORM_ATTACHMENT_ENTITY_TYPE, TRAINING_ENTITY_TYPE, SOP_ENTITY_TYPE, BUSINESS_PROFILE_ENTITY_TYPE, JOB_COST_BILL_ENTITY_TYPE, 'snow-occurrence'].includes(file.entityType) && !attachmentField) {
             return res.status(400).json({ ok: false, error: 'Unsupported attachment category.' });
           }
 

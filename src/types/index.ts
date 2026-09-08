@@ -281,6 +281,57 @@ export interface ServiceVisit {
   updatedAt: string;
 }
 
+export type SnowEventStatus = 'draft' | 'active' | 'completed' | 'cancelled';
+export type SnowRouteStatus = 'not_started' | 'active' | 'completed';
+export type SnowRouteStopStatus = 'pending' | 'en_route' | 'arrived' | 'servicing' | 'completed' | 'skipped' | 'needs_attention';
+export type SnowServiceOccurrenceStatus = 'not_started' | 'before_evidence_complete' | 'active' | 'awaiting_after_evidence' | 'completed';
+
+export interface SnowEvent {
+  id: ID; businessId?: ID; title: string; startAt: string; endAt?: string; status: SnowEventStatus; notes: string;
+  createdBy: ID; revision: number; createdAt: string; updatedAt: string;
+}
+
+export interface SnowRoute {
+  id: ID; businessId?: ID; snowEventId: ID; name: string; assignedForemanId: ID; assignedCrewEmployeeIds: ID[];
+  assignedEmployeeIds: ID[]; assignedEquipmentIds: ID[]; startingLocation?: string; status: SnowRouteStatus;
+  startedAt?: string; completedAt?: string; lastUpdatedAt?: string; revision: number; createdAt: string; updatedAt: string;
+}
+
+export interface SnowRouteStop {
+  id: ID; businessId?: ID; snowEventId: ID; snowRouteId: ID; serviceJobId: ID; serviceVisitId?: ID;
+  customerId: ID; customerNameSnapshot: string; propertyLabel: string; address: string; siteNotes: string; sortOrder: number;
+  plannedServiceTypeIds: ID[]; status: SnowRouteStopStatus; assignedForemanId?: ID; assignedCrewEmployeeIds?: ID[];
+  assignedEquipmentIds?: ID[]; arrivedAt?: string; serviceStartedAt?: string; completedAt?: string; skippedAt?: string;
+  manualAttentionReason?: string; lastUpdatedAt?: string; revision: number; createdAt: string; updatedAt: string;
+}
+
+export interface SnowServiceType {
+  id: ID; name: string; active: boolean; sortOrder: number; revision: number; createdAt: string; updatedAt: string;
+}
+
+export interface SnowServiceOccurrence {
+  id: ID; businessId?: ID; snowEventId: ID; snowRouteId: ID; routeStopId: ID; serviceVisitId?: ID;
+  serviceTypeId: ID; serviceTypeName: string; employeeId: ID; status: SnowServiceOccurrenceStatus;
+  beforePhotoFileIds: ID[]; afterPhotoFileIds: ID[]; startedAt?: string; finishRequestedAt?: string; completedAt?: string;
+  revision: number; createdAt: string; updatedAt: string;
+}
+
+export interface SnowGpsEvidence {
+  status: 'captured' | 'low_accuracy' | 'unavailable'; latitude?: number; longitude?: number; accuracyMeters?: number; unavailableReason?: string;
+}
+
+export interface SnowEvidenceEvent {
+  id: ID; businessId?: ID; snowEventId: ID; snowRouteId: ID; routeStopId: ID; occurrenceId?: ID; serviceVisitId?: ID;
+  employeeId: ID; eventType: 'ROUTE_STARTED' | 'EN_ROUTE' | 'ARRIVED' | 'SERVICE_SELECTED' | 'PHOTO_RECORDED' | 'SERVICE_STARTED' | 'SERVICE_FINISHED' | 'SERVICE_COMPLETED' | 'STOP_SKIPPED' | 'STOP_FLAGGED' | 'GPS_UNAVAILABLE';
+  stage?: 'BEFORE' | 'AFTER'; fileId?: ID; serviceTypeId?: ID; gps: SnowGpsEvidence; deviceCapturedAt: string; serverRecordedAt: string;
+}
+
+export interface SnowBreadcrumbBatch {
+  id: ID; snowEventId: ID; snowRouteId: ID; routeStopId: ID; occurrenceId: ID; employeeId: ID;
+  points: Array<SnowGpsEvidence & { deviceCapturedAt: string; serverRecordedAt: string; sequence: number }>;
+  createdAt: string;
+}
+
 export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'declined' | 'converted';
 
 export interface ProposalPaymentStage {

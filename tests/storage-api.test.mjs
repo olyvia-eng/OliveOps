@@ -408,6 +408,34 @@ test('prepare-upload rejects unsupported entity type', async () => {
   assert.equal(res.body.ok, false);
 });
 
+test('Snow occurrence uploads require an assigned Route and preserve trusted hierarchy', async () => {
+  let pendingFile;
+  const snowDeps = baseDeps({
+    requireSession: () => ({ id: 'user-1', role: 'crew_member', businessId: 'biz-1', employeeId: 'emp-1' }),
+    getSnowEventForBusiness: async (_businessId, id) => id === 'event-1' ? { id, status: 'active' } : null,
+    getSnowRouteForBusiness: async (_businessId, _eventId, id) => id === 'route-1' ? { id, snowEventId: 'event-1', assignedEmployeeIds: ['emp-1'] } : null,
+    getSnowStopForBusiness: async (_businessId, _eventId, _routeId, id) => id === 'stop-1' ? { id, snowRouteId: 'route-1' } : null,
+    getSnowOccurrenceForBusiness: async (_businessId, _eventId, _routeId, _stopId, id) => id === 'occurrence-1' ? { id, routeStopId: 'stop-1' } : null,
+    createPendingFileForBusiness: async ({ file }) => { pendingFile = file; return { ok: true }; },
+  });
+  const handler = createStorageHandler(snowDeps);
+  const body = { action: 'prepare-upload', entityType: 'snow-occurrence', entityId: 'occurrence-1', category: 'before-photo', fileName: 'before.jpg', mimeType: 'image/jpeg', sizeBytes: 100, snowEventId: 'event-1', snowRouteId: 'route-1', routeStopId: 'stop-1' };
+  const allowed = createMockRes();
+  await handler({ method: 'POST', body }, allowed);
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(pendingFile.snowEventId, 'event-1');
+  assert.equal(pendingFile.snowRouteId, 'route-1');
+  assert.equal(pendingFile.routeStopId, 'stop-1');
+  assert.equal(pendingFile.category, 'before-photo');
+
+  const denied = createMockRes();
+  await createStorageHandler(baseDeps({
+    ...snowDeps,
+    getSnowRouteForBusiness: async () => ({ id: 'route-1', snowEventId: 'event-1', assignedEmployeeIds: ['someone-else'] }),
+  }))({ method: 'POST', body }, denied);
+  assert.equal(denied.statusCode, 403);
+});
+
 test('successful complete-upload returns file metadata', async () => {
   let updatedFile;
   const handler = createStorageHandler(baseDeps({
