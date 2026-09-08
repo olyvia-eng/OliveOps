@@ -20,20 +20,23 @@ export const FINANCE_HOME_WIDGET_IDS = [
   'finance-budget-profit',
 ];
 
+export const COMPANY_HOME_WIDGET_IDS = ['clocked-in-now'];
+
 export const TASK_FILTER_IDS = ['all', 'today', 'overdue', 'week', 'completed'];
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const preferencesSk = (userId) => `HOME_DASHBOARD_PREFERENCES#${userId}`;
+const WIDGET_CATALOG_VERSION = 2;
 
 export function allowedHomeWidgetIds(role) {
   return role === 'owner' || role === 'admin'
-    ? [...PERSONAL_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS]
+    ? [...PERSONAL_HOME_WIDGET_IDS, ...COMPANY_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS]
     : [...PERSONAL_HOME_WIDGET_IDS];
 }
 
 export function normalizeHomeDashboardPreferences(value, role) {
   const allowed = new Set(allowedHomeWidgetIds(role));
-  const input = Array.isArray(value?.widgetIds) ? value.widgetIds : PERSONAL_HOME_WIDGET_IDS;
+  const input = Array.isArray(value?.widgetIds) ? value.widgetIds : allowedHomeWidgetIds(role);
   const widgetIds = [];
 
   for (const id of input) {
@@ -95,8 +98,12 @@ export async function getHomeDashboardPreferencesForUser(businessId, userId, rol
   if (!result.Item || result.Item.businessId !== businessId || result.Item.userId !== userId) {
     return normalizeHomeDashboardPreferences(null, role);
   }
+  const widgetIds = Array.isArray(result.Item.widgetIds) ? [...result.Item.widgetIds] : result.Item.widgetIds;
+  if ((role === 'owner' || role === 'admin') && result.Item.widgetCatalogVersion !== WIDGET_CATALOG_VERSION && Array.isArray(widgetIds) && !widgetIds.includes('clocked-in-now')) {
+    widgetIds.push('clocked-in-now');
+  }
   return normalizeHomeDashboardPreferences({
-    widgetIds: result.Item.widgetIds,
+    widgetIds,
     taskFilterLabels: result.Item.taskFilterLabels,
     customTaskTabs: result.Item.customTaskTabs,
     taskFilterOrder: result.Item.taskFilterOrder,
@@ -114,6 +121,7 @@ export async function saveHomeDashboardPreferencesForUser({ businessId, userId, 
       entityType: 'HOME_DASHBOARD_PREFERENCES',
       businessId,
       userId,
+      widgetCatalogVersion: WIDGET_CATALOG_VERSION,
       widgetIds: normalized.widgetIds,
       taskFilterLabels: normalized.taskFilterLabels,
       customTaskTabs: normalized.customTaskTabs,

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  COMPANY_HOME_WIDGET_IDS,
   FINANCE_HOME_WIDGET_IDS,
   PERSONAL_HOME_WIDGET_IDS,
   allowedHomeWidgetIds,
@@ -17,8 +18,8 @@ test('Home widget preferences are session-owned and business-scoped', () => {
   assert.doesNotMatch(apiSource, /req\.(body|query).*userId/);
 });
 
-test('field roles cannot persist Finance widgets', () => {
-  const requested = [...PERSONAL_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS];
+test('field roles cannot persist company Operations or Finance widgets', () => {
+  const requested = [...PERSONAL_HOME_WIDGET_IDS, ...COMPANY_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS];
   assert.deepEqual(normalizeHomeDashboardPreferences({ widgetIds: requested }, 'crew_member').widgetIds, PERSONAL_HOME_WIDGET_IDS);
   assert.deepEqual(normalizeHomeDashboardPreferences({ widgetIds: requested }, 'foreman').widgetIds, PERSONAL_HOME_WIDGET_IDS);
   assert.deepEqual(allowedHomeWidgetIds('owner'), requested);

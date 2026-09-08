@@ -1,0 +1,1 @@
+export function formatClockedInElapsed(clockIn: string, now?: number): string;

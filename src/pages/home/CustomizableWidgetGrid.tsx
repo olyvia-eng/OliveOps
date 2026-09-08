@@ -9,7 +9,7 @@ export interface HomeWidgetDefinition {
   description: string;
   size: 'small' | 'medium' | 'large';
   content: ReactNode;
-  category: 'Personal' | 'Finance';
+  category: 'Personal' | 'Operations' | 'Finance';
 }
 
 interface CustomizableWidgetGridProps {
@@ -146,7 +146,7 @@ export default function CustomizableWidgetGrid({ widgetIds, availableWidgetIds, 
       <Modal open={catalogOpen} onClose={() => setCatalogOpen(false)} title="Add a widget">
         {hiddenDefinitions.length === 0 ? <p className="text-sm text-brand-500 dark:text-brand-200">All available widgets are already on your Home.</p> : (
           <div className="space-y-4">
-            {(['Personal', 'Finance'] as const).map((category) => {
+            {(['Personal', 'Operations', 'Finance'] as const).map((category) => {
               const items = hiddenDefinitions.filter((widget) => widget.category === category);
               if (items.length === 0) return null;
               return <section key={category}><h3 className="mb-2 text-xs font-semibold uppercase text-brand-400 dark:text-brand-300">{category}</h3><div className="space-y-2">{items.map((widget) => <button key={widget.id} type="button" onClick={() => addWidget(widget.id)} className="flex w-full items-center justify-between gap-3 rounded-md border border-brand-100 p-3 text-left hover:border-brand-300 hover:bg-brand-50 dark:border-brand-600 dark:hover:bg-brand-600"><span><span className="block text-sm font-semibold text-brand-900 dark:text-brand-50">{widget.title}</span><span className="mt-0.5 block text-xs text-brand-400 dark:text-brand-300">{widget.description}</span></span><Plus className="shrink-0 text-brand-500" size={17} /></button>)}</div></section>;

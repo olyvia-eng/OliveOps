@@ -21,7 +21,9 @@ export const FINANCE_HOME_WIDGET_IDS = [
   'finance-budget-profit',
 ] as const;
 
-export type HomeWidgetId = typeof PERSONAL_HOME_WIDGET_IDS[number] | typeof FINANCE_HOME_WIDGET_IDS[number];
+export const COMPANY_HOME_WIDGET_IDS = ['clocked-in-now'] as const;
+
+export type HomeWidgetId = typeof PERSONAL_HOME_WIDGET_IDS[number] | typeof FINANCE_HOME_WIDGET_IDS[number] | typeof COMPANY_HOME_WIDGET_IDS[number];
 
 export const DEFAULT_TASK_FILTER_LABELS: Record<HomeTaskFilter, string> = {
   all: 'Open',
@@ -33,13 +35,13 @@ export const DEFAULT_TASK_FILTER_LABELS: Record<HomeTaskFilter, string> = {
 
 export const DEFAULT_TASK_FILTER_ORDER: HomeTaskFilter[] = ['all', 'today', 'overdue', 'week', 'completed'];
 
-const allowedWidgetIds = (canViewFinancials: boolean): HomeWidgetId[] => canViewFinancials
-  ? [...PERSONAL_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS]
+const allowedWidgetIds = (canViewCompanyData: boolean): HomeWidgetId[] => canViewCompanyData
+  ? [...PERSONAL_HOME_WIDGET_IDS, ...COMPANY_HOME_WIDGET_IDS, ...FINANCE_HOME_WIDGET_IDS]
   : [...PERSONAL_HOME_WIDGET_IDS];
 
 const normalizeWidgetIds = (value: unknown, canViewFinancials: boolean): HomeWidgetId[] => {
   const allowed = new Set<HomeWidgetId>(allowedWidgetIds(canViewFinancials));
-  const source: unknown[] = Array.isArray(value) ? value : [...PERSONAL_HOME_WIDGET_IDS];
+  const source: unknown[] = Array.isArray(value) ? value : allowedWidgetIds(canViewFinancials);
   return source.filter((id, index): id is HomeWidgetId => typeof id === 'string' && allowed.has(id as HomeWidgetId) && source.indexOf(id) === index);
 };
 
@@ -57,7 +59,7 @@ const normalizeTaskFilterOrder = (value: unknown, customTaskTabs: TaskTab[]): st
 };
 
 export default function useHomeDashboardPreferences(canViewFinancials: boolean) {
-  const [widgetIds, setWidgetIds] = useState<HomeWidgetId[]>(() => [...PERSONAL_HOME_WIDGET_IDS]);
+  const [widgetIds, setWidgetIds] = useState<HomeWidgetId[]>(() => allowedWidgetIds(canViewFinancials));
   const [taskFilterLabels, setTaskFilterLabels] = useState<Record<HomeTaskFilter, string>>(DEFAULT_TASK_FILTER_LABELS);
   const [customTaskTabs, setCustomTaskTabs] = useState<TaskTab[]>([]);
   const [taskFilterOrder, setTaskFilterOrder] = useState<string[]>(DEFAULT_TASK_FILTER_ORDER);
@@ -78,7 +80,7 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
         setDismissedTodayTaskIds(Array.isArray(payload.preferences?.dismissedTodayTaskIds) ? payload.preferences.dismissedTodayTaskIds.filter((id): id is string => typeof id === 'string') : []);
       })
       .catch((error: Error) => {
-        if (error.name !== 'AbortError') setWidgetIds([...PERSONAL_HOME_WIDGET_IDS]);
+        if (error.name !== 'AbortError') setWidgetIds(allowedWidgetIds(canViewFinancials));
       })
       .finally(() => setHydrated(true));
     return () => controller.abort();
@@ -175,6 +177,6 @@ export default function useHomeDashboardPreferences(canViewFinancials: boolean) 
     deleteCustomTaskTab,
     dismissTodayTask,
     restoreTodayTask,
-    resetWidgetIds: () => saveWidgetIds([...PERSONAL_HOME_WIDGET_IDS]),
+    resetWidgetIds: () => saveWidgetIds(allowedWidgetIds(canViewFinancials)),
   };
 }

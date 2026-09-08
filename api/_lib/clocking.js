@@ -1,4 +1,4 @@
-import { DeleteCommand, GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
+import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
 import { TIME_ENTRY_INDEX_SK, timeEntryIndexAttributes } from './timeEntryPagination.js';
 import { getBusinessPeriodKeys } from './businessTime.js';
@@ -832,6 +832,56 @@ export async function getActiveShiftForEmployee({ businessId, employeeId, consis
     createdAt: result.Item.createdAt,
     updatedAt: result.Item.updatedAt,
   };
+}
+
+async function batchGetClockingItems(keys) {
+  const items = [];
+  for (let offset = 0; offset < keys.length; offset += 100) {
+    let pendingKeys = keys.slice(offset, offset + 100);
+    for (let attempt = 0; pendingKeys.length > 0 && attempt < 3; attempt += 1) {
+      const result = await ddb.send(new BatchGetCommand({
+        RequestItems: { [tableName]: { Keys: pendingKeys } },
+      }));
+      items.push(...(result.Responses?.[tableName] ?? []));
+      pendingKeys = result.UnprocessedKeys?.[tableName]?.Keys ?? [];
+    }
+    if (pendingKeys.length > 0) throw new Error('Could not read all active clocking records.');
+  }
+  return items;
+}
+
+export async function listActiveTimeEntriesForBusiness({ businessId, employeeIds }) {
+  const uniqueEmployeeIds = [...new Set(employeeIds.filter((employeeId) => typeof employeeId === 'string' && employeeId.trim()))];
+  if (uniqueEmployeeIds.length === 0) return [];
+
+  const activeShifts = await batchGetClockingItems(uniqueEmployeeIds.map((employeeId) => ({
+    PK: activeShiftPk(businessId, employeeId),
+    SK: activeShiftSk(),
+  })));
+  const activeEntryIds = [...new Set(activeShifts.map((shift) => shift.activeEntryId).filter((entryId) => typeof entryId === 'string' && entryId.trim()))];
+  if (activeEntryIds.length === 0) return [];
+
+  const entries = await batchGetClockingItems(activeEntryIds.map((entryId) => ({
+    PK: businessPk(businessId),
+    SK: timeEntrySk(entryId),
+  })));
+  const activeEntryIdByEmployee = new Map(activeShifts.map((shift) => [shift.employeeId, shift.activeEntryId]));
+  return entries
+    .filter((entry) => entry.entityType === 'TIME_ENTRY' && entry.status === 'clocked_in' && activeEntryIdByEmployee.get(entry.employeeId) === entry.entryId)
+    .map((entry) => ({
+      id: entry.entryId,
+      employeeId: entry.employeeId,
+      employeeName: entry.employeeName ?? undefined,
+      jobId: entry.jobId ?? (Array.isArray(entry.jobIds) ? entry.jobIds[0] : undefined),
+      jobIds: Array.isArray(entry.jobIds) ? entry.jobIds : (entry.jobId ? [entry.jobId] : []),
+      workType: entry.workType ?? 'job',
+      workAreaId: entry.workAreaId ?? undefined,
+      workAreaNameSnapshot: entry.workAreaNameSnapshot ?? undefined,
+      unbillableCategoryId: entry.unbillableCategoryId ?? undefined,
+      unbillableCategoryName: entry.unbillableCategoryName ?? undefined,
+      clockIn: entry.clockIn,
+      status: entry.status,
+    }));
 }
 
 export async function clearOrphanActiveShiftForEmployee({ businessId, employeeId }) {

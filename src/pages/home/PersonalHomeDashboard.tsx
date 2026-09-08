@@ -32,6 +32,7 @@ import {
   UpcomingScheduleWidget,
 } from './PersonalDashboardSidebar';
 import useHomeDashboardPreferences from './useHomeDashboardPreferences';
+import ClockedInNowWidget from './ClockedInNowWidget';
 
 interface PersonalHomeDashboardProps {
   currentUserId: string;
@@ -147,6 +148,9 @@ export default function PersonalHomeDashboard({ currentUserId, currentUserName, 
     { id: 'upcoming', title: 'Upcoming Schedule', description: 'Your next jobs, tasks, and private events.', size: 'small', category: 'Personal', content: <UpcomingScheduleWidget upcoming={upcoming} onOpenJob={openJob} onOpenTask={openTasks} /> },
     { id: 'activity', title: 'Recent Activity', description: 'Recent changes to your work and time.', size: 'medium', category: 'Personal', content: <RecentActivityWidget activity={activity} /> },
     { id: 'quick-actions', title: 'Quick Actions', description: 'Shortcuts to common personal workflows.', size: 'medium', category: 'Personal', content: <QuickActionsWidget showTimeClock={Boolean(onOpenTimeClock)} onAddTask={requestAddTask} onOpenSchedule={onOpenSchedule ?? (() => navigate('/schedule'))} onOpenTimeClock={onOpenTimeClock} /> },
+    ...(canViewFinancials ? [
+      { id: 'clocked-in-now', title: 'Clocked In Now', description: 'Employees with an active time entry.', size: 'medium', category: 'Operations', content: <ClockedInNowWidget /> },
+    ] satisfies HomeWidgetDefinition[] : []),
     ...(canViewFinancials ? [
       { id: 'finance-outstanding-invoices', title: 'Outstanding Invoices', description: 'Open invoice count and value from Finance.', size: 'small', category: 'Finance', content: <StatCard label="Outstanding Invoices" value={formatCurrency(openInvoices.reduce((total, invoice) => total + invoice.amount, 0))} sub={`${openInvoices.length} open invoice${openInvoices.length === 1 ? '' : 's'}`} icon={<Receipt />} color="text-brand-700 dark:text-brand-100" /> },
       { id: 'finance-overdue-invoices', title: 'Overdue Invoices', description: 'Invoice value currently past due.', size: 'small', category: 'Finance', content: <StatCard label="Overdue Invoices" value={formatCurrency(overdueInvoices.reduce((total, invoice) => total + invoice.amount, 0))} sub={`${overdueInvoices.length} past due`} icon={<FileWarning />} color={overdueInvoices.length ? 'text-accent-700' : 'text-brand-700 dark:text-brand-100'} /> },

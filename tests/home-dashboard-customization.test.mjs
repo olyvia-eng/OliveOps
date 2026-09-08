@@ -8,6 +8,9 @@ const preferencesHookSource = readFileSync('src/pages/home/useHomeDashboardPrefe
 const sidebarWidgetsSource = readFileSync('src/pages/home/PersonalDashboardSidebar.tsx', 'utf8');
 const appLayoutSource = readFileSync('src/components/layout/AppLayout.tsx', 'utf8');
 const employeePortalSource = readFileSync('src/pages/employees/EmployeePortalPage.tsx', 'utf8');
+const clockedInWidgetSource = readFileSync('src/pages/home/ClockedInNowWidget.tsx', 'utf8');
+const clockedInApiSource = readFileSync('api/clocked-in-now.js', 'utf8');
+const clockingRepositorySource = readFileSync('api/_lib/clocking.js', 'utf8');
 
 test('Home widgets support drag, accessible movement, removal, add, and reset', () => {
   assert.match(dashboardSource, /<CustomizableWidgetGrid/);
@@ -60,4 +63,18 @@ test('Finance widgets are optional and only defined for financial roles', () => 
   assert.match(dashboardSource, /finance-budget-profit/);
   assert.match(dashboardSource, /Outstanding Invoices/);
   assert.match(dashboardSource, /Budgeted Profit/);
+});
+
+test('Clocked In Now is an independently loaded owner/admin widget with a recoverable failure state', () => {
+  assert.match(dashboardSource, /canViewFinancials \? \[/);
+  assert.match(dashboardSource, /id: 'clocked-in-now'/);
+  assert.match(clockedInWidgetSource, /fetch\('\/api\/clocked-in-now'/);
+  assert.match(clockedInWidgetSource, /Could not load active employees\./);
+  assert.match(clockedInWidgetSource, /No employees currently clocked in\./);
+  assert.match(clockedInWidgetSource, /items\.slice\(0, 6\)/);
+  assert.match(clockedInWidgetSource, /to="\/time-reports"/);
+  assert.match(clockedInApiSource, /requireSession\(req, res, \['owner', 'admin'\]\)/);
+  assert.match(clockingRepositorySource, /new BatchGetCommand/);
+  assert.match(clockingRepositorySource, /activeShiftPk\(businessId, employeeId\)/);
+  assert.match(clockingRepositorySource, /activeEntryIdByEmployee\.get\(entry\.employeeId\) === entry\.entryId/);
 });
