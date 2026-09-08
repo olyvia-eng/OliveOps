@@ -40,6 +40,7 @@ test('import dialog exposes Budget and Division selectors, preview selection, du
   assert.match(importer, /Already added/);
   assert.match(importer, /Import to \{division\.name\}/);
   assert.match(importer, /Import \{selected\.size\} Item/);
+  assert.match(importer, /subcontractorPlannedQuantity\(item\).*subcontractorCostPerUnit\(item\).*Annual Cost.*calculateAnnualSubcontractorCost\(item\)/s);
 });
 
 test('successful imports merge authoritative records without refreshing the browser', () => {
@@ -97,9 +98,9 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(planner, /equipmentDivisionAllocations/);
   assert.match(planner, /sellableHours/);
   assert.match(planner, /not inferred from allocated months/);
-  assert.match(planner, /allocation\.divisionId === division\.id && allocation\.months > 0/);
+  assert.match(planner, /isEquipmentAllocatedToDivision\(item, division\.id\)/);
   assert.match(planner, /equipmentMonthsForDivision/);
-  assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item\)\) \/ 12/);
+  assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item, division\.id\)\) \/ 12/);
   assert.match(planner, /saveBudgetEquipmentPlanningItem/);
   assert.doesNotMatch(planner, /await addEquipmentAsset/);
   assert.match(planner, /Add to Budget/);
@@ -132,6 +133,14 @@ test('equipment names use one fallback resolver throughout Budget planning displ
   assert.match(budgetPage, /resolveBudgetEquipmentName\(b, equipmentAssets\)/);
 });
 
+test('multi-Division equipment removal updates allocations without deleting the canonical item', () => {
+  assert.match(planner, /removeEquipmentDivisionAllocation\(item, division\.id\)/);
+  assert.match(planner, /Remove from this Division/);
+  assert.match(planner, /updateBudgetDivisionPlanningItem\(item, \{ equipmentDivisionAllocations: nextAllocations \}\)/);
+  assert.match(planner, /This is its only Division allocation/);
+  assert.match(planner, /deleteBudgetDivisionPlanningItem\(item\)/);
+});
+
 test('linked Budget equipment uses one editable local draft without Catalog rehydration', () => {
   const equipmentValue = planner.slice(planner.indexOf('const equipmentFormValue'), planner.indexOf('const equipmentCostBreakdown'));
   const equipmentForm = planner.slice(planner.indexOf('<EquipmentInfoForm'), planner.indexOf('/>', planner.indexOf('<EquipmentInfoForm')) + 2);
@@ -151,4 +160,20 @@ test('active equipment planning uses the shared annual calculator with legacy fi
   assert.match(planner, /plannedAmount: normalized\.equipmentCostType === 'rental' \? normalized\.rentalCost : equipmentCostBreakdown\.totalEquipmentCostPerYear/);
   assert.match(planner, /paymentFrequencyPerYear: undefined/);
   assert.match(planner, /utilizationHours: undefined/);
+});
+
+test('subcontractor planning uses assumptions to calculate Annual Cost without an editable amount', () => {
+  const branch = planner.slice(planner.indexOf("{category === 'subcontractors' ?"), planner.indexOf("{category === 'overhead' ?", planner.indexOf("{category === 'subcontractors' ?")));
+
+  assert.match(branch, /label="Subcontractor Catalog"/);
+  assert.match(branch, /label="Cost per Unit"/);
+  assert.match(branch, /label="Planned Quantity"/);
+  assert.match(branch, /label="Description"/);
+  assert.match(branch, /Calculated Annual Cost/);
+  assert.match(branch, /subcontractorAnnualCost/);
+  assert.match(branch, /subcontractor\?\.defaultUnitCost \?\? current\.rate/);
+  assert.doesNotMatch(branch, /label="Rate"|label="Planned amount"|label="Planned Amount"/);
+  assert.match(planner, /calculateAnnualSubcontractorCost\(item\)/);
+  assert.match(planner, /subcontractorPlannedQuantity\(item\).*item\.unit.*subcontractorCostPerUnit\(item\)/s);
+  assert.match(planner, /normalizeSubcontractorPlanAssumptions\(nextDraft\)/);
 });

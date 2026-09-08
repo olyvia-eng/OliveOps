@@ -4,8 +4,23 @@ import {
   appendImportedSortOrders,
   copyDivisionPlanAssumptions,
   divisionPlanIdentity,
+  equipmentMonthsForDivision,
+  isEquipmentAllocatedToDivision,
   normalizeLabourPlanAssumptions,
+  normalizeSubcontractorPlanAssumptions,
+  removeEquipmentDivisionAllocation,
 } from '../api/_lib/budgetDivisionPlanningModel.js';
+
+test('subcontractor assumptions calculate and normalize annual cost for decimals and zero values', () => {
+  assert.deepEqual(
+    normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 45, plannedQuantity: 100, plannedAmount: 1 }),
+    { category: 'subcontractors', rate: 45, plannedQuantity: 100, plannedAmount: 4500 },
+  );
+  assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 12.5, plannedQuantity: 2.5 }).plannedAmount, 31.25);
+  assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 45.75, plannedQuantity: 2 }).plannedAmount, 91.5);
+  assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 45, plannedQuantity: 0 }).plannedAmount, 0);
+  assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 0, plannedQuantity: 100 }).plannedAmount, 0);
+});
 
 test('division planning identities use catalog references and stable manual fallbacks', () => {
   assert.equal(divisionPlanIdentity({ category: 'labour', employeeId: 'employee-1' }), 'employee:employee-1');
@@ -82,4 +97,67 @@ test('Labour normalization preserves explicit field allocation and derives legac
   assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', fieldProducingPct: 60 }).fieldProducingPct, 60);
   assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', labourClassification: 'billable' }).fieldProducingPct, 100);
   assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', labourClassification: 'overhead' }).fieldProducingPct, 0);
+});
+
+test('equipment participation follows explicit Division allocations instead of its source Division', () => {
+  const item = {
+    category: 'equipment',
+    divisionId: 'landscaping',
+    equipmentDivisionAllocations: [
+      { divisionId: 'landscaping', months: 6, sellableHours: 500 },
+      { divisionId: 'snow', months: 6, sellableHours: 400 },
+      { divisionId: 'construction', months: 0, sellableHours: 0 },
+    ],
+  };
+
+  assert.equal(isEquipmentAllocatedToDivision(item, 'landscaping'), true);
+  assert.equal(isEquipmentAllocatedToDivision(item, 'snow'), true);
+  assert.equal(isEquipmentAllocatedToDivision(item, 'construction'), false);
+  assert.equal(equipmentMonthsForDivision(item, 'snow'), 6);
+});
+
+test('legacy equipment without explicit allocations remains visible in its original Division', () => {
+  const item = { category: 'equipment', divisionId: 'landscaping', allocationMonths: 4 };
+  assert.equal(isEquipmentAllocatedToDivision(item, 'landscaping'), true);
+  assert.equal(isEquipmentAllocatedToDivision(item, 'snow'), false);
+  assert.equal(equipmentMonthsForDivision(item, 'landscaping'), 4);
+});
+
+test('removing one Division allocation preserves one item and reallocates its months', () => {
+  const item = {
+    id: 'equipment-plan', divisionId: 'landscaping',
+    equipmentDivisionAllocations: [
+      { divisionId: 'landscaping', months: 6, sellableHours: 500 },
+      { divisionId: 'snow', months: 6, sellableHours: 400 },
+    ],
+  };
+  assert.deepEqual(removeEquipmentDivisionAllocation(item, 'snow'), [
+    { divisionId: 'landscaping', months: 12, sellableHours: 500 },
+    { divisionId: 'snow', months: 0, sellableHours: 0 },
+  ]);
+  assert.equal(item.id, 'equipment-plan');
+});
+
+test('sole Division equipment allocation requires an intentional global removal', () => {
+  assert.equal(removeEquipmentDivisionAllocation({
+    divisionId: 'landscaping',
+    equipmentDivisionAllocations: [{ divisionId: 'landscaping', months: 12 }],
+  }, 'landscaping'), null);
+});
+
+test('equipment import preserves multi-Division allocations using destination Division ids', () => {
+  const source = {
+    id: 'source-item', budgetId: 'old', divisionId: 'old-land', category: 'equipment', equipmentId: 'loader',
+    equipmentDivisionAllocations: [
+      { divisionId: 'old-land', months: 7, sellableHours: 700 },
+      { divisionId: 'old-snow', months: 5, sellableHours: 500 },
+    ],
+  };
+  const copied = copyDivisionPlanAssumptions(source, {
+    budgetId: 'new', divisionId: 'new-land', divisionIdMap: new Map([['old-land', 'new-land'], ['old-snow', 'new-snow']]),
+  }, () => 'new-item');
+  assert.deepEqual(copied.equipmentDivisionAllocations, [
+    { divisionId: 'new-land', months: 7, sellableHours: 700 },
+    { divisionId: 'new-snow', months: 5, sellableHours: 500 },
+  ]);
 });

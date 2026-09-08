@@ -83,9 +83,15 @@ test('Division planner imports selected source items with new ids and blocks rep
   seedDivision(store, 'biz-a', 'budget-2027', 'division-target');
 
   const createRes = response();
-  await planningHandler({ method: 'POST', query: { budgetId: 'budget-2026', divisionId: 'division-source', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Concrete Supplier', rate: 125, plannedQuantity: 10, plannedAmount: 1250 } } }, createRes);
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-2026', divisionId: 'division-source', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Concrete Supplier', rate: 125, plannedQuantity: 10, plannedAmount: 1 } } }, createRes);
   assert.equal(createRes.statusCode, 200);
+  assert.equal(createRes.body.item.plannedAmount, 1250);
   const sourceId = createRes.body.item.id;
+
+  const editedRes = response();
+  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-2026', divisionId: 'division-source', category: 'subcontractors', id: sourceId }, headers: { authorization: 'Bearer token-a' }, body: { data: { rate: 12.5, plannedQuantity: 2.5, plannedAmount: 999 } } }, editedRes);
+  assert.equal(editedRes.statusCode, 200);
+  assert.equal(editedRes.body.item.plannedAmount, 31.25);
 
   const optionsRes = response();
   await importHandler({ method: 'GET', query: { budgetId: 'budget-2027', divisionId: 'division-target', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' } }, optionsRes);
@@ -104,15 +110,53 @@ test('Division planner imports selected source items with new ids and blocks rep
   assert.notEqual(importRes.body.items[0].id, sourceId);
   assert.equal(importRes.body.items[0].budgetId, 'budget-2027');
   assert.equal(importRes.body.items[0].divisionId, 'division-target');
+  assert.equal(importRes.body.items[0].plannedAmount, 31.25);
 
   const sourceListRes = response();
   await planningHandler({ method: 'GET', query: { budgetId: 'budget-2026', divisionId: 'division-source', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' } }, sourceListRes);
-  assert.equal(sourceListRes.body.items[0].rate, 125);
+  assert.equal(sourceListRes.body.items[0].rate, 12.5);
+  assert.equal(sourceListRes.body.items[0].plannedQuantity, 2.5);
+  assert.equal(sourceListRes.body.items[0].plannedAmount, 31.25);
   assert.equal(sourceListRes.body.items[0].id, sourceId);
 
   const repeatPreview = response();
   await importHandler({ method: 'GET', query: { budgetId: 'budget-2027', divisionId: 'division-target', category: 'subcontractors', sourceBudgetId: 'budget-2026', sourceDivisionId: 'division-source' }, headers: { authorization: 'Bearer token-a' } }, repeatPreview);
   assert.equal(repeatPreview.body.items[0].alreadyAdded, true);
+});
+
+test('equipment import remaps and preserves allocations across destination Divisions', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-2026', '2026');
+  seedBudget(store, 'biz-a', 'budget-2027', '2027');
+  seedDivision(store, 'biz-a', 'budget-2026', 'old-land', 'Landscaping');
+  seedDivision(store, 'biz-a', 'budget-2026', 'old-snow', 'Snow Removal');
+  seedDivision(store, 'biz-a', 'budget-2027', 'new-land', 'Landscaping');
+  seedDivision(store, 'biz-a', 'budget-2027', 'new-snow', 'Snow Removal');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+
+  const created = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-2026', divisionId: 'old-land', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { data: {
+    equipmentId: 'equipment-1', plannedAmount: 32000,
+    equipmentDivisionAllocations: [{ divisionId: 'old-land', months: 7, sellableHours: 700 }, { divisionId: 'old-snow', months: 5, sellableHours: 500 }],
+  } } }, created);
+  assert.equal(created.statusCode, 200);
+
+  const preview = response();
+  await importHandler({ method: 'GET', query: { budgetId: 'budget-2027', divisionId: 'new-land', category: 'equipment', sourceBudgetId: 'budget-2026', sourceDivisionId: 'old-land' }, headers: { authorization: 'Bearer token-a' } }, preview);
+  assert.equal(preview.statusCode, 200);
+  assert.equal(preview.body.items.length, 1);
+  assert.equal(preview.body.items[0].unavailable, undefined);
+
+  const imported = response();
+  await importHandler({ method: 'POST', query: {}, headers: { authorization: 'Bearer token-a' }, body: {
+    budgetId: 'budget-2027', divisionId: 'new-land', category: 'equipment', sourceBudgetId: 'budget-2026', sourceDivisionId: 'old-land', sourceItemIds: [preview.body.items[0].sourceItemId],
+  } }, imported);
+  assert.equal(imported.statusCode, 200);
+  assert.deepEqual(imported.body.items[0].equipmentDivisionAllocations, [
+    { divisionId: 'new-land', months: 7, sellableHours: 700 },
+    { divisionId: 'new-snow', months: 5, sellableHours: 500 },
+  ]);
 });
 
 test('Division planning rejects mismatched tenants and unauthorized writers', async (t) => {
@@ -207,6 +251,29 @@ test('Equipment planning validates one same-Budget asset allocation across Divis
   assert.equal(valid.statusCode, 200);
   assert.deepEqual(valid.body.item.equipmentDivisionAllocations, [{ divisionId: 'hardscape', months: 7 }, { divisionId: 'snow', months: 5 }]);
   assert.equal(valid.body.item.equipmentPaymentFrequencyPerYear, 12);
+  const equipmentItemId = valid.body.item.id;
+  assert.ok(store.has(key('BUSINESS#biz-a', `BUDGET_DIVISION_PLAN#budget-a#CATEGORY#equipment#ITEM#${equipmentItemId}`)));
+  assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'equipment').length, 1);
+
+  const hardscape = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' } }, hardscape);
+  const snow = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'equipment' }, headers: { authorization: 'Bearer token-a' } }, snow);
+  assert.equal(hardscape.body.items[0].id, equipmentItemId);
+  assert.equal(snow.body.items[0].id, equipmentItemId);
+
+  const editedFromSnow = response();
+  await planningHandler({ method: 'PATCH', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'equipment', id: equipmentItemId }, headers: { authorization: 'Bearer token-a' }, body: { data: { equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }, { divisionId: 'snow', months: 0, sellableHours: 0 }] } } }, editedFromSnow);
+  assert.equal(editedFromSnow.statusCode, 200);
+  assert.equal(editedFromSnow.body.item.id, equipmentItemId);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'equipment').length, 1);
+
+  const hardscapeAfterEdit = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' } }, hardscapeAfterEdit);
+  const snowAfterEdit = response();
+  await planningHandler({ method: 'GET', query: { budgetId: 'budget-a', divisionId: 'snow', category: 'equipment' }, headers: { authorization: 'Bearer token-a' } }, snowAfterEdit);
+  assert.equal(hardscapeAfterEdit.body.items[0].id, equipmentItemId);
+  assert.equal(snowAfterEdit.body.items.length, 0);
 
   const incomplete = response();
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { data: { name: 'Bobcat E50', equipmentId: 'equipment-1', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 7 }] } } }, incomplete);
@@ -308,6 +375,28 @@ test('legacy Division-scoped Labour migrates on budget-wide reorder and deletes 
   assert.equal(store.has(key('BUSINESS#biz-a', canonicalItemSk)), false);
   assert.equal(store.has(key('BUSINESS#biz-a', canonicalIdentitySk)), false);
   assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'labour').length, 0);
+});
+
+test('legacy Division-scoped equipment migrates on reorder without duplicating the item', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land', 'Landscaping');
+  const legacyItemSk = 'BUDGET_DIVISION_PLAN#budget-a#DIVISION#land#CATEGORY#equipment#ITEM#legacy-loader';
+  const legacyIdentitySk = `BUDGET_DIVISION_PLAN#budget-a#DIVISION#land#CATEGORY#equipment#IDENTITY#${Buffer.from('equipment:loader').toString('base64url')}`;
+  store.set(key('BUSINESS#biz-a', legacyItemSk), {
+    PK: 'BUSINESS#biz-a', SK: legacyItemSk, entityType: 'BUDGET_DIVISION_PLAN', businessId: 'biz-a', planningItemId: 'legacy-loader',
+    id: 'legacy-loader', budgetId: 'budget-a', divisionId: 'land', category: 'equipment', equipmentId: 'loader', plannedAmount: 32000,
+    equipmentDivisionAllocations: [{ divisionId: 'land', months: 12 }], sortOrder: 0,
+  });
+  store.set(key('BUSINESS#biz-a', legacyIdentitySk), { PK: 'BUSINESS#biz-a', SK: legacyIdentitySk, entityType: 'BUDGET_DIVISION_PLAN_IDENTITY', planningItemId: 'legacy-loader' });
+
+  const reordered = response();
+  await planningHandler({ method: 'PUT', query: { budgetId: 'budget-a', divisionId: 'land', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: { orderedIds: ['legacy-loader'] } }, reordered);
+  assert.equal(reordered.statusCode, 200);
+  assert.ok(store.has(key('BUSINESS#biz-a', 'BUDGET_DIVISION_PLAN#budget-a#CATEGORY#equipment#ITEM#legacy-loader')));
+  assert.equal(store.has(key('BUSINESS#biz-a', legacyItemSk)), false);
+  assert.equal([...store.values()].filter((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.category === 'equipment').length, 1);
 });
 
 test('shared Overhead is stored once and remains readable from every allocated Division', async (t) => {

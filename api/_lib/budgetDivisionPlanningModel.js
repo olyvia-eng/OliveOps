@@ -1,5 +1,8 @@
 export const DIVISION_PLAN_CATEGORIES = ['labour', 'equipment', 'materials', 'subcontractors', 'overhead'];
 
+export { equipmentDivisionAllocation, equipmentMonthsForDivision, isEquipmentAllocatedToDivision, removeEquipmentDivisionAllocation } from '../../src/utils/equipmentDivisionAllocationModel.js';
+export { calculateAnnualSubcontractorCost, normalizeSubcontractorPlanAssumptions, subcontractorCostPerUnit, subcontractorPlannedQuantity } from '../../src/utils/subcontractorPlanningModel.js';
+
 const normalizeText = (value) => typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
 
 export function divisionPlanIdentity(item) {
@@ -42,6 +45,19 @@ export function copyDivisionPlanAssumptions(source, destination, createId, now =
     copied.divisionAllocations = [...allocationsByDivision].map(([divisionId, value]) => usesHours
       ? ({ divisionId, hours: value })
       : ({ divisionId, percentage: value }));
+  }
+  if (category === 'equipment' && Array.isArray(copied.equipmentDivisionAllocations) && destination.divisionIdMap) {
+    const allocationsByDivision = new Map();
+    for (const allocation of copied.equipmentDivisionAllocations) {
+      if (!(Number(allocation.months) > 0)) continue;
+      const divisionId = destination.divisionIdMap.get(allocation.divisionId);
+      if (!divisionId) throw new Error('Every positive Equipment allocation requires a mapped destination Division.');
+      const current = allocationsByDivision.get(divisionId) ?? { divisionId, months: 0, sellableHours: 0 };
+      current.months += Number(allocation.months);
+      current.sellableHours += Number(allocation.sellableHours || 0);
+      allocationsByDivision.set(divisionId, current);
+    }
+    copied.equipmentDivisionAllocations = [...allocationsByDivision.values()];
   }
   if (category === 'overhead' && Array.isArray(copied.overheadDivisionAllocations) && destination.divisionIdMap) {
     copied.overheadDivisionAllocations = copied.overheadDivisionAllocations.map((allocation) => {

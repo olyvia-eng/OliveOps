@@ -12,6 +12,8 @@ import { calculateAnnualEquipmentCost, calculateEquipmentCostBreakdown } from '.
 import { overheadAllocatedAmount, overheadAllocationForDivision, overheadAllocationTotal, overheadAllocationsAreValid, splitOverheadAllocationsEvenly } from '../../pages/budget/overheadAllocationModel.js';
 import { resolveEmployeeCostInputs } from '../../utils/employeeLabourCost';
 import { resolveBudgetEquipmentName } from '../../utils/equipmentDisplayModel.js';
+import { equipmentMonthsForDivision, isEquipmentAllocatedToDivision, removeEquipmentDivisionAllocation } from '../../utils/equipmentDivisionAllocationModel.js';
+import { calculateAnnualSubcontractorCost, normalizeSubcontractorPlanAssumptions, subcontractorCostPerUnit, subcontractorPlannedQuantity } from '../../utils/subcontractorPlanningModel.js';
 
 const config = {
   labour: {
@@ -64,7 +66,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const settings = config[category];
   const Icon = settings.icon;
   const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, saveBudgetEquipmentPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
-  const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id || (item.category === 'equipment' && item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === division.id && allocation.months > 0)))).sort((left, right) => left.sortOrder - right.sortOrder);
+  const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'equipment' ? isEquipmentAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id)).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
   const [editing, setEditing] = useState<BudgetDivisionPlanningItem | null | 'new'>(null);
@@ -199,6 +201,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const equipmentAllocationTotal = (draft.equipmentDivisionAllocations ?? []).reduce((sum, allocation) => sum + Number(allocation.months || 0), 0);
   const equipmentAllocationValid = category !== 'equipment' || Math.abs(equipmentAllocationTotal - 12) < 0.001;
   const overheadTotal = overheadAllocationTotal(draft.overheadDivisionAllocations);
+  const subcontractorAnnualCost = calculateAnnualSubcontractorCost(draft);
   const overheadAllocationValid = category !== 'overhead' || overheadAllocationsAreValid(draft.overheadDivisionAllocations);
   const setOverheadDivisionAllocation = (divisionId: string, percentage: number) => setDraft((current) => ({
     ...current,
@@ -308,6 +311,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       else setEquipmentError('Equipment changes could not be saved. Check your connection and try again.');
       return;
     }
+    if (category === 'subcontractors') nextDraft = normalizeSubcontractorPlanAssumptions(nextDraft);
     const result =
       editing === 'new'
         ? await addBudgetDivisionPlanningItem({
@@ -344,15 +348,30 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     const target = items[index + offset];
     if (target) reorder(item.id, target.id);
   };
-  const equipmentMonthsForDivision = (item: BudgetDivisionPlanningItem) => item.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === division.id)?.months ?? (item.divisionId === division.id ? (item.allocationMonths ?? 12) : 0);
+  const removeItem = async (item: BudgetDivisionPlanningItem) => {
+    if (item.category !== 'equipment') {
+      await deleteBudgetDivisionPlanningItem(item);
+      return;
+    }
+    const displayName = resolveBudgetEquipmentName(item, equipmentAssets);
+    const nextAllocations = removeEquipmentDivisionAllocation(item, division.id);
+    if (!nextAllocations) {
+      if (!window.confirm(`Remove ${displayName} from this Budget? This is its only Division allocation.`)) return;
+      await deleteBudgetDivisionPlanningItem(item);
+      return;
+    }
+    if (!window.confirm(`Remove ${displayName} from ${division.name}? Its annual cost will remain allocated across the other Divisions.`)) return;
+    await updateBudgetDivisionPlanningItem(item, { equipmentDivisionAllocations: nextAllocations });
+  };
   const plannedAmount = (item: BudgetDivisionPlanningItem) => {
     if (item.category === 'labour') return calculateDivisionLabourShare(item, division.id).annualLabourCost;
     if (item.category === 'equipment') {
       const asset = equipmentAssets.find((value) => value.id === item.equipmentId);
       const annualCost = calculateAnnualEquipmentCost({ ...item, costType: asset?.costType ?? item.costType });
-      return (annualCost * equipmentMonthsForDivision(item)) / 12;
+      return (annualCost * equipmentMonthsForDivision(item, division.id)) / 12;
     }
     if (item.category === 'overhead') return overheadAllocatedAmount(item, division.id);
+    if (item.category === 'subcontractors') return calculateAnnualSubcontractorCost(item);
     if (item.plannedAmount !== undefined) return item.plannedAmount;
     return (item.unitCost ?? item.rate ?? 0) * (item.plannedQuantity ?? 1);
   };
@@ -444,9 +463,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                               </p>
                             </>
                           ) : category === 'equipment' ? (
-                            `${item.classification ?? 'billable'} · ${equipmentMonthsForDivision(item)} months · ${formatCurrency(item.yearlyFuelCost ?? 0)} yearly fuel`
+                            `${item.classification ?? 'billable'} · ${equipmentMonthsForDivision(item, division.id)} months · ${formatCurrency(item.yearlyFuelCost ?? 0)} yearly fuel`
                           ) : category === 'overhead' ? (
                             <><p>Total annual cost: {formatCurrency(item.plannedAmount ?? 0)}</p><p className="mt-1 text-xs font-medium text-brand-500">{division.name}: {overheadAllocationForDivision(item, division.id).toFixed(2)}%</p></>
+                          ) : category === 'subcontractors' ? (
+                            `${subcontractorPlannedQuantity(item)} ${item.unit ?? 'each'} × ${formatCurrency(subcontractorCostPerUnit(item))}`
                           ) : (
                             `${item.plannedQuantity ?? 1} ${item.unit ?? 'each'} × ${formatCurrency(item.unitCost ?? item.rate ?? 0)}`
                           )}
@@ -458,7 +479,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                               <button type="button" title="Edit" onClick={() => openEdit(item)} className="grid h-8 w-8 place-items-center rounded-md text-brand-500 hover:bg-brand-50">
                                 <Pencil size={15} />
                               </button>
-                              <button type="button" title="Remove" onClick={() => void deleteBudgetDivisionPlanningItem(item)} className="grid h-8 w-8 place-items-center rounded-md text-accent-700 hover:bg-accent-50">
+                              <button type="button" title={category === 'equipment' && (item.equipmentDivisionAllocations?.filter((allocation) => allocation.months > 0).length ?? 0) > 1 ? 'Remove from this Division' : category === 'equipment' ? 'Remove from Budget' : 'Remove'} aria-label={category === 'equipment' ? `Remove ${displayName} from ${division.name}` : `Remove ${displayName}`} onClick={() => void removeItem(item)} className="grid h-8 w-8 place-items-center rounded-md text-accent-700 hover:bg-accent-50">
                                 <Trash2 size={15} />
                               </button>
                             </div>
@@ -879,9 +900,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   }))
                 }
               />
-              <Input type="number" label="Rate" value={draft.rate ?? 0} onChange={(event) => setNumber('rate', event.target.value)} />
-              <Input type="number" label="Planned quantity" value={draft.plannedQuantity ?? 1} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
-              <Input type="number" label="Planned amount" value={draft.plannedAmount ?? 0} onChange={(event) => setNumber('plannedAmount', event.target.value)} />
+              <Input type="number" min={0} step="any" label="Cost per Unit" value={subcontractorCostPerUnit(draft)} onChange={(event) => setNumber('rate', event.target.value)} />
+              <Input type="number" min={0} step="any" label="Planned Quantity" value={subcontractorPlannedQuantity(draft)} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
               <div className="sm:col-span-2">
                 <TextArea
                   label="Description"
@@ -894,6 +914,10 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   }
                 />
               </div>
+              <section className="sm:col-span-2 border-y border-brand-100 py-4 dark:border-brand-600">
+                <p className="text-sm text-brand-400">Calculated Annual Cost</p>
+                <p className="mt-1 text-xl font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(subcontractorAnnualCost)}</p>
+              </section>
             </>
           ) : null}
           {category === 'overhead' ? (

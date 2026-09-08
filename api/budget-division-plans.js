@@ -9,7 +9,7 @@ import {
   saveEquipmentPlanningItemWithAsset,
   updateDivisionPlanningItem,
 } from './_lib/budgetDivisionPlanning.js';
-import { DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, normalizeLabourPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
+import { DIVISION_PLAN_CATEGORIES, divisionPlanIdentity, isEquipmentAllocatedToDivision, normalizeLabourPlanAssumptions, normalizeSubcontractorPlanAssumptions } from './_lib/budgetDivisionPlanningModel.js';
 import { calculateAnnualEquipmentCostModel } from '../src/utils/equipmentPricingModel.js';
 
 const isText = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -74,6 +74,7 @@ function validateCatalogPatch(patch) {
 const withCalculatedEquipmentAmount = (item, costType) => item.category === 'equipment'
   ? { ...item, plannedAmount: calculateAnnualEquipmentCostModel({ ...item, costType: costType ?? item.costType, plannedAmount: undefined }) }
   : item;
+const normalizePlanningAssumptions = (item) => normalizeLabourPlanAssumptions(item);
 
 async function validateReferences(businessId, item, { skipEquipment = false } = {}) {
   if (item.employeeId && !await getEmployeeForBusiness(businessId, item.employeeId)) return 'Employee must belong to this business.';
@@ -125,7 +126,7 @@ export default async function handler(req, res) {
     const items = category === 'labour'
       ? budgetItems.filter((item) => item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0))
       : category === 'equipment'
-        ? budgetItems.filter((item) => item.divisionId === divisionId || item.equipmentDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.months > 0))
+        ? budgetItems.filter((item) => isEquipmentAllocatedToDivision(item, divisionId))
         : category === 'overhead'
           ? budgetItems.filter((item) => item.overheadDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0))
         : budgetItems;
@@ -136,7 +137,7 @@ export default async function handler(req, res) {
       if (orderedIds.length !== reorderItems.length || new Set(orderedIds).size !== reorderItems.length || orderedIds.some((id) => !reorderItems.some((item) => item.id === id))) {
         return res.status(400).json({ ok: false, error: 'Planning order must include every item exactly once.' });
       }
-      if (category === 'labour') {
+      if (category === 'labour' || category === 'equipment') {
         await Promise.all(reorderItems.map((item) => updateDivisionPlanningItem({ businessId: session.businessId, previous: item, item })));
       }
       const reordered = await reorderDivisionPlanningItems({ businessId: session.businessId, items: orderedIds.map((id) => reorderItems.find((item) => item.id === id)) });
@@ -148,10 +149,11 @@ export default async function handler(req, res) {
       const catalogPatch = req.body?.catalogPatch;
       const createEquipmentAsset = category === 'equipment' && req.body?.createEquipmentAsset === true;
       const equipmentId = createEquipmentAsset ? generateId() : req.body?.data?.equipmentId;
-      let item = normalizeLabourPlanAssumptions({ ...req.body?.data, equipmentId, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
+      let item = normalizePlanningAssumptions({ ...req.body?.data, equipmentId, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
       const effectiveItem = category === 'equipment' && catalogPatch ? { ...item, costType: catalogPatch.costType } : item;
       const error = validate(effectiveItem);
       if (error) return res.status(400).json({ ok: false, error });
+      item = normalizeSubcontractorPlanAssumptions(item);
       item = withCalculatedEquipmentAmount(item, catalogPatch?.costType);
       if (category === 'equipment' && catalogPatch) {
         const catalogError = validateCatalogPatch(catalogPatch);
@@ -177,11 +179,12 @@ export default async function handler(req, res) {
       await deleteDivisionPlanningItem({ businessId: session.businessId, item: existing });
       return res.status(200).json({ ok: true });
     }
-    let next = normalizeLabourPlanAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId: existing.divisionId, category, updatedAt: new Date().toISOString() });
+    let next = normalizePlanningAssumptions({ ...existing, ...req.body?.data, id: existing.id, budgetId, divisionId: existing.divisionId, category, updatedAt: new Date().toISOString() });
     if (category === 'equipment' && next.equipmentId !== existing.equipmentId) return res.status(400).json({ ok: false, error: 'Linked equipment cannot be changed after the planning item is created.' });
     const effectiveNext = category === 'equipment' && req.body?.catalogPatch ? { ...next, costType: req.body.catalogPatch.costType } : next;
     const error = validate(effectiveNext);
     if (error) return res.status(400).json({ ok: false, error });
+    next = normalizeSubcontractorPlanAssumptions(next);
     next = withCalculatedEquipmentAmount(next, req.body?.catalogPatch?.costType);
     const referenceError = await validateReferences(session.businessId, next);
     if (referenceError) return res.status(400).json({ ok: false, error: referenceError });

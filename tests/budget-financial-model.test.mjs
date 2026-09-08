@@ -5,6 +5,21 @@ import { build } from 'esbuild';
 const output = await build({ entryPoints: ['src/pages/budget/budgetFinancialModel.ts'], bundle: true, platform: 'node', format: 'esm', write: false });
 const model = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
 
+test('subcontractor totals use quantity times cost per unit instead of stale planned amount', () => {
+  const cases = [
+    { rate: 45, plannedQuantity: 100, plannedAmount: 1, expected: 4500 },
+    { rate: 12.5, plannedQuantity: 2.5, expected: 31.25 },
+    { rate: 45.75, plannedQuantity: 2, expected: 91.5 },
+    { rate: 45, plannedQuantity: 0, expected: 0 },
+    { rate: 0, plannedQuantity: 100, expected: 0 },
+  ];
+  for (const [index, item] of cases.entries()) {
+    const division = { id: 'division', budgetId: 'budget', name: 'Division', revenueTarget: 10000, status: 'active', sortOrder: 0 };
+    const result = model.calculateDivisionFinancials({ divisions: [division], planningItems: [{ id: `sub-${index}`, budgetId: 'budget', divisionId: 'division', category: 'subcontractors', ...item }] }, 'division');
+    assert.equal(result.subcontractors, item.expected);
+  }
+});
+
 const divisions = [
   { id: 'hardscape', budgetId: 'budget', name: 'Hardscaping', revenueTarget: 950000, status: 'active', sortOrder: 0 },
   { id: 'snow', budgetId: 'budget', name: 'Snow & Ice', revenueTarget: 600000, status: 'active', sortOrder: 1 },
@@ -210,4 +225,21 @@ test('mixed Labour splits direct and overhead cost while Revenue per Hour uses f
   assert.equal(result.overheadLabour, 40000);
   assert.equal(result.plannedBillableHours, 960);
   assert.equal(result.revenuePerHour, 950000 / 960);
+});
+
+test('one equipment item contributes its allocated cost to both Divisions without duplicating the Budget total', () => {
+  const equipment = {
+    id: 'cat-259d-plan', equipmentId: 'cat-259d', budgetId: 'budget', divisionId: 'hardscape', category: 'equipment',
+    name: 'CAT 259D', classification: 'billable', plannedAmount: 32000,
+    equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 6 }, { divisionId: 'snow', months: 6 }],
+  };
+  const sharedItems = [...planningItems.filter((item) => item.category !== 'equipment'), equipment];
+  const hardscape = model.calculateDivisionFinancials({ divisions, planningItems: sharedItems }, 'hardscape');
+  const snow = model.calculateDivisionFinancials({ divisions, planningItems: sharedItems }, 'snow');
+  const budget = model.calculateBudgetFinancials({ divisions, planningItems: sharedItems });
+
+  assert.equal(hardscape.directEquipment, 16000);
+  assert.equal(snow.directEquipment, 16000);
+  assert.equal(budget.directEquipment, 32000);
+  assert.equal(budget.directCostItems.filter((item) => item.itemId === 'cat-259d-plan').length, 1);
 });

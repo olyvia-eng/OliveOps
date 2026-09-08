@@ -1,7 +1,9 @@
 import type { BudgetDivision, BudgetDivisionPlanningItem, EquipmentAsset } from '../../types';
 import { calculateAnnualEquipmentCost, calculateEquipmentCostBreakdown, resolveEquipmentClassification } from '../../utils/equipmentPricing';
+import { equipmentMonthsForDivision } from '../../utils/equipmentDivisionAllocationModel.js';
 import { calculateDivisionLabourShare, isLabourAllocatedToDivision } from './divisionLabourPlanningModel';
 import { overheadAllocatedAmount } from './overheadAllocationModel.js';
+import { calculateAnnualSubcontractorCost } from '../../utils/subcontractorPlanningModel.js';
 
 type PlanningItem = Partial<BudgetDivisionPlanningItem> & Pick<BudgetDivisionPlanningItem, 'id' | 'budgetId' | 'divisionId' | 'category'>;
 
@@ -68,17 +70,15 @@ const finiteNonNegative = (value: number | undefined) => (
 
 const itemAnnualCost = (item: PlanningItem, equipmentAsset?: EquipmentAsset) => {
   if (item.category === 'equipment') return calculateAnnualEquipmentCost({ ...item, costType: equipmentAsset?.costType ?? item.costType });
+  if (item.category === 'subcontractors') return calculateAnnualSubcontractorCost(item);
   if (item.plannedAmount !== undefined) return finiteNonNegative(item.plannedAmount);
   return finiteNonNegative(item.unitCost ?? item.rate) * finiteNonNegative(item.plannedQuantity ?? 1);
 };
 
-const equipmentMonths = (item: PlanningItem, divisionId: string) => item.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === divisionId)?.months
-  ?? (item.divisionId === divisionId ? item.allocationMonths ?? 12 : 0);
-
-const equipmentShare = (item: PlanningItem, divisionId: string, equipmentAsset?: EquipmentAsset) => itemAnnualCost(item, equipmentAsset) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12;
+const equipmentShare = (item: PlanningItem, divisionId: string, equipmentAsset?: EquipmentAsset) => itemAnnualCost(item, equipmentAsset) * finiteNonNegative(equipmentMonthsForDivision(item, divisionId)) / 12;
 
 const allocatedEquipmentComponent = (item: PlanningItem, divisionId: string, value: number | undefined) => (
-  finiteNonNegative(value) * finiteNonNegative(equipmentMonths(item, divisionId)) / 12
+  finiteNonNegative(value) * finiteNonNegative(equipmentMonthsForDivision(item, divisionId)) / 12
 );
 
 const equipmentComposition = (items: PlanningItem[], equipmentById: Map<string, EquipmentAsset>, divisionId: string, total: number): EquipmentCostComposition => {
@@ -135,7 +135,7 @@ export function calculateDivisionFinancials(input: BudgetFinancialInput, divisio
   const equipmentById = new Map((input.equipmentAssets ?? []).map((item) => [item.id, item]));
   const categoryPresent = (category: PlanningItem['category']) => items.some((item) => item.category === category && (
     category === 'labour' ? isLabourAllocatedToDivision(item, divisionId)
-      : category === 'equipment' ? finiteNonNegative(equipmentMonths(item, divisionId)) > 0
+      : category === 'equipment' ? finiteNonNegative(equipmentMonthsForDivision(item, divisionId)) > 0
         : item.divisionId === divisionId
   ));
   const missingCategories = (['labour', 'equipment', 'materials', 'subcontractors'] as const)

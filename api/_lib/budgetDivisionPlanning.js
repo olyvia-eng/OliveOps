@@ -1,6 +1,6 @@
 import { QueryCommand, TransactWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
-import { divisionPlanIdentity, normalizeLabourPlanAssumptions } from './budgetDivisionPlanningModel.js';
+import { divisionPlanIdentity, isEquipmentAllocatedToDivision, normalizeLabourPlanAssumptions, normalizeSubcontractorPlanAssumptions } from './budgetDivisionPlanningModel.js';
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const equipmentSk = (equipmentId) => `EQUIPMENT#${equipmentId}`;
@@ -8,7 +8,7 @@ const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLA
 const budgetCategoryPrefix = (budgetId, category) => `BUDGET_DIVISION_PLAN#${budgetId}#CATEGORY#${category}#`;
 const legacyPlanSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
 const legacyIdentitySk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}IDENTITY#${Buffer.from(divisionPlanIdentity(item)).toString('base64url')}`;
-const isBudgetScoped = (item) => item.category === 'labour' || item.category === 'overhead';
+const isBudgetScoped = (item) => item.category === 'labour' || item.category === 'equipment' || item.category === 'overhead';
 const planSk = (item) => isBudgetScoped(item)
   ? `${budgetCategoryPrefix(item.budgetId, item.category)}ITEM#${item.id}`
   : legacyPlanSk(item);
@@ -24,7 +24,7 @@ const mapItem = (item) => {
   delete record.businessId;
   delete record.planningItemId;
   delete record.identity;
-  return normalizeLabourPlanAssumptions(record);
+  return normalizeSubcontractorPlanAssumptions(normalizeLabourPlanAssumptions(record));
 };
 
 export async function listDivisionPlanningItemsForBusiness(businessId) {
@@ -49,11 +49,13 @@ export async function listBudgetPlanningItems({ businessId, budgetId, category }
 }
 
 export async function listDivisionPlanningItems({ businessId, budgetId, divisionId, category }) {
-  if (category === 'labour' || category === 'overhead') {
+  if (category === 'labour' || category === 'equipment' || category === 'overhead') {
     const items = await listBudgetPlanningItems({ businessId, budgetId, category });
     return items.filter((item) => category === 'labour'
       ? item.divisionAllocations.some((allocation) => allocation.divisionId === divisionId && (allocation.hours ?? allocation.percentage ?? 0) > 0)
-      : item.overheadDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0));
+      : category === 'equipment'
+        ? isEquipmentAllocatedToDivision(item, divisionId)
+        : item.overheadDivisionAllocations?.some((allocation) => allocation.divisionId === divisionId && allocation.percentage > 0));
   }
   const result = await ddb.send(new QueryCommand({
     TableName: tableName,
@@ -101,9 +103,11 @@ export async function saveEquipmentPlanningItemWithAsset({ businessId, equipment
     { Put: {
       TableName: tableName,
       Item: storedItem(businessId, item),
-      ConditionExpression: previous
-        ? 'attribute_exists(PK) AND attribute_exists(SK)'
-        : 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      ...(!previous
+        ? { ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' }
+        : planSk(previous) === planSk(item)
+          ? { ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)' }
+          : {}),
     } },
   ];
   if (!previous) {
@@ -112,6 +116,12 @@ export async function saveEquipmentPlanningItemWithAsset({ businessId, equipment
       Item: identityItem(businessId, item),
       ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
     } });
+  }
+  if (previous && planSk(previous) !== planSk(item)) {
+    transaction.push(
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: planSk(previous) } } },
+      { Delete: { TableName: tableName, Key: { PK: businessPk(businessId), SK: identitySk(previous) } } },
+    );
   }
   await ddb.send(new TransactWriteCommand({ TransactItems: transaction }));
   return { equipmentAsset, item };
