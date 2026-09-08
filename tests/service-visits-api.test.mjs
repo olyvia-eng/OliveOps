@@ -208,3 +208,66 @@ test('manual Visit rejects invalid Foreman role, activity, tenant, and duplicate
     assert.equal(run.visits.length, 0);
   }
 });
+
+test('Visit assignments persist one or multiple employees and equipment after refresh', async () => {
+  const run = harness({
+    getEmployeeForBusiness: async (businessId, id) => businessId === 'biz-a' && ['employee-a', 'employee-b'].includes(id) ? { id, role: 'crew_member', active: true } : null,
+    getEquipmentAssetForBusiness: async (businessId, id) => businessId === 'biz-a' && ['equipment-a', 'equipment-b'].includes(id) ? { id } : null,
+  });
+  await run.call('POST', 'generate', { jobId: 'job-a', serviceId: 'service-a' });
+  const visit = run.visits[0];
+  const one = await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: visit.id, revision: visit.revision, assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: ['equipment-a'] });
+  assert.equal(one.statusCode, 200);
+  assert.deepEqual(one.body.visit.assignedEmployeeIds, ['employee-a']);
+  assert.deepEqual(one.body.visit.assignedEquipmentIds, ['equipment-a']);
+
+  const multiple = await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: visit.id, revision: one.body.visit.revision, assignedEmployeeIds: ['employee-a', 'employee-b'], assignedEquipmentIds: ['equipment-a', 'equipment-b'] });
+  assert.equal(multiple.statusCode, 200);
+  const refreshed = await run.call('GET', '', {}, { jobId: 'job-a' });
+  assert.deepEqual(refreshed.body.visits[0].assignedEmployeeIds, ['employee-a', 'employee-b']);
+  assert.deepEqual(refreshed.body.visits[0].assignedEquipmentIds, ['equipment-a', 'equipment-b']);
+});
+
+test('Visit assignments can be removed without changing another recurrence', async () => {
+  const run = harness();
+  await run.call('POST', 'generate', { jobId: 'job-a', serviceId: 'service-a' });
+  const [first, second] = run.visits;
+  await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: first.id, revision: first.revision, assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: ['equipment-a'] });
+  assert.deepEqual(run.visits.find((visit) => visit.id === first.id).assignedEmployeeIds, ['employee-a']);
+  assert.deepEqual(run.visits.find((visit) => visit.id === second.id).assignedEmployeeIds, []);
+  const removed = await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: first.id, revision: 2, assignedEmployeeIds: [], assignedEquipmentIds: [] });
+  assert.equal(removed.statusCode, 200);
+  assert.deepEqual(removed.body.visit.assignedEmployeeIds, []);
+  assert.deepEqual(removed.body.visit.assignedEquipmentIds, []);
+  assert.deepEqual(run.visits.find((visit) => visit.id === second.id).assignedEmployeeIds, []);
+});
+
+test('applying assignments to future Visits updates only later scheduled Visits in the same Service', async () => {
+  const run = harness();
+  await run.call('POST', 'generate', { jobId: 'job-a', serviceId: 'service-a' });
+  const [source, completed, future] = run.visits;
+  const inProgress = { ...future, id: 'visit-in-progress', scheduledDate: '2027-04-26', scheduledStartAt: '2027-04-26T08:00:00', status: 'in_progress', assignedEmployeeIds: [], assignedEquipmentIds: [] };
+  run.visits = [source, { ...completed, status: 'completed', assignedEmployeeIds: [], assignedEquipmentIds: [] }, future, inProgress];
+  const result = await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: source.id, revision: source.revision, assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: ['equipment-a'], applyToFuture: true });
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.appliedToFutureCount, 1);
+  assert.deepEqual(run.visits.find((visit) => visit.id === future.id).assignedEmployeeIds, ['employee-a']);
+  assert.deepEqual(run.visits.find((visit) => visit.id === future.id).assignedEquipmentIds, ['equipment-a']);
+  assert.deepEqual(run.visits.find((visit) => visit.id === completed.id).assignedEmployeeIds, []);
+  assert.deepEqual(run.visits.find((visit) => visit.id === inProgress.id).assignedEmployeeIds, []);
+});
+
+test('Visit assignment rejects cross-tenant employees and equipment without changing the Visit', async () => {
+  for (const assignments of [
+    { assignedEmployeeIds: ['employee-foreign'], assignedEquipmentIds: [] },
+    { assignedEmployeeIds: [], assignedEquipmentIds: ['equipment-foreign'] },
+  ]) {
+    const run = harness();
+    await run.call('POST', 'generate', { jobId: 'job-a', serviceId: 'service-a' });
+    const visit = run.visits[0];
+    const result = await run.call('PATCH', 'assignments', { jobId: 'job-a', serviceId: 'service-a', visitId: visit.id, revision: visit.revision, ...assignments });
+    assert.equal(result.statusCode, 400);
+    assert.deepEqual(run.visits[0].assignedEmployeeIds, []);
+    assert.deepEqual(run.visits[0].assignedEquipmentIds, []);
+  }
+});

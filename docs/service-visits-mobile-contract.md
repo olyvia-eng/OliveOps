@@ -31,7 +31,7 @@ Today is calculated in the business timezone. Upcoming Visits end seven business
 
 ## 5. Visit Summary
 
-Employee Visit summaries contain Visit, Job, Service, customer/property, address, schedule, assignment, status, billing type, `hasRequiredForms`, and `hasSops` fields. `crewId` remains available for compatibility. When that ID resolves to a Crew in the authenticated tenant, the summary also contains `crew: { "id": "crew-1", "name": "North Crew" }`. It does not contain wages, labour rates, margin, profit, or internal pricing.
+Employee Visit summaries contain Visit, Job, Service, customer/property, address, schedule, `assignedEmployeeIds`, `assignedEquipmentIds`, status, billing type, `hasRequiredForms`, and `hasSops` fields. `crewId` remains available for compatibility. When that ID resolves to a Crew in the authenticated tenant, the summary also contains `crew: { "id": "crew-1", "name": "North Crew" }`. It does not contain wages, labour rates, margin, profit, or internal pricing.
 
 ## 6. Active Clock Bootstrap
 

@@ -75,14 +75,38 @@ test('Today and Upcoming Visit summaries include only canonical tenant Crew meta
   await handler({
     loadCoreBootstrapData: async () => data,
     listServiceVisitsForSchedule: async (_businessId, today) => [
-      { id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, crewId: 'crew-a', status: 'scheduled' },
+      { id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, crewId: 'crew-a', assignedEmployeeIds: ['employee-a'], assignedEquipmentIds: ['equipment-a'], status: 'scheduled' },
       { id: 'visit-b', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, crewId: 'crew-missing', status: 'scheduled' },
     ],
   })({ method: 'GET' }, res);
 
   assert.deepEqual(res.body.todayServiceVisits[0].crew, { id: 'crew-a', name: 'North Crew' });
   assert.equal(res.body.todayServiceVisits[0].crewId, 'crew-a');
+  assert.deepEqual(res.body.todayServiceVisits[0].assignedEmployeeIds, ['employee-a']);
+  assert.deepEqual(res.body.todayServiceVisits[0].assignedEquipmentIds, ['equipment-a']);
   assert.equal('labourRate' in res.body.todayServiceVisits[0].crew, false);
   assert.equal(res.body.todayServiceVisits[1].crewId, 'crew-missing');
   assert.equal('crew' in res.body.todayServiceVisits[1], false);
+});
+
+test('active clock data does not expose Visit labels after the employee assignment is removed', async () => {
+  const data = coreData();
+  data.jobs = [{ id: 'job-a', title: 'Private Site', workType: 'service', customerId: 'customer-a', services: [{ id: 'service-a', name: 'Private Service' }] }];
+  const res = response();
+  await handler({
+    requireSession: async () => ({ id: 'user-a', businessId: 'biz-a', role: 'crew_member', employeeId: 'employee-a' }),
+    loadCoreBootstrapData: async () => data,
+    getEmployeeForBusiness: async () => data.employees[0],
+    getActiveShiftForEmployee: async () => ({ activeEntryId: 'entry-a' }),
+    getTimeEntryForBusiness: async () => ({ id: 'entry-a', employeeId: 'employee-a', serviceVisitId: 'visit-a', clockIn: '2026-09-08T08:00:00.000Z', status: 'clocked_in' }),
+    getPendingClockOutWorkflowForEmployee: async () => null,
+    getPendingClockInWorkflowForEmployee: async () => null,
+    listServiceVisitsForSchedule: async (_businessId, today) => [{ id: 'visit-a', jobId: 'job-a', serviceId: 'service-a', scheduledDate: today, assignedEmployeeIds: ['employee-other'], assignedEquipmentIds: [], status: 'in_progress' }],
+  })({ method: 'GET' }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.activeTimeEntry.id, 'entry-a');
+  assert.equal('jobName' in res.body.activeTimeEntry, false);
+  assert.equal('serviceName' in res.body.activeTimeEntry, false);
+  assert.deepEqual(res.body.todayServiceVisits, []);
 });

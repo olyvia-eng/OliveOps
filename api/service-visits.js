@@ -268,6 +268,34 @@ export function createServiceVisitsHandler(overrides = {}) {
         const existing = await deps.getServiceVisitForBusiness(session.businessId, jobId, visitId);
         if (!existing || existing.serviceId !== serviceId) return res.status(404).json({ ok: false, error: 'Visit not found for this Service.' });
         if (req.body?.revision !== existing.revision) return res.status(409).json({ ok: false, error: 'Visit changed since it was opened.' });
+        if (action === 'assignments') {
+          const assignments = { assignedEmployeeIds: req.body?.assignedEmployeeIds, assignedEquipmentIds: req.body?.assignedEquipmentIds };
+          if (!idList(assignments.assignedEmployeeIds) || !idList(assignments.assignedEquipmentIds)) return res.status(400).json({ ok: false, error: 'Visit assignments are invalid.' });
+          const relationshipError = await validateAssignments(deps, session.businessId, assignments, existing); if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
+          const assignmentFields = (visit) => ({
+            assignedEmployeeIds: [...assignments.assignedEmployeeIds],
+            assignedEquipmentIds: [...assignments.assignedEquipmentIds],
+            assignedForemanId: assignments.assignedEmployeeIds.includes(visit.assignedForemanId) ? visit.assignedForemanId : undefined,
+            assignedCrewEmployeeIds: [...assignments.assignedEmployeeIds.filter((id) => id !== visit.assignedForemanId)],
+          });
+          const next = { ...existing, ...assignmentFields(existing), revision: existing.revision + 1, updatedAt: nowIso };
+          const saved = await deps.updateServiceVisitForBusiness({ businessId: session.businessId, visit: next, expectedRevision: existing.revision });
+          if (!saved.ok) return res.status(409).json({ ok: false, error: 'Visit changed since it was opened.' });
+          const updatedVisits = [next];
+          if (req.body?.applyToFuture === true) {
+            const visits = await deps.listServiceVisitsForJob(session.businessId, jobId);
+            const existingOrder = existing.scheduledStartAt ?? `${existing.scheduledDate}T00:00:00`;
+            const futureVisits = visits.filter((visit) => visit.id !== existing.id && visit.serviceId === existing.serviceId && visit.status === 'scheduled' && (visit.scheduledStartAt ?? `${visit.scheduledDate}T00:00:00`) > existingOrder);
+            for (const visit of futureVisits) {
+              const future = { ...visit, ...assignmentFields(visit), revision: visit.revision + 1, updatedAt: nowIso };
+              const result = await deps.updateServiceVisitForBusiness({ businessId: session.businessId, visit: future, expectedRevision: visit.revision });
+              if (!result.ok) return res.status(409).json({ ok: false, error: 'A future Visit changed while assignments were being applied. Refresh and try again.' });
+              updatedVisits.push(future);
+            }
+          }
+          await audit(deps, session, 'service_visit.assignments_updated', { jobId, serviceId, visitId, appliedToFutureCount: updatedVisits.length - 1, assignedEmployeeCount: next.assignedEmployeeIds.length, assignedEquipmentCount: next.assignedEquipmentIds.length });
+          return res.status(200).json({ ok: true, visit: next, updatedVisits, appliedToFutureCount: updatedVisits.length - 1 });
+        }
         let next = { ...existing, revision: existing.revision + 1, updatedAt: nowIso };
         let event = 'service_visit.rescheduled';
         if (action === 'status') {

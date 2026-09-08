@@ -188,14 +188,14 @@ export function createBootstrapHandler(overrides = {}) {
         scheduledDate: visit.scheduledDate, scheduledStartAt: visit.scheduledStartAt,
         scheduledEndAt: visit.scheduledEndAt, scheduleAllDay: visit.scheduleAllDay,
         crewId: visit.crewId, ...(crew ? { crew: { id: crew.id, name: crew.name } } : {}),
+        assignedEmployeeIds: visit.assignedEmployeeIds ?? [], assignedEquipmentIds: visit.assignedEquipmentIds ?? [],
         status: visit.status, billingType: visit.billingTypeSnapshot,
         hasRequiredForms: forms.some((form) => form.status === 'active' && form.assignedTo === 'job' && form.assignmentValue === visit.jobId && form.completionRequirement === 'required'),
         hasSops: jobsWithSops.has(visit.jobId),
       };
     };
-    const activeVisitContext = activeTimeEntry?.serviceVisitId
-      ? mobileServiceVisit(serviceVisits.find((visit) => visit.id === activeTimeEntry.serviceVisitId) ?? activeTimeEntry)
-      : null;
+    const activeVisit = activeTimeEntry?.serviceVisitId ? visibleServiceVisits.find((visit) => visit.id === activeTimeEntry.serviceVisitId) : null;
+    const activeVisitContext = activeVisit ? mobileServiceVisit(activeVisit) : null;
     const employeeTrainingAssignments = typeof session.employeeId === 'string'
       ? presentTrainingAssignments(trainingAssignments.filter((assignment) => assignment.employeeId === session.employeeId && !assignment.revokedAt), { timeZone: businessProfile?.timezone })
       : [];
