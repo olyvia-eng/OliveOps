@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
 import {
   Bold,
   Italic,
@@ -9,6 +10,7 @@ import {
   ListOrdered,
   Redo2,
   RemoveFormatting,
+  Underline as UnderlineIcon,
   Undo2,
 } from "lucide-react";
 import { Button } from "../ui";
@@ -30,6 +32,7 @@ const extensions = [
       HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" },
     },
   }),
+  Underline,
 ];
 
 export default function RichTextEditor({
@@ -37,11 +40,13 @@ export default function RichTextEditor({
   onChange,
   disabled = false,
   ariaLabel,
+  compact = false,
 }: {
   value: RichTextDocument;
   onChange: (value: RichTextDocument) => void;
   disabled?: boolean;
   ariaLabel: string;
+  compact?: boolean;
 }) {
   const editor = useEditor({
     extensions,
@@ -50,7 +55,7 @@ export default function RichTextEditor({
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: "olive-rich-text min-h-80 px-5 py-4 focus:outline-none",
+        class: `olive-rich-text ${compact ? "min-h-36" : "min-h-80"} px-5 py-4 focus:outline-none`,
         "aria-label": ariaLabel,
       },
     },
@@ -72,7 +77,7 @@ export default function RichTextEditor({
     if (current !== next) editor.commands.setContent(value, { emitUpdate: false });
   }, [editor, value]);
 
-  if (!editor) return <div className="min-h-80 rounded-md border border-brand-100 bg-white" />;
+  if (!editor) return <div className={`${compact ? "min-h-36" : "min-h-80"} rounded-md border border-brand-100 bg-white`} />;
 
   const setLink = () => {
     const current = editor.getAttributes("link").href as string | undefined;
@@ -105,7 +110,7 @@ export default function RichTextEditor({
   return (
     <div className="overflow-hidden rounded-md border border-brand-100 bg-white focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-brand-600 dark:bg-brand-700">
       <div className="flex flex-wrap items-center gap-1 border-b border-brand-100 bg-brand-50 px-2 py-2 dark:border-brand-600 dark:bg-brand-800">
-        <label className="sr-only" htmlFor={`${ariaLabel.replace(/\s+/g, "-").toLowerCase()}-style`}>Text style</label>
+        {!compact ? <><label className="sr-only" htmlFor={`${ariaLabel.replace(/\s+/g, "-").toLowerCase()}-style`}>Text style</label>
         <select
           id={`${ariaLabel.replace(/\s+/g, "-").toLowerCase()}-style`}
           aria-label="Text style"
@@ -122,13 +127,14 @@ export default function RichTextEditor({
           <option value="h1">Heading 1</option>
           <option value="h2">Heading 2</option>
           <option value="h3">Heading 3</option>
-        </select>
+        </select></> : null}
         <span className="mx-1 h-5 w-px bg-brand-200 dark:bg-brand-600" />
         {toolbarButton("Bold", editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), <Bold size={15} />)}
         {toolbarButton("Italic", editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), <Italic size={15} />)}
+        {toolbarButton("Underline", editor.isActive("underline"), () => editor.chain().focus().toggleUnderline().run(), <UnderlineIcon size={15} />)}
         {toolbarButton("Bulleted list", editor.isActive("bulletList"), () => editor.chain().focus().toggleBulletList().run(), <List size={15} />)}
         {toolbarButton("Numbered list", editor.isActive("orderedList"), () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={15} />)}
-        {toolbarButton("Link", editor.isActive("link"), setLink, <Link2 size={15} />)}
+        {!compact ? toolbarButton("Link", editor.isActive("link"), setLink, <Link2 size={15} />) : null}
         {toolbarButton("Clear formatting", false, () => editor.chain().focus().unsetAllMarks().clearNodes().run(), <RemoveFormatting size={15} />)}
         <span className="mx-1 h-5 w-px bg-brand-200 dark:bg-brand-600" />
         {toolbarButton("Undo", false, () => editor.chain().focus().undo().run(), <Undo2 size={15} />, editor.can().undo())}

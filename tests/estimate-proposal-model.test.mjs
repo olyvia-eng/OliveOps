@@ -40,6 +40,11 @@ test('proposal projection exposes customer scope and exact stored totals without
   assert.deepEqual(projection.workAreas, [{
     name: 'Patio',
     scopeLines: ['Excavate and prepare the patio area', 'Install interlocking stone'],
+    scopeRichText: { type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Excavate and prepare the patio area' }] },
+      { type: 'paragraph' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Install interlocking stone' }] },
+    ] },
     subtotal: 3400,
   }]);
   assert.equal(projection.proposal.subtotal, 3400);
@@ -57,6 +62,27 @@ test('proposal projection exposes customer scope and exact stored totals without
   for (const secret of ['John Smith', 'Mike White', 'Bobcat e50', 'HPB Aggregate', 'Trade Partner Inc.', 'Assigned employee record', 'Equipment catalog record', 'Material catalog record', 'Subcontractor record', 'unitCost', 'sellPrice', 'quantity', 'overhead', 'profit', 'margin', 'employeeName']) {
     assert.doesNotMatch(serialized, new RegExp(secret, 'i'));
   }
+});
+
+test('proposal projection preserves supported rich scope formatting and removes unsafe content', () => {
+  const richEstimate = structuredClone(estimate);
+  richEstimate.workAreas[0].scopeRichText = { type: 'doc', content: [
+    { type: 'paragraph', content: [
+      { type: 'text', text: 'Bold', marks: [{ type: 'bold' }] },
+      { type: 'text', text: ' italic', marks: [{ type: 'italic' }] },
+      { type: 'text', text: ' underline', marks: [{ type: 'underline' }] },
+      { type: 'hardBreak' },
+      { type: 'text', text: 'next line' },
+    ] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bullet item' }] }] }] },
+    { type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Numbered item' }] }] }] },
+    { type: 'script', attrs: { onclick: 'attack()' }, content: [{ type: 'text', text: 'unsafe' }] },
+  ] };
+
+  const scope = buildEstimateProposalProjection({ estimate: richEstimate, customer, business }).workAreas[0].scopeRichText;
+  assert.deepEqual(scope.content.map((node) => node.type), ['paragraph', 'bulletList', 'orderedList']);
+  assert.deepEqual(scope.content[0].content.map((node) => node.marks?.[0]?.type ?? node.type), ['bold', 'italic', 'underline', 'hardBreak', 'text']);
+  assert.doesNotMatch(JSON.stringify(scope), /script|onclick|unsafe|attack/);
 });
 
 test('legacy Work Areas without customer scope use a fixed fallback without mutating the Estimate', () => {

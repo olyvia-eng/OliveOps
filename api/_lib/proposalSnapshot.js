@@ -1,6 +1,6 @@
 import { buildEstimateProposalProjection } from '../../src/utils/estimateProposalModel.js';
 
-export const PROPOSAL_SNAPSHOT_SCHEMA_VERSION = 1;
+export const PROPOSAL_SNAPSHOT_SCHEMA_VERSION = 2;
 export const ACCEPTANCE_STATEMENT_VERSION = 1;
 
 export async function buildProposalSnapshot({ businessId, estimate, getBusinessProfile, getCustomerForBusiness, getFileForBusiness, readStoredFile }) {

@@ -1,5 +1,6 @@
 import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimatePricingCatalogItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
+import { proposalScopeRichText } from './richText';
 import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } from './estimateWorkAreaIdentity.js';
 import {
   applyEstimateLineItemCostOverride,
@@ -260,6 +261,7 @@ export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'id' | 'work
       name: typeof area.name === 'string' && area.name.trim() ? area.name : `${DEFAULT_AREA_NAME} ${index + 1}`,
       divisionId: area.divisionId,
       description: typeof area.description === 'string' ? area.description : '',
+      scopeRichText: proposalScopeRichText(area.scopeRichText, area.description),
       sortOrder: asNumber(area.sortOrder, index),
       lineItems: Array.isArray(area.lineItems)
         ? (() => {

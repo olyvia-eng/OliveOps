@@ -1,22 +1,20 @@
 import { jsPDF } from 'jspdf';
+import { PROPOSAL_BRAND } from './proposalBrand.js';
 
 const PAGE_WIDTH = 612;
 const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const CONTENT_BOTTOM = 735;
-const OLIVE_DEEP = [74, 100, 24];
-const OLIVE = [107, 142, 35];
-const OLIVE_TINT = [238, 244, 227];
-const OLIVE_BORDER = [202, 223, 162];
-const INK = [15, 23, 42];
-const MUTED = [71, 85, 105];
-const DIVIDER = [226, 232, 240];
-const WHITE = [255, 255, 255];
+const { accent: OLIVE, accentStrong: OLIVE_DEEP, neutral: OLIVE_TINT, border: OLIVE_BORDER, ink: INK, muted: MUTED, divider: DIVIDER, white: WHITE } = PROPOSAL_BRAND;
 
 const clean = (value) => Array.from(String(value ?? '')).filter((character) => {
   const codePoint = character.codePointAt(0) ?? 0;
   return codePoint === 9 || codePoint === 10 || codePoint === 13 || (codePoint >= 32 && codePoint !== 127);
 }).join('').trim();
+const cleanInline = (value) => Array.from(String(value ?? '')).filter((character) => {
+  const codePoint = character.codePointAt(0) ?? 0;
+  return codePoint === 9 || codePoint === 10 || codePoint === 13 || (codePoint >= 32 && codePoint !== 127);
+}).join('');
 const currency = (value) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value);
 const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
 const longDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
@@ -36,7 +34,7 @@ export async function fetchEstimateProposal(estimateId) {
 export function createEstimateProposalDocument(projection, options = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: false });
   const companyName = clean(projection.company.name || 'Contractor');
-  const status = options.acceptance ? 'ACCEPTED' : ['sent', 'viewed'].includes(projection.proposal.status) ? 'PROPOSAL' : 'DRAFT';
+  const customerDocumentLabel = options.acceptance ? 'ACCEPTED' : 'PROPOSAL';
   let cursorY = 0;
 
   const setText = (size, color = INK, style = 'normal') => {
@@ -51,12 +49,15 @@ export function createEstimateProposalDocument(projection, options = {}) {
     doc.line(left, y, right, y);
   };
   const continuationHeader = () => {
-    doc.setFillColor(...OLIVE_DEEP);
+    doc.setFillColor(...WHITE);
     doc.rect(0, 0, PAGE_WIDTH, 50, 'F');
-    setText(10, WHITE, 'bold');
+    setText(10, INK, 'bold');
     doc.text(companyName, MARGIN, 30, { maxWidth: 300 });
-    setText(9, WHITE);
+    setText(9, OLIVE_DEEP, 'bold');
     doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 30, { align: 'right' });
+    doc.setDrawColor(...OLIVE);
+    doc.setLineWidth(1.4);
+    doc.line(MARGIN, 49, PAGE_WIDTH - MARGIN, 49);
     cursorY = 68;
   };
   const addPage = () => {
@@ -95,8 +96,75 @@ export function createEstimateProposalDocument(projection, options = {}) {
     }
   };
 
-  doc.setFillColor(...OLIVE_DEEP);
-  doc.roundedRect(24, 18, PAGE_WIDTH - 48, 92, 12, 12, 'F');
+  const richText = (document, left = MARGIN, width = CONTENT_WIDTH, color = MUTED) => {
+    const lineHeight = 13;
+    const renderInline = (nodes, marker = '') => {
+      let x = left + (marker ? 18 : 0);
+      let lineStarted = false;
+      const lineLeft = x;
+      const nextLine = () => {
+        cursorY += lineHeight;
+        ensureSpace(lineHeight + 2);
+        x = lineLeft;
+        lineStarted = false;
+      };
+      ensureSpace(lineHeight + 2);
+      if (marker) {
+        setText(9.5, color);
+        doc.text(marker, left, cursorY);
+      }
+      for (const node of nodes ?? []) {
+        if (node.type === 'hardBreak') {
+          nextLine();
+          continue;
+        }
+        if (node.type !== 'text') continue;
+        const marks = Array.isArray(node.marks) ? node.marks : [];
+        const bold = marks.some((mark) => mark.type === 'bold');
+        const italic = marks.some((mark) => mark.type === 'italic');
+        const underline = marks.some((mark) => mark.type === 'underline');
+        const style = bold && italic ? 'bolditalic' : bold ? 'bold' : italic ? 'italic' : 'normal';
+        for (const token of cleanInline(node.text).split(/(\s+)/).filter(Boolean)) {
+          setText(9.5, color, style);
+          const tokenWidth = doc.getTextWidth(token);
+          if (lineStarted && x + tokenWidth > left + width) nextLine();
+          if (!lineStarted && !token.trim()) continue;
+          doc.text(token, x, cursorY);
+          if (underline && token.trim()) {
+            doc.setDrawColor(...color);
+            doc.setLineWidth(0.45);
+            doc.line(x, cursorY + 1.5, x + tokenWidth, cursorY + 1.5);
+          }
+          x += tokenWidth;
+          lineStarted = true;
+        }
+      }
+      cursorY += lineHeight + 4;
+    };
+    const renderBlock = (node, listMarker = '') => {
+      if (node.type === 'paragraph') {
+        if (!node.content?.length) {
+          ensureSpace(8);
+          cursorY += 8;
+        } else renderInline(node.content, listMarker);
+        return;
+      }
+      if (node.type === 'bulletList' || node.type === 'orderedList') {
+        const start = node.attrs?.start ?? 1;
+        (node.content ?? []).forEach((item, index) => {
+          const marker = node.type === 'bulletList' ? '•' : `${start + index}.`;
+          const [first, ...nested] = item.content ?? [];
+          if (first) renderBlock(first, marker);
+          nested.forEach((child) => renderBlock(child));
+        });
+      }
+    };
+    (document?.content ?? []).forEach((node) => renderBlock(node));
+  };
+
+  doc.setFillColor(...WHITE);
+  doc.setDrawColor(...OLIVE_BORDER);
+  doc.roundedRect(24, 18, PAGE_WIDTH - 48, 92, 8, 8, 'FD');
   let logoRendered = false;
   if (projection.company.logoDataUrl) {
     try {
@@ -112,14 +180,14 @@ export function createEstimateProposalDocument(projection, options = {}) {
     } catch { /* Invalid snapshot logos fall back to the company name. */ }
   }
   const companyX = logoRendered ? MARGIN + 80 : MARGIN;
-  setText(15, WHITE, 'bold');
+  setText(15, INK, 'bold');
   doc.text(companyName, companyX, 38, { maxWidth: 280 });
-  setText(8.5, WHITE);
+  setText(8.5, MUTED);
   const companyDetails = [projection.company.address, [projection.company.phone, projection.company.email].map(clean).filter(Boolean).join('  |  '), projection.company.website].map(clean).filter(Boolean);
   companyDetails.slice(0, 3).forEach((detail, index) => doc.text(detail, companyX, 54 + index * 12, { maxWidth: 290 }));
-  setText(25, WHITE, 'bold');
+  setText(25, OLIVE_DEEP, 'bold');
   doc.text('PROPOSAL', PAGE_WIDTH - MARGIN, 43, { align: 'right' });
-  setText(10, WHITE, 'bold');
+  setText(10, OLIVE_DEEP, 'bold');
   doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 63, { align: 'right' });
 
   doc.setFillColor(...OLIVE_TINT);
@@ -186,40 +254,25 @@ export function createEstimateProposalDocument(projection, options = {}) {
   } else {
     heading('Work Areas', 57);
     for (const area of projection.workAreas) {
-      const scopeLines = area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'];
       const areaName = lines(area.name, CONTENT_WIDTH - 157);
-      const scopeEntries = scopeLines.map((scopeLine) => {
-        const line = clean(scopeLine);
-        const numbered = /^(\d+[.)])\s+/.exec(line);
-        return {
-          marker: numbered?.[1] ?? '•',
-          wrapped: lines(line.replace(/^[-*•]\s+|^\d+[.)]\s+/, ''), CONTENT_WIDTH - 50),
-        };
-      });
-      const scopeHeight = scopeEntries.reduce((height, entry) => height + entry.wrapped.length * 12 + 6, 0);
-      const cardHeight = areaName.length * 14 + scopeHeight + 73;
-      ensureSpace(cardHeight + 16);
-
-      doc.setFillColor(...WHITE);
+      ensureSpace(areaName.length * 14 + 58);
       doc.setDrawColor(...OLIVE_BORDER);
       doc.setLineWidth(0.8);
-      doc.roundedRect(MARGIN, cursorY - 16, CONTENT_WIDTH, cardHeight, 8, 8, 'FD');
+      doc.line(MARGIN, cursorY - 12, PAGE_WIDTH - MARGIN, cursorY - 12);
       setText(12, OLIVE_DEEP, 'bold');
-      doc.text(areaName, MARGIN + 16, cursorY);
-      doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN - 16, cursorY, { align: 'right' });
+      doc.text(areaName, MARGIN, cursorY);
+      doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
       cursorY += areaName.length * 14 + 10;
-      divider(cursorY, MARGIN + 16, PAGE_WIDTH - MARGIN - 16);
-      cursorY += 18;
       setText(9, INK, 'bold');
-      doc.text('Scope of Work', MARGIN + 16, cursorY);
+      doc.text('Scope of Work', MARGIN, cursorY);
       cursorY += 17;
-      for (const entry of scopeEntries) {
-        setText(9.5, MUTED);
-        doc.text(entry.marker, MARGIN + 16, cursorY);
-        doc.text(entry.wrapped, MARGIN + 32, cursorY);
-        cursorY += entry.wrapped.length * 12 + 6;
-      }
-      cursorY += 28;
+      const scopeDocument = area.scopeRichText ?? {
+        type: 'doc',
+        content: (area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'])
+          .map((scopeLine) => ({ type: 'paragraph', content: [{ type: 'text', text: scopeLine }] })),
+      };
+      richText(scopeDocument, MARGIN, CONTENT_WIDTH, MUTED);
+      cursorY += 12;
     }
   }
 
@@ -317,14 +370,17 @@ export function createEstimateProposalDocument(projection, options = {}) {
   const pageCount = doc.getNumberOfPages();
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
-    doc.setFillColor(...OLIVE_DEEP);
+    doc.setFillColor(...WHITE);
     doc.rect(0, 752, PAGE_WIDTH, 40, 'F');
-    setText(8.5, WHITE, 'bold');
+    doc.setDrawColor(...OLIVE);
+    doc.setLineWidth(1.2);
+    doc.line(MARGIN, 752, PAGE_WIDTH - MARGIN, 752);
+    setText(8.5, INK, 'bold');
     doc.text([companyName, clean(projection.company.email)].filter(Boolean).join('  |  '), MARGIN, 776, { maxWidth: 325 });
-    setText(8, WHITE);
+    setText(8, MUTED);
     doc.text(`Page ${page} of ${pageCount}`, PAGE_WIDTH / 2, 776, { align: 'center' });
-    setText(9, WHITE, 'bold');
-    doc.text(status, PAGE_WIDTH - MARGIN, 776, { align: 'right' });
+    setText(9, OLIVE_DEEP, 'bold');
+    doc.text(customerDocumentLabel, PAGE_WIDTH - MARGIN, 776, { align: 'right' });
   }
   return doc;
 }

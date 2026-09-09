@@ -2,7 +2,7 @@ import type { RichTextDocument, RichTextMark, RichTextNode } from "../types/rich
 import { EMPTY_RICH_TEXT_DOCUMENT } from "../types/richText";
 
 const BLOCK_TYPES = new Set(["paragraph", "heading", "bulletList", "orderedList", "listItem"]);
-const MARK_TYPES = new Set(["bold", "italic", "link"]);
+const MARK_TYPES = new Set(["bold", "italic", "underline", "link"]);
 
 const cleanText = (value: unknown) =>
   typeof value === "string"
@@ -33,7 +33,7 @@ function normalizeMarks(value: unknown): RichTextMark[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const marks = value.flatMap((mark): RichTextMark[] => {
     if (!mark || typeof mark !== "object" || !("type" in mark) || !MARK_TYPES.has(String(mark.type))) return [];
-    if (mark.type === "bold" || mark.type === "italic") return [{ type: mark.type }];
+    if (mark.type === "bold" || mark.type === "italic" || mark.type === "underline") return [{ type: mark.type }];
     const href = safeRichTextLink("attrs" in mark && mark.attrs && typeof mark.attrs === "object" && "href" in mark.attrs ? mark.attrs.href : null);
     return href ? [{ type: "link", attrs: { href, target: "_blank", rel: "noopener noreferrer nofollow" } }] : [];
   });
@@ -96,4 +96,34 @@ export function sopRichTextContent(value: { richTextContent?: unknown; purpose?:
     return paragraphs.length ? [{ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: heading }] } as RichTextNode, ...paragraphs] : [];
   });
   return content.length ? { type: "doc", content } : EMPTY_RICH_TEXT_DOCUMENT;
+}
+
+export function proposalScopeRichText(value: unknown, legacyText = ""): RichTextDocument {
+  const normalized = normalizeRichTextDocument(value);
+  if (normalized) return normalized;
+  const lines = cleanText(legacyText).split(/\r?\n/);
+  return {
+    type: "doc",
+    content: lines.map((line) => line.trim()
+      ? { type: "paragraph", content: [{ type: "text", text: line }] }
+      : { type: "paragraph" }),
+  };
+}
+
+export function richTextToPlainText(value: unknown): string {
+  const document = normalizeRichTextDocument(value);
+  if (!document) return "";
+  const inlineText = (node: RichTextNode): string => node.type === "text"
+    ? node.text ?? ""
+    : node.type === "hardBreak"
+      ? "\n"
+      : (node.content ?? []).map(inlineText).join("");
+  const blocks = (document.content ?? []).flatMap((node) => {
+    if (node.type === "bulletList" || node.type === "orderedList") {
+      const start = node.attrs?.start ?? 1;
+      return (node.content ?? []).map((item, index) => `${node.type === "bulletList" ? "-" : `${start + index}.`} ${inlineText(item)}`);
+    }
+    return [inlineText(node)];
+  });
+  return blocks.join("\n");
 }

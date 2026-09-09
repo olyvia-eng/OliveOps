@@ -167,6 +167,7 @@ export interface EstimateWorkArea {
   divisionId?: ID;
   name: string;
   description: string;
+  scopeRichText?: import('./richText').RichTextDocument;
   sortOrder: number;
   lineItems: EstimateLineItem[];
 }

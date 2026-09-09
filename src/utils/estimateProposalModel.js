@@ -1,6 +1,7 @@
 import { calculateProposalPaymentSchedule } from './proposalPaymentSchedule.js';
 import { calculateServiceEstimateTotals, calculateServiceEconomics, formatServiceFrequency } from './servicePricingModel.js';
 import { resolveWorkType } from './workTypeModel.js';
+import { normalizeProposalScopeRichText, richTextHasText } from '../../api/_lib/richText.js';
 
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -33,9 +34,13 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
     .sort((left, right) => number(left.sortOrder) - number(right.sortOrder))
     .map((area, index) => {
       const scopeLines = sanitizeScopeLines(area.description);
+      const scopeRichText = normalizeProposalScopeRichText(area.scopeRichText, area.description);
       return {
         name: text(area.name) || `Work Area ${index + 1}`,
         scopeLines: scopeLines.length ? scopeLines : ['Scope details to be confirmed.'],
+        scopeRichText: richTextHasText(scopeRichText)
+          ? scopeRichText
+          : normalizeProposalScopeRichText(null, 'Scope details to be confirmed.'),
         subtotal: (Array.isArray(area.lineItems) ? area.lineItems : []).reduce((sum, line) => sum + number(line?.total), 0),
       };
     });

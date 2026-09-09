@@ -134,6 +134,7 @@ import {
   updateTimeEntryForBusiness,
   updateTaskForBusiness,
 } from './_lib/authRepo.js';
+import { normalizeProposalScopeRichText } from './_lib/richText.js';
 import { authorizeRecordAccess, filterRecordsForSession, redactEquipmentPricingForSession } from './_lib/authorization.js';
 import {
   calculateJobInvoicePosition,
@@ -624,6 +625,16 @@ const PERIOD_REGEX = /^\d{4}-\d{2}$/;
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+export function normalizeEstimateProposalScopes(record) {
+  if (!Array.isArray(record?.workAreas)) return record;
+  return {
+    ...record,
+    workAreas: record.workAreas.map((area) => area && typeof area === 'object' && !Array.isArray(area)
+      ? { ...area, scopeRichText: normalizeProposalScopeRichText(area.scopeRichText, area.description) }
+      : area),
+  };
 }
 
 function validateEmployeeCostInputs(record) {
@@ -1897,6 +1908,7 @@ export default async function handler(req, res) {
         const divisionResult = enforceEstimateWorkAreaDivisionModel(null, record);
         if (!divisionResult.ok) return res.status(400).json({ ok: false, error: divisionResult.error });
         record = divisionResult.estimate;
+        record = normalizeEstimateProposalScopes(record);
       }
       const validationError = validateEstimateRecord(record);
       if (validationError) {
@@ -2257,6 +2269,7 @@ export default async function handler(req, res) {
           const divisionResult = enforceEstimateWorkAreaDivisionModel(existing, next);
           if (!divisionResult.ok) return res.status(409).json({ ok: false, error: divisionResult.error });
           next = divisionResult.estimate;
+          next = normalizeEstimateProposalScopes(next);
         }
         const relationshipError = await validateEstimatePricingDivision({ businessId: session.businessId, estimate: next, existing });
         if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });

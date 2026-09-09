@@ -60,6 +60,7 @@ test('sending creates a redacted immutable snapshot and persists only a token ha
   assert.doesNotMatch(JSON.stringify(harness.persisted), /01234567890123456789012345678901/);
   assert.doesNotMatch(JSON.stringify(harness.persisted.version.snapshot), /internalNotes|estimatedProfit|unitCost|sellPrice/);
   assert.equal(harness.persisted.version.snapshot.proposal.status, 'sent');
+  assert.equal(harness.persisted.version.snapshot.schemaVersion, 2);
   assert.deepEqual(harness.persisted.version.snapshot.paymentSchedule.map((payment) => payment.amount), [2280.57, 9122.26]);
   assert.equal(harness.email.to, 'barbara@example.ca');
 });
@@ -100,12 +101,15 @@ test('each send snapshots current content into a distinct immutable version', as
   });
   await request(harness);
   currentEstimate.title = 'Revised Shoreline Restoration';
+  currentEstimate.paymentSchedule = [{ id: 'full', label: 'Full Payment', type: 'percentage', percentage: 100, due: 'Upon completion', sortOrder: 0 }];
   currentEstimate.proposalVersionNumber = 1;
   await request(harness);
   assert.equal(saved[0].versionNumber, 1);
   assert.equal(saved[1].versionNumber, 2);
   assert.equal(saved[0].snapshot.proposal.title, 'Shoreline Restoration');
   assert.equal(saved[1].snapshot.proposal.title, 'Revised Shoreline Restoration');
+  assert.deepEqual(saved[0].snapshot.paymentSchedule.map((payment) => payment.label), ['Deposit', 'Final Payment']);
+  assert.deepEqual(saved[1].snapshot.paymentSchedule.map((payment) => payment.label), ['Full Payment']);
 });
 
 test('sending snapshots the current company logo and branding for historical versions', async () => {

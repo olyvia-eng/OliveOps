@@ -60,6 +60,8 @@ test('valid secure token returns only the immutable customer-safe snapshot and r
   assert.equal(res.body.proposal.status, 'viewed');
   assert.equal(viewed.estimateId, 'estimate-1');
   assert.doesNotMatch(JSON.stringify(res.body), /tokenHash|businessId|unitCost|profit|margin/);
+  assert.equal(res.body.proposal.snapshot.schemaVersion, 1, 'historical schema-1 snapshots remain readable');
+  assert.deepEqual(res.body.proposal.snapshot.workAreas[0].scopeLines, ['Install armour stone.']);
 });
 
 test('invalid, unknown, and expired tokens fail closed', async () => {

@@ -1,7 +1,7 @@
 const MAX_DOCUMENT_BYTES = 100_000;
 const MAX_TEXT_LENGTH = 60_000;
 const BLOCK_TYPES = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem']);
-const MARK_TYPES = new Set(['bold', 'italic', 'link']);
+const MARK_TYPES = new Set(['bold', 'italic', 'underline', 'link']);
 
 const cleanText = (value) => typeof value === 'string'
   ? [...value].filter((character) => {
@@ -102,4 +102,16 @@ export function richTextFromLegacySop(input = {}) {
 
 export function normalizeSopRichText(input = {}) {
   return normalizeRichTextDocument(input.richTextContent) ?? richTextFromLegacySop(input);
+}
+
+export function richTextFromPlainText(value) {
+  const lines = cleanText(value).split(/\r?\n/);
+  const content = lines.map((line) => line.trim()
+    ? { type: 'paragraph', content: [textNode(line)] }
+    : { type: 'paragraph' });
+  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] };
+}
+
+export function normalizeProposalScopeRichText(value, legacyText = '') {
+  return normalizeRichTextDocument(value) ?? richTextFromPlainText(legacyText);
 }

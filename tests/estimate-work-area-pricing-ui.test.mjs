@@ -8,6 +8,7 @@ const pricingEditorSource = readFileSync('src/components/estimates/EstimateLineP
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const modelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
+const richTextEditorSource = readFileSync('src/components/rich-text/RichTextEditor.tsx', 'utf8');
 
 test('Labour drawer presents calculated Division pricing without approval language', () => {
   assert.match(builderSource, /Add \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);
@@ -163,4 +164,12 @@ test('Equipment, Material, and Subcontractor costs are editable while Labour rem
   assert.match(builderSource, /applyEstimateLineItemCostOverride\(lineItem, value\)/);
   assert.match(builderSource, /normalizeNumericInput\(rawValue\)/);
   assert.match(builderSource, /costErrors\[lineItem\.id\][^]*role="alert"/);
+});
+
+test('customer-facing scope uses the constrained rich-text editor and compatibility text snapshot', () => {
+  assert.match(builderSource, /ariaLabel="Customer-facing scope of work"/);
+  assert.match(builderSource, /proposalScopeRichText\(workArea\.scopeRichText, workArea\.description\)/);
+  assert.match(builderSource, /description: richTextToPlainText\(scopeRichText\)/);
+  for (const command of ['toggleBold', 'toggleItalic', 'toggleUnderline', 'toggleBulletList', 'toggleOrderedList']) assert.match(richTextEditorSource, new RegExp(command));
+  assert.match(richTextEditorSource, /compact \? "min-h-36"/);
 });

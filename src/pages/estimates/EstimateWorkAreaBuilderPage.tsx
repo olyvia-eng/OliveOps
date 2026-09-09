@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import EstimateLinePricingEditor from '../../components/estimates/EstimateLinePricingEditor';
+import RichTextEditor from '../../components/rich-text/RichTextEditor';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
@@ -21,7 +22,9 @@ import {
 } from '../../utils/estimateModel';
 import { formatTargetMarginPercent } from '../budget/budgetAnalysisSummaryModel.js';
 import { formatNumericDisplayValue, normalizeNumericInput, parseNumericInputValue } from '../../utils/numberInput';
+import { proposalScopeRichText, richTextToPlainText } from '../../utils/richText';
 import type { Estimate, EstimateLineItem, EstimatePricingCatalog, EstimatePricingCatalogItem, LineItemCategory } from '../../types';
+import type { RichTextDocument } from '../../types/richText';
 import {
   WORK_AREA_CATEGORY_ADD_LABEL as CATEGORY_ADD_LABEL,
   WORK_AREA_CATEGORY_LABEL as CATEGORY_LABEL,
@@ -35,6 +38,7 @@ interface Props {
 type WorkAreaBuilderForm = {
   name: string;
   description: string;
+  scopeRichText: RichTextDocument;
   lineItems: EstimateLineItem[];
 };
 
@@ -95,6 +99,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [form, setForm] = useState<WorkAreaBuilderForm | null>(workArea ? {
     name: workArea.name,
     description: workArea.description,
+    scopeRichText: proposalScopeRichText(workArea.scopeRichText, workArea.description),
     lineItems: workArea.lineItems,
   } : null);
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -130,6 +135,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     setForm({
       name: workArea.name,
       description: workArea.description,
+      scopeRichText: proposalScopeRichText(workArea.scopeRichText, workArea.description),
       lineItems: workArea.lineItems,
     });
   }, [workArea]);
@@ -751,13 +757,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               onChange={(event) => setForm((current) => current ? { ...current, name: event.target.value } : current)}
             />
             <div>
-              <TextArea
-                label="Customer-facing scope of work"
+              <label className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-brand-100">Customer-facing scope of work</label>
+              <RichTextEditor
+                ariaLabel="Customer-facing scope of work"
                 disabled={isReadOnly}
-                rows={5}
-                className="resize-y"
-                value={form.description}
-                onChange={(event) => setForm((current) => current ? { ...current, description: event.target.value } : current)}
+                compact
+                value={form.scopeRichText}
+                onChange={(scopeRichText) => setForm((current) => current ? { ...current, scopeRichText, description: richTextToPlainText(scopeRichText) } : current)}
               />
               <p className="mt-1.5 text-xs text-gray-500 dark:text-brand-300">Describe the work included in this area. This appears on the customer proposal.</p>
             </div>

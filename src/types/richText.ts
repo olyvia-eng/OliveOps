@@ -1,5 +1,5 @@
 export type RichTextMark =
-  | { type: "bold" | "italic" }
+  | { type: "bold" | "italic" | "underline" }
   | {
       type: "link";
       attrs: {

@@ -151,6 +151,23 @@ test('line item category order and estimate-only cost overrides survive DynamoDB
   }
 });
 
+test('rich proposal scope and payment terms survive Estimate persistence independently from general terms', async (t) => {
+  installDdbMock(t);
+  const scopeRichText = { type: 'doc', content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Install stone', marks: [{ type: 'bold' }] }] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Compact base' }] }] }] },
+  ] };
+  const paymentSchedule = [{ id: 'deposit', label: 'Deposit', type: 'percentage', percentage: 100, due: 'Upon acceptance', sortOrder: 0 }];
+  const estimate = { ...estimateRecord([{ id: 'area-1', name: 'Patio', description: 'Install stone\n- Compact base', scopeRichText, sortOrder: 0, lineItems: [] }]), proposalTerms: 'Warranty and change-order terms.', paymentSchedule };
+
+  await createEstimateForBusiness({ businessId: 'business-a', estimate });
+  const reloaded = await getEstimateForBusiness('business-a', estimate.id);
+  assert.deepEqual(reloaded.workAreas[0].scopeRichText, scopeRichText);
+  assert.deepEqual(reloaded.paymentSchedule, paymentSchedule);
+  assert.equal(reloaded.proposalTerms, 'Warranty and change-order terms.');
+  assert.notDeepEqual(reloaded.paymentSchedule, reloaded.proposalTerms);
+});
+
 test('Estimate Division is inherited and forged or conflicting Work Area Divisions are rejected', () => {
   const existing = { divisionId: 'landscaping', workAreas: [{ id: 'area-1', divisionId: 'landscaping' }] };
   const inherited = enforceEstimateWorkAreaDivisionModel(existing, {

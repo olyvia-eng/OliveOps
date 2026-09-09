@@ -6,6 +6,7 @@ function applyMarks(content: ReactNode, marks: RichTextMark[] | undefined, key: 
   return (marks ?? []).reduce<ReactNode>((current, mark, index) => {
     if (mark.type === "bold") return <strong key={`${key}-bold-${index}`}>{current}</strong>;
     if (mark.type === "italic") return <em key={`${key}-italic-${index}`}>{current}</em>;
+    if (mark.type === "underline") return <u key={`${key}-underline-${index}`}>{current}</u>;
     if (mark.type === "link") return <a key={`${key}-link-${index}`} href={mark.attrs.href} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-brand-700 underline decoration-brand-300 underline-offset-2 hover:text-brand-900 dark:text-brand-200">{current}</a>;
     return current;
   }, content);

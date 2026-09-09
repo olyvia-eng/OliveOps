@@ -41,7 +41,8 @@ function estimate(areaCount = 1, descriptionsPerArea = 3) {
 const pdfText = (doc) => Buffer.from(doc.output('arraybuffer')).toString('latin1');
 const pdfRenderedText = (output) => (output.match(/\((?:\\.|[^)])*\) Tj/g) ?? [])
   .map((token) => token.slice(1, -4).replace(/\\([()\\])/g, '$1'))
-  .join(' ');
+  .join(' ')
+  .replace(/\s+/g, ' ');
 
 test('proposal PDF renders the compact customer-safe layout in the required order', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
@@ -49,9 +50,10 @@ test('proposal PDF renders the compact customer-safe layout in the required orde
   const output = pdfText(pdf);
   const renderedText = pdfRenderedText(output);
 
-  for (const visible of ['PROPOSAL', 'PREPARED FOR', 'PROPERTY', 'ISSUE DATE', 'VALID UNTIL', 'INTRODUCTION', 'WORK AREAS', 'Scope of Work', 'PAYMENT SCHEDULE', 'Deposit', 'Final Payment', 'TOTAL', 'ACCEPTANCE', 'Green Earth Contracting', 'PROP-2026-0042', '20 Project Road', 'Sep 1, 2026', 'Oct 1, 2026', 'DRAFT']) {
+  for (const visible of ['PROPOSAL', 'PREPARED FOR', 'PROPERTY', 'ISSUE DATE', 'VALID UNTIL', 'INTRODUCTION', 'WORK AREAS', 'Scope of Work', 'PAYMENT SCHEDULE', 'Deposit', 'Final Payment', 'TOTAL', 'ACCEPTANCE', 'Green Earth Contracting', 'PROP-2026-0042', '20 Project Road', 'Sep 1, 2026', 'Oct 1, 2026']) {
     assert.match(output, new RegExp(visible));
   }
+  assert.doesNotMatch(output, /DRAFT/);
   assert.ok(renderedText.indexOf('INTRODUCTION') < renderedText.indexOf('WORK AREAS'));
   assert.ok(renderedText.indexOf('WORK AREAS') < renderedText.indexOf('PAYMENT SCHEDULE'));
   assert.ok(renderedText.indexOf('PAYMENT SCHEDULE') < renderedText.indexOf('Tax (13%)'));
@@ -60,9 +62,9 @@ test('proposal PDF renders the compact customer-safe layout in the required orde
     assert.doesNotMatch(output, new RegExp(hidden, 'i'));
   }
   assert.doesNotMatch(output, /\((?:Download|Print)\)/i);
-  assert.match(output, /Complete customer scope item 1\.1/);
-  assert.match(output, /Complete customer scope item 1\.2/);
-  assert.ok(output.indexOf('Complete customer scope item 1.1') < output.indexOf('Complete customer scope item 1.2'));
+  assert.match(renderedText, /Complete customer scope item 1\.1/);
+  assert.match(renderedText, /Complete customer scope item 1\.2/);
+  assert.ok(renderedText.indexOf('Complete customer scope item 1.1') < renderedText.indexOf('Complete customer scope item 1.2'));
   assert.match(output, /\$303\.00/);
   assert.match(output, /\$39\.39/);
   assert.match(output, /\$342\.39/);
@@ -116,8 +118,9 @@ test('long proposal paginates without clipping and prints proposal/page footers 
   assert.ok(pageCount >= 3);
   for (let page = 1; page <= pageCount; page += 1) assert.match(output, new RegExp(`Page ${page} of ${pageCount}`));
   assert.equal((output.match(/PROP-2026-0042/g) ?? []).length >= pageCount, true);
-  assert.equal((output.match(/DRAFT/g) ?? []).length, pageCount);
-  assert.match(output, /Complete customer scope item 8\.8/);
+  assert.equal((output.match(/PROPOSAL/g) ?? []).length >= pageCount, true);
+  assert.doesNotMatch(output, /DRAFT/);
+  assert.match(pdfRenderedText(output), /Complete customer scope item 8\.8/);
 });
 
 test('optional sections are omitted when empty and a non-taxable proposal preserves zero tax', () => {
@@ -138,7 +141,7 @@ test('legacy proposal renders the safe scope fallback without resource names', (
   source.workAreas[0].description = '';
   const output = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: source, customer, business })));
 
-  assert.match(output, /Scope details to be confirmed\./);
+  assert.match(pdfRenderedText(output), /Scope details to be confirmed\./);
   assert.doesNotMatch(output, /John Smith|Bobcat e50|Employee record|Equipment catalog record/i);
   assert.match(output, /\$303\.00/);
   assert.match(output, /\$39\.39/);
@@ -164,6 +167,36 @@ test('sent proposal footer uses PROPOSAL without changing totals', () => {
   assert.match(output, /PROPOSAL/);
   assert.doesNotMatch(output, /\(DRAFT\)/);
   assert.match(output, /\$342\.39/);
+});
+
+test('proposal PDF preserves rich scope marks, lists, hard breaks, and safe multi-page flow', () => {
+  const source = estimate();
+  const repeatedItems = Array.from({ length: 90 }, (_, index) => ({
+    type: 'listItem',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: `Detailed scope item ${index + 1} remains above the page footer.` }] }],
+  }));
+  source.workAreas[0].scopeRichText = { type: 'doc', content: [
+    { type: 'paragraph', content: [
+      { type: 'text', text: 'Bold scope', marks: [{ type: 'bold' }] },
+      { type: 'text', text: ' italic scope', marks: [{ type: 'italic' }] },
+      { type: 'text', text: ' underlined scope', marks: [{ type: 'underline' }] },
+      { type: 'hardBreak' },
+      { type: 'text', text: 'Second line' },
+    ] },
+    { type: 'bulletList', content: repeatedItems.slice(0, 45) },
+    { type: 'orderedList', content: repeatedItems.slice(45) },
+  ] };
+  source.paymentSchedule = Array.from({ length: 18 }, (_, index) => ({ id: `stage-${index}`, label: `Milestone ${index + 1}`, type: 'fixed', amount: index === 17 ? 2.39 : 20, due: `Due after documented milestone ${index + 1} is complete.`, sortOrder: index }));
+
+  const pdf = createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: source, customer, business }));
+  const output = pdfText(pdf);
+  const renderedText = pdfRenderedText(output);
+  assert.ok(pdf.getNumberOfPages() >= 3);
+  for (const text of ['Bold scope', 'italic scope', 'underlined scope', 'Second line', 'Detailed scope item 90', 'Milestone 18']) assert.match(renderedText, new RegExp(text));
+  assert.match(output, /\/F2 9\.5 Tf/, 'bold font is emitted');
+  assert.match(output, /\/F3 9\.5 Tf/, 'italic font is emitted');
+  assert.match(output, /0\.45 w/, 'underline stroke is emitted');
+  assert.doesNotMatch(output, /DRAFT/);
 });
 
 test('Service proposal PDF distinguishes contracted and projected pricing', () => {
