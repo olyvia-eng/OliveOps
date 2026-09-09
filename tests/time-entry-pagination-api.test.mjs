@@ -178,3 +178,70 @@ test('authorized crew members remain restricted to their own Time Entries', asyn
   assert.equal(context.calls[0].filters.employeeFilterApplied, true);
   assert.deepEqual(context.calls[0].filters.employeeIds, ['employee-1']);
 });
+
+test('DELETE routes authenticated owner and admin requests through the scoped mutation', async () => {
+  for (const role of ['owner', 'admin']) {
+    const calls = [];
+    const context = harness({
+      session: { id: `${role}-1`, businessId: 'business-1', role },
+      dependencies: {
+        deleteTimeEntryMutation: async (input) => {
+          calls.push(input);
+          return { ok: true, deletedTimeEntryId: input.timeEntryId, auditEventId: 'audit-1' };
+        },
+      },
+    });
+    const res = response();
+    await context.handler({ method: 'DELETE', query: { entryId: 'entry-1' } }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.deletedTimeEntryId, 'entry-1');
+    assert.equal(calls[0].session.businessId, 'business-1');
+    assert.equal(calls[0].session.role, role);
+  }
+});
+
+test('DELETE returns mutation authorization and not-found responses cleanly', async () => {
+  for (const expected of [
+    { role: 'foreman', status: 403, code: 'time_entry_delete_forbidden' },
+    { role: 'crew_member', status: 403, code: 'time_entry_delete_forbidden' },
+    { role: 'owner', status: 404, code: 'time_entry_not_found' },
+  ]) {
+    const context = harness({
+      session: { id: 'user-1', businessId: 'business-1', role: expected.role },
+      dependencies: {
+        deleteTimeEntryMutation: async () => ({ ok: false, status: expected.status, code: expected.code, error: 'Rejected.' }),
+      },
+    });
+    const res = response();
+    await context.handler({ method: 'DELETE', query: { entryId: 'entry-1' } }, res);
+    assert.equal(res.statusCode, expected.status);
+    assert.equal(res.body.code, expected.code);
+  }
+});
+
+test('a deleted Time Entry is absent from subsequent lists, totals, and Bookkeeper Export', async () => {
+  let entries = [entry('entry-1', 'employee-1'), entry('entry-2', 'employee-2')];
+  const context = harness({
+    dependencies: {
+      deleteTimeEntryMutation: async ({ timeEntryId }) => {
+        entries = entries.filter((item) => item.id !== timeEntryId);
+        return { ok: true, deletedTimeEntryId: timeEntryId, auditEventId: 'audit-1' };
+      },
+      listTimeEntryPageForBusiness: async () => ({ items: entries, hasMore: false, lastEvaluatedKey: null }),
+    },
+  });
+
+  const deleted = response();
+  await context.handler({ method: 'DELETE', query: { entryId: 'entry-1' } }, deleted);
+  assert.equal(deleted.statusCode, 200);
+
+  const listed = response();
+  await context.handler({ method: 'GET', query: { surface: 'reports', limit: '25' } }, listed);
+  assert.deepEqual(listed.body.items.map((item) => item.id), ['entry-2']);
+
+  const exported = response();
+  await context.handler({ method: 'GET', query: { surface: 'reports', action: 'export', limit: '100' } }, exported);
+  assert.match(exported.body, /Matching Entries,1/);
+  assert.match(exported.body, /Grace Hopper,1\.00/);
+  assert.doesNotMatch(exported.body, /Ada Lovelace/);
+});

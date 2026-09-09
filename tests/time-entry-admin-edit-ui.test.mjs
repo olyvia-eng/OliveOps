@@ -35,7 +35,42 @@ test('shared detail shows Work Area snapshots and supports legacy entries withou
 test('unauthorized roles can inspect details but do not receive direct Edit', async () => {
   const detail = await source('../src/components/time/TimeEntryDetailModal.tsx');
   assert.match(detail, /const canEdit = currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
-  assert.match(detail, /\{canEdit \? <Button[^]*Edit Time Entry[^]*: null\}/);
+  assert.match(detail, /\{canEdit \? <>[^]*Edit Time Entry[^]*<\/> : null\}/);
+});
+
+test('authorized users get a destructive, explicit Time Entry deletion confirmation', async () => {
+  const detail = await source('../src/components/time/TimeEntryDetailModal.tsx');
+  assert.match(detail, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
+  assert.match(detail, /variant="danger"[^>]*>[^<]*<Trash2[^>]*> Delete/);
+  assert.match(detail, /title="Delete Time Entry\?"/);
+  assert.match(detail, /Delete this time entry\? This will remove it from time tracking and payroll totals\./);
+  for (const label of ['Employee', 'Date', 'Clock In', 'Clock Out', 'Activity', 'Duration', 'Job']) {
+    assert.match(detail, new RegExp(`>${label}<`));
+  }
+  assert.match(detail, /<Button variant="secondary" disabled=\{deleting\}[^]*?>Cancel/);
+  assert.match(detail, /variant="danger" disabled=\{deleting\}/);
+  assert.match(detail, /deleteError[^]*role="alert"/);
+});
+
+test('confirmed deletion updates the store only after success and refreshes paged views', async () => {
+  const [detail, store, pageHook, reports, job] = await Promise.all([
+    source('../src/components/time/TimeEntryDetailModal.tsx'),
+    source('../src/store/index.ts'),
+    source('../src/hooks/useTimeEntryPage.ts'),
+    source('../src/pages/reports/TimeReportsPage.tsx'),
+    source('../src/pages/jobs/JobDetailPage.tsx'),
+  ]);
+  const actionStart = store.lastIndexOf('deleteTimeEntry: async');
+  const action = store.slice(actionStart, store.indexOf('submitTimeCorrectionRequest:', actionStart));
+  assert.match(action, /method: 'DELETE'/);
+  assert.match(action, /if \(!response\.ok \|\| !body\?\.ok\)/);
+  assert.ok(action.indexOf('if (!response.ok || !body?.ok)') < action.indexOf('timeEntries: state.timeEntries.filter'));
+  assert.match(detail, /if \(deleting\) return/);
+  assert.match(detail, /onDeleted\?\.\(entry\.id\)/);
+  assert.match(pageHook, /setItems\(\(current\) => current\.filter/);
+  assert.match(pageHook, /items\.length === 1 && pageIndex > 0/);
+  assert.match(reports, /onDeleted=\{timeEntryPage\.removeAfterDelete\}/);
+  assert.match(job, /onDeleted=\{jobTimeEntryPage\.removeAfterDelete\}/);
 });
 
 test('Employee and Job Time Entry views reuse the same shared detail component', async () => {

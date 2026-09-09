@@ -629,6 +629,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         currentUserRole={currentUserRole}
         onClose={() => setSelectedTimeEntryId(null)}
         onUpdated={jobTimeEntryPage.refresh}
+        onDeleted={jobTimeEntryPage.removeAfterDelete}
       />
     </div>
   );

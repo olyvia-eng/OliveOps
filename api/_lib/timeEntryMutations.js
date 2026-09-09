@@ -9,6 +9,7 @@ import {
   listTimeEntriesForBusiness,
 } from './authRepo.js';
 import { getPendingClockOutWorkflowForEmployee } from './mandatoryClockOut.js';
+import { getActiveShiftForEmployee } from './clocking.js';
 import { calculateEmployeeLabourCost } from '../../src/utils/employeeLabourCost.js';
 import { timeEntryIndexAttributes } from './timeEntryPagination.js';
 
@@ -20,9 +21,110 @@ const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const timeEntrySk = (timeEntryId) => `TIME#${timeEntryId}`;
 const correctionSk = (correctionId) => `TIME_CORRECTION#${correctionId}`;
 const auditSk = (eventId) => `AUDIT#${eventId}`;
+const activeShiftPk = (businessId, employeeId) => `${businessPk(businessId)}#EMPLOYEE#${employeeId}`;
 
 export function canDirectlyEditTimeEntries(session) {
   return session?.role === 'owner' || session?.role === 'admin';
+}
+
+export async function deleteTimeEntryMutation({
+  session,
+  timeEntryId,
+  now = new Date().toISOString(),
+  dependencies: dependencyOverrides = {},
+}) {
+  if (!canDirectlyEditTimeEntries(session)) {
+    return { ok: false, status: 403, code: 'time_entry_delete_forbidden', error: 'You do not have permission to delete Time Entries.' };
+  }
+
+  const dependencies = {
+    getTimeEntryForBusiness,
+    getActiveShiftForEmployee,
+    getPendingClockOutWorkflowForEmployee,
+    transactWrite: (input) => ddb.send(new TransactWriteCommand(input)),
+    ...dependencyOverrides,
+  };
+  const existing = await dependencies.getTimeEntryForBusiness(session.businessId, timeEntryId);
+  if (!existing) return { ok: false, status: 404, code: 'time_entry_not_found', error: 'Time Entry not found.' };
+
+  const pendingClockOut = await dependencies.getPendingClockOutWorkflowForEmployee(session.businessId, existing.employeeId);
+  if (pendingClockOut?.timeEntryId === existing.id) {
+    return { ok: false, status: 409, code: 'pending_clock_out_conflict', error: 'Complete the pending clock-out workflow before deleting this Time Entry.' };
+  }
+  const activeShift = existing.status === 'clocked_in'
+    ? await dependencies.getActiveShiftForEmployee({ businessId: session.businessId, employeeId: existing.employeeId, consistentRead: true })
+    : null;
+  if (activeShift && activeShift.activeEntryId !== existing.id) {
+    return { ok: false, status: 409, code: 'active_shift_conflict', error: 'Employee clock state changed. Refresh and try again.' };
+  }
+
+  const eventId = randomUUID();
+  const duration = existing.clockOut
+    ? Math.max(0, (Date.parse(existing.clockOut) - Date.parse(existing.clockIn)) / 3_600_000 - Number(existing.breakMinutes ?? 0) / 60)
+    : 0;
+
+  try {
+    const transactItems = [
+        {
+          Delete: {
+            TableName: tableName,
+            Key: { PK: businessPk(session.businessId), SK: timeEntrySk(existing.id) },
+            ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #entryId = :entryId',
+            ExpressionAttributeNames: { '#entryId': 'entryId' },
+            ExpressionAttributeValues: { ':entryId': existing.id },
+          },
+        },
+        {
+          Put: {
+            TableName: tableName,
+            Item: {
+              PK: businessPk(session.businessId),
+              SK: auditSk(eventId),
+              entityType: 'AUDIT_EVENT',
+              businessId: session.businessId,
+              eventId,
+              action: 'time_entry_deleted',
+              actorUserId: session.id,
+              actorName: session.name ?? '',
+              actorEmail: session.email ?? '',
+              affectedEntryCount: 1,
+              createdAt: now,
+              metadata: {
+                timeEntryId: existing.id,
+                employeeId: existing.employeeId,
+                deletedBy: session.id,
+                timestamp: now,
+                originalClockIn: existing.clockIn,
+                originalClockOut: existing.clockOut ?? null,
+                workType: existing.workType ?? 'job',
+                jobId: existing.jobId ?? existing.jobIds?.[0] ?? null,
+                workAreaId: existing.workAreaId ?? null,
+                originalDurationHours: duration,
+              },
+            },
+            ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+          },
+        },
+      ];
+    if (activeShift) {
+      transactItems.push({
+        Delete: {
+          TableName: tableName,
+          Key: { PK: activeShiftPk(session.businessId, existing.employeeId), SK: 'ACTIVE_SHIFT' },
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #activeEntryId = :entryId',
+          ExpressionAttributeNames: { '#activeEntryId': 'activeEntryId' },
+          ExpressionAttributeValues: { ':entryId': existing.id },
+        },
+      });
+    }
+    await dependencies.transactWrite({ TransactItems: transactItems });
+    return { ok: true, deletedTimeEntryId: existing.id, auditEventId: eventId };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException') {
+      return { ok: false, status: 404, code: 'time_entry_not_found', error: 'Time Entry not found.' };
+    }
+    throw error;
+  }
 }
 
 function editableValues(entry) {

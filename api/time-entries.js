@@ -8,6 +8,7 @@ import { authorizeRecordAccess } from './_lib/authorization.js';
 import { listCrewsForBusiness } from './_lib/schedulingConfig.js';
 import { requireSession } from './_lib/session.js';
 import { buildEffectiveTimeEntries } from './_lib/timeCorrections.js';
+import { deleteTimeEntryMutation } from './_lib/timeEntryMutations.js';
 import {
   decodeTimeEntryCursor,
   encodeTimeEntryCursor,
@@ -79,16 +80,32 @@ export function createTimeEntriesHandler(dependencyOverrides = {}) {
     listEmployeesForBusiness,
     listTimeCorrectionsForBusiness,
     listTimeEntryPageForBusiness,
+    deleteTimeEntryMutation,
     ...dependencyOverrides,
   };
 
   return async function handler(req, res) {
-    if (req.method !== 'GET') {
-      res.setHeader('Allow', 'GET');
+    if (req.method !== 'GET' && req.method !== 'DELETE') {
+      res.setHeader('Allow', 'GET, DELETE');
       return res.status(405).json({ ok: false, error: 'Method not allowed' });
     }
     const session = await dependencies.requireSession(req, res, undefined, 'time-entries');
     if (!session) return;
+
+    if (req.method === 'DELETE') {
+      try {
+        const timeEntryId = queryValue(req.query?.entryId);
+        if (typeof timeEntryId !== 'string' || !timeEntryId.trim()) {
+          return res.status(400).json({ ok: false, code: 'time_entry_id_required', error: 'A Time Entry is required.' });
+        }
+        const result = await dependencies.deleteTimeEntryMutation({ session, timeEntryId: timeEntryId.trim() });
+        if (!result.ok) return res.status(result.status).json(result);
+        return res.status(200).json(result);
+      } catch (error) {
+        console.error('Time Entry delete failed', error);
+        return res.status(500).json({ ok: false, error: 'Time Entry could not be deleted.' });
+      }
+    }
 
     try {
       const query = normalizedQuery(req.query);

@@ -5344,6 +5344,8 @@ export async function getTimeEntryForBusiness(businessId, entryId) {
           ? result.Item.jobIds
           : (result.Item.jobId ? [result.Item.jobId] : []),
         workType: result.Item.workType ?? 'job',
+        workAreaId: result.Item.workAreaId ?? undefined,
+        workAreaNameSnapshot: result.Item.workAreaNameSnapshot ?? undefined,
         unbillableCategoryId: result.Item.unbillableCategoryId ?? undefined,
         unbillableCategoryName: result.Item.unbillableCategoryName ?? undefined,
         clockIn: result.Item.clockIn,

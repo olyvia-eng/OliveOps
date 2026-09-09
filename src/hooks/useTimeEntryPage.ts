@@ -118,6 +118,15 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
     setNextCursor(null);
     setRefreshVersion((value) => value + 1);
   }, []);
+  const removeAfterDelete = useCallback((timeEntryId: string) => {
+    setItems((current) => current.filter((entry) => entry.id !== timeEntryId));
+    if (items.length === 1 && pageIndex > 0) {
+      setPageIndex((current) => current - 1);
+      setNavigationVersion((value) => value + 1);
+      return;
+    }
+    setRefreshVersion((value) => value + 1);
+  }, [items.length, pageIndex]);
 
   return {
     items,
@@ -135,5 +144,6 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
     previous,
     setPageSize,
     refresh,
+    removeAfterDelete,
   };
 }

@@ -659,6 +659,7 @@ export default function TimeReportsPage({
         currentUserRole={currentUserRole}
         onClose={() => setSelectedTimeEntryId(null)}
         onUpdated={timeEntryPage.refresh}
+        onDeleted={timeEntryPage.removeAfterDelete}
       />
     </div>
   );

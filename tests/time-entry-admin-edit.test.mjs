@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTimeEntryMutation, canDirectlyEditTimeEntries } from '../api/_lib/timeEntryMutations.js';
+import { applyTimeEntryMutation, canDirectlyEditTimeEntries, deleteTimeEntryMutation } from '../api/_lib/timeEntryMutations.js';
 
 const now = '2026-09-01T18:00:00.000Z';
 const session = { id: 'admin-1', name: 'Admin One', email: 'admin@example.com', role: 'admin', businessId: 'biz-1' };
@@ -57,6 +57,108 @@ test('direct Time Entry editing is restricted to Owner and Admin', () => {
   assert.equal(canDirectlyEditTimeEntries({ role: 'admin' }), true);
   assert.equal(canDirectlyEditTimeEntries({ role: 'foreman' }), false);
   assert.equal(canDirectlyEditTimeEntries({ role: 'crew_member' }), false);
+});
+
+test('owner and admin delete a tenant Time Entry with a durable audit event', async () => {
+  for (const role of ['owner', 'admin']) {
+    const transactions = [];
+    const existing = harness().entry;
+    const result = await deleteTimeEntryMutation({
+      session: { ...session, role },
+      timeEntryId: existing.id,
+      now,
+      dependencies: {
+        getTimeEntryForBusiness: async (businessId, id) => businessId === 'biz-1' && id === existing.id ? existing : null,
+        getPendingClockOutWorkflowForEmployee: async () => null,
+        transactWrite: async (input) => transactions.push(input),
+      },
+    });
+    assert.equal(result.ok, true);
+    const [entryDelete, auditWrite] = transactions[0].TransactItems;
+    assert.deepEqual(entryDelete.Delete.Key, { PK: 'BUSINESS#biz-1', SK: 'TIME#entry-1' });
+    assert.equal(auditWrite.Put.Item.action, 'time_entry_deleted');
+    assert.equal(auditWrite.Put.Item.businessId, 'biz-1');
+    assert.equal(auditWrite.Put.Item.metadata.employeeId, 'employee-1');
+    assert.equal(auditWrite.Put.Item.metadata.deletedBy, 'admin-1');
+    assert.equal(auditWrite.Put.Item.metadata.timestamp, now);
+    assert.equal(auditWrite.Put.Item.metadata.originalClockIn, existing.clockIn);
+    assert.equal(auditWrite.Put.Item.metadata.originalClockOut, existing.clockOut);
+    assert.equal(auditWrite.Put.Item.metadata.workType, 'job');
+    assert.equal(auditWrite.Put.Item.metadata.jobId, 'job-1');
+    assert.equal(auditWrite.Put.Item.metadata.workAreaId, 'area-1');
+    assert.equal(auditWrite.Put.Item.metadata.originalDurationHours, 4);
+    assert.equal(transactions[0].TransactItems.length, 2);
+  }
+});
+
+test('foreman, crew member, cross-tenant, and missing Time Entries cannot be deleted', async () => {
+  for (const role of ['foreman', 'crew_member']) {
+    const result = await deleteTimeEntryMutation({
+      session: { ...session, role },
+      timeEntryId: 'entry-1',
+      dependencies: { getTimeEntryForBusiness: async () => assert.fail('unauthorized delete performed a lookup') },
+    });
+    assert.equal(result.status, 403);
+    assert.equal(result.code, 'time_entry_delete_forbidden');
+  }
+
+  for (const timeEntryId of ['other-business-entry', 'missing-entry']) {
+    let transactionCalled = false;
+    const result = await deleteTimeEntryMutation({
+      session,
+      timeEntryId,
+      dependencies: {
+        getTimeEntryForBusiness: async (businessId) => {
+          assert.equal(businessId, 'biz-1');
+          return null;
+        },
+        getPendingClockOutWorkflowForEmployee: async () => null,
+        transactWrite: async () => { transactionCalled = true; },
+      },
+    });
+    assert.equal(result.status, 404);
+    assert.equal(result.code, 'time_entry_not_found');
+    assert.equal(transactionCalled, false);
+  }
+});
+
+test('deleting an active Time Entry clears its active-shift pointer atomically', async () => {
+  const transactions = [];
+  const existing = { ...harness().entry, status: 'clocked_in', clockOut: undefined };
+  const result = await deleteTimeEntryMutation({
+    session,
+    timeEntryId: existing.id,
+    dependencies: {
+      getTimeEntryForBusiness: async () => existing,
+      getPendingClockOutWorkflowForEmployee: async () => null,
+      getActiveShiftForEmployee: async () => ({ employeeId: existing.employeeId, activeEntryId: existing.id }),
+      transactWrite: async (input) => transactions.push(input),
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(transactions[0].TransactItems.length, 3);
+  assert.deepEqual(transactions[0].TransactItems[2].Delete.Key, {
+    PK: 'BUSINESS#biz-1#EMPLOYEE#employee-1',
+    SK: 'ACTIVE_SHIFT',
+  });
+  assert.equal(transactions[0].TransactItems[2].Delete.ExpressionAttributeValues[':entryId'], 'entry-1');
+});
+
+test('a pending required-form clock-out blocks deletion without mutating records', async () => {
+  let transactionCalled = false;
+  const existing = harness().entry;
+  const result = await deleteTimeEntryMutation({
+    session,
+    timeEntryId: existing.id,
+    dependencies: {
+      getTimeEntryForBusiness: async () => existing,
+      getPendingClockOutWorkflowForEmployee: async () => ({ timeEntryId: existing.id }),
+      transactWrite: async () => { transactionCalled = true; },
+    },
+  });
+  assert.equal(result.status, 409);
+  assert.equal(result.code, 'pending_clock_out_conflict');
+  assert.equal(transactionCalled, false);
 });
 
 test('admin edits times, recomputes labour cost, and writes old/new audit values atomically', async () => {

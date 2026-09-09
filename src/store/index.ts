@@ -251,7 +251,7 @@ interface AppState {
   }) => Promise<{ ok: boolean; code?: string; error?: string; timeEntry?: TimeEntry }>;
   addTimeEntry: (e: Omit<TimeEntry, 'id'>) => void;
   updateTimeEntry: (id: ID, data: Partial<TimeEntry>) => void;
-  deleteTimeEntry: (id: ID) => void;
+  deleteTimeEntry: (id: ID) => Promise<{ ok: boolean; code?: string; error?: string }>;
   submitTimeCorrectionRequest: (payload: {
     employeeId?: ID;
     timeEntryId?: ID;
@@ -1474,17 +1474,21 @@ export const useStore = create<AppState>()((set, get) => ({
           emitAppToast({ tone: 'error', message: 'Time entry could not be updated.' });
         });
       },
-      deleteTimeEntry: (id) => {
-        const previous = get().timeEntries;
-        set((s) => ({ timeEntries: s.timeEntries.filter((te) => te.id !== id) }));
-
-        void ensureOk(fetch(dataUrl('time-entries', id), {
-          method: 'DELETE',
-          credentials: 'include',
-        })).catch(() => {
-          set({ timeEntries: previous });
-          emitAppToast({ tone: 'error', message: 'Time entry could not be deleted.' });
-        });
+      deleteTimeEntry: async (id) => {
+        try {
+          const response = await fetch(`/api/time-entries?entryId=${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          });
+          const body = await response.json().catch(() => null) as { ok?: boolean; code?: string; error?: string } | null;
+          if (!response.ok || !body?.ok) {
+            return { ok: false, code: body?.code, error: body?.error ?? `Time Entry could not be deleted (HTTP ${response.status}).` };
+          }
+          set((state) => ({ timeEntries: state.timeEntries.filter((entry) => entry.id !== id) }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error, 'Time Entry could not be deleted.') };
+        }
       },
       submitTimeCorrectionRequest: async (payload) => {
         try {
