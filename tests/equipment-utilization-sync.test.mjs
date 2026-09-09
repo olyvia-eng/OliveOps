@@ -8,6 +8,7 @@ const utilization = { sellableHoursPerYear: 1000, equipmentHoursPerDay: 8 };
 
 test('existing annual-hours-only records derive Expected Operating Days without migration', () => {
   assert.equal(deriveOperatingDays(utilization.sellableHoursPerYear, utilization.equipmentHoursPerDay), 125);
+  assert.equal(deriveOperatingDays(1000, 6), 166.7);
   assert.equal(deriveOperatingDays(1200, 0), 0);
 });
 
@@ -27,6 +28,8 @@ test('editing Operating Days preserves Hours per Day and recalculates Annual Hou
     equipmentHoursPerDay: 8,
     operatingDays: 150,
   });
+  assert.equal(synchronizeEquipmentUtilization({ sellableHoursPerYear: 1000, equipmentHoursPerDay: 6 }, 'annualHours', 'operatingDays', 166.5, 166.7).sellableHoursPerYear, 999);
+  assert.equal(synchronizeEquipmentUtilization({ sellableHoursPerYear: 1000, equipmentHoursPerDay: 7.5 }, 'annualHours', 'operatingDays', 150, 133.3).sellableHoursPerYear, 1125);
 });
 
 test('editing Hours per Day preserves the most recently edited annual utilization value', () => {
@@ -45,6 +48,24 @@ test('editing Hours per Day preserves the most recently edited annual utilizatio
     equipmentHoursPerDay: 10,
     operatingDays: 150,
   });
+
+  assert.deepEqual(synchronizeEquipmentUtilization({ sellableHoursPerYear: 999.9, equipmentHoursPerDay: 6 }, 'annualHours', 'hoursPerDay', 6, 166.65), {
+    basis: 'annualHours',
+    sellableHoursPerYear: 999.9,
+    equipmentHoursPerDay: 6,
+    operatingDays: 166.7,
+  });
+});
+
+test('utilization values are limited to one decimal without trailing fractional artifacts', () => {
+  const repeatingDays = deriveOperatingDays(1000, 6);
+  const decimalHours = synchronizeEquipmentUtilization({ sellableHoursPerYear: 1000, equipmentHoursPerDay: 3.3 }, 'annualHours', 'operatingDays', 166.7, 303);
+
+  assert.equal(repeatingDays, 166.7);
+  assert.equal(String(repeatingDays), '166.7');
+  assert.equal(decimalHours.sellableHoursPerYear, 550.1);
+  assert.equal(String(decimalHours.sellableHoursPerYear), '550.1');
+  assert.equal(String(deriveOperatingDays(1000, 8)), '125');
 });
 
 test('utilization synchronization rejects non-finite, negative, and invalid zero-divisor inputs', () => {

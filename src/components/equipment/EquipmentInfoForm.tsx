@@ -144,7 +144,7 @@ export default function EquipmentInfoForm({
             label="Expected Operating Hours / Year"
             type="number"
             min={0}
-            step={1}
+            step={0.1}
             value={value.sellableHoursPerYear}
             onChange={(event) => editUtilization('annualHours', Number(event.target.value))}
           />
@@ -153,7 +153,7 @@ export default function EquipmentInfoForm({
             label="Expected Operating Hours / Day"
             type="number"
             min={0}
-            step={0.25}
+            step={0.1}
             value={value.equipmentHoursPerDay}
             onChange={(event) => editUtilization('hoursPerDay', Number(event.target.value))}
           />

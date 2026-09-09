@@ -34,6 +34,7 @@ test('catalog and budget both use shared equipment fields with context-specific 
   assert.match(equipmentFormSource, /Expected Operating Hours \/ Year/);
   assert.match(equipmentFormSource, /Expected Operating Hours \/ Day/);
   assert.match(equipmentFormSource, /Expected Operating Days \/ Year/);
+  assert.equal((equipmentFormSource.match(/step=\{0\.1\}/g) ?? []).length, 3);
   assert.match(equipmentFormSource, /editUtilization\('annualHours'/);
   assert.match(equipmentFormSource, /editUtilization\('operatingDays'/);
   assert.match(equipmentFormSource, /editUtilization\('hoursPerDay'/);
