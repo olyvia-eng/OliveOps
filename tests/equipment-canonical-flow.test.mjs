@@ -33,6 +33,11 @@ test('catalog and budget both use shared equipment fields with context-specific 
   assert.match(equipmentFormSource, /Yearly Maintenance Cost/);
   assert.match(equipmentFormSource, /Expected Operating Hours \/ Year/);
   assert.match(equipmentFormSource, /Expected Operating Hours \/ Day/);
+  assert.match(equipmentFormSource, /Expected Operating Days \/ Year/);
+  assert.match(equipmentFormSource, /editUtilization\('annualHours'/);
+  assert.match(equipmentFormSource, /editUtilization\('operatingDays'/);
+  assert.match(equipmentFormSource, /editUtilization\('hoursPerDay'/);
+  assert.doesNotMatch(equipmentFormSource, /Calculated Operating Days \/ Year/);
   assert.doesNotMatch(equipmentFormSource, /Months Used Per Year/);
   assert.match(equipmentFormSource, /Annual Equipment Cost/);
   assert.match(equipmentFormSource, /Cost per Operating Hour/);
@@ -69,6 +74,8 @@ test('shared equipment validation and normalization are used by both save paths'
   assert.match(equipmentFormSource, /Select a valid equipment classification/);
   assert.match(equipmentFormSource, /Select a valid ownership \/ source/);
   assert.match(equipmentFormSource, /must be zero or greater/);
+  assert.match(equipmentFormSource, /Expected operating hours per year/);
+  assert.match(equipmentFormSource, /Expected operating hours per day must be greater than zero when annual operating hours are entered/);
   assert.match(catalogSource, /validateEquipmentInfoForm\(form\)/);
   assert.match(catalogSource, /normalizeEquipmentInfoForm\(form\)/);
   assert.match(budgetSource, /validateEquipmentInfoForm\(equipmentInfoForm\)/);

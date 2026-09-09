@@ -1,6 +1,8 @@
+import { useEffect, useRef, useState } from 'react';
 import { Input, Select } from '../ui';
 import type { EquipmentClassification, EquipmentCostType } from '../../types';
 import { formatCurrency } from '../../utils';
+import { deriveOperatingDays, synchronizeEquipmentUtilization } from '../../utils/equipmentUtilizationModel.js';
 import type { EquipmentInfoFormValue } from './equipmentFormModel';
 
 interface EquipmentInfoFormProps {
@@ -94,8 +96,33 @@ export default function EquipmentInfoForm({
   showCalculationDetails,
   onToggleCalculationDetails,
 }: EquipmentInfoFormProps) {
-  const set = <K extends keyof EquipmentInfoFormValue>(key: K, nextValue: EquipmentInfoFormValue[K]) => {
-    onChange({ ...value, [key]: nextValue });
+  const utilizationBasis = useRef<'annualHours' | 'operatingDays'>('annualHours');
+  const pendingUtilization = useRef<{ sellableHoursPerYear: number; equipmentHoursPerDay: number } | null>(null);
+  const [operatingDays, setOperatingDays] = useState(() => deriveOperatingDays(value.sellableHoursPerYear, value.equipmentHoursPerDay));
+
+  useEffect(() => {
+    const pending = pendingUtilization.current;
+    if (pending && pending.sellableHoursPerYear === value.sellableHoursPerYear && pending.equipmentHoursPerDay === value.equipmentHoursPerDay) {
+      pendingUtilization.current = null;
+      return;
+    }
+    utilizationBasis.current = 'annualHours';
+    setOperatingDays(deriveOperatingDays(value.sellableHoursPerYear, value.equipmentHoursPerDay));
+  }, [value.equipmentHoursPerDay, value.sellableHoursPerYear]);
+
+  const editUtilization = (editedField: 'annualHours' | 'operatingDays' | 'hoursPerDay', editedValue: number) => {
+    const synchronized = synchronizeEquipmentUtilization(value, utilizationBasis.current, editedField, editedValue, operatingDays);
+    utilizationBasis.current = synchronized.basis;
+    setOperatingDays(synchronized.operatingDays);
+    pendingUtilization.current = {
+      sellableHoursPerYear: synchronized.sellableHoursPerYear,
+      equipmentHoursPerDay: synchronized.equipmentHoursPerDay,
+    };
+    onChange({
+      ...value,
+      sellableHoursPerYear: synchronized.sellableHoursPerYear,
+      equipmentHoursPerDay: synchronized.equipmentHoursPerDay,
+    });
   };
 
   return (
@@ -119,7 +146,7 @@ export default function EquipmentInfoForm({
             min={0}
             step={1}
             value={value.sellableHoursPerYear}
-            onChange={(event) => set('sellableHoursPerYear', Number(event.target.value || 0))}
+            onChange={(event) => editUtilization('annualHours', Number(event.target.value))}
           />
 
           <Input
@@ -128,10 +155,10 @@ export default function EquipmentInfoForm({
             min={0}
             step={0.25}
             value={value.equipmentHoursPerDay}
-            onChange={(event) => set('equipmentHoursPerDay', Number(event.target.value || 0))}
+            onChange={(event) => editUtilization('hoursPerDay', Number(event.target.value))}
           />
 
-          <Input label="Calculated Operating Days / Year" value={value.equipmentHoursPerDay > 0 ? (value.sellableHoursPerYear / value.equipmentHoursPerDay).toFixed(1) : '0'} disabled />
+          <Input label="Expected Operating Days / Year" type="number" min={0} step={0.1} value={operatingDays} onChange={(event) => editUtilization('operatingDays', Number(event.target.value))} />
         </div>
       </section>
 
@@ -171,7 +198,7 @@ export default function EquipmentInfoForm({
             <dt>Insurance</dt><dd>{formatCurrency(Number(value.yearlyInsuranceCost || 0))}</dd>
             <dt>Maintenance</dt><dd>{formatCurrency(Number(value.yearlyMaintenanceCost || 0))}</dd>
             <dt className="border-t border-gray-200 pt-2 font-semibold text-gray-900">Annual Equipment Cost</dt><dd className="border-t border-gray-200 pt-2 font-semibold text-gray-900">{formatCurrency(totalEquipmentCostPerYear)}</dd>
-            <dt className="pt-2">Expected Operating Days</dt><dd className="pt-2">{value.equipmentHoursPerDay > 0 ? (value.sellableHoursPerYear / value.equipmentHoursPerDay).toLocaleString(undefined, { maximumFractionDigits: 1 }) : '0'}</dd>
+            <dt className="pt-2">Expected Operating Days</dt><dd className="pt-2">{operatingDays.toLocaleString(undefined, { maximumFractionDigits: 1 })}</dd>
             <dt>Expected Operating Hours</dt><dd>{Number(value.sellableHoursPerYear || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</dd>
             <dt className="font-semibold text-gray-900">Cost per Day</dt><dd className="font-semibold text-gray-900">{formatCurrency(totalCostPerDay)}</dd>
             <dt className="font-semibold text-gray-900">Cost per Hour</dt><dd className="font-semibold text-gray-900">{formatCurrency(totalCostPerHour)}</dd>
