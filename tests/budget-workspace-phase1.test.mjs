@@ -50,6 +50,14 @@ test('parent and Division routes preserve Budget context without legacy routes',
   assert.match(divisionSource, /requestedTab === 'other-costs' \? 'overhead'/);
 });
 
+test('Division navigation defaults to Overview while preserving explicit tab deep links', () => {
+  assert.match(divisionSource, /searchParams\.get\('tab'\) \?\? 'overview'/);
+  assert.match(divisionSource, /activeTab === 'profit-loss'/);
+  assert.match(workspaceSource, /navigate\(`\/budgets\/\$\{budget\.id\}\/divisions\/\$\{division\.id\}`\)/);
+  assert.match(workspaceSource, /divisionModal === 'new'[\s\S]*navigate\(`\/budgets\/\$\{budget\.id\}\/divisions\/\$\{saved\.id\}`\)/);
+  assert.doesNotMatch(workspaceSource, /divisions\/\$\{division\.id\}\?tab=profit-loss/);
+});
+
 test('Division roll-ups use stored revenue targets and centralized financial calculations', () => {
   const divisions = [{ revenueTarget: 500000 }, { revenueTarget: 700000 }];
   assert.equal(divisions.reduce((sum, item) => sum + item.revenueTarget, 0), 1200000);

@@ -171,13 +171,62 @@ test('changing one Division revenue target recalculates its results and the over
   assert.equal(budget.operatingProfit, 1026000);
 });
 
-test('zero revenue and incomplete planning never present misleading profit', () => {
-  const incomplete = model.calculateDivisionFinancials({ divisions: [{ ...divisions[0], revenueTarget: 0 }], planningItems: planningItems.filter((item) => item.category === 'labour') }, 'hardscape');
-  assert.equal(incomplete.isComplete, false);
-  assert.deepEqual(incomplete.missingCategories, ['equipment', 'materials', 'subcontractors']);
-  assert.equal(incomplete.grossProfit, null);
-  assert.equal(incomplete.grossMargin, null);
-  assert.equal(incomplete.operatingProfit, null);
+test('unused optional categories contribute zero without making a Division incomplete', () => {
+  const completeLabour = planningItems.filter((item) => item.id === 'ryan');
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: completeLabour }, 'hardscape');
+  const budget = model.calculateBudgetFinancials({ divisions: [divisions[0]], planningItems: completeLabour });
+
+  assert.equal(result.directEquipment, 0);
+  assert.equal(result.materials, 0);
+  assert.equal(result.subcontractors, 0);
+  assert.equal(result.totalOverhead, 0);
+  assert.equal(result.isComplete, true);
+  assert.deepEqual(result.missingCategories, []);
+  assert.equal(result.grossProfit, result.revenue - result.directLabour);
+  assert.equal(result.operatingProfit, result.grossProfit);
+  assert.equal(budget.isComplete, true);
+  assert.equal(budget.grossProfit, result.grossProfit);
+  assert.equal(budget.operatingProfit, result.operatingProfit);
+});
+
+test('zero Subcontractors does not make a Division incomplete', () => {
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: planningItems.filter((item) => item.category !== 'subcontractors') }, 'hardscape');
+  assert.equal(result.subcontractors, 0);
+  assert.equal(result.isComplete, true);
+});
+
+test('zero Materials does not make a Division incomplete', () => {
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: planningItems.filter((item) => item.category !== 'materials') }, 'hardscape');
+  assert.equal(result.materials, 0);
+  assert.equal(result.isComplete, true);
+});
+
+test('zero Equipment does not make a Division incomplete', () => {
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: planningItems.filter((item) => item.category !== 'equipment') }, 'hardscape');
+  assert.equal(result.directEquipment, 0);
+  assert.equal(result.overheadEquipment, 0);
+  assert.equal(result.isComplete, true);
+});
+
+test('zero Overhead does not make a Division incomplete', () => {
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: planningItems.filter((item) => item.category !== 'overhead' && item.id !== 'admin' && item.id !== 'truck') }, 'hardscape');
+  assert.equal(result.totalOverhead, 0);
+  assert.equal(result.isComplete, true);
+});
+
+test('configured Labour missing required planning inputs remains incomplete', () => {
+  const incompleteLabour = [{
+    id: 'incomplete-labour', budgetId: 'budget', divisionId: 'hardscape', category: 'labour',
+    compType: 'hourly', plannedHours: 1900, fieldProducingPct: 100,
+    divisionAllocations: [{ divisionId: 'hardscape', hours: 1900 }],
+  }];
+  const result = model.calculateDivisionFinancials({ divisions, planningItems: incompleteLabour }, 'hardscape');
+
+  assert.equal(result.isComplete, false);
+  assert.deepEqual(result.missingCategories, ['labour']);
+  assert.equal(result.grossProfit, null);
+  assert.equal(result.grossMargin, null);
+  assert.equal(result.operatingProfit, null);
 });
 
 test('a configured zero-revenue Budget calculates dollars but never divides by zero', () => {

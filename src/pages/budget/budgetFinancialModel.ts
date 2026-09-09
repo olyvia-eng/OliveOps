@@ -129,17 +129,41 @@ const directCostDetail = (item: PlanningItem, category: DirectCostDetailCategory
   amount,
 });
 
+const validPercentage = (value: number | undefined) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+
+const labourItemIsComplete = (item: PlanningItem) => {
+  const fieldProducingPct = item.fieldProducingPct ?? (item.labourClassification === 'overhead' ? 0 : 100);
+  const compensationIsComplete = item.compType === 'salaried'
+    ? typeof item.annualSalary === 'number' && Number.isFinite(item.annualSalary) && item.annualSalary >= 0
+    : typeof item.hourlyRate === 'number' && Number.isFinite(item.hourlyRate) && item.hourlyRate >= 0;
+  const allocationIsComplete = !Array.isArray(item.divisionAllocations) || (
+    item.divisionAllocations.length > 0
+    && (item.divisionAllocations.some((allocation) => allocation.hours !== undefined)
+      ? item.divisionAllocations.every((allocation) => typeof allocation.hours === 'number' && Number.isFinite(allocation.hours) && allocation.hours >= 0)
+        && Math.abs(item.divisionAllocations.reduce((sum, allocation) => sum + (allocation.hours ?? 0), 0) - (item.plannedHours ?? 0)) < 0.001
+      : item.divisionAllocations.every((allocation) => validPercentage(allocation.percentage))
+        && Math.abs(item.divisionAllocations.reduce((sum, allocation) => sum + (allocation.percentage ?? 0), 0) - 100) < 0.001)
+  );
+  const fieldPlanIsComplete = fieldProducingPct === 0 || (
+    typeof item.plannedHours === 'number'
+    && Number.isFinite(item.plannedHours)
+    && item.plannedHours >= 0
+    && validPercentage(item.expectedBillablePct)
+  );
+  return compensationIsComplete
+    && validPercentage(fieldProducingPct)
+    && fieldPlanIsComplete
+    && allocationIsComplete
+    && (item.overtimeHours === undefined || finiteNonNegative(item.overtimeHours) === item.overtimeHours)
+    && (item.overtimeMultiplier === undefined || (Number.isFinite(item.overtimeMultiplier) && item.overtimeMultiplier >= 1));
+};
+
 export function calculateDivisionFinancials(input: BudgetFinancialInput, divisionId: string): DivisionFinancials {
   const division = input.divisions.find((item) => item.id === divisionId);
   const items = [...new Map(input.planningItems.map((item) => [item.id, item])).values()];
   const equipmentById = new Map((input.equipmentAssets ?? []).map((item) => [item.id, item]));
-  const categoryPresent = (category: PlanningItem['category']) => items.some((item) => item.category === category && (
-    category === 'labour' ? isLabourAllocatedToDivision(item, divisionId)
-      : category === 'equipment' ? finiteNonNegative(equipmentMonthsForDivision(item, divisionId)) > 0
-        : item.divisionId === divisionId
-  ));
-  const missingCategories = (['labour', 'equipment', 'materials', 'subcontractors'] as const)
-    .filter((category) => !categoryPresent(category));
+  const divisionLabourItems = items.filter((item) => item.category === 'labour' && isLabourAllocatedToDivision(item, divisionId));
+  const missingCategories = divisionLabourItems.some((item) => !labourItemIsComplete(item)) ? ['labour'] : [];
   const isComplete = missingCategories.length === 0;
   const labourShares = items.filter((item) => item.category === 'labour')
     .map((item) => ({ item, share: calculateDivisionLabourShare(item, divisionId) }));

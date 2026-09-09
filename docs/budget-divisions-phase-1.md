@@ -33,7 +33,7 @@ Opening the new workspace performs no migration. Budgets without `planningModel 
 
 Labour, Equipment, Materials, Subcontractors, and Overhead use Division planning records. The former `other-costs` tab name remains a URL compatibility alias for Overhead. Shared overhead is stored once at Budget scope with explicit Division percentages totaling 100%; legacy top-level overhead records remain available for compatibility and are normalized idempotently.
 
-Profit & Loss is a read-only projection from revenue targets and these planning records. `calculateDivisionFinancials` and `calculateBudgetFinancials` provide the shared calculation boundary for Division Overview, Division summaries, P&L, and Analysis. Each Division includes only its allocated overhead share, and the overall Budget rolls up those Division values exactly once. Incomplete direct-cost planning produces unavailable profit and margin values rather than implied profit.
+Profit & Loss is a read-only projection from revenue targets and these planning records. `calculateDivisionFinancials` and `calculateBudgetFinancials` provide the shared calculation boundary for Division Overview, Division summaries, P&L, and Analysis. Each Division includes only its allocated overhead share, and the overall Budget rolls up those Division values exactly once. Empty optional cost categories contribute zero. Configured Labour with missing or invalid calculation inputs produces unavailable profit and margin values rather than implied profit.
 
 ## Division Planning
 
