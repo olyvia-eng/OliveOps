@@ -175,12 +175,14 @@ test('subcontractor planning uses assumptions to calculate Annual Cost without a
   const branch = planner.slice(planner.indexOf("{category === 'subcontractors' ?"), planner.indexOf("{category === 'overhead' ?", planner.indexOf("{category === 'subcontractors' ?")));
 
   assert.match(branch, /label="Subcontractor Catalog"/);
-  assert.match(branch, /label="Cost per Unit"/);
+  assert.doesNotMatch(branch, /label="Cost per Unit"/);
   assert.match(branch, /label="Planned Quantity"/);
   assert.match(branch, /label="Description"/);
   assert.match(branch, /Calculated Annual Cost/);
   assert.match(branch, /subcontractorAnnualCost/);
   assert.match(branch, /subcontractor\?\.defaultUnitCost \?\? current\.rate/);
+  assert.match(branch, /rate: value\.defaultUnitCost/);
+  assert.match(planner, /rate: nextDraft\.rate \?\? normalizedSubcontractor\.defaultUnitCost/);
   assert.doesNotMatch(branch, /label="Rate"|label="Planned amount"|label="Planned Amount"/);
   assert.match(planner, /calculateAnnualSubcontractorCost\(item\)/);
   assert.match(planner, /subcontractorPlannedQuantity\(item\).*item\.unit.*subcontractorCostPerUnit\(item\)/s);

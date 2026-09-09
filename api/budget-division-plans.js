@@ -165,8 +165,12 @@ export default async function handler(req, res) {
       const createCatalogItem = (category === 'materials' || category === 'subcontractors') && req.body?.createCatalogItem === true;
       const catalogItemId = createCatalogItem ? generateId() : undefined;
       const equipmentId = createEquipmentAsset ? generateId() : req.body?.data?.equipmentId;
+      const planningData = req.body?.data ?? {};
       let item = normalizePlanningAssumptions({
-        ...req.body?.data,
+        ...planningData,
+        ...(category === 'subcontractors' && createCatalogItem && planningData.rate === undefined && planningData.unitCost === undefined
+          ? { rate: Number(req.body?.catalogItem?.defaultUnitCost ?? 0) }
+          : {}),
         equipmentId,
         ...(category === 'materials' && catalogItemId ? { materialCatalogItemId: catalogItemId } : {}),
         ...(category === 'subcontractors' && catalogItemId ? { subcontractorCatalogItemId: catalogItemId, vendorId: catalogItemId } : {}),

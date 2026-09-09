@@ -646,13 +646,13 @@ test('new Budget Subcontractor uses canonical Catalog fields and keeps Budget as
   await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: {
     createCatalogItem: true,
     catalogItem: { name: 'Ace Concrete', trade: 'Concrete', contactName: 'Alex Ace', email: 'alex@example.com', phone: '555-0100', unit: 'job', defaultUnitCost: 2500, notes: 'Preferred vendor' },
-    data: { name: 'Ace Concrete', description: 'Retaining wall scope', unit: 'job', rate: 2750, plannedQuantity: 3, plannedAmount: 8250 },
+    data: { name: 'Ace Concrete', description: 'Retaining wall scope', unit: 'job', plannedQuantity: 3 },
   } }, created);
   assert.equal(created.statusCode, 200);
   assert.equal(created.body.item.subcontractorCatalogItemId, created.body.subcontractorCatalogItem.id);
   assert.equal(created.body.item.vendorId, created.body.subcontractorCatalogItem.id);
-  assert.equal(created.body.item.rate, 2750);
-  assert.equal(created.body.item.plannedAmount, 8250);
+  assert.equal(created.body.item.rate, 2500);
+  assert.equal(created.body.item.plannedAmount, 7500);
   const catalog = store.get(key('BUSINESS#biz-a', `SUBCONTRACTOR#${created.body.subcontractorCatalogItem.id}`));
   assert.deepEqual({ name: catalog.name, trade: catalog.trade, contactName: catalog.contactName, email: catalog.email, phone: catalog.phone, unit: catalog.unit, defaultUnitCost: catalog.defaultUnitCost, notes: catalog.notes }, {
     name: 'Ace Concrete', trade: 'Concrete', contactName: 'Alex Ace', email: 'alex@example.com', phone: '555-0100', unit: 'job', defaultUnitCost: 2500, notes: 'Preferred vendor',

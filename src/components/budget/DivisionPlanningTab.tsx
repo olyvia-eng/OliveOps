@@ -929,7 +929,6 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 {subcontractorCatalogItems.map((item) => <option key={item.id} value={item.id}>{item.name}{item.trade ? ` - ${item.trade}` : ''}</option>)}
               </Select>
               {!draft.subcontractorCatalogItemId && editing === 'new' ? <div className="sm:col-span-2"><SubcontractorFormFields value={subcontractorForm} onChange={(value) => { setSubcontractorForm(value); setDraft((current) => ({ ...current, name: value.name, description: value.trade, unit: value.unit, rate: value.defaultUnitCost })); }} /></div> : null}
-              <Input type="number" min={0} step="any" label="Cost per Unit" value={subcontractorCostPerUnit(draft)} onChange={(event) => setNumber('rate', event.target.value)} />
               <Input type="number" min={0} step="any" label="Planned Quantity" value={subcontractorPlannedQuantity(draft)} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
               <div className="sm:col-span-2">
                 <TextArea

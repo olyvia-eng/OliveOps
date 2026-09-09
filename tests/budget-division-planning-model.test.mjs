@@ -9,6 +9,7 @@ import {
   normalizeLabourPlanAssumptions,
   normalizeSubcontractorPlanAssumptions,
   removeEquipmentDivisionAllocation,
+  subcontractorCostPerUnit,
 } from '../api/_lib/budgetDivisionPlanningModel.js';
 
 test('subcontractor assumptions calculate and normalize annual cost for decimals and zero values', () => {
@@ -20,6 +21,12 @@ test('subcontractor assumptions calculate and normalize annual cost for decimals
   assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 45.75, plannedQuantity: 2 }).plannedAmount, 91.5);
   assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 45, plannedQuantity: 0 }).plannedAmount, 0);
   assert.equal(normalizeSubcontractorPlanAssumptions({ category: 'subcontractors', rate: 0, plannedQuantity: 100 }).plannedAmount, 0);
+});
+
+test('historical Budget subcontractor cost fields remain readable', () => {
+  assert.equal(subcontractorCostPerUnit({ rate: 2750, unitCost: 2600, plannedAmount: 5000, plannedQuantity: 2 }), 2750);
+  assert.equal(subcontractorCostPerUnit({ unitCost: 2600, plannedAmount: 5000, plannedQuantity: 2 }), 2600);
+  assert.equal(subcontractorCostPerUnit({ plannedAmount: 5000, plannedQuantity: 2 }), 2500);
 });
 
 test('division planning identities use catalog references and stable manual fallbacks', () => {

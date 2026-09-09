@@ -237,6 +237,7 @@ test('materials and subcontractors use Division planned-cost recovery bases', ()
   const subcontractor = rows.find((row) => row.item.id === 'sub');
   assert.deepEqual([material.overheadPool, material.recoveryDenominator, material.recoveryRate, material.overheadPerUnit], [6000, 2000, 3, 30]);
   assert.deepEqual([subcontractor.overheadPool, subcontractor.recoveryDenominator, subcontractor.recoveryRate, subcontractor.overheadPerUnit], [4000, 500, 8, 800]);
+  assert.equal(subcontractor.costRate, 100);
   assert.equal(material.recommendedRate, 50);
   assert.equal(subcontractor.recommendedRate, 1125);
 });
