@@ -250,15 +250,17 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       unit: value.equipmentCostType === 'rental' ? value.rentalUnit : 'hr',
       plannedAmount: value.equipmentCostType === 'rental' ? value.rentalCost : calculateEquipmentCostBreakdown(value).totalEquipmentCostPerYear,
     }));
-  const setEquipmentDivisionAllocation = (divisionId: string, field: 'months' | 'sellableHours', value: number) =>
+  const setEquipmentDivisionMonths = (divisionId: string, value: number) =>
     setDraft((current) => ({
       ...current,
-      equipmentDivisionAllocations: activeDivisions.map((item) => ({
-        divisionId: item.id,
-        months: current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.months ?? 0,
-        sellableHours: current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id)?.sellableHours ?? 0,
-        ...(item.id === divisionId ? { [field]: value } : {}),
-      })),
+      equipmentDivisionAllocations: activeDivisions.map((item) => {
+        const existing = current.equipmentDivisionAllocations?.find((allocation) => allocation.divisionId === item.id);
+        return {
+          ...existing,
+          divisionId: item.id,
+          months: item.id === divisionId ? value : existing?.months ?? 0,
+        };
+      }),
     }));
 
   const save = async () => {
@@ -815,30 +817,24 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               <section className="border-t border-gray-200 pt-5">
                 <h3 className="text-sm font-semibold text-gray-900">Allocate Annual Equipment Cost</h3>
                 <p className="mt-1 text-xs text-gray-500">Allocation controls cost responsibility and which Division Equipment views show this asset.</p>
-                <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(9rem,0.85fr)_minmax(8rem,0.75fr)] gap-3 px-3 text-xs font-semibold uppercase text-gray-500 lg:grid">
+                <div className="mt-3 hidden grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)] gap-3 px-3 text-xs font-semibold uppercase text-gray-500 lg:grid">
                   <span>Division</span>
                   <span>Months</span>
-                  <span>Sellable Hours</span>
                   <span className="text-right">Annual Cost</span>
                 </div>
                 <div className="mt-3 space-y-2">
                   {activeDivisions.map((item) => {
                     const allocation = draft.equipmentDivisionAllocations?.find((value) => value.divisionId === item.id);
                     const months = allocation?.months ?? 0;
-                    const sellableHours = allocation?.sellableHours ?? 0;
                     return (
-                      <div key={item.id} className="grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(9rem,0.85fr)_minmax(8rem,0.75fr)] lg:items-center">
+                      <div key={item.id} className="grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(7rem,0.65fr)_minmax(8rem,0.75fr)] lg:items-center">
                         <label htmlFor={`equipment-allocation-${item.id}`} className="text-sm font-medium text-gray-900">
                           {item.name}
                           {item.id === division.id ? <span className="ml-2 text-xs font-normal text-brand-600">Current Division</span> : null}
                         </label>
                         <div className="min-w-0">
                           <label htmlFor={`equipment-allocation-${item.id}`} className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Months</label>
-                          <Input id={`equipment-allocation-${item.id}`} type="number" min={0} max={12} step={0.25} value={months} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'months', numberValue(event.target.value))} />
-                        </div>
-                        <div className="min-w-0">
-                          <label htmlFor={`equipment-sellable-hours-${item.id}`} className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Sellable Hours</label>
-                          <Input id={`equipment-sellable-hours-${item.id}`} aria-label={`${item.name} sellable equipment hours`} type="number" min={0} step={1} value={sellableHours} onChange={(event) => setEquipmentDivisionAllocation(item.id, 'sellableHours', numberValue(event.target.value))} />
+                          <Input id={`equipment-allocation-${item.id}`} type="number" min={0} max={12} step={0.25} value={months} onChange={(event) => setEquipmentDivisionMonths(item.id, numberValue(event.target.value))} />
                         </div>
                         <div>
                           <span className="mb-1 block text-xs font-medium text-gray-500 lg:sr-only">Annual Cost</span>
@@ -848,7 +844,6 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                     );
                   })}
                 </div>
-                <p className="mt-2 text-xs text-gray-500">Sellable hours are entered explicitly for each Division and are not inferred from allocated months.</p>
                 <p className={`mt-3 text-sm font-semibold ${equipmentAllocationValid ? 'text-green-700' : equipmentAllocationTotal > 12 ? 'text-accent-700' : 'text-amber-700'}`}>
                   {equipmentAllocationTotal} of 12 months allocated
                   {equipmentAllocationTotal < 12 ? ` · ${12 - equipmentAllocationTotal} remaining` : equipmentAllocationTotal > 12 ? ` · ${equipmentAllocationTotal - 12} over allocation` : ''}

@@ -99,7 +99,7 @@ test('Labour normalization preserves explicit field allocation and derives legac
   assert.equal(normalizeLabourPlanAssumptions({ category: 'labour', labourClassification: 'overhead' }).fieldProducingPct, 0);
 });
 
-test('equipment participation follows explicit Division allocations instead of its source Division', () => {
+test('existing equipment allocations with Division Sellable Hours remain readable', () => {
   const item = {
     category: 'equipment',
     divisionId: 'landscaping',
@@ -114,6 +114,7 @@ test('equipment participation follows explicit Division allocations instead of i
   assert.equal(isEquipmentAllocatedToDivision(item, 'snow'), true);
   assert.equal(isEquipmentAllocatedToDivision(item, 'construction'), false);
   assert.equal(equipmentMonthsForDivision(item, 'snow'), 6);
+  assert.equal(item.equipmentDivisionAllocations[1].sellableHours, 400);
 });
 
 test('legacy equipment without explicit allocations remains visible in its original Division', () => {

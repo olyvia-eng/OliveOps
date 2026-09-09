@@ -43,6 +43,44 @@ test('annual class costs use financial planning fields and Division equipment mo
   assert.equal(scope.denominators.subcontractors, 75);
 });
 
+test('equipment pricing uses annual operating hours and ignores optional Division Sellable Hours', () => {
+  const budget = { id: 'budget', targetMarginPct: 20 };
+  const divisions = [
+    { id: 'landscape', budgetId: budget.id, name: 'Landscaping', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) },
+    { id: 'snow', budgetId: budget.id, name: 'Snow', status: 'active', overheadRecoveryPolicy: policy(allocation(0, 100, 0, 0)) },
+  ];
+  const equipment = {
+    id: 'loader', budgetId: budget.id, category: 'equipment', plannedAmount: 48000,
+    sellableHoursPerYear: 1200, classification: 'billable',
+    equipmentDivisionAllocations: [
+      { divisionId: 'landscape', months: 7, sellableHours: 700 },
+      { divisionId: 'snow', months: 5, sellableHours: 500 },
+    ],
+  };
+  const withoutDivisionHours = {
+    ...equipment,
+    equipmentDivisionAllocations: equipment.equipmentDivisionAllocations.map(({ sellableHours: _sellableHours, ...value }) => value),
+  };
+
+  assert.equal(equipmentDivisionAnnualCost(equipment, 'landscape'), 28000);
+  assert.equal(equipmentDivisionAnnualCost(equipment, 'snow'), 20000);
+
+  const pricingFields = (item) => buildBudgetPricingRows({ budget, divisions, planningItems: [item], budgetRates: [] })
+    .map((row) => ({
+      divisionId: row.divisionId,
+      costRate: row.costRate,
+      recoveryRate: row.recoveryRate,
+      divisionOverheadPerUnit: row.divisionOverheadPerUnit,
+      recommendedRate: row.recommendedRate,
+      calculatedRate: row.calculatedRate,
+      estimateRate: row.estimateRate,
+    }));
+  const legacyPricing = pricingFields(equipment);
+
+  assert.deepEqual(legacyPricing.map((row) => row.costRate), [40, 40]);
+  assert.deepEqual(legacyPricing, pricingFields(withoutDivisionHours));
+});
+
 test('invalid recovery allocation makes calculated pricing unavailable', () => {
   const budget = { id: 'budget', targetMarginPct: 20 };
   const divisions = [{ id: 'division', budgetId: budget.id, name: 'Division', status: 'active', overheadRecoveryPolicy: policy(allocation(50, 20, 10, 10)) }];

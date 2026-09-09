@@ -99,8 +99,6 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.match(planner, /size=\{category === 'equipment' \? 'large' : 'wide'\}/);
   assert.match(planner, /Allocate Annual Equipment Cost/);
   assert.match(planner, /equipmentDivisionAllocations/);
-  assert.match(planner, /sellableHours/);
-  assert.match(planner, /not inferred from allocated months/);
   assert.match(planner, /isEquipmentAllocatedToDivision\(item, division\.id\)/);
   assert.match(planner, /equipmentMonthsForDivision/);
   assert.match(planner, /annualCost \* equipmentMonthsForDivision\(item, division\.id\)\) \/ 12/);
@@ -113,19 +111,27 @@ test('active Division equipment editor uses the shared wide equipment form and B
   assert.doesNotMatch(sharedForm, /Fuel Price Unit|Fuel Burned per Hour|Months Used Per Year|Budget Sell Rate/);
 });
 
-test('equipment allocation renders one independently labelled Months and Sellable Hours input per Division', () => {
+test('equipment allocation renders Division, Months, and Annual Cost without Division Sellable Hours', () => {
   const allocationBranch = planner.slice(planner.indexOf('Allocate Annual Equipment Cost'), planner.indexOf('{equipmentError'));
 
   assert.match(allocationBranch, /activeDivisions\.map/);
   assert.match(allocationBranch, />Division<\/span>/);
   assert.match(allocationBranch, />Months<\/span>/);
-  assert.match(allocationBranch, />Sellable Hours<\/span>/);
   assert.match(allocationBranch, />Annual Cost<\/span>/);
-  assert.match(allocationBranch, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(7rem,0\.65fr\)_minmax\(9rem,0\.85fr\)_minmax\(8rem,0\.75fr\)\]/);
-  assert.equal((allocationBranch.match(/setEquipmentDivisionAllocation\(item\.id, 'months'/g) ?? []).length, 1);
-  assert.equal((allocationBranch.match(/setEquipmentDivisionAllocation\(item\.id, 'sellableHours'/g) ?? []).length, 1);
+  assert.doesNotMatch(allocationBranch, /Sellable Hours|sellable equipment hours|equipment-sellable-hours/);
+  assert.match(allocationBranch, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(7rem,0\.65fr\)_minmax\(8rem,0\.75fr\)\]/);
+  assert.equal((allocationBranch.match(/setEquipmentDivisionMonths\(item\.id/g) ?? []).length, 1);
   assert.match(allocationBranch, /equipmentAllocationTotal} of 12 months allocated/);
   assert.match(allocationBranch, /totalEquipmentCostPerYear \* months\) \/ 12/);
+});
+
+test('editing equipment months preserves optional fields from existing allocation records', () => {
+  const setter = planner.slice(planner.indexOf('const setEquipmentDivisionMonths'), planner.indexOf('const save = async'));
+
+  assert.match(setter, /const existing = current\.equipmentDivisionAllocations\?\.find/);
+  assert.match(setter, /\.\.\.existing/);
+  assert.match(setter, /months: item\.id === divisionId \? value : existing\?\.months \?\? 0/);
+  assert.doesNotMatch(setter, /sellableHours:/);
 });
 
 test('equipment names use one fallback resolver throughout Budget planning displays', () => {
