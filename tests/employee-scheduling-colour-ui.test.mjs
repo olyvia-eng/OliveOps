@@ -33,3 +33,19 @@ test('Employee repository maps scheduling color through reads and writes', async
   assert.match(repository, /schedulingColor: employeeInput\.schedulingColor/);
   assert.match(repository, /schedulingColor: typeof employee\.schedulingColor/);
 });
+
+test('Employee creation hides Labour Type while preserving the compatible default and edit behavior', async () => {
+  const [createModal, editModal] = await Promise.all([
+    source('../src/components/employees/EmployeeCreateModal.tsx'),
+    source('../src/components/employees/EmployeeEditModal.tsx'),
+  ]);
+
+  assert.doesNotMatch(createModal, /label="Labour Type"/);
+  assert.doesNotMatch(createModal, /LABOUR_TYPES/);
+  assert.match(createModal, /DEFAULT_CREATE_EMPLOYEE_LABOUR_TYPE = 'field_producing'/);
+  assert.match(createModal, /labourType: DEFAULT_CREATE_EMPLOYEE_LABOUR_TYPE/);
+
+  assert.match(editModal, /label="Labour Type"/);
+  assert.match(editModal, /labourType: employee\.labourType \?\? 'field_producing'/);
+  assert.match(editModal, /labourType: form\.labourType/);
+});

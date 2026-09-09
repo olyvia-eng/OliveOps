@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Input, Modal, Select } from '../ui';
 import { useStore } from '../../store';
-import type { Employee, EmployeeRole, EmployeeLabourType } from '../../types';
+import type { Employee, EmployeeRole } from '../../types';
 import type { BusinessUserSummary } from '../../auth/types';
 import SchedulingColourPicker, { DEFAULT_SCHEDULING_COLOR } from './SchedulingColourPicker';
 
@@ -16,7 +16,6 @@ type EmployeeForm = {
   schedulingColor: string;
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
-  labourType: EmployeeLabourType;
   labourClassId: string;
   active: boolean;
 };
@@ -28,7 +27,7 @@ type Props = {
 };
 
 const ROLES: EmployeeRole[] = ['admin', 'foreman', 'crew_member'];
-const LABOUR_TYPES: EmployeeLabourType[] = ['field_producing', 'overhead'];
+const DEFAULT_CREATE_EMPLOYEE_LABOUR_TYPE = 'field_producing' as const;
 
 const toOptionLabel = (value: string) => value
   .split('_')
@@ -46,7 +45,6 @@ const emptyForm = (): EmployeeForm => ({
   schedulingColor: DEFAULT_SCHEDULING_COLOR,
   hourlyRate: 30,
   compensationType: 'hourly',
-  labourType: 'field_producing',
   labourClassId: '',
   active: true,
 });
@@ -180,7 +178,7 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             schedulingColor: form.schedulingColor,
             hourlyRate: form.hourlyRate,
             compensationType: form.compensationType,
-            labourType: form.labourType,
+            labourType: DEFAULT_CREATE_EMPLOYEE_LABOUR_TYPE,
             labourClassId: form.labourClassId || null,
             active: form.active,
           },
@@ -234,17 +232,12 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             {labourClasses.filter((labourClass) => labourClass.active).sort((left, right) => left.name.localeCompare(right.name)).map((labourClass) => <option key={labourClass.id} value={labourClass.id}>{labourClass.name}</option>)}
           </Select>
           <p className="mt-1 text-xs text-gray-500">Used for estimating and Labour Class pricing. This does not affect the employee's OliveOps permissions.</p>
-          {form.labourType === 'field_producing' && !form.labourClassId ? <p className="mt-1 text-xs font-medium text-amber-700">Recommended for field Employees so their planned hours can contribute to estimating rates.</p> : null}
+          {!form.labourClassId ? <p className="mt-1 text-xs font-medium text-amber-700">Recommended for field Employees so their planned hours can contribute to estimating rates.</p> : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Select label="Role" value={form.role} onChange={(event) => setField('role', event.target.value as EmployeeRole)}>
-            {ROLES.map((role) => <option key={role} value={role}>{toOptionLabel(role)}</option>)}
-          </Select>
-          <Select label="Labour Type" value={form.labourType} onChange={(event) => setField('labourType', event.target.value as EmployeeLabourType)}>
-            {LABOUR_TYPES.map((type) => <option key={type} value={type}>{toOptionLabel(type)}</option>)}
-          </Select>
-        </div>
+        <Select label="Role" value={form.role} onChange={(event) => setField('role', event.target.value as EmployeeRole)}>
+          {ROLES.map((role) => <option key={role} value={role}>{toOptionLabel(role)}</option>)}
+        </Select>
 
         <div className="grid grid-cols-2 gap-3">
           <Input label="Email" type="email" value={form.email} onChange={(event) => setField('email', event.target.value)} />
