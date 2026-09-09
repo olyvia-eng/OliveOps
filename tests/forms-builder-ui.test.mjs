@@ -201,3 +201,11 @@ test('Signature uses reusable pointer capture with Clear and Form cloning opens 
   assert.match(signatureSource, /toBlob\([^]*'image\/png'/);
   assert.match(signatureSource, /aria-label=\{`\$\{label\} signature pad`\}/);
 });
+
+test('deleted source forms remain selectable in historical Form submissions', async () => {
+  const source = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /archivedSubmissionForms/);
+  assert.match(source, /formSubmissions\.map\(\(submission\) => submission\.formId\)/);
+  assert.match(source, /Archived form \(\$\{formId\.slice\(0, 8\)\}\)/);
+  assert.match(source, /submissionFormOptions\.map/);
+});

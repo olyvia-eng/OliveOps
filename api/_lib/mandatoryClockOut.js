@@ -278,6 +278,13 @@ export function submissionSatisfiesWorkflowRequirement(submission, workflow, req
     && submission.workflowRequirementId === requirement.requirementId);
 }
 
+export function workflowHasDurableSubmissionEvidence(workflow, submissions) {
+  const requirements = Array.isArray(workflow?.requiredForms) ? workflow.requiredForms : [];
+  return requirements.length > 0 && requirements.every((requirement) => (
+    submissions.some((submission) => submissionSatisfiesWorkflowRequirement(submission, workflow, requirement))
+  ));
+}
+
 export async function reconcilePendingClockOutWorkflow({
   businessId,
   employeeId,
@@ -293,11 +300,31 @@ export async function reconcilePendingClockOutWorkflow({
   const requirements = Array.isArray(workflow.requiredForms) ? workflow.requiredForms : [];
   if (timeEntry?.employeeId !== employeeId || timeEntry.status !== 'clocked_out' || requirements.length === 0) return workflow;
 
-  const submissions = await listFormSubmissionsForBusiness(businessId);
+  const submissions = await listFormSubmissionsForBusiness(businessId, { consistentRead: true });
   const completedRequirementIds = requirements.flatMap((requirement) => submissions.some((submission) => (
     submissionSatisfiesWorkflowRequirement(submission, workflow, requirement)
   )) ? [requirement.requirementId] : []);
   if (completedRequirementIds.length !== requirements.length) return workflow;
+
+  if (workflow.status === 'finalized') {
+    try {
+      await ddb.send(new TransactWriteCommand({ TransactItems: [{
+        Delete: {
+          TableName: tableName,
+          Key: { PK: businessPk(businessId), SK: pendingClockOutSk(employeeId) },
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #workflowOccurrenceId = :workflowOccurrenceId',
+          ExpressionAttributeNames: { '#workflowOccurrenceId': 'workflowOccurrenceId' },
+          ExpressionAttributeValues: { ':workflowOccurrenceId': workflow.workflowOccurrenceId },
+        },
+      }] }));
+      return null;
+    } catch (error) {
+      if (error?.name !== 'TransactionCanceledException') throw error;
+      return getPendingClockOutWorkflow(businessId, employeeId);
+    }
+  }
+
+  if (workflow.status !== 'pending_required_forms') return workflow;
 
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [

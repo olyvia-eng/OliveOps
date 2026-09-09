@@ -2669,10 +2669,11 @@ export async function deleteFormFieldForBusiness(businessId, formFieldId) {
   return { ok: true };
 }
 
-export async function listFormSubmissionsForBusiness(businessId) {
+export async function listFormSubmissionsForBusiness(businessId, { consistentRead = false } = {}) {
   const result = await ddb.send(
     new QueryCommand({
       TableName: tableName,
+      ConsistentRead: consistentRead,
       KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
       ExpressionAttributeValues: {
         ':pk': businessPk(businessId),

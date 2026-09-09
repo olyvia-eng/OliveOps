@@ -400,15 +400,28 @@ export default function FormsPage() {
     return forms.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }, [forms]);
 
+  const archivedSubmissionForms = useMemo(() => {
+    const currentFormIds = new Set(forms.map((form) => form.id));
+    return [...new Set(formSubmissions.map((submission) => submission.formId))]
+      .filter((formId) => !currentFormIds.has(formId))
+      .map((formId) => ({ id: formId, name: `Archived form (${formId.slice(0, 8)})` }));
+  }, [formSubmissions, forms]);
+
+  const submissionFormOptions = useMemo(() => [
+    ...sortedForms.map((form) => ({ id: form.id, name: form.name })),
+    ...archivedSubmissionForms,
+  ], [archivedSubmissionForms, sortedForms]);
+
   useEffect(() => {
-    if (sortedForms.length === 0) {
+    const selectableForms = activeTab === 'submissions' ? submissionFormOptions : sortedForms;
+    if (selectableForms.length === 0) {
       setSelectedFormId('');
       return;
     }
-    if (!selectedFormId || !sortedForms.some((form) => form.id === selectedFormId)) {
-      setSelectedFormId(sortedForms[0].id);
+    if (!selectedFormId || !selectableForms.some((form) => form.id === selectedFormId)) {
+      setSelectedFormId(selectableForms[0].id);
     }
-  }, [selectedFormId, sortedForms]);
+  }, [activeTab, selectedFormId, sortedForms, submissionFormOptions]);
 
   const selectedForm = selectedFormId ? (forms.find((form) => form.id === selectedFormId) ?? null) : null;
 
@@ -1242,16 +1255,16 @@ export default function FormsPage() {
       )}
 
       {activeTab === 'submissions' && (
-        selectedForm ? (
+        selectedFormId ? (
           <div className="space-y-6">
             <Card className="p-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Select
                   label="Form"
-                  value={selectedForm.id}
+                  value={selectedFormId}
                   onChange={(event) => setSelectedFormId(event.target.value)}
                 >
-                  {sortedForms.map((form) => (
+                  {submissionFormOptions.map((form) => (
                     <option key={form.id} value={form.id}>{form.name}</option>
                   ))}
                 </Select>

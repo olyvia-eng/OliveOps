@@ -25,6 +25,7 @@ import {
   clockOutWorkflowStatus,
   getClockOutWorkflowForBusiness,
   reconcilePendingClockOutWorkflow,
+  workflowHasDurableSubmissionEvidence,
 } from './mandatoryClockOut.js';
 import { WORK_AREA_CLOCKING_CONTRACT_VERSION } from './jobWorkAreas.js';
 import { calculateEmployeeLabourCost } from '../../src/utils/employeeLabourCost.js';
@@ -213,6 +214,17 @@ export async function finalizePendingClockOut({ session, workflowOccurrenceId })
   const workflowState = clockOutWorkflowStatus(workflow);
   if (workflowState.remainingRequiredFormCount > 0) {
     return { ok: false, status: 409, code: 'required_forms_outstanding', workflow: workflowState };
+  }
+
+  const submissions = await listFormSubmissionsForBusiness(session.businessId, { consistentRead: true });
+  if (!workflowHasDurableSubmissionEvidence(workflow, submissions)) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'required_form_submission_evidence_missing',
+      error: 'A durable submission could not be verified for every required clock-out form.',
+      workflow: workflowState,
+    };
   }
 
   if (workflow.clockOutCommitted === true) {
