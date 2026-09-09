@@ -10,6 +10,9 @@ const pricingModelSource = readFileSync('src/pages/budget/budgetPricingModel.js'
 test('Analysis renders one compact financial statement in the requested order', () => {
   assert.match(summarySource, /Financial Summary/);
   assert.match(summaryModelSource, /label: 'Revenue'[\s\S]*label: 'Labour Cost'[\s\S]*label: 'Equipment Cost'[\s\S]*label: 'Material Cost'[\s\S]*label: 'Subcontractor Cost'[\s\S]*label: 'Overhead Cost'[\s\S]*label: 'Net Profit'/);
+  assert.match(summarySource, /Total Revenue/);
+  assert.match(summarySource, /Total Costs/);
+  assert.match(summarySource, /Projected Profit/);
   assert.doesNotMatch(summarySource, /<Card[\s\S]*map\(\(line\) => <Card/);
 });
 
@@ -23,14 +26,15 @@ test('financial values come from the centralized Budget financial model', () => 
   assert.doesNotMatch(summaryModelSource, /Company Overhead|companyOverhead/);
 });
 
-test('dollar and percent modes derive from one canonical target margin', () => {
+test('dollar and percent toggle changes summary display while target remains one percentage input', () => {
   assert.match(summarySource, /useState<AnalysisValueMode>\('dollars'\)/);
   assert.match(summarySource, /normalizeTargetMargin\(targetMarginPct\)/);
-  assert.match(summarySource, /targetMarginFromDollars\(parsed, summary\.totalPlannedCosts\)/);
   assert.match(summarySource, /setCanonicalMargin\(nextMargin\)/);
   assert.match(summarySource, /onTargetMarginChange\(nextMargin\)/);
   assert.match(summarySource, /value === 'dollars' \? '\$' : '%'/);
-  assert.match(summaryModelSource, /profit \/ \(profit \+ costs\) \* 100/);
+  assert.match(summarySource, /valueFor = \(amount: number, percent: number \| null\) => mode === 'dollars'/);
+  assert.match(summarySource, /aria-label="Target Profit Margin"[\s\S]*max=\{MAX_TARGET_MARGIN_PCT\}[\s\S]*step=\{0\.1\}/);
+  assert.doesNotMatch(summarySource, /Target Profit Margin in \$\{mode\}|targetMarginFromDollars/);
 });
 
 test('chart consumes current summary segments and exposes rather than normalizes additional revenue needed', () => {
@@ -41,7 +45,7 @@ test('chart consumes current summary segments and exposes rather than normalizes
   assert.match(summarySource, /pieData\.map/);
   assert.match(summarySource, /summary\.additionalRevenueNeeded/);
   assert.match(summaryModelSource, /financials\.operatingProfit/);
-  assert.doesNotMatch(summarySource, /Above target|surplus/i);
+  assert.match(summarySource, /formatPercent\(summary\.currentProfitMarginPct\)[\s\S]*Projected Margin/);
   assert.match(summarySource, /Current loss/);
 });
 
@@ -49,18 +53,33 @@ test('current profit stays distinct from target profit and Pricing reads the sam
   assert.match(summaryModelSource, /currentProfit = Number\.isFinite\(financials\.operatingProfit\)/);
   assert.match(summaryModelSource, /requiredRevenue = totalPlannedCosts \/ \(1 - targetNetProfitPct \/ 100\)/);
   assert.match(summaryModelSource, /targetNetProfit = requiredRevenue - totalPlannedCosts/);
-  assert.match(summarySource, /Current Budget/);
-  assert.match(summarySource, /To Reach Target/);
+  assert.match(summarySource, /Profit Goal &amp; Comparison/);
+  assert.match(summarySource, /See how your current budget compares to your target profit margin/);
+  assert.match(summarySource, /Target Profit Margin/);
+  assert.match(summarySource, /At Your Target Margin/);
+  assert.match(summarySource, /Your Current Budget/);
   assert.match(summarySource, /Required Revenue/);
   assert.match(summarySource, /Target Profit/);
+  assert.match(summarySource, /Projected Profit/);
+  assert.match(summarySource, /Projected Margin/);
   assert.match(summarySource, /Additional Revenue Needed/);
-  assert.match(summarySource, /additional revenue is needed/);
+  assert.match(summarySource, /If you generated[\s\S]*summary\.requiredRevenue[\s\S]*cover your current budgeted costs and achieve a/);
+  assert.match(summarySource, /Default is 20%/);
   assert.doesNotMatch(summarySource, /revenue gap/);
   assert.match(summarySource, /isValidTargetMarginInput\(parsed\)/);
-  assert.match(summarySource, /target\.targetNetProfit/);
   assert.doesNotMatch(summarySource, /summary\.revenue \* nextMargin/);
   assert.match(workspaceSource, /targetMarginPct=\{budget\.targetMarginPct\}/);
   assert.match(pricingModelSource, /budget\.targetMarginPct \?\? 20/);
+});
+
+test('profit comparison presents explicit above-target and below-target states', () => {
+  assert.match(summarySource, /currentProfitMarginPct !== null && summary\.currentProfitMarginPct > summary\.targetNetProfitPct/);
+  assert.match(summarySource, /Your current budget is above your/);
+  assert.match(summarySource, /Your current budget meets your/);
+  assert.match(summarySource, /targetMarginLabel} target margin/);
+  assert.match(summarySource, /summary\.additionalRevenueNeeded/);
+  assert.match(summarySource, /more revenue[\s\S]*to reach your/);
+  assert.doesNotMatch(summarySource, /extra profit/i);
 });
 
 test('existing Overhead Recovery and Pricing remain below the financial summary', () => {
