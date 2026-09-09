@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildEquipmentCatalogPricingRows } from '../src/pages/data-center/equipmentCatalogPricingModel.js';
+import { buildEquipmentBudgetRelationshipRows } from '../src/pages/data-center/equipmentBudgetRelationshipModel.js';
 
 const catalogSource = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
 const detailSource = readFileSync('src/pages/data-center/EquipmentDetailPanel.tsx', 'utf8');
@@ -74,9 +75,72 @@ test('equipment detail keeps operational overview and Budget participation', () 
   assert.match(detailSource, /onClose=\{onClose\}/);
 });
 
-test('operating cost and allocation detail stays inside operational tabs', () => {
-  assert.match(detailSource, /Operating Costs/);
-  assert.match(detailSource, /Annual Cost Allocation/);
-  assert.match(detailSource, /Annual Allocation/);
+test('Budget-specific equipment assumptions stay in Budgets instead of the Catalog overview', () => {
+  assert.doesNotMatch(detailSource, /<h2[^>]*>Operating Costs<\/h2>|<h2[^>]*>Utilization<\/h2>/);
+  assert.match(detailSource, /Annual Equipment Cost/);
+  assert.match(detailSource, /Expected Operating Hours/);
+  assert.match(detailSource, /Cost per Operating Hour/);
+  assert.match(detailSource, /Allocated Annual Cost/);
   assert.doesNotMatch(detailSource, /Overhead Recovery|Breakeven|Calculated Rate|Estimate Rate/);
+});
+
+test('Catalog finds exact-linked planning rows across Divisions and keeps annual Budgets distinct', () => {
+  const rows = buildEquipmentBudgetRelationshipRows({
+    equipmentId: 'equipment-1',
+    budgets: [
+      { id: 'budget-2026', name: '2026 Annual Budget', fiscalYear: '2026' },
+      { id: 'budget-2027', name: '2027 Annual Budget', fiscalYear: '2027' },
+    ],
+    budgetDivisions: [
+      { id: 'land', budgetId: 'budget-2026', name: 'Landscaping' },
+      { id: 'snow', budgetId: 'budget-2026', name: 'Snow Removal' },
+      { id: 'foreign', budgetId: 'another-budget', name: 'Foreign Division' },
+    ],
+    planningItems: [
+      {
+        id: 'plan-2026', budgetId: 'budget-2026', category: 'equipment', equipmentId: 'equipment-1',
+        plannedAmount: 35000, sellableHoursPerYear: 1000, equipmentHoursPerDay: 8,
+        equipmentDivisionAllocations: [{ divisionId: 'land', months: 8 }, { divisionId: 'snow', months: 4 }],
+      },
+      { id: 'plan-2027', budgetId: 'budget-2027', category: 'equipment', equipmentId: 'equipment-1', plannedAmount: 42000, equipmentDivisionAllocations: [] },
+      { id: 'same-name-other-tenant', budgetId: 'budget-2026', category: 'equipment', equipmentId: 'equipment-2', name: 'Excavator', plannedAmount: 99999 },
+      { id: 'cross-budget-division', budgetId: 'budget-2026', category: 'equipment', equipmentId: 'equipment-3', equipmentDivisionAllocations: [{ divisionId: 'foreign', months: 12 }] },
+    ],
+  });
+
+  assert.deepEqual(rows.map((row) => row.budget?.name), ['2027 Annual Budget', '2026 Annual Budget']);
+  assert.deepEqual(rows[1].divisions.map((allocation) => [allocation.division?.name, allocation.months, allocation.annualCost]), [
+    ['Landscaping', 8, 35000 * 8 / 12],
+    ['Snow Removal', 4, 35000 * 4 / 12],
+  ]);
+  assert.equal(rows[1].annualHours, 1000);
+  assert.equal(rows[1].costPerHour, 35);
+  assert.equal(rows[1].operatingDays, 125);
+  assert.equal(rows.some((row) => row.id === 'same-name-other-tenant'), false);
+});
+
+test('Catalog relationship model preserves correctly-linked legacy Budget allocations without duplicating current rows', () => {
+  const input = {
+    equipmentId: 'equipment-1',
+    budgets: [{ id: 'budget-1', name: 'Annual Budget', fiscalYear: '2026' }],
+    budgetDivisions: [],
+    planningItems: [{ id: 'current-plan', budgetId: 'budget-1', category: 'equipment', equipmentId: 'equipment-1', plannedAmount: 24000 }],
+    budgetItems: [{ id: 'legacy-item', budgetId: 'budget-1', category: 'equipment', equipmentId: 'equipment-1', budgeted: 18000, sellableHoursPerYear: 900 }],
+    legacyAllocations: [{ id: 'legacy-allocation', equipmentId: 'equipment-1', budgetId: 'budget-1', budgetItemId: 'legacy-item', monthsAllocated: 12 }],
+  };
+  const rows = buildEquipmentBudgetRelationshipRows(input);
+  assert.deepEqual(rows.map((row) => row.source).sort(), ['legacy', 'planning']);
+
+  const noDuplicate = buildEquipmentBudgetRelationshipRows({
+    ...input,
+    legacyAllocations: [{ id: 'duplicate-allocation', equipmentId: 'equipment-1', budgetId: 'budget-1', budgetItemId: 'current-plan', monthsAllocated: 12 }],
+    budgetItems: [{ id: 'current-plan', budgetId: 'budget-1', category: 'equipment', equipmentId: 'equipment-1', budgeted: 24000 }],
+  });
+  assert.equal(noDuplicate.length, 1);
+});
+
+test('Catalog page builds equipment Budget rows from active planning items by stable equipment ID', () => {
+  assert.match(catalogSource, /budgetDivisionPlanningItems/);
+  assert.match(catalogSource, /buildEquipmentBudgetRelationshipRows/);
+  assert.match(catalogSource, /equipmentId: selectedEquipment\.id/);
 });

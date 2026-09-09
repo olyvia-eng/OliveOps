@@ -487,10 +487,12 @@ test('Budget equipment save atomically updates approved Catalog identity and Bud
   assert.equal(create.body.equipmentAsset.serialNumber, 'SERIAL-1');
   assert.equal(create.body.equipmentAsset.notes, 'Preserve this');
   assert.equal(create.body.item.expectedReplacementCost, 120000);
+  assert.equal(create.body.item.equipmentId, 'equipment-1');
   assert.equal(create.body.item.name, undefined);
   assert.equal(create.body.item.classification, undefined);
   assert.equal(create.body.item.costType, undefined);
   assert.equal(store.get(assetKey).name, 'Bobcat E60');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'EQUIPMENT_ASSET' || item.entityType === 'EQUIPMENT').length, 1);
 });
 
 test('Budget equipment transaction failure leaves Catalog and Budget planning unchanged', async (t) => {
@@ -531,6 +533,38 @@ test('Budget equipment save atomically creates a new Catalog asset without stori
   assert.equal(create.body.equipmentAsset.yearlyMaintenanceCost, undefined);
   assert.ok(store.has(key('BUSINESS#biz-a', `EQUIPMENT#${create.body.equipmentAsset.id}`)));
   assert.ok([...store.values()].some((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.equipmentId === create.body.equipmentAsset.id));
+  assert.equal([...store.values()].filter((item) => item.SK === `EQUIPMENT#${create.body.equipmentAsset.id}`).length, 1);
+});
+
+test('Budget equipment links are tenant-scoped and removing a plan retains the Catalog asset', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  await seedTenant(store, { businessId: 'biz-b', userId: 'user-b', token: 'token-b' });
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'hardscape');
+  seedEquipment(store, 'biz-a', 'equipment-1');
+  seedEquipment(store, 'biz-b', 'equipment-foreign');
+
+  const foreign = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: {
+    data: { equipmentId: 'equipment-foreign', equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  } }, foreign);
+  assert.equal(foreign.statusCode, 400);
+  assert.equal(foreign.body.error, 'Equipment must belong to this business.');
+
+  const linked = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment' }, headers: { authorization: 'Bearer token-a' }, body: {
+    catalogPatch: { name: 'Bobcat E50', type: 'Excavator', equipmentClassification: 'billable', costType: 'financed' },
+    data: { equipmentId: 'equipment-1', yearlyFuelCost: 5000, sellableHoursPerYear: 1000, equipmentHoursPerDay: 8, equipmentDivisionAllocations: [{ divisionId: 'hardscape', months: 12 }] },
+  } }, linked);
+  assert.equal(linked.statusCode, 200);
+  assert.equal(linked.body.item.equipmentId, 'equipment-1');
+
+  const removed = response();
+  await planningHandler({ method: 'DELETE', query: { budgetId: 'budget-a', divisionId: 'hardscape', category: 'equipment', id: linked.body.item.id }, headers: { authorization: 'Bearer token-a' }, body: {} }, removed);
+  assert.equal(removed.statusCode, 200);
+  assert.equal(store.has(key('BUSINESS#biz-a', 'EQUIPMENT#equipment-1')), true);
+  assert.equal([...store.values()].some((item) => item.entityType === 'BUDGET_DIVISION_PLAN' && item.planningItemId === linked.body.item.id), false);
 });
 
 test('Budget equipment replacement and Catalog patch validation reject invalid or non-owned fields', async (t) => {

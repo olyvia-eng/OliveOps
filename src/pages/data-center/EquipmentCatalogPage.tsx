@@ -22,6 +22,7 @@ import {
 } from '../../components/equipment/equipmentFormModel';
 import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
+import { buildEquipmentBudgetRelationshipRows } from './equipmentBudgetRelationshipModel.js';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
 import LabourCatalogSection from './LabourCatalogSection';
 import SubcontractorsCatalogSection from './SubcontractorsCatalogSection';
@@ -41,7 +42,8 @@ export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const equipmentAssets = useStore((state) => state.equipmentAssets);
   const budgets = useStore((state) => state.budgets);
-  const budgetGroups = useStore((state) => state.budgetGroups);
+  const budgetDivisions = useStore((state) => state.budgetDivisions);
+  const budgetDivisionPlanningItems = useStore((state) => state.budgetDivisionPlanningItems);
   const budgetItems = useStore((state) => state.budgetItems);
   const equipmentBudgetAllocations = useStore((state) => state.equipmentBudgetAllocations);
   const addEquipmentAsset = useStore((state) => state.addEquipmentAsset);
@@ -72,9 +74,16 @@ export default function EquipmentCatalogPage() {
   const equipmentDetailTab = EQUIPMENT_DETAIL_TABS.includes(workspace.tab as EquipmentDetailTab)
     ? workspace.tab as EquipmentDetailTab
     : 'overview';
-  const selectedAllocations = selectedEquipment
-    ? equipmentBudgetAllocations.filter((allocation) => allocation.equipmentId === selectedEquipment.id)
-    : [];
+  const selectedBudgetRows = useMemo(() => selectedEquipment
+    ? buildEquipmentBudgetRelationshipRows({
+        equipmentId: selectedEquipment.id,
+        planningItems: budgetDivisionPlanningItems,
+        budgets,
+        budgetDivisions,
+        budgetItems,
+        legacyAllocations: equipmentBudgetAllocations,
+      })
+    : [], [budgetDivisionPlanningItems, budgetDivisions, budgetItems, budgets, equipmentBudgetAllocations, selectedEquipment]);
   const visibleEquipment = useMemo(() => {
     const query = equipmentQuery.trim().toLowerCase();
     return sortedEquipment.filter((asset) => !query || [asset.name, asset.serialNumber, asset.type].some((value) => value?.toLowerCase().includes(query)));
@@ -279,10 +288,7 @@ export default function EquipmentCatalogPage() {
             equipment={selectedEquipment}
             activeTab={equipmentDetailTab}
             expanded={workspace.mode === 'expanded'}
-            budgets={budgets}
-            budgetGroups={budgetGroups}
-            budgetItems={budgetItems}
-            allocations={selectedAllocations}
+            budgetRows={selectedBudgetRows}
             onTabChange={setEquipmentTab}
             onEdit={() => startEditing(selectedEquipment)}
             onDelete={() => handleDelete(selectedEquipment)}

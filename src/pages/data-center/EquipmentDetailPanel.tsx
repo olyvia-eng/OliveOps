@@ -2,8 +2,9 @@ import { Pencil, Trash2 } from 'lucide-react';
 import DetailWorkspaceHeader from '../../components/detail-workspace/DetailWorkspaceHeader';
 import DetailWorkspaceTabs from '../../components/detail-workspace/DetailWorkspaceTabs';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
-import type { Budget, BudgetGroup, BudgetItem, EquipmentAsset, EquipmentBudgetAllocation } from '../../types';
+import type { EquipmentAsset } from '../../types';
 import { formatCurrency } from '../../utils';
+import type { EquipmentBudgetRelationshipRow } from './equipmentBudgetRelationshipModel.js';
 
 export type EquipmentDetailTab = 'overview' | 'budgets';
 
@@ -11,10 +12,7 @@ interface EquipmentDetailPanelProps {
   equipment: EquipmentAsset;
   activeTab: EquipmentDetailTab;
   expanded: boolean;
-  budgets: Budget[];
-  budgetGroups: BudgetGroup[];
-  budgetItems: BudgetItem[];
-  allocations: EquipmentBudgetAllocation[];
+  budgetRows: EquipmentBudgetRelationshipRow[];
   onTabChange: (tab: EquipmentDetailTab) => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -35,10 +33,7 @@ export default function EquipmentDetailPanel({
   equipment,
   activeTab,
   expanded,
-  budgets,
-  budgetGroups,
-  budgetItems,
-  allocations,
+  budgetRows,
   onTabChange,
   onEdit,
   onDelete,
@@ -47,20 +42,6 @@ export default function EquipmentDetailPanel({
   onClose,
 }: EquipmentDetailPanelProps) {
   const isOverheadEquipment = equipment.equipmentClassification === 'overhead';
-  const allocatedRows = allocations.map((allocation) => {
-    const budget = budgets.find((value) => value.id === allocation.budgetId);
-    const budgetGroup = budgetGroups.find((value) => value.id === allocation.budgetGroupId);
-    const budgetItem = budgetItems.find((value) => value.id === allocation.budgetItemId);
-    const sellableHours = Math.max(0, budgetItem?.sellableHoursPerYear ?? 0);
-    return {
-      allocation,
-      budget,
-      budgetGroup,
-      budgetItem,
-      costRate: sellableHours > 0 ? (budgetItem?.budgeted ?? 0) / sellableHours : null,
-    };
-  });
-  const utilizationRows = allocatedRows.filter((row) => row.budgetItem);
 
   return (
     <div className="min-w-0">
@@ -85,46 +66,16 @@ export default function EquipmentDetailPanel({
       <div className="space-y-4 p-4 sm:p-5">
         {activeTab === 'overview' ? (
           <>
-            <div className={`grid gap-4 ${expanded ? 'lg:grid-cols-2' : 'grid-cols-1'}`}>
-              <Card className="p-4">
-                <h2 className="font-semibold text-gray-900 dark:text-brand-50">Equipment Details</h2>
-                <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 text-sm">
-                  <dt className="text-gray-500 dark:text-brand-200">Name</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.name}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">ID / SKU</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.serialNumber)}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Type / Class</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Ownership / Source</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Classification</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{isOverheadEquipment ? 'Overhead Equipment' : 'Billable Equipment'}</dd>
-                  {equipment.costType === 'rental' ? <><dt className="text-gray-500 dark:text-brand-200">Rental Cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{formatCurrency(equipment.rentalCost ?? 0)} / {equipment.rentalUnit ?? 'hr'}</dd></> : null}
-                </dl>
-              </Card>
-
-              <Card className="p-4">
-                <h2 className="font-semibold text-gray-900 dark:text-brand-50">Operating Costs</h2>
-                <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 text-sm">
-                  <dt className="text-gray-500 dark:text-brand-200">Yearly fuel cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyFuelCost !== undefined ? formatCurrency(equipment.yearlyFuelCost) : 'Not recorded'}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Annual insurance</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyInsuranceCost !== undefined ? formatCurrency(equipment.yearlyInsuranceCost) : 'Not recorded'}</dd>
-                  <dt className="text-gray-500 dark:text-brand-200">Annual maintenance</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.yearlyMaintenanceCost !== undefined ? formatCurrency(equipment.yearlyMaintenanceCost) : 'Not recorded'}</dd>
-                </dl>
-              </Card>
-            </div>
-
             <Card className="p-4">
-              <h2 className="font-semibold text-gray-900 dark:text-brand-50">Utilization</h2>
-              {utilizationRows.length ? (
-                <div className={`mt-3 grid gap-3 ${expanded ? 'md:grid-cols-2 xl:grid-cols-3' : 'grid-cols-1'}`}>
-                  {utilizationRows.map(({ allocation, budget, budgetItem }) => {
-                    const hoursPerDay = budgetItem?.equipmentHoursPerDay;
-                    const sellableHours = budgetItem?.sellableHoursPerYear;
-                    const operatingDays = hoursPerDay && sellableHours ? sellableHours / hoursPerDay : null;
-                    return (
-                      <div key={allocation.id} className="rounded-lg border border-brand-100 p-3 dark:border-brand-600">
-                        <p className="text-sm font-medium text-gray-900 dark:text-brand-50">{budget?.name ?? 'Unavailable budget'}</p>
-                        <p className="mt-2 text-xs text-gray-500 dark:text-brand-200">{hoursPerDay ? `${hoursPerDay} hours/day` : 'Hours/day not recorded'} · {operatingDays ? `${operatingDays.toFixed(1)} operating days/year` : 'Operating days not calculated'}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : <p className="mt-3 text-sm text-gray-500 dark:text-brand-200">No utilization assumptions are linked to this equipment yet.</p>}
+              <h2 className="font-semibold text-gray-900 dark:text-brand-50">Equipment Details</h2>
+              <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 text-sm">
+                <dt className="text-gray-500 dark:text-brand-200">Name</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.name}</dd>
+                <dt className="text-gray-500 dark:text-brand-200">ID / SKU</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.serialNumber)}</dd>
+                <dt className="text-gray-500 dark:text-brand-200">Type / Class</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
+                <dt className="text-gray-500 dark:text-brand-200">Ownership / Source</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
+                <dt className="text-gray-500 dark:text-brand-200">Classification</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{isOverheadEquipment ? 'Overhead Equipment' : 'Billable Equipment'}</dd>
+                {equipment.costType === 'rental' ? <><dt className="text-gray-500 dark:text-brand-200">Rental Cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{formatCurrency(equipment.rentalCost ?? 0)} / {equipment.rentalUnit ?? 'hr'}</dd></> : null}
+              </dl>
             </Card>
 
             {equipment.notes ? <Card className="p-4"><h2 className="font-semibold text-gray-900 dark:text-brand-50">Notes</h2><p className="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-brand-100">{equipment.notes}</p></Card> : null}
@@ -133,26 +84,32 @@ export default function EquipmentDetailPanel({
         ) : null}
 
         {activeTab === 'budgets' ? (
-          allocatedRows.length ? (
+          budgetRows.length ? (
             <div className="space-y-4">
-              {budgetGroups.filter((group) => allocatedRows.some((row) => row.allocation.budgetGroupId === group.id)).map((group) => {
-                const groupRows = allocatedRows.filter((row) => row.allocation.budgetGroupId === group.id);
-                return (
-                  <Card key={group.id} className="overflow-hidden">
-                    <div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600"><h2 className="font-semibold text-gray-900 dark:text-brand-50">{group.name}</h2></div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[620px] text-sm">
-                        <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Budget</th><th className="px-4 py-3 font-medium">Annual Cost Allocation</th><th className="px-4 py-3 text-right font-medium">Annual Allocation</th><th className="px-4 py-3 text-right font-medium">Cost / hr</th></tr></thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {groupRows.map(({ allocation, budget, budgetItem, costRate }) => (
-                            <tr key={allocation.id}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{budget?.name ?? 'Unavailable budget'}</td><td className="px-4 py-3 text-gray-600 dark:text-brand-100">{allocation.monthsAllocated} months</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{formatCurrency(budgetItem?.budgeted ?? 0)}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{costRate !== null ? `${formatCurrency(costRate)}/hr` : 'Not calculated'}</td></tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Card>
-                );
-              })}
+              {budgetRows.map((row) => (
+                <Card key={row.id} className="overflow-hidden">
+                  <div className="border-b border-brand-100 px-4 py-3 dark:border-brand-600">
+                    <h2 className="font-semibold text-gray-900 dark:text-brand-50">{row.budget?.name ?? 'Unavailable Budget'}</h2>
+                    {row.budget?.fiscalYear ? <p className="mt-0.5 text-xs text-gray-500 dark:text-brand-200">{row.budget.fiscalYear} Budget assumptions</p> : null}
+                  </div>
+                  <dl className={`grid gap-4 border-b border-gray-100 px-4 py-4 text-sm ${expanded ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2'}`}>
+                    <div><dt className="text-gray-500 dark:text-brand-200">Annual Equipment Cost</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{formatCurrency(row.annualCost)}</dd></div>
+                    <div><dt className="text-gray-500 dark:text-brand-200">Expected Operating Hours</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{row.annualHours > 0 ? `${row.annualHours.toLocaleString()}/year` : 'Not planned'}</dd></div>
+                    <div><dt className="text-gray-500 dark:text-brand-200">Operating Schedule</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{row.hoursPerDay > 0 ? `${row.hoursPerDay} hours/day${row.operatingDays !== null ? ` · ${row.operatingDays.toFixed(1)} days/year` : ''}` : 'Not planned'}</dd></div>
+                    <div><dt className="text-gray-500 dark:text-brand-200">Cost per Operating Hour</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{row.costPerHour !== null ? formatCurrency(row.costPerHour) : 'Not calculated'}</dd></div>
+                  </dl>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[520px] text-sm">
+                      <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Months</th><th className="px-4 py-3 text-right font-medium">Allocated Annual Cost</th></tr></thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {row.divisions.length ? row.divisions.map((allocation) => (
+                          <tr key={`${row.id}:${allocation.divisionId ?? 'budget-wide'}`}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{allocation.division?.name ?? (allocation.divisionId ? 'Unavailable Division' : 'Budget-wide')}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{allocation.months}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{formatCurrency(allocation.annualCost)}</td></tr>
+                        )) : <tr><td className="px-4 py-3 text-gray-500 dark:text-brand-200" colSpan={3}>No Division month allocation recorded.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              ))}
             </div>
           ) : <EmptyState title="No budget allocations" description="This equipment has not been allocated to an operating budget yet." />
         ) : null}
