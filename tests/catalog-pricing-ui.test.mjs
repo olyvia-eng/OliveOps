@@ -13,10 +13,11 @@ test('Catalog is a Budget-independent reusable resource library', () => {
   assert.doesNotMatch(catalogPageSource, /useCatalogPricing|catalog-pricing|pricingBudgetId/);
   assert.match(catalogPageSource, /<LabourCatalogSection \/>/);
   assert.match(catalogPageSource, /<MaterialsCatalogSection \/>/);
-  assert.match(catalogPageSource, /Year \/ Type/);
+  assert.match(catalogPageSource, /Cost Code/);
+  assert.match(catalogPageSource, /Classification/);
   assert.match(catalogPageSource, /Ownership/);
   assert.match(catalogPageSource, /Budget Use/);
-  assert.doesNotMatch(catalogPageSource, /Direct Cost|Calculated Rate|Custom Rate|Estimate Rate|Allocated To/);
+  assert.doesNotMatch(catalogPageSource, /Year \/ Type|Direct Cost|Calculated Rate|Custom Rate|Estimate Rate|Allocated To/);
 });
 
 test('Catalog uses Labour Classes and material costs without universal selling economics', () => {

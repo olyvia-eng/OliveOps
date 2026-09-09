@@ -38,13 +38,15 @@ test('legacy equipment sell fields are not presented as explicit custom rates', 
 
 test('equipment catalog is a reusable identity list with distinct Budget use', () => {
   assert.match(catalogSource, /<table className="w-full text-sm">/);
-  for (const heading of ['Equipment', 'Year / Type', 'Ownership', 'Budget Use']) {
+  for (const heading of ['Equipment', 'Cost Code', 'Classification', 'Ownership', 'Budget Use']) {
     assert.match(catalogSource, new RegExp(`>${heading.replace('/', '\\/')}<`));
   }
-  for (const removed of ['>ID / SKU<', '>Direct Cost<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed.replace('/', '\\/')));
+  for (const removed of ['>Year / Type<', '>ID / SKU<', '>Direct Cost<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed.replace('/', '\\/')));
   assert.doesNotMatch(catalogSource, /resolveEquipmentCostRate|costUnit|recommendedSellPrice|customRate|division rates|Not calculated/);
-  assert.match(catalogSource, /asset\.purchaseDate\?\.match/);
-  assert.match(catalogSource, /asset\.type\?\.trim\(\)/);
+  assert.match(catalogSource, /asset\.type\?\.trim\(\) \|\| '—'/);
+  assert.match(catalogSource, /value === 'overhead' \? 'Overhead Equipment' : 'Billable Equipment'/);
+  assert.match(catalogSource, /ownershipLabel\(asset\.costType\)/);
+  assert.doesNotMatch(catalogSource, /equipmentYearAndType|purchaseYear/);
   assert.match(catalogSource, /new Set\(rows\.map\(\(row\) => row\.budgetId\)\)\.size/);
   assert.match(catalogSource, /count === 1 \? 'Budget' : 'Budgets'/);
   assert.match(catalogSource, /: 'Not used'/);
@@ -81,6 +83,10 @@ test('equipment detail keeps operational overview and Budget participation', () 
   assert.match(detailSource, /onExpand=\{onExpand\}/);
   assert.match(detailSource, /onCollapse=\{onCollapse\}/);
   assert.match(detailSource, /onClose=\{onClose\}/);
+  assert.match(detailSource, /ID \/ SKU: \{equipment\.serialNumber \|\| '—'\}/);
+  assert.match(detailSource, /Cost Code: \{equipment\.type \|\| '—'\}/);
+  assert.match(detailSource, />Cost Code<\/dt><dd[^>]*>\{valueOrDash\(equipment\.type\)\}/);
+  assert.doesNotMatch(detailSource, />Type \/ Class<\/dt>/);
 });
 
 test('Budget-specific equipment assumptions stay in Budgets instead of the Catalog overview', () => {

@@ -49,9 +49,9 @@ export default function EquipmentDetailPanel({
         title={equipment.name}
         subtitle={(
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>{equipment.serialNumber || '—'}</span>
+            <span>ID / SKU: {equipment.serialNumber || '—'}</span>
             <span aria-hidden="true">•</span>
-            <span>{equipment.type || '—'}</span>
+            <span>Cost Code: {equipment.type || '—'}</span>
           </span>
         )}
         status={<Badge label={ownershipLabel(equipment.costType)} className="bg-accent-50 text-accent-700" />}
@@ -71,7 +71,7 @@ export default function EquipmentDetailPanel({
               <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-3 text-sm">
                 <dt className="text-gray-500 dark:text-brand-200">Name</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{equipment.name}</dd>
                 <dt className="text-gray-500 dark:text-brand-200">ID / SKU</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.serialNumber)}</dd>
-                <dt className="text-gray-500 dark:text-brand-200">Type / Class</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
+                <dt className="text-gray-500 dark:text-brand-200">Cost Code</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{valueOrDash(equipment.type)}</dd>
                 <dt className="text-gray-500 dark:text-brand-200">Ownership / Source</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{ownershipLabel(equipment.costType)}</dd>
                 <dt className="text-gray-500 dark:text-brand-200">Classification</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{isOverheadEquipment ? 'Overhead Equipment' : 'Billable Equipment'}</dd>
                 {equipment.costType === 'rental' ? <><dt className="text-gray-500 dark:text-brand-200">Rental Cost</dt><dd className="text-right font-medium text-gray-900 dark:text-brand-50">{formatCurrency(equipment.rentalCost ?? 0)} / {equipment.rentalUnit ?? 'hr'}</dd></> : null}

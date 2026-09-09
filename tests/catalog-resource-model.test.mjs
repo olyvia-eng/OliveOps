@@ -57,10 +57,11 @@ test('rental equipment preserves its direct cost unit while legacy equipment rem
   assert.equal(catalog.equipment.find((item) => item.sourceEntityId === 'rental').costRate, 450);
 });
 
-test('Catalog UI is billable-only and Subcontractors use the shared resource flow', () => {
+test('Catalog UI shows canonical equipment classifications and Subcontractors use the shared resource flow', () => {
   const catalog = readFileSync('src/pages/data-center/EquipmentCatalogPage.tsx', 'utf8');
   const planning = readFileSync('src/components/budget/DivisionPlanningTab.tsx', 'utf8');
-  assert.match(catalog, /equipmentClassification !== 'overhead'/);
+  assert.match(catalog, /Billable Equipment/);
+  assert.match(catalog, /Overhead Equipment/);
   assert.match(catalog, /<SubcontractorsCatalogSection/);
   assert.match(planning, /subcontractorCatalogItemId/);
   assert.match(planning, /defaultUnitCost/);

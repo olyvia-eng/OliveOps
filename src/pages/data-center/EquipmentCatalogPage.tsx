@@ -37,12 +37,9 @@ const CATALOG_TABS: Array<{ key: CatalogTab; label: string; icon: typeof Truck }
   { key: 'subcontractors', label: 'Subcontractors', icon: BriefcaseBusiness },
 ];
 
-const equipmentYearAndType = (asset: EquipmentAsset) => {
-  const purchaseYear = asset.purchaseDate?.match(/^\d{4}/)?.[0];
-  return [purchaseYear, asset.type?.trim()].filter(Boolean).join(' · ') || '—';
-};
-
 const budgetUseLabel = (count: number) => count > 0 ? `${count} ${count === 1 ? 'Budget' : 'Budgets'}` : 'Not used';
+const classificationLabel = (value: EquipmentAsset['equipmentClassification']) => value === 'overhead' ? 'Overhead Equipment' : 'Billable Equipment';
+const ownershipLabel = (value: EquipmentAsset['costType']) => value.charAt(0).toUpperCase() + value.slice(1);
 
 export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -72,7 +69,7 @@ export default function EquipmentCatalogPage() {
   };
 
   const sortedEquipment = useMemo(() => {
-    return equipmentAssets.filter((asset) => asset.equipmentClassification !== 'overhead').sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return [...equipmentAssets].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }, [equipmentAssets]);
 
   const workspace = readDetailWorkspaceQuery(searchParams, EQUIPMENT_WORKSPACE_QUERY);
@@ -271,7 +268,8 @@ export default function EquipmentCatalogPage() {
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600 dark:text-brand-200">
                       <th className="px-4 py-3 font-medium">Equipment</th>
-                      <th className="px-4 py-3 font-medium">Year / Type</th>
+                      <th className="px-4 py-3 font-medium">Cost Code</th>
+                      <th className="px-4 py-3 font-medium">Classification</th>
                       <th className="px-4 py-3 font-medium">Ownership</th>
                       <th className="px-4 py-3 text-right font-medium">Budget Use</th>
                     </tr>
@@ -287,8 +285,9 @@ export default function EquipmentCatalogPage() {
                           aria-selected={workspace.recordId === asset.id}
                         >
                           <td className="px-4 py-3 font-semibold text-gray-900 dark:text-brand-50">{asset.name}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{equipmentYearAndType(asset)}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.costType.charAt(0).toUpperCase() + asset.costType.slice(1)}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.type?.trim() || '—'}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{classificationLabel(asset.equipmentClassification)}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{ownershipLabel(asset.costType)}</td>
                           <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{budgetUseLabel(budgetUseByEquipmentId.get(asset.id) ?? 0)}</td>
                         </tr>
                       ))}
