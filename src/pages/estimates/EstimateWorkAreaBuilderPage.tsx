@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import EstimateLinePricingEditor from '../../components/estimates/EstimateLinePricingEditor';
+import { useUnsavedChangesGuard } from '../../components/navigation/UnsavedChangesGuard';
 import RichTextEditor from '../../components/rich-text/RichTextEditor';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
@@ -23,6 +24,7 @@ import {
 import { formatTargetMarginPercent } from '../budget/budgetAnalysisSummaryModel.js';
 import { formatNumericDisplayValue, normalizeNumericInput, parseNumericInputValue } from '../../utils/numberInput';
 import { proposalScopeRichText, richTextToPlainText } from '../../utils/richText';
+import { isEstimateEditorDirty, serializeEstimateEditorState } from '../../utils/estimateDirtyModel.js';
 import type { Estimate, EstimateLineItem, EstimatePricingCatalog, EstimatePricingCatalogItem, LineItemCategory } from '../../types';
 import type { RichTextDocument } from '../../types/richText';
 import {
@@ -54,6 +56,13 @@ type CatalogCandidate = {
   alreadyAdded: boolean;
   searchText: string;
 };
+
+const loadWorkAreaForm = (workArea: ReturnType<typeof normalizeEstimateWorkAreas>[number]): WorkAreaBuilderForm => ({
+  name: workArea.name,
+  description: workArea.description,
+  scopeRichText: proposalScopeRichText(workArea.scopeRichText, workArea.description),
+  lineItems: workArea.lineItems,
+});
 
 const createWorkAreaPayload = (estimate: Estimate, workAreas: ReturnType<typeof normalizeEstimateWorkAreas>) => {
   const normalizedWorkAreas = workAreas.map((area, index) => ({
@@ -96,12 +105,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const workAreas = useMemo(() => (estimate ? normalizeEstimateWorkAreas(estimate) : []), [estimate]);
   const workArea = useMemo(() => workAreas.find((area) => area.id === workAreaId) ?? null, [workAreaId, workAreas]);
 
-  const [form, setForm] = useState<WorkAreaBuilderForm | null>(workArea ? {
-    name: workArea.name,
-    description: workArea.description,
-    scopeRichText: proposalScopeRichText(workArea.scopeRichText, workArea.description),
-    lineItems: workArea.lineItems,
-  } : null);
+  const [form, setForm] = useState<WorkAreaBuilderForm | null>(workArea ? loadWorkAreaForm(workArea) : null);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategory, setCatalogCategory] = useState<LineItemCategory>('labour');
   const [showCatalogSheet, setShowCatalogSheet] = useState(false);
@@ -115,6 +119,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [expandedLineItemIds, setExpandedLineItemIds] = useState<Set<string>>(() => new Set());
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [pricingLineItemId, setPricingLineItemId] = useState<string | null>(null);
+  const [pricingEditorMode, setPricingEditorMode] = useState<'profit' | 'price'>('profit');
   const [draggedLineItem, setDraggedLineItem] = useState<{ id: string; category: LineItemCategory } | null>(null);
   const [costErrors, setCostErrors] = useState<Record<string, string>>({});
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
@@ -132,12 +137,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       setForm(null);
       return;
     }
-    setForm({
-      name: workArea.name,
-      description: workArea.description,
-      scopeRichText: proposalScopeRichText(workArea.scopeRichText, workArea.description),
-      lineItems: workArea.lineItems,
-    });
+    setForm(loadWorkAreaForm(workArea));
   }, [workArea]);
 
   useEffect(() => {
@@ -166,28 +166,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
   const initialSnapshot = useMemo(() => {
     if (!workArea) return '';
-    return JSON.stringify({
-      name: workArea.name,
-      description: workArea.description,
-      lineItems: workArea.lineItems,
-    });
+    return serializeEstimateEditorState(loadWorkAreaForm(workArea));
   }, [workArea]);
 
   const isDirty = useMemo(() => {
     if (!form) return false;
-    return JSON.stringify(form) !== initialSnapshot;
+    return initialSnapshot !== '' && isEstimateEditorDirty(form, JSON.parse(initialSnapshot) as WorkAreaBuilderForm);
   }, [form, initialSnapshot]);
-
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!isDirty) return;
-      event.preventDefault();
-      event.returnValue = '';
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isDirty]);
 
   const catalogCandidates = useMemo(() => {
     const lineItems = form?.lineItems ?? [];
@@ -260,6 +245,38 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       categorySales: computeWorkAreaCategorySellTotals(currentWorkArea),
     };
   }, [estimate?.divisionId, form, workArea]);
+
+  const persistWorkArea = async (): Promise<boolean> => {
+    if (savingWorkArea || !estimate || !workArea || !form) return false;
+
+    setSavingWorkArea(true);
+    const nextWorkAreas = workAreas.map((area) => (
+      area.id === workArea.id
+        ? {
+            ...area,
+            divisionId: estimate.divisionId,
+            name: form.name.trim() || area.name,
+            description: form.description,
+            lineItems: form.lineItems,
+          }
+        : area
+    ));
+
+    const payload = createWorkAreaPayload(estimate, nextWorkAreas);
+    const saved = await updateEstimate(estimate.id, payload);
+    setSavingWorkArea(false);
+
+    if (!saved) return false;
+
+    emitAppToast({ tone: 'success', message: 'Work area saved.' });
+    return true;
+  };
+
+  const { requestNavigation, guardModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: savingWorkArea,
+    onSave: persistWorkArea,
+  });
 
   if (!estimate || !workArea || !form || !workAreaSummary) {
     return (
@@ -412,40 +429,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     setCustomItemOpen(false);
   };
 
-  const persistWorkArea = async (goBack: boolean) => {
-    if (savingWorkArea) return;
-
-    setSavingWorkArea(true);
-    const nextWorkAreas = workAreas.map((area) => (
-      area.id === workArea.id
-        ? {
-            ...area,
-            divisionId: estimate.divisionId,
-            name: form.name.trim() || area.name,
-            description: form.description,
-            lineItems: form.lineItems,
-          }
-        : area
-    ));
-
-    const payload = createWorkAreaPayload(estimate, nextWorkAreas);
-    const saved = await updateEstimate(estimate.id, payload);
-    setSavingWorkArea(false);
-
-    if (!saved) return;
-
-    emitAppToast({ tone: 'success', message: 'Work area saved.' });
-
-    if (goBack) {
-      navigate(`/estimates/${estimate.id}?tab=work-areas`);
-    }
+  const handleBack = () => {
+    requestNavigation(`/estimates/${estimate.id}?tab=work-areas`);
   };
 
-  const handleBack = () => {
-    if (isDirty && !window.confirm('You have unsaved changes. Leave this work area without saving?')) {
-      return;
-    }
-    navigate(`/estimates/${estimate.id}?tab=work-areas`);
+  const saveAndBack = async () => {
+    const saved = await persistWorkArea();
+    if (saved) navigate(`/estimates/${estimate.id}?tab=work-areas`);
   };
 
   const handleDeleteWorkArea = async () => {
@@ -609,8 +599,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-lg border border-brand-100 dark:border-brand-600">
-            <div className="hidden min-w-[1160px] grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid">
-              <span aria-hidden="true" /><span>Item</span><span>Quantity</span><span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
+            <div className={`hidden min-w-[1160px] ${category === 'labour' ? 'grid-cols-[32px_minmax(180px,1.4fr)_80px_110px_repeat(6,minmax(105px,0.7fr))_76px]' : 'grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px]'} gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid`}>
+              <span aria-hidden="true" /><span>Item</span>{category === 'labour' ? <><span>Workers</span><span>Hours / Worker</span></> : <span>Quantity</span>}<span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
             </div>
             {items.map((lineItem) => {
               const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId || lineItem.materialCatalogItemId);
@@ -622,7 +612,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               return (
               <div key={lineItem.id} className="border-b border-brand-100 bg-brand-50/40 last:border-b-0 dark:border-brand-600 dark:bg-brand-900/20">
                 <div
-                  className="grid min-w-[1160px] grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] items-center gap-3 px-3 py-3 text-sm"
+                  className={`grid min-w-[1160px] ${category === 'labour' ? 'grid-cols-[32px_minmax(180px,1.4fr)_80px_110px_repeat(6,minmax(105px,0.7fr))_76px]' : 'grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px]'} items-center gap-3 px-3 py-3 text-sm`}
                   onDragOver={(event) => { if (draggedLineItem?.category === category) event.preventDefault(); }}
                   onDrop={(event) => {
                     event.preventDefault();
@@ -656,6 +646,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     <p className="truncate font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
                     <p className="mt-0.5 truncate text-xs capitalize text-gray-500 dark:text-brand-300">{CATEGORY_LABEL[lineItem.category]}</p>
                   </div>
+                  {category === 'labour' ? <label className="text-xs font-medium text-gray-500 dark:text-brand-300">
+                    <span className="sr-only">Workers for {lineItem.itemName || lineItem.description || 'item'}</span>
+                    <input aria-label={`Workers for ${lineItem.itemName || lineItem.description || 'item'}`} type="number" min={1} step={1} value={lineItem.workers ?? 1} disabled={isReadOnly} onChange={(event) => setLineItem(lineItem.id, 'workers', Math.max(1, Math.floor(Number(event.target.value) || 1)))} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />
+                  </label> : null}
                   <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-brand-300">
                     <span className="sr-only">{quantityLabel}</span>
                     <input
@@ -691,9 +685,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                   </div>}
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.breakeven)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(economics.totalCost)}</p>
-                  <button type="button" disabled={isReadOnly} onClick={() => setPricingLineItemId(lineItem.id)} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 disabled:cursor-default dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
-                  <div className="text-right text-gray-700 dark:text-brand-100">
-                    <span className="font-medium tabular-nums">{unitPrice(economics.price)}</span>
+                  <button type="button" disabled={isReadOnly} onClick={() => { setPricingEditorMode('profit'); setPricingLineItemId(lineItem.id); }} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 disabled:cursor-default dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
+                  <div className="flex items-center justify-end gap-1 text-right text-gray-700 dark:text-brand-100">
+                    <span>{lineItem.estimateCustomSellPrice !== null && lineItem.estimateCustomSellPrice !== undefined ? <span className="mr-1 text-[10px] font-semibold uppercase text-accent-700 dark:text-accent-300">Custom</span> : null}<span className="font-medium tabular-nums">{unitPrice(economics.price)}</span></span>
+                    {!isReadOnly ? <button type="button" title="Edit Estimate price" aria-label={`Edit Estimate price for ${lineItem.itemName || lineItem.description || 'item'}`} onClick={() => { setPricingEditorMode('price'); setPricingLineItemId(lineItem.id); }} className="rounded-md p-1 text-gray-400 hover:bg-white hover:text-brand-700 dark:hover:bg-brand-700"><Pencil size={13} /></button> : null}
                   </div>
                   <p className="text-right text-base font-semibold tabular-nums text-gray-900 dark:text-brand-50" aria-label="Total Price">{formatCurrency(economics.totalPrice)}</p>
                   <div className="flex items-center justify-end gap-1">
@@ -735,9 +730,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         title={form.name || workArea.name}
         subtitle={`${customer?.name ?? 'Unknown Customer'}${estimate.proposalNumber ? ` • ${estimate.proposalNumber}` : ''}`}
         action={(
-          <Button variant="secondary" onClick={handleBack}>
-            <ArrowLeft size={15} /> Back to Estimate
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={handleBack}><ArrowLeft size={15} /> Back to Estimate</Button>
+            {!isReadOnly ? <Button onClick={() => void persistWorkArea()} disabled={!isDirty || savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save Changes'}</Button> : null}
+          </div>
         )}
       />
 
@@ -809,8 +805,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                 <Trash2 size={14} /> Delete Work Area
               </Button>
               <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="secondary" onClick={() => void persistWorkArea(false)} disabled={!isDirty || savingWorkArea}>Save</Button>
-                <Button onClick={() => void persistWorkArea(true)} disabled={savingWorkArea}>Save &amp; Back</Button>
+                <Button variant="secondary" onClick={() => void persistWorkArea()} disabled={!isDirty || savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save Changes'}</Button>
+                <Button onClick={() => void saveAndBack()} disabled={savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save &amp; Back'}</Button>
               </div>
             </div> : <p className="text-sm text-gray-500">This Work Area is part of the converted Estimate and is read-only.</p>}
           </Card>
@@ -843,7 +839,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
       {pricingLineItemId ? (() => {
         const pricingLineItem = form.lineItems.find((item) => item.id === pricingLineItemId);
-        return pricingLineItem ? <EstimateLinePricingEditor lineItem={pricingLineItem} onChange={replaceLineItem} onClose={() => setPricingLineItemId(null)} /> : null;
+        return pricingLineItem ? <EstimateLinePricingEditor lineItem={pricingLineItem} initialMode={pricingEditorMode} onChange={replaceLineItem} onClose={() => setPricingLineItemId(null)} /> : null;
       })() : null}
 
       <Modal
@@ -881,6 +877,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
       >
         <p className="text-sm text-gray-600 dark:text-brand-200">This will remove this Work Area and its Labour, Equipment, Materials, and Subcontractor items from this Estimate.</p>
       </Modal>
+      {guardModal}
     </div>
   );
 }

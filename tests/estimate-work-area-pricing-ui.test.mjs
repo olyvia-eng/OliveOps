@@ -105,14 +105,18 @@ test('worksheet economics read authoritative snapshot fields without applying sa
   assert.doesNotMatch(builderSource, /Cost \+ Tax/);
 });
 
-test('all resource categories use one Estimate-only margin and custom-price editor', () => {
+test('all resource categories use staged Estimate-only profit and price editing', () => {
   assert.match(builderSource, /<EstimateLinePricingEditor lineItem=\{pricingLineItem\}/);
   assert.match(builderSource, /setPricingLineItemId\(lineItem\.id\)/);
+  assert.match(builderSource, />Workers</);
+  assert.match(builderSource, />Hours \/ Worker</);
+  assert.match(builderSource, />Custom</);
   assert.match(pricingEditorSource, /estimateTargetMarginPct/);
   assert.match(pricingEditorSource, /estimateCustomSellPrice/);
   assert.match(pricingEditorSource, /calculateEstimateSnapshotPricing/);
-  assert.match(pricingEditorSource, />Margin</);
-  assert.match(pricingEditorSource, />Custom price</);
+  assert.match(pricingEditorSource, /Save Price/);
+  assert.match(pricingEditorSource, /Reset to Calculated Price/);
+  assert.match(pricingEditorSource, /onClick=\{onClose\}>Cancel/);
   assert.match(pricingEditorSource, /Estimate only/);
 });
 

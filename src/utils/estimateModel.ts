@@ -5,9 +5,11 @@ import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } fro
 import {
   applyEstimateLineItemCostOverride,
   calculateEstimateSnapshotPricing,
+  estimateLineEffectiveQuantity,
+  estimateLineWorkers,
   reorderEstimateLineItemsWithinCategory,
 } from './estimatePricingModel.js';
-export { applyEstimateLineItemCostOverride, calculateEstimateSnapshotPricing, reorderEstimateLineItemsWithinCategory };
+export { applyEstimateLineItemCostOverride, calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers, reorderEstimateLineItemsWithinCategory };
 
 const DEFAULT_AREA_NAME = 'General';
 
@@ -23,17 +25,20 @@ function normalizeCategory(value: unknown): LineItemCategory {
 }
 
 function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: string; description?: string }, fallbackSortOrder = 0): EstimateLineItem {
+  const category = normalizeCategory(item.category);
   const quantity = Math.max(0, asNumber(item.quantity, 0));
+  const workers = estimateLineWorkers({ category, workers: item.workers });
+  const effectiveQuantity = category === 'labour' ? quantity * workers : quantity;
   const unitCost = Math.max(0, asNumber(item.unitCost, 0));
   const markupPercent = Math.max(0, asNumber(item.markupPercent, asNumber(item.markup, 0)));
   const sellPrice = item.sellPrice !== undefined ? Math.max(0, asNumber(item.sellPrice, 0)) : unitCost * (1 + markupPercent / 100);
-  const total = quantity * sellPrice;
-  const estimatedCost = quantity * unitCost;
+  const total = effectiveQuantity * sellPrice;
+  const estimatedCost = effectiveQuantity * unitCost;
 
   return {
     id: item.id ?? generateId(),
     sortOrder: Math.max(0, asNumber(item.sortOrder, fallbackSortOrder)),
-    category: normalizeCategory(item.category),
+    category,
     labourClassId: item.labourClassId,
     labourClassName: item.labourClassName,
     employeeId: item.employeeId,
@@ -72,6 +77,7 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     estimatedSell: item.category === 'equipment' ? Math.max(0, asNumber(item.estimatedSell, total)) : item.estimatedSell,
     itemName: typeof item.itemName === 'string' && item.itemName.trim() ? item.itemName : (typeof item.description === 'string' ? item.description : ''),
     description: typeof item.description === 'string' ? item.description : '',
+    workers: category === 'labour' ? workers : undefined,
     quantity,
     unit: typeof item.unit === 'string' && item.unit.trim() ? item.unit : 'unit',
     unitCost,
@@ -94,6 +100,7 @@ export function createEmptyEstimateLineItem(category: LineItemCategory = 'labour
     category,
     itemName: '',
     description: '',
+    workers: category === 'labour' ? 1 : undefined,
     quantity: 1,
     unit: category === 'labour' || category === 'equipment' ? 'hr' : 'unit',
     unitCost: 0,
@@ -331,14 +338,14 @@ export function computeWorkAreaSubtotal(workArea: EstimateWorkArea): number {
 
 export function computeWorkAreaEstimatedCost(workArea: EstimateWorkArea): number {
   return workArea.lineItems.reduce((sum, item) => {
-    const quantity = asNumber(item.quantity, 0);
+    const quantity = estimateLineEffectiveQuantity(item);
     const unitCost = asNumber(item.unitCost, 0);
     return sum + (quantity * unitCost);
   }, 0);
 }
 
 export function getEstimateLinePricingEconomics(item: EstimateLineItem) {
-  const quantity = Math.max(0, asNumber(item.quantity, 0));
+  const quantity = estimateLineEffectiveQuantity(item);
   const cost = Math.max(0, asNumber(item.unitCost, 0));
   const price = Math.max(0, asNumber(item.sellPrice, 0));
   const snapshotBreakeven = item.recoveredCostPerUnit ?? item.breakevenRate;
@@ -367,7 +374,7 @@ export function getEstimateLinePricingEconomics(item: EstimateLineItem) {
 
 export function computeWorkAreaCategoryCostTotals(workArea: EstimateWorkArea): Record<LineItemCategory, number> {
   return workArea.lineItems.reduce<Record<LineItemCategory, number>>((accumulator, item) => {
-    const quantity = asNumber(item.quantity, 0);
+    const quantity = estimateLineEffectiveQuantity(item);
     const unitCost = asNumber(item.unitCost, 0);
     accumulator[item.category] += quantity * unitCost;
     return accumulator;

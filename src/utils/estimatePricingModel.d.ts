@@ -17,6 +17,10 @@ export interface EstimateSnapshotPricing {
 
 export function calculateEstimateSnapshotPricing(input: EstimateSnapshotPricingInput): EstimateSnapshotPricing;
 
+export function estimateLineWorkers(item: Partial<EstimateLineItem>): number;
+
+export function estimateLineEffectiveQuantity(item: Partial<EstimateLineItem>): number;
+
 export function reorderEstimateLineItemsWithinCategory(
   lineItems: EstimateLineItem[],
   category: LineItemCategory,

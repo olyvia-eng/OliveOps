@@ -217,7 +217,7 @@ test('creation, navigation, add, and delete flows use persisted embedded IDs', (
   assert.match(workspaceSource, /createNewEstimateWorkArea\(form\.workAreas, estimate\.divisionId\)/);
   assert.match(workspaceSource, /saved = await persistEstimateForm\(nextForm\)/);
   assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{nextWorkArea\.id\}`\)/);
-  assert.match(workspaceSource, /navigate\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
+  assert.match(workspaceSource, /requestNavigation\(`\/estimates\/\$\{estimate\.id\}\/work-areas\/\$\{workArea\.id\}`\)/);
 
   assert.match(builderSource, /workAreas\.find\(\(area\) => area\.id === workAreaId\)/);
   assert.match(builderSource, /filter\(\(area\) => area\.id !== workArea\.id\)/);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calculateEstimateSnapshotPricing } from '../src/utils/estimatePricingModel.js';
+import { calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
 import { applyEstimateLineItemCostOverride, reorderEstimateLineItemsWithinCategory } from '../src/utils/estimatePricingModel.js';
 
 test('Estimate snapshot pricing uses gross margin and guards the divisor', () => {
@@ -87,4 +87,11 @@ test('cost override preserves custom price mode and rejects Labour, negative, Na
     assert.equal(result.ok, false);
     assert.strictEqual(result.lineItem, source);
   }
+});
+
+test('Labour effective quantity is worker-hours with a legacy one-worker default', () => {
+  assert.equal(estimateLineWorkers({ category: 'labour', quantity: 40 }), 1);
+  assert.equal(estimateLineEffectiveQuantity({ category: 'labour', quantity: 40 }), 40);
+  assert.equal(estimateLineEffectiveQuantity({ category: 'labour', workers: 2, quantity: 40 }), 80);
+  assert.equal(estimateLineEffectiveQuantity({ category: 'material', workers: 8, quantity: 40 }), 40);
 });

@@ -98,6 +98,7 @@ export interface EstimateLineItem {
   estimatedSell?: number;
   itemName: string;
   description: string;
+  workers?: number;
   quantity: number;
   unit: string;
   unitCost: number;

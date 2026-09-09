@@ -112,6 +112,20 @@ test('Job conversion preserves Estimate line order and overridden cost snapshot'
   assert.equal(workArea.lineItems[0].estimateUnitCostOverride, 60);
 });
 
+test('Job conversion turns Labour workers and hours per worker into total planned hours', () => {
+  const estimate = baseEstimate();
+  estimate.workAreas[0].lineItems[0] = { ...estimate.workAreas[0].lineItems[0], workers: 2, quantity: 40, total: 4800 };
+  const [workArea] = buildJobWorkAreasFromEstimate(estimate);
+  const [lineItem] = workArea.lineItems;
+  assert.equal(lineItem.workers, 2);
+  assert.equal(lineItem.hoursPerWorker, 40);
+  assert.equal(lineItem.quantity, 80);
+  assert.equal(lineItem.estimatedCost, 4000);
+
+  const legacyEstimate = baseEstimate();
+  assert.equal(buildJobWorkAreasFromEstimate(legacyEstimate)[0].lineItems[0].quantity, 8);
+});
+
 test('convert-to-job returns job and estimate patch on success', async () => {
   let reservedArgs = null;
   let conversionPayload = null;

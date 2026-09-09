@@ -20,6 +20,7 @@ import SidebarSection from './SidebarSection';
 import FeedbackModal from '../feedback/FeedbackModal';
 import type { AppearanceStyle, ThemePreference } from './useUiPreferences';
 import { useStore } from '../../store';
+import { requestAppNavigation } from '../navigation/UnsavedChangesGuard';
 
 const ACTION_ROUTE_MAP: Record<string, string> = {
   'placeholder-leads': '/revenue/leads',
@@ -120,15 +121,20 @@ export default function Sidebar({
     setMobileOpen(false);
   };
 
-  const handleAction = (actionId: string) => {
-    const path = ACTION_ROUTE_MAP[actionId];
-    if (!path) return;
+  const navigateGuarded = (path: string) => {
+    if (!requestAppNavigation(path)) return;
+    setMobileOpen(false);
     navigate(path);
   };
 
+  const handleAction = (actionId: string) => {
+    const path = ACTION_ROUTE_MAP[actionId];
+    if (!path) return;
+    navigateGuarded(path);
+  };
+
   const navigateFromProfile = (path: string) => {
-    setMobileOpen(false);
-    navigate(path);
+    navigateGuarded(path);
   };
 
   const openFeedbackModal = () => {
@@ -230,7 +236,7 @@ export default function Sidebar({
       <div className="app-header-surface lg:hidden fixed top-0 left-0 right-0 z-30 border-b flex items-center justify-between px-4 h-14">
         <button
           type="button"
-          onClick={() => navigate('/home')}
+          onClick={() => navigateGuarded('/home')}
           className="flex items-center gap-2 font-semibold text-brand-800 dark:text-brand-100"
         >
           <Leaf size={22} />
@@ -342,7 +348,7 @@ export default function Sidebar({
         <div className={`flex h-10 shrink-0 items-center font-semibold text-brand-800 dark:text-brand-100 mb-4 ${isDesktopVisuallyExpanded ? 'justify-between gap-2 px-1' : 'justify-center'}`}>
           <button
             type="button"
-            onClick={() => navigate('/home')}
+            onClick={() => navigateGuarded('/home')}
             aria-label="OliveOps Home"
             title={!isDesktopVisuallyExpanded ? 'OliveOps Home' : undefined}
             className="flex items-center gap-2 min-w-0 shrink-0"

@@ -225,11 +225,11 @@ test('default title is creation-only and workspace save retains failed edits', (
 
 test('dirty Estimate Info fields save before tab navigation through one shared update path', () => {
   assert.match(workspaceSource, /const saveIfDirty = async/);
-  assert.match(workspaceSource, /serializeEstimateForm\(form\) !== serializeEstimateForm\(persistedFormBaseline\.current\)/);
+  assert.match(workspaceSource, /isEstimateEditorDirty\(form, persistedFormBaseline\.current\)/);
   assert.match(workspaceSource, /const saved = await saveIfDirty\(\);\s*if \(!saved\) return;\s*setSearchParams/);
   assert.match(workspaceSource, /await saveIfDirty\(\{ force: true, showSuccess: true \}\)/);
   assert.match(workspaceSource, /persistedFormBaseline\.current = savedForm;\s*setForm\(savedForm\)/);
-  assert.match(workspaceSource, /disabled=\{savingEstimate\}/);
+  assert.match(workspaceSource, /disabled=\{!isDirty \|\| savingEstimate\}/);
   assert.doesNotMatch(workspaceSource, /addEstimate\(/);
 
   for (const field of [

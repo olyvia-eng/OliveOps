@@ -30,7 +30,7 @@ import { createTemplateEstimateScope, normalizeEstimateTemplate, templateWritePa
 const WRITE_ROLES = ['owner', 'admin'];
 const TEMPLATE_FIELDS = new Set(['id', 'schemaVersion', 'name', 'description', 'proposalNotes', 'workAreas', 'createdAt', 'updatedAt']);
 const AREA_FIELDS = new Set(['id', 'name', 'description', 'sortOrder', 'lineItems']);
-const LINE_FIELDS = new Set(['id', 'category', 'sourceEntityId', 'itemName', 'description', 'quantity', 'unit', 'sortOrder', 'pricingReadiness']);
+const LINE_FIELDS = new Set(['id', 'category', 'sourceEntityId', 'itemName', 'description', 'workers', 'quantity', 'unit', 'sortOrder', 'pricingReadiness']);
 const CATEGORIES = new Set(['labour', 'equipment', 'material', 'subcontractor']);
 const isString = (value) => typeof value === 'string';
 const isId = (value) => isString(value) && value.trim().length > 0;
@@ -53,7 +53,7 @@ function validateTemplate(template) {
     for (const line of area.lineItems) {
       const lineField = unsupported(line, LINE_FIELDS);
       if (lineField) return `${lineField} is not part of the Template line-item contract.`;
-      if (!isId(line.id) || lineIds.has(line.id) || !CATEGORIES.has(line.category) || !isId(line.itemName) || !isString(line.description) || !isNumber(line.quantity) || line.quantity < 0 || !isId(line.unit) || !isNumber(line.sortOrder)) return 'Template line items are invalid.';
+      if (!isId(line.id) || lineIds.has(line.id) || !CATEGORIES.has(line.category) || !isId(line.itemName) || !isString(line.description) || !isNumber(line.quantity) || line.quantity < 0 || (line.category === 'labour' && (!Number.isInteger(line.workers) || line.workers < 1)) || !isId(line.unit) || !isNumber(line.sortOrder)) return 'Template line items are invalid.';
       if (line.sourceEntityId !== undefined && !isId(line.sourceEntityId)) return 'Template resource identity is invalid.';
       lineIds.add(line.id);
     }

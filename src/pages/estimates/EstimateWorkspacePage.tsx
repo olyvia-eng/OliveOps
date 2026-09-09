@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, ExternalLink, FileDown, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, TextArea } from '../../components/ui';
+import { useUnsavedChangesGuard } from '../../components/navigation/UnsavedChangesGuard';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, formatDate, formatDateTime, statusColor } from '../../utils';
 import {
@@ -20,6 +21,7 @@ import {
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
 import { createEstimateProposalDocument, fetchEstimateProposal, proposalPdfFileName } from '../../utils/estimateProposalPdf';
 import { calculateProposalPaymentSchedule } from '../../utils/proposalPaymentSchedule.js';
+import { isEstimateEditorDirty } from '../../utils/estimateDirtyModel.js';
 import type {
   Address,
   Estimate,
@@ -111,8 +113,6 @@ const loadFormState = (estimate: Estimate): EstimateFormState => ({
   templateId: estimate.templateId,
 });
 
-const serializeEstimateForm = (form: EstimateFormState) => JSON.stringify(form);
-
 const validateEstimateForm = (form: EstimateFormState) => (
   form.title.trim() && form.customerId && form.pricingBudgetId && form.validUntil
     ? null
@@ -169,7 +169,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       const hasLocalChanges = Boolean(
         current
         && persistedFormBaseline.current
-        && serializeEstimateForm(current) !== serializeEstimateForm(persistedFormBaseline.current),
+        && isEstimateEditorDirty(current, persistedFormBaseline.current),
       );
       if (!estimateChanged && hasLocalChanges) return current;
       hydratedEstimateId.current = id;
@@ -231,7 +231,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
   const saveIfDirty = async ({ force = false, showSuccess = false } = {}) => {
     if (!estimate || !form || saveInFlight.current) return false;
     const isDirty = !persistedFormBaseline.current
-      || serializeEstimateForm(form) !== serializeEstimateForm(persistedFormBaseline.current);
+      || isEstimateEditorDirty(form, persistedFormBaseline.current);
     if (!force && !isDirty) return true;
 
     const validationError = validateEstimateForm(form);
@@ -255,6 +255,17 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
       setSavingEstimate(false);
     }
   };
+
+  const isDirty = Boolean(
+    form
+    && persistedFormBaseline.current
+    && isEstimateEditorDirty(form, persistedFormBaseline.current),
+  );
+  const { requestNavigation, guardModal } = useUnsavedChangesGuard({
+    isDirty,
+    isSaving: savingEstimate,
+    onSave: () => saveIfDirty({ force: true, showSuccess: true }),
+  });
 
   const setTab = async (tab: EstimateTab) => {
     if (tab === activeTab || (tab === 'analysis' && !canViewAnalysis) || saveInFlight.current) return;
@@ -525,13 +536,13 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         subtitle={`Workspace for ${customer?.name ?? 'Unknown Customer'}`}
         action={(
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => navigate('/estimates')}>
+            <Button variant="secondary" onClick={() => requestNavigation('/estimates')}>
               <ArrowLeft size={15} /> Back
             </Button>
             {!isConverted ? <Button variant="secondary" onClick={() => setConfirmDelete(true)}>
               <Trash2 size={14} /> Delete
             </Button> : null}
-            {!isConverted ? <Button onClick={() => void save()} disabled={savingEstimate}>
+            {!isConverted ? <Button onClick={() => void save()} disabled={!isDirty || savingEstimate}>
               {savingEstimate ? 'Saving...' : 'Save Changes'}
             </Button> : null}
           </div>
@@ -667,7 +678,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
                       <button
                         key={workArea.id}
                         type="button"
-                        onClick={() => navigate(`/estimates/${estimate.id}/work-areas/${workArea.id}`)}
+                        onClick={() => requestNavigation(`/estimates/${estimate.id}/work-areas/${workArea.id}`)}
                         className="w-full rounded-xl border border-brand-100 dark:border-brand-600 bg-white dark:bg-brand-800 p-4 text-left transition-colors hover:bg-brand-50/60 dark:hover:bg-brand-700"
                       >
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -933,6 +944,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
           />
         </div>
       </Modal>
+      {guardModal}
     </div>
   );
 }

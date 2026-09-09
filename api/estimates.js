@@ -13,6 +13,7 @@ import {
 import { normalizeEstimateServices, resolveWorkType } from '../src/utils/workTypeModel.js';
 import { calculateServiceEstimateTotals } from '../src/utils/servicePricingModel.js';
 import { buildGeneratedServiceVisits } from '../src/utils/serviceVisitModel.js';
+import { estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
 import { createGeneratedServiceVisitsForBusiness } from './_lib/serviceVisitRepo.js';
 
 function nowIso() {
@@ -80,7 +81,8 @@ function normalizeEstimateWorkAreas(estimate) {
 }
 
 function normalizeJobLineItem(rawLineItem, sourceEstimateWorkAreaId) {
-  const quantity = toNumber(rawLineItem.quantity);
+  const workers = estimateLineWorkers(rawLineItem);
+  const quantity = estimateLineEffectiveQuantity({ ...rawLineItem, workers });
   const unitCost = toNumber(rawLineItem.unitCost);
   const markupPercent = toNumber(rawLineItem.markupPercent, toNumber(rawLineItem.markup));
   const computedSellPrice = unitCost * (1 + (markupPercent / 100));
@@ -98,6 +100,7 @@ function normalizeJobLineItem(rawLineItem, sourceEstimateWorkAreaId) {
     estimatedCost: toNumber(rawLineItem.estimatedCost, quantity * unitCost),
     estimatedSell: toNumber(rawLineItem.estimatedSell, total),
     category: rawLineItem.category,
+    ...(rawLineItem.category === 'labour' ? { workers, hoursPerWorker: toNumber(rawLineItem.quantity) } : {}),
     itemName: isNonEmptyString(rawLineItem.itemName) ? rawLineItem.itemName.trim() : (isNonEmptyString(rawLineItem.description) ? rawLineItem.description.trim() : 'Line Item'),
     description: typeof rawLineItem.description === 'string' ? rawLineItem.description : '',
     quantity,

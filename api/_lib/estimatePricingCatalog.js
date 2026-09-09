@@ -1,7 +1,7 @@
 import { buildBudgetPricingRows } from '../../src/pages/budget/budgetPricingModel.js';
 import { buildOverheadRecoveryModel, grossMarginRate, recoveryPerUnit } from '../../src/pages/budget/overheadRecoveryModel.js';
 import { buildLabourClassCatalog } from '../../src/pages/data-center/labourClassPricingModel.js';
-import { calculateEstimateSnapshotPricing } from '../../src/utils/estimatePricingModel.js';
+import { calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers } from '../../src/utils/estimatePricingModel.js';
 import { resolveEquipmentClassificationModel } from '../../src/utils/equipmentPricingModel.js';
 
 const CATEGORY_MAP = {
@@ -288,8 +288,22 @@ const estimateLineItems = (estimate) => [
   ...(Array.isArray(estimate.services) ? estimate.services.flatMap((service) => Array.isArray(service?.lineItems) ? service.lineItems : []) : []),
 ];
 
+const normalizeEstimateLineQuantity = (item) => {
+  const workers = estimateLineWorkers(item);
+  const quantity = Math.max(0, Number(item.quantity ?? 0));
+  const sellPrice = Math.max(0, Number(item.sellPrice ?? 0));
+  return {
+    ...item,
+    ...(item.category === 'labour' ? { workers } : {}),
+    quantity,
+    total: estimateLineEffectiveQuantity({ ...item, workers, quantity }) * sellPrice,
+  };
+};
+
 const preservePricingSnapshot = (existing, next) => {
   const quantity = Math.max(0, Number(next.quantity ?? 0));
+  const workers = estimateLineWorkers({ category: existing.category, workers: next.workers });
+  const effectiveQuantity = estimateLineEffectiveQuantity({ category: existing.category, workers, quantity });
   const unitCost = Math.max(0, Number(existing.unitCost ?? 0));
   const estimateTargetMarginPct = next.estimateTargetMarginPct == null
     ? null
@@ -344,11 +358,12 @@ const preservePricingSnapshot = (existing, next) => {
     equipmentName: existing.equipmentName,
     itemName: existing.itemName,
     unit: existing.unit,
+    ...(existing.category === 'labour' ? { workers } : {}),
     unitCost,
     sellPrice,
     markupPercent: existing.markupPercent,
     markup: existing.markup,
-    total: quantity * sellPrice,
+    total: effectiveQuantity * sellPrice,
     ...(existing.category === 'equipment' ? {
       costRateAtEstimate: existing.costRateAtEstimate ?? unitCost,
       chargeOutRateAtEstimate: existing.chargeOutRateAtEstimate ?? sellPrice,
@@ -368,7 +383,7 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
     const preservesBudgetSnapshot = item?.sourceBudgetItemId && existing?.sourceBudgetItemId === item.sourceBudgetItemId;
     const preservesCatalogSnapshot = item?.materialCatalogItemId && existing?.materialCatalogItemId === item.materialCatalogItemId;
     if (preservesBudgetSnapshot || preservesCatalogSnapshot) return { ok: true, item: preservePricingSnapshot(existing, item) };
-    if (!item?.sourceBudgetItemId && !item?.materialCatalogItemId) return { ok: true, item };
+    if (!item?.sourceBudgetItemId && !item?.materialCatalogItemId) return { ok: true, item: normalizeEstimateLineQuantity(item) };
     if (item.sourceBudgetId !== catalog.budgetId || nextEstimate.pricingBudgetId !== catalog.budgetId) {
       return { ok: false, error: 'Estimate pricing must come from its selected Pricing Budget.' };
     }
@@ -395,6 +410,8 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       ? pricing.sellRate
       : estimatePricing?.sellPrice ?? 0;
     const quantity = Math.max(0, Number(item.quantity ?? 0));
+    const workers = estimateLineWorkers({ category: pricing.type, workers: item.workers });
+    const effectiveQuantity = estimateLineEffectiveQuantity({ category: pricing.type, workers, quantity });
     return { ok: true, item: {
       ...item,
       category: pricing.type,
@@ -431,11 +448,12 @@ export function applyAuthoritativeEstimatePricing({ existingEstimate, nextEstima
       equipmentName: pricing.type === 'equipment' ? pricing.name : undefined,
       itemName: pricing.name,
       unit: pricing.unit,
+      ...(pricing.type === 'labour' ? { workers } : {}),
       unitCost,
       sellPrice,
       markupPercent: 0,
       markup: 0,
-      total: quantity * sellPrice,
+      total: effectiveQuantity * sellPrice,
       ...(pricing.type === 'equipment' ? {
         costRateAtEstimate: unitCost,
         chargeOutRateAtEstimate: sellPrice,

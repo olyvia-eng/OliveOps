@@ -4,6 +4,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import type { SidebarNavItem } from '../../navigation/types';
 import { useStore } from '../../store';
 import { resolveWorkType } from '../../utils/workTypeModel.js';
+import { requestAppNavigation } from '../navigation/UnsavedChangesGuard';
 
 interface SidebarItemProps {
   item: SidebarNavItem;
@@ -84,7 +85,13 @@ export default function SidebarItem({
       <NavLink
         to={item.to}
         end={item.end}
-        onClick={onNavigate}
+        onClick={(event) => {
+          if (!requestAppNavigation(item.to)) {
+            event.preventDefault();
+            return;
+          }
+          onNavigate?.();
+        }}
         aria-label={item.label}
         title={iconOnly ? item.label : undefined}
         style={indentStyle}

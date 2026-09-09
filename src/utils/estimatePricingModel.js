@@ -1,5 +1,14 @@
 const finiteNumber = (value, fallback = 0) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
+export function estimateLineWorkers(item) {
+  if (item?.category !== 'labour') return 1;
+  return Math.max(1, Math.floor(finiteNumber(item.workers, 1)));
+}
+
+export function estimateLineEffectiveQuantity(item) {
+  return Math.max(0, finiteNumber(item?.quantity)) * estimateLineWorkers(item);
+}
+
 export function calculateEstimateSnapshotPricing(input) {
   const breakeven = Math.max(0, finiteNumber(input.breakeven));
   const targetMarginPct = Math.min(99, Math.max(0, finiteNumber(input.targetMarginPct)));
@@ -43,7 +52,7 @@ export function applyEstimateLineItemCostOverride(item, value) {
   const targetMarginPct = item.estimateTargetMarginPct ?? item.targetMarginPct ?? 0;
   const customSellPrice = item.estimateCustomSellPrice ?? (hasMarginSnapshot ? null : item.sellPrice);
   const pricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice });
-  const quantity = Math.max(0, finiteNumber(item.quantity));
+  const quantity = estimateLineEffectiveQuantity(item);
   const lineItem = {
     ...item,
     unitCost: value,
