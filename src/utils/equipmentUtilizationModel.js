@@ -11,6 +11,12 @@ export function deriveOperatingDays(sellableHoursPerYear, equipmentHoursPerDay) 
   return hoursPerDay > 0 ? oneDecimal(annualHours / hoursPerDay) : 0;
 }
 
+export function equipmentUtilizationIsValid(value) {
+  if (value?.equipmentClassification !== 'billable' || value?.equipmentCostType === 'rental') return true;
+  const annualHours = nonNegativeFinite(value?.sellableHoursPerYear);
+  return annualHours <= 0 || nonNegativeFinite(value?.equipmentHoursPerDay) > 0;
+}
+
 export function synchronizeEquipmentUtilization(value, basis, editedField, editedValue, operatingDays) {
   const annualHours = oneDecimal(value?.sellableHoursPerYear);
   const hoursPerDay = oneDecimal(value?.equipmentHoursPerDay);

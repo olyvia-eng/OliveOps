@@ -13,6 +13,11 @@ export interface SynchronizedEquipmentUtilization extends EquipmentUtilizationVa
 
 export function deriveOperatingDays(sellableHoursPerYear: number, equipmentHoursPerDay: number): number;
 
+export function equipmentUtilizationIsValid(value: EquipmentUtilizationValue & {
+  equipmentClassification: 'billable' | 'overhead';
+  equipmentCostType: 'owned' | 'financed' | 'leased' | 'rental';
+}): boolean;
+
 export function synchronizeEquipmentUtilization(
   value: EquipmentUtilizationValue,
   basis: EquipmentUtilizationBasis,

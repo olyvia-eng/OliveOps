@@ -43,6 +43,29 @@ test('annual class costs use financial planning fields and Division equipment mo
   assert.equal(scope.denominators.subcontractors, 75);
 });
 
+test('zero-utilization overhead equipment allocates annual cost by months and never receives pricing', () => {
+  const budget = { id: 'budget', targetMarginPct: 20 };
+  const divisions = [
+    { id: 'landscape', budgetId: budget.id, name: 'Landscaping', status: 'active', overheadRecoveryPolicy: policy(allocation(100, 0, 0, 0)) },
+    { id: 'snow', budgetId: budget.id, name: 'Snow Removal', status: 'active', overheadRecoveryPolicy: policy(allocation(100, 0, 0, 0)) },
+  ];
+  const truck = {
+    id: 'truck', budgetId: budget.id, category: 'equipment', classification: 'overhead', plannedAmount: 36800,
+    sellableHoursPerYear: 0, equipmentHoursPerDay: 0,
+    equipmentDivisionAllocations: [{ divisionId: 'landscape', months: 8 }, { divisionId: 'snow', months: 4 }],
+  };
+
+  assert.ok(Math.abs(equipmentDivisionAnnualCost(truck, 'landscape') - 24533.3333333333) < 0.000001);
+  assert.ok(Math.abs(equipmentDivisionAnnualCost(truck, 'snow') - 12266.6666666667) < 0.000001);
+  const recovery = buildOverheadRecoveryModel({ budget, divisions, planningItems: [truck] });
+  assert.ok(Math.abs(recovery.divisions.landscape.totalOverhead - 24533.3333333333) < 0.000001);
+  assert.ok(Math.abs(recovery.divisions.snow.totalOverhead - 12266.6666666667) < 0.000001);
+  assert.equal(buildBudgetPricingRows({ budget, divisions, planningItems: [truck], budgetRates: [] }).length, 0);
+
+  const historicalHours = { ...truck, sellableHoursPerYear: 1200, equipmentHoursPerDay: 8 };
+  assert.equal(buildBudgetPricingRows({ budget, divisions, planningItems: [historicalHours], budgetRates: [] }).length, 0);
+});
+
 test('equipment pricing uses annual operating hours and ignores optional Division Sellable Hours', () => {
   const budget = { id: 'budget', targetMarginPct: 20 };
   const divisions = [

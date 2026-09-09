@@ -1,4 +1,5 @@
 import type { EquipmentClassification, EquipmentCostType, EquipmentRentalUnit } from '../../types';
+import { equipmentUtilizationIsValid } from '../../utils/equipmentUtilizationModel.js';
 
 export interface EquipmentInfoFormValue {
   description: string;
@@ -53,7 +54,7 @@ export const validateEquipmentInfoForm = (value: EquipmentInfoFormValue) => {
   ] as const;
   const invalidField = numericFields.find(([, fieldValue]) => !Number.isFinite(fieldValue) || fieldValue < 0);
   if (invalidField) return `${invalidField[0]} must be zero or greater.`;
-  if (value.equipmentCostType !== 'rental' && value.sellableHoursPerYear > 0 && value.equipmentHoursPerDay <= 0) {
+  if (!equipmentUtilizationIsValid(value)) {
     return 'Expected operating hours per day must be greater than zero when annual operating hours are entered.';
   }
   for (const [label, fieldValue] of [

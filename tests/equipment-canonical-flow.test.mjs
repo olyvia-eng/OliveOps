@@ -113,6 +113,22 @@ test('one active shared component owns equipment core and annual cost inputs', (
   assert.match(formSource, /Yearly Maintenance Cost/);
 });
 
+test('Budget equipment shows utilization only for Billable equipment and preserves values when classification changes', () => {
+  const source = readFileSync('src/components/equipment/EquipmentInfoForm.tsx', 'utf8');
+  const utilizationSection = source.slice(source.indexOf('<h3 className="text-sm font-semibold text-gray-900">Utilization / Cost Calculation'), source.indexOf('<h3 className="text-sm font-semibold text-gray-900">Calculated Results'));
+  const resultsSection = source.slice(source.indexOf('<h3 className="text-sm font-semibold text-gray-900">Calculated Results'), source.indexOf('{isBillableEquipment ? <div className="mt-1">'));
+
+  assert.match(source, /isBillableEquipment = value\.equipmentClassification === 'billable'/);
+  assert.match(source, /\{isBillableEquipment \? <section>/);
+  for (const label of ['Expected Operating Hours / Year', 'Expected Operating Hours / Day', 'Expected Operating Days / Year']) assert.match(utilizationSection, new RegExp(label.replaceAll('/', '\\/')));
+  assert.match(resultsSection, /Annual Equipment Cost/);
+  assert.match(resultsSection, /isBillableEquipment \? \[\['Cost per Operating Day'[\s\S]*'Cost per Operating Hour'/);
+  assert.match(source, /isBillableEquipment && showCalculationDetails/);
+  assert.match(source, /allocated across Divisions for overhead recovery/);
+  assert.match(source, /onChange\(\{ \.\.\.value, \[key\]: nextValue \}\)/);
+  assert.doesNotMatch(source, /equipmentClassification[\s\S]{0,120}(sellableHoursPerYear|equipmentHoursPerDay): 0/);
+});
+
 test('equipment asset type includes permanent economics fields', () => {
   const source = readFileSync('src/types/index.ts', 'utf8');
 

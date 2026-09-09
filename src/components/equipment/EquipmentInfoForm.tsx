@@ -96,6 +96,7 @@ export default function EquipmentInfoForm({
   showCalculationDetails,
   onToggleCalculationDetails,
 }: EquipmentInfoFormProps) {
+  const isBillableEquipment = value.equipmentClassification === 'billable';
   const utilizationBasis = useRef<'annualHours' | 'operatingDays'>('annualHours');
   const pendingUtilization = useRef<{ sellableHoursPerYear: number; equipmentHoursPerDay: number } | null>(null);
   const [operatingDays, setOperatingDays] = useState(() => deriveOperatingDays(value.sellableHoursPerYear, value.equipmentHoursPerDay));
@@ -133,10 +134,10 @@ export default function EquipmentInfoForm({
 
       <div className="border-t border-gray-200 pt-5">
         <h3 className="text-sm font-semibold text-gray-900">Budget Planning</h3>
-        <p className="mt-1 text-xs text-gray-500">Set year-specific utilization and review the resulting true operating cost.</p>
+        <p className="mt-1 text-xs text-gray-500">{isBillableEquipment ? 'Set year-specific utilization and review the resulting true operating cost.' : 'Review the annual cost that will be allocated across Divisions for overhead recovery.'}</p>
       </div>
 
-      <section>
+      {isBillableEquipment ? <section>
         <h3 className="text-sm font-semibold text-gray-900">Utilization / Cost Calculation</h3>
         <p className="mt-1 text-xs text-gray-500">Utilization determines operating cost rates. It does not change the 12-month annual cost allocation.</p>
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -160,16 +161,15 @@ export default function EquipmentInfoForm({
 
           <Input label="Expected Operating Days / Year" type="number" min={0} step={0.1} value={operatingDays} onChange={(event) => editUtilization('operatingDays', Number(event.target.value))} />
         </div>
-      </section>
+      </section> : null}
 
       <section>
       <h3 className="text-sm font-semibold text-gray-900">Calculated Results</h3>
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
+      <div className={`mt-3 grid grid-cols-1 gap-3 ${isBillableEquipment ? 'sm:grid-cols-3' : ''}`}>
+        {([
           ['Annual Equipment Cost', totalEquipmentCostPerYear],
-          ['Cost per Operating Day', totalCostPerDay],
-          ['Cost per Operating Hour', totalCostPerHour],
-        ].map(([label, amount]) => (
+          ...(isBillableEquipment ? [['Cost per Operating Day', totalCostPerDay], ['Cost per Operating Hour', totalCostPerHour]] : []),
+        ] as Array<[string, number]>).map(([label, amount]) => (
           <div key={String(label)} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
             <p className="text-xs font-medium text-gray-500">{label}</p>
             <p className="mt-1 text-lg font-semibold text-gray-900">{formatCurrency(Number(amount))}</p>
@@ -178,7 +178,7 @@ export default function EquipmentInfoForm({
       </div>
       </section>
 
-      <div className="mt-1">
+      {isBillableEquipment ? <div className="mt-1">
         <button
           type="button"
           className="text-xs font-medium text-brand-600 hover:text-brand-700"
@@ -186,9 +186,9 @@ export default function EquipmentInfoForm({
         >
           {showCalculationDetails ? 'Hide Calculation Details' : 'Show Calculation Details'}
         </button>
-      </div>
+      </div> : null}
 
-      {showCalculationDetails && (
+      {isBillableEquipment && showCalculationDetails && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
           <h3 className="font-semibold text-gray-900">Equipment Cost Calculation</h3>
           <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">

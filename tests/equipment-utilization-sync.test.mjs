@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBudgetPricingRows } from '../src/pages/budget/budgetPricingModel.js';
 import { calculateEquipmentCostBreakdownModel } from '../src/utils/equipmentPricingModel.js';
-import { deriveOperatingDays, synchronizeEquipmentUtilization } from '../src/utils/equipmentUtilizationModel.js';
+import { deriveOperatingDays, equipmentUtilizationIsValid, synchronizeEquipmentUtilization } from '../src/utils/equipmentUtilizationModel.js';
 
 const utilization = { sellableHoursPerYear: 1000, equipmentHoursPerDay: 8 };
 
@@ -109,4 +109,11 @@ test('synchronized Annual Hours produce unchanged downstream Budget pricing', ()
 
   assert.equal(synchronizedPricing.costRate, 35000 / 1200);
   assert.deepEqual(synchronizedPricing, existingPricing);
+});
+
+test('overhead equipment accepts zero or historical utilization while billable equipment keeps utilization validation', () => {
+  assert.equal(equipmentUtilizationIsValid({ equipmentClassification: 'overhead', equipmentCostType: 'financed', sellableHoursPerYear: 0, equipmentHoursPerDay: 0 }), true);
+  assert.equal(equipmentUtilizationIsValid({ equipmentClassification: 'overhead', equipmentCostType: 'financed', sellableHoursPerYear: 1200, equipmentHoursPerDay: 0 }), true);
+  assert.equal(equipmentUtilizationIsValid({ equipmentClassification: 'billable', equipmentCostType: 'financed', sellableHoursPerYear: 1200, equipmentHoursPerDay: 0 }), false);
+  assert.equal(equipmentUtilizationIsValid({ equipmentClassification: 'billable', equipmentCostType: 'financed', sellableHoursPerYear: 1200, equipmentHoursPerDay: 8 }), true);
 });
