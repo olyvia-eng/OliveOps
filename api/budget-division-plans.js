@@ -2,6 +2,7 @@ import { requireSession } from './_lib/session.js';
 import { generateId, getBudgetDivisionForBusiness, getBudgetForBusiness, getEmployeeForBusiness, getEquipmentAssetForBusiness, getMaterialCatalogItemForBusiness, getSubcontractorCatalogItemForBusiness } from './_lib/authRepo.js';
 import {
   createDivisionPlanningItem,
+  createCatalogLinkedPlanningItem,
   deleteDivisionPlanningItem,
   listBudgetPlanningItems,
   listDivisionPlanningItems,
@@ -59,6 +60,8 @@ function validate(item) {
 }
 
 const CATALOG_PATCH_FIELDS = new Set(['name', 'type', 'equipmentClassification', 'costType']);
+const MATERIAL_CATALOG_FIELDS = new Set(['name', 'unit', 'defaultUnitCost', 'notes']);
+const SUBCONTRACTOR_CATALOG_FIELDS = new Set(['name', 'trade', 'contactName', 'email', 'phone', 'unit', 'defaultUnitCost', 'notes']);
 
 function validateCatalogPatch(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'Catalog details are required.';
@@ -71,17 +74,28 @@ function validateCatalogPatch(patch) {
   return null;
 }
 
+function validateReusableCatalogItem(category, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'Catalog details are required.';
+  const allowed = category === 'materials' ? MATERIAL_CATALOG_FIELDS : SUBCONTRACTOR_CATALOG_FIELDS;
+  const unsupported = Object.keys(value).find((field) => !allowed.has(field));
+  if (unsupported) return `Catalog field ${unsupported} cannot be saved from Budget planning.`;
+  if (!isText(value.name)) return category === 'materials' ? 'Material name is required.' : 'Subcontractor company name is required.';
+  if (!isText(value.unit)) return 'Catalog unit is required.';
+  if (typeof value.defaultUnitCost !== 'number' || !isNonNegative(value.defaultUnitCost)) return 'Default catalog cost must be zero or greater.';
+  return null;
+}
+
 const withCalculatedEquipmentAmount = (item, costType) => item.category === 'equipment'
   ? { ...item, plannedAmount: calculateAnnualEquipmentCostModel({ ...item, costType: costType ?? item.costType, plannedAmount: undefined }) }
   : item;
 const normalizePlanningAssumptions = (item) => normalizeLabourPlanAssumptions(item);
 
-async function validateReferences(businessId, item, { skipEquipment = false } = {}) {
+async function validateReferences(businessId, item, { skipEquipment = false, skipMaterial = false, skipSubcontractor = false } = {}) {
   if (item.employeeId && !await getEmployeeForBusiness(businessId, item.employeeId)) return 'Employee must belong to this business.';
   if (!skipEquipment && item.equipmentId && !await getEquipmentAssetForBusiness(businessId, item.equipmentId)) return 'Equipment must belong to this business.';
-  if (item.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, item.materialCatalogItemId)) return 'Material must belong to this business.';
+  if (!skipMaterial && item.materialCatalogItemId && !await getMaterialCatalogItemForBusiness(businessId, item.materialCatalogItemId)) return 'Material must belong to this business.';
   const subcontractorId = item.subcontractorCatalogItemId ?? item.vendorId;
-  if (item.category === 'subcontractors' && subcontractorId && !await getSubcontractorCatalogItemForBusiness(businessId, subcontractorId)) return 'Subcontractor must belong to this business.';
+  if (!skipSubcontractor && item.category === 'subcontractors' && subcontractorId && !await getSubcontractorCatalogItemForBusiness(businessId, subcontractorId)) return 'Subcontractor must belong to this business.';
   if (item.category === 'labour') {
     const divisions = await Promise.all(item.divisionAllocations.map((allocation) => getBudgetDivisionForBusiness(businessId, item.budgetId, allocation.divisionId)));
     if (divisions.some((division) => !division)) return 'Every Labour allocation Division must belong to this Budget.';
@@ -148,8 +162,16 @@ export default async function handler(req, res) {
       const now = new Date().toISOString();
       const catalogPatch = req.body?.catalogPatch;
       const createEquipmentAsset = category === 'equipment' && req.body?.createEquipmentAsset === true;
+      const createCatalogItem = (category === 'materials' || category === 'subcontractors') && req.body?.createCatalogItem === true;
+      const catalogItemId = createCatalogItem ? generateId() : undefined;
       const equipmentId = createEquipmentAsset ? generateId() : req.body?.data?.equipmentId;
-      let item = normalizePlanningAssumptions({ ...req.body?.data, equipmentId, id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now });
+      let item = normalizePlanningAssumptions({
+        ...req.body?.data,
+        equipmentId,
+        ...(category === 'materials' && catalogItemId ? { materialCatalogItemId: catalogItemId } : {}),
+        ...(category === 'subcontractors' && catalogItemId ? { subcontractorCatalogItemId: catalogItemId, vendorId: catalogItemId } : {}),
+        id: generateId(), budgetId, divisionId, category, sortOrder: budgetItems.length, createdAt: now, updatedAt: now,
+      });
       const effectiveItem = category === 'equipment' && catalogPatch ? { ...item, costType: catalogPatch.costType } : item;
       const error = validate(effectiveItem);
       if (error) return res.status(400).json({ ok: false, error });
@@ -159,7 +181,15 @@ export default async function handler(req, res) {
         const catalogError = validateCatalogPatch(catalogPatch);
         if (catalogError) return res.status(400).json({ ok: false, error: catalogError });
       }
-      const referenceError = await validateReferences(session.businessId, item, { skipEquipment: createEquipmentAsset });
+      if (createCatalogItem) {
+        const catalogError = validateReusableCatalogItem(category, req.body?.catalogItem);
+        if (catalogError) return res.status(400).json({ ok: false, error: catalogError });
+      }
+      const referenceError = await validateReferences(session.businessId, item, {
+        skipEquipment: createEquipmentAsset,
+        skipMaterial: createCatalogItem && category === 'materials',
+        skipSubcontractor: createCatalogItem && category === 'subcontractors',
+      });
       if (referenceError) return res.status(400).json({ ok: false, error: referenceError });
       if (category === 'equipment' && catalogPatch) {
         const currentAsset = createEquipmentAsset ? null : await getEquipmentAssetForBusiness(session.businessId, equipmentId);
@@ -169,6 +199,29 @@ export default async function handler(req, res) {
           : { ...currentAsset, ...catalogPatch, id: currentAsset.id, updatedAt: now };
         const saved = await saveEquipmentPlanningItemWithAsset({ businessId: session.businessId, equipmentAsset, createEquipmentAsset, item });
         return res.status(200).json({ ok: true, ...saved });
+      }
+      if (createCatalogItem) {
+        const catalogItem = {
+          id: catalogItemId,
+          name: req.body.catalogItem.name.trim(),
+          ...(category === 'subcontractors' ? {
+            trade: req.body.catalogItem.trade?.trim() ?? '',
+            contactName: req.body.catalogItem.contactName?.trim() ?? '',
+            email: req.body.catalogItem.email?.trim() ?? '',
+            phone: req.body.catalogItem.phone?.trim() ?? '',
+          } : { active: true }),
+          unit: req.body.catalogItem.unit.trim(),
+          defaultUnitCost: Number(req.body.catalogItem.defaultUnitCost ?? 0),
+          notes: req.body.catalogItem.notes?.trim() ?? '',
+          createdAt: now,
+          updatedAt: now,
+        };
+        const saved = await createCatalogLinkedPlanningItem({ businessId: session.businessId, category, catalogItem, item });
+        return res.status(200).json({
+          ok: true,
+          item: saved.item,
+          ...(category === 'materials' ? { materialCatalogItem: saved.catalogItem } : { subcontractorCatalogItem: saved.catalogItem }),
+        });
       }
       const saved = await createDivisionPlanningItem({ businessId: session.businessId, item });
       return res.status(200).json({ ok: true, item: saved });

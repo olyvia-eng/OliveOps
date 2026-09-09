@@ -64,7 +64,8 @@ test('Catalog UI is billable-only and Subcontractors use the shared resource flo
   assert.match(catalog, /<SubcontractorsCatalogSection/);
   assert.match(planning, /subcontractorCatalogItemId/);
   assert.match(planning, /defaultUnitCost/);
-  assert.match(planning, /Manual subcontractor/);
+  assert.match(planning, /Create new subcontractor/);
+  assert.match(planning, /subcontractorCatalogItems\.map/);
 });
 
 test('rental equipment cost and unit persist through create, read, and update', async (t) => {

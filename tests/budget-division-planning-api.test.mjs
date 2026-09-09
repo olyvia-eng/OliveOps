@@ -70,6 +70,23 @@ function seedEquipment(store, businessId, id) {
   store.set(key(`BUSINESS#${businessId}`, `EQUIPMENT#${id}`), { PK: `BUSINESS#${businessId}`, SK: `EQUIPMENT#${id}`, entityType: 'EQUIPMENT', businessId, equipmentId: id, name: 'Bobcat E50', type: 'Excavator', status: 'available', costType: 'financed', equipmentClassification: 'billable', serialNumber: '', hourlyCost: 0, notes: '', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
 }
 
+function seedMaterial(store, businessId, id) {
+  store.set(key(`BUSINESS#${businessId}`, `MATERIAL#${id}`), {
+    PK: `BUSINESS#${businessId}`, SK: `MATERIAL#${id}`, entityType: 'MATERIAL_CATALOG_ITEM', businessId,
+    materialId: id, name: 'Topsoil', unit: 'yard', defaultUnitCost: 42, active: true, notes: 'Screened',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+}
+
+function seedSubcontractor(store, businessId, id) {
+  store.set(key(`BUSINESS#${businessId}`, `SUBCONTRACTOR#${id}`), {
+    PK: `BUSINESS#${businessId}`, SK: `SUBCONTRACTOR#${id}`, entityType: 'SUBCONTRACTOR_CATALOG_ITEM', businessId,
+    subcontractorId: id, name: 'Ace Concrete', trade: 'Concrete', contactName: 'Alex Ace', email: 'alex@example.com',
+    phone: '555-0100', unit: 'job', defaultUnitCost: 2500, notes: 'Preferred vendor',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+}
+
 function seedEmployee(store, businessId, id, name = 'Ryan Field') {
   store.set(key(`BUSINESS#${businessId}`, `EMPLOYEE#${id}`), { PK: `BUSINESS#${businessId}`, SK: `EMPLOYEE#${id}`, entityType: 'EMPLOYEE', businessId, employeeId: id, name, email: `${id}@example.com`, phone: '', role: 'Operator', hourlyRate: 45, compensationType: 'hourly', labourType: 'field_producing', active: true, createdAt: '2026-01-01T00:00:00.000Z' });
 }
@@ -566,4 +583,131 @@ test('equipment import copies replacement assumptions and authoritative planned 
   assert.equal(imported.body.items[0].expectedResaleValue, 18000);
   assert.equal(imported.body.items[0].remainingUsefulMonths, 48);
   assert.equal(imported.body.items[0].plannedAmount, 18000);
+});
+
+test('new Budget Material atomically creates and links a reusable Catalog Material without leaking planning fields', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+
+  const created = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'materials' }, headers: { authorization: 'Bearer token-a' }, body: {
+    createCatalogItem: true,
+    catalogItem: { name: 'Mulch', unit: 'yard', defaultUnitCost: 35, notes: 'Natural cedar' },
+    data: { name: 'Mulch', description: 'Spring installations', unit: 'yard', unitCost: 39, plannedQuantity: 100, plannedAmount: 3900, allocationPercent: 75 },
+  } }, created);
+  assert.equal(created.statusCode, 200);
+  assert.equal(created.body.item.materialCatalogItemId, created.body.materialCatalogItem.id);
+  assert.equal(created.body.item.unitCost, 39);
+  assert.equal(created.body.item.plannedQuantity, 100);
+  const catalog = store.get(key('BUSINESS#biz-a', `MATERIAL#${created.body.materialCatalogItem.id}`));
+  assert.equal(catalog.name, 'Mulch');
+  assert.equal(catalog.defaultUnitCost, 35);
+  for (const field of ['plannedQuantity', 'plannedAmount', 'allocationPercent', 'overheadRecoveryPerUnit', 'recommendedSellPrice']) assert.equal(catalog[field], undefined);
+
+  const removed = response();
+  await planningHandler({ method: 'DELETE', query: { budgetId: 'budget-a', divisionId: 'land', category: 'materials', id: created.body.item.id }, headers: { authorization: 'Bearer token-a' }, body: {} }, removed);
+  assert.equal(removed.statusCode, 200);
+  assert.ok(store.has(key('BUSINESS#biz-a', `MATERIAL#${created.body.materialCatalogItem.id}`)));
+});
+
+test('existing Catalog Material is reused without duplication and foreign-tenant Material is rejected', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+  seedMaterial(store, 'biz-a', 'material-a');
+  seedMaterial(store, 'biz-b', 'material-b');
+
+  const reused = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'materials' }, headers: { authorization: 'Bearer token-a' }, body: {
+    data: { materialCatalogItemId: 'material-a', name: 'Topsoil', unit: 'yard', unitCost: 45, plannedQuantity: 20 },
+  } }, reused);
+  assert.equal(reused.statusCode, 200);
+  assert.equal(reused.body.item.materialCatalogItemId, 'material-a');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'MATERIAL_CATALOG_ITEM' && item.businessId === 'biz-a').length, 1);
+
+  const foreign = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'materials' }, headers: { authorization: 'Bearer token-a' }, body: {
+    data: { materialCatalogItemId: 'material-b', name: 'Foreign', unit: 'yard', unitCost: 1, plannedQuantity: 1 },
+  } }, foreign);
+  assert.equal(foreign.statusCode, 400);
+  assert.match(foreign.body.error, /belong to this business/);
+});
+
+test('new Budget Subcontractor uses canonical Catalog fields and keeps Budget assumptions separate', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+
+  const created = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: {
+    createCatalogItem: true,
+    catalogItem: { name: 'Ace Concrete', trade: 'Concrete', contactName: 'Alex Ace', email: 'alex@example.com', phone: '555-0100', unit: 'job', defaultUnitCost: 2500, notes: 'Preferred vendor' },
+    data: { name: 'Ace Concrete', description: 'Retaining wall scope', unit: 'job', rate: 2750, plannedQuantity: 3, plannedAmount: 8250 },
+  } }, created);
+  assert.equal(created.statusCode, 200);
+  assert.equal(created.body.item.subcontractorCatalogItemId, created.body.subcontractorCatalogItem.id);
+  assert.equal(created.body.item.vendorId, created.body.subcontractorCatalogItem.id);
+  assert.equal(created.body.item.rate, 2750);
+  assert.equal(created.body.item.plannedAmount, 8250);
+  const catalog = store.get(key('BUSINESS#biz-a', `SUBCONTRACTOR#${created.body.subcontractorCatalogItem.id}`));
+  assert.deepEqual({ name: catalog.name, trade: catalog.trade, contactName: catalog.contactName, email: catalog.email, phone: catalog.phone, unit: catalog.unit, defaultUnitCost: catalog.defaultUnitCost, notes: catalog.notes }, {
+    name: 'Ace Concrete', trade: 'Concrete', contactName: 'Alex Ace', email: 'alex@example.com', phone: '555-0100', unit: 'job', defaultUnitCost: 2500, notes: 'Preferred vendor',
+  });
+  for (const field of ['rate', 'plannedQuantity', 'plannedAmount', 'allocationPercent', 'recommendedSellPrice']) assert.equal(catalog[field], undefined);
+
+  const removed = response();
+  await planningHandler({ method: 'DELETE', query: { budgetId: 'budget-a', divisionId: 'land', category: 'subcontractors', id: created.body.item.id }, headers: { authorization: 'Bearer token-a' }, body: {} }, removed);
+  assert.equal(removed.statusCode, 200);
+  assert.ok(store.has(key('BUSINESS#biz-a', `SUBCONTRACTOR#${created.body.subcontractorCatalogItem.id}`)));
+});
+
+test('existing Catalog Subcontractor is reused without duplication and foreign-tenant reference is rejected', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+  seedSubcontractor(store, 'biz-a', 'sub-a');
+  seedSubcontractor(store, 'biz-b', 'sub-b');
+
+  const reused = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: {
+    data: { subcontractorCatalogItemId: 'sub-a', vendorId: 'sub-a', name: 'Ace Concrete', unit: 'job', rate: 2600, plannedQuantity: 2 },
+  } }, reused);
+  assert.equal(reused.statusCode, 200);
+  assert.equal(reused.body.item.subcontractorCatalogItemId, 'sub-a');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'SUBCONTRACTOR_CATALOG_ITEM' && item.businessId === 'biz-a').length, 1);
+
+  const foreign = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'subcontractors' }, headers: { authorization: 'Bearer token-a' }, body: {
+    data: { subcontractorCatalogItemId: 'sub-b', vendorId: 'sub-b', name: 'Foreign', unit: 'job', rate: 1, plannedQuantity: 1 },
+  } }, foreign);
+  assert.equal(foreign.statusCode, 400);
+  assert.match(foreign.body.error, /belong to this business/);
+});
+
+test('Labour and Overhead planning never create Catalog records', async (t) => {
+  const store = installDdb(t);
+  await seedTenant(store);
+  seedBudget(store, 'biz-a', 'budget-a', '2027');
+  seedDivision(store, 'biz-a', 'budget-a', 'land');
+  seedEmployee(store, 'biz-a', 'employee-a');
+
+  const labour = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'labour' }, headers: { authorization: 'Bearer token-a' }, body: {
+    createCatalogItem: true, catalogItem: { name: 'Must not persist', unit: 'hr', defaultUnitCost: 1 },
+    data: { employeeId: 'employee-a', name: 'Ryan Field', plannedHours: 100, labourClassification: 'billable', fieldProducingPct: 100, expectedBillablePct: 80, overtimeHours: 0, overtimeMultiplier: 1.5, divisionAllocations: [{ divisionId: 'land', hours: 100 }] },
+  } }, labour);
+  assert.equal(labour.statusCode, 200);
+
+  const overhead = response();
+  await planningHandler({ method: 'POST', query: { budgetId: 'budget-a', divisionId: 'land', category: 'overhead' }, headers: { authorization: 'Bearer token-a' }, body: {
+    createCatalogItem: true, catalogItem: { name: 'Must not persist', unit: 'year', defaultUnitCost: 1 },
+    data: { name: 'Office rent', plannedAmount: 12000, overheadDivisionAllocations: [{ divisionId: 'land', percentage: 100 }] },
+  } }, overhead);
+  assert.equal(overhead.statusCode, 200);
+  assert.equal([...store.values()].some((item) => item.entityType === 'MATERIAL_CATALOG_ITEM' || item.entityType === 'SUBCONTRACTOR_CATALOG_ITEM'), false);
 });

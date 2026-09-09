@@ -291,6 +291,11 @@ interface AppState {
     catalogPatch: Pick<EquipmentAsset, 'name' | 'type' | 'equipmentClassification' | 'costType'>;
     createEquipmentAsset: boolean;
   }) => Promise<BudgetDivisionPlanningItem | null>;
+  saveBudgetCatalogPlanningItem: (input: {
+    planningItem: Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'>;
+    catalogItem: Omit<MaterialCatalogItem, 'id' | 'createdAt' | 'updatedAt'> | Omit<SubcontractorCatalogItem, 'id' | 'createdAt' | 'updatedAt'>;
+    createCatalogItem: boolean;
+  }) => Promise<BudgetDivisionPlanningItem | null>;
   deleteBudgetDivisionPlanningItem: (item: BudgetDivisionPlanningItem) => Promise<boolean>;
   reorderBudgetDivisionPlanningItems: (budgetId: ID, divisionId: ID, category: BudgetDivisionPlanningItem['category'], orderedIds: ID[]) => Promise<boolean>;
   migrateLegacyBudgetOverhead: (budgetId: ID) => Promise<boolean>;
@@ -2120,6 +2125,37 @@ export const useStore = create<AppState>()((set, get) => ({
           return payload.item;
         } catch (error) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Equipment planning changes could not be saved.') });
+          return null;
+        }
+      },
+      saveBudgetCatalogPlanningItem: async ({ planningItem, catalogItem, createCatalogItem }) => {
+        try {
+          const response = await fetch(`/api/budget-division-plans?budgetId=${encodeURIComponent(planningItem.budgetId)}&divisionId=${encodeURIComponent(planningItem.divisionId)}&category=${encodeURIComponent(planningItem.category)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ data: planningItem, catalogItem, createCatalogItem }),
+          });
+          const payload = await response.json() as {
+            ok?: boolean;
+            item?: BudgetDivisionPlanningItem;
+            materialCatalogItem?: MaterialCatalogItem;
+            subcontractorCatalogItem?: SubcontractorCatalogItem;
+            error?: string;
+          };
+          if (!response.ok || !payload.ok || !payload.item) throw new Error(payload.error);
+          set((state) => ({
+            budgetDivisionPlanningItems: [...state.budgetDivisionPlanningItems.filter((item) => item.id !== payload.item!.id), payload.item!],
+            materialCatalogItems: payload.materialCatalogItem
+              ? [payload.materialCatalogItem, ...state.materialCatalogItems.filter((item) => item.id !== payload.materialCatalogItem!.id)]
+              : state.materialCatalogItems,
+            subcontractorCatalogItems: payload.subcontractorCatalogItem
+              ? [payload.subcontractorCatalogItem, ...state.subcontractorCatalogItems.filter((item) => item.id !== payload.subcontractorCatalogItem!.id)]
+              : state.subcontractorCatalogItems,
+          }));
+          return payload.item;
+        } catch (error) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Catalog resource could not be added to this Budget.') });
           return null;
         }
       },

@@ -3,15 +3,14 @@ import { Pencil, PlusCircle, Search, Trash2, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import DetailWorkspace from '../../components/detail-workspace/DetailWorkspace';
 import { closeDetailWorkspace, openDetailWorkspace, readDetailWorkspaceQuery } from '../../components/detail-workspace/detailWorkspaceQuery';
-import { Button, Card, EmptyState, Input, Modal, TextArea } from '../../components/ui';
+import { Button, Card, EmptyState, Modal } from '../../components/ui';
 import { useStore } from '../../store';
 import type { SubcontractorCatalogItem } from '../../types';
 import { formatCurrency } from '../../utils';
+import SubcontractorFormFields from '../../components/catalog/SubcontractorFormFields';
+import { emptySubcontractorFormValue, normalizeSubcontractorForm, type SubcontractorFormValue, validateSubcontractorForm } from '../../components/catalog/subcontractorFormModel';
 
 const WORKSPACE_QUERY = { recordParam: 'subcontractor', tabParam: 'subcontractorTab', defaultTab: 'overview' } as const;
-type FormValue = Pick<SubcontractorCatalogItem, 'name' | 'contactName' | 'email' | 'phone' | 'trade' | 'unit' | 'defaultUnitCost' | 'notes'>;
-const emptyForm = (): FormValue => ({ name: '', contactName: '', email: '', phone: '', trade: '', unit: 'job', defaultUnitCost: 0, notes: '' });
-
 export default function SubcontractorsCatalogSection() {
   const [searchParams, setSearchParams] = useSearchParams();
   const items = useStore((state) => state.subcontractorCatalogItems);
@@ -24,7 +23,7 @@ export default function SubcontractorsCatalogSection() {
   const [query, setQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormValue>(emptyForm);
+  const [form, setForm] = useState<SubcontractorFormValue>(emptySubcontractorFormValue);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const workspace = readDetailWorkspaceQuery(searchParams, WORKSPACE_QUERY);
@@ -36,7 +35,7 @@ export default function SubcontractorsCatalogSection() {
   }, [items, query]);
   const usage = selected ? planningItems.filter((item) => item.category === 'subcontractors' && (item.subcontractorCatalogItemId ?? item.vendorId) === selected.id) : [];
 
-  const openAdd = () => { setEditingId(null); setForm(emptyForm()); setError(''); setModalOpen(true); };
+  const openAdd = () => { setEditingId(null); setForm(emptySubcontractorFormValue()); setError(''); setModalOpen(true); };
   const openEdit = (item: SubcontractorCatalogItem) => {
     setEditingId(item.id);
     setForm({ name: item.name, contactName: item.contactName ?? '', email: item.email ?? '', phone: item.phone ?? '', trade: item.trade ?? '', unit: item.unit, defaultUnitCost: item.defaultUnitCost, notes: item.notes });
@@ -45,13 +44,14 @@ export default function SubcontractorsCatalogSection() {
   };
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!form.name.trim() || !form.unit.trim() || !Number.isFinite(form.defaultUnitCost) || form.defaultUnitCost < 0) {
-      setError('Enter a company name, unit, and default cost of zero or greater.');
+    const validationError = validateSubcontractorForm(form);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setSaving(true);
     setError('');
-    const payload = { ...form, name: form.name.trim(), contactName: form.contactName?.trim(), email: form.email?.trim(), phone: form.phone?.trim(), trade: form.trade?.trim(), unit: form.unit.trim(), notes: form.notes.trim() };
+    const payload = normalizeSubcontractorForm(form);
     try {
       if (editingId) await updateItem(editingId, payload);
       else await addItem(payload);
@@ -79,7 +79,7 @@ export default function SubcontractorsCatalogSection() {
       </div> : null}
     />
     <Modal open={modalOpen} onClose={() => !saving && setModalOpen(false)} title={editingId ? 'Edit Subcontractor' : 'Add Subcontractor'} footer={<><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button onClick={() => (document.getElementById('subcontractor-form') as HTMLFormElement | null)?.requestSubmit()} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button></>}>
-      <form id="subcontractor-form" onSubmit={save} className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Input label="Company Name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /><Input label="Trade / Service" value={form.trade} onChange={(event) => setForm({ ...form, trade: event.target.value })} /><Input label="Contact Name" value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} /><Input label="Email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /><Input label="Phone" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /><Input label="Unit" required value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })} /><Input label="Default Cost" type="number" min={0} step={0.01} value={form.defaultUnitCost} onChange={(event) => setForm({ ...form, defaultUnitCost: Number(event.target.value || 0) })} /><div className="sm:col-span-2"><TextArea label="Notes" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></div>{error ? <p className="sm:col-span-2 text-sm text-accent-700">{error}</p> : null}</form>
+      <form id="subcontractor-form" onSubmit={save}><SubcontractorFormFields value={form} onChange={setForm} disabled={saving} />{error ? <p className="mt-3 text-sm text-accent-700">{error}</p> : null}</form>
     </Modal>
   </>;
 }

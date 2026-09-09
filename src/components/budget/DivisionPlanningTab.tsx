@@ -14,6 +14,8 @@ import { resolveEmployeeCostInputs } from '../../utils/employeeLabourCost';
 import { resolveBudgetEquipmentName } from '../../utils/equipmentDisplayModel.js';
 import { equipmentMonthsForDivision, isEquipmentAllocatedToDivision, removeEquipmentDivisionAllocation } from '../../utils/equipmentDivisionAllocationModel.js';
 import { calculateAnnualSubcontractorCost, normalizeSubcontractorPlanAssumptions, subcontractorCostPerUnit, subcontractorPlannedQuantity } from '../../utils/subcontractorPlanningModel.js';
+import SubcontractorFormFields from '../catalog/SubcontractorFormFields';
+import { emptySubcontractorFormValue, normalizeSubcontractorForm, type SubcontractorFormValue, validateSubcontractorForm } from '../catalog/subcontractorFormModel';
 
 const config = {
   labour: {
@@ -65,7 +67,7 @@ const numberValue = (value: string) => Number(value) || 0;
 export default function DivisionPlanningTab({ budget, division, category, canEdit }: Props) {
   const settings = config[category];
   const Icon = settings.icon;
-  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, saveBudgetEquipmentPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
+  const { budgetDivisionPlanningItems, budgetDivisions, employees, labourClasses, equipmentAssets, materialCatalogItems, subcontractorCatalogItems, addBudgetDivisionPlanningItem, updateBudgetDivisionPlanningItem, saveBudgetEquipmentPlanningItem, saveBudgetCatalogPlanningItem, deleteBudgetDivisionPlanningItem, reorderBudgetDivisionPlanningItems } = useStore();
   const items = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === category && (item.category === 'labour' ? isLabourAllocatedToDivision(item, division.id) : item.category === 'equipment' ? isEquipmentAllocatedToDivision(item, division.id) : item.category === 'overhead' ? overheadAllocationForDivision(item, division.id) > 0 : item.divisionId === division.id)).sort((left, right) => left.sortOrder - right.sortOrder);
   const activeDivisions = budgetDivisions.filter((item) => item.budgetId === budget.id && item.status === 'active').sort((left, right) => left.sortOrder - right.sortOrder);
   const budgetLabourItems = budgetDivisionPlanningItems.filter((item) => item.budgetId === budget.id && item.category === 'labour');
@@ -78,6 +80,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [equipmentError, setEquipmentError] = useState('');
   const [showEquipmentCalcDetails, setShowEquipmentCalcDetails] = useState(false);
+  const [subcontractorForm, setSubcontractorForm] = useState<SubcontractorFormValue>(emptySubcontractorFormValue);
+  const [catalogError, setCatalogError] = useState('');
 
   const openNew = () => {
     const equipmentDefaults = emptyEquipmentInfoFormValue();
@@ -116,6 +120,8 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
             setOverheadError('');
     setEquipmentError('');
     setShowEquipmentCalcDetails(false);
+    setSubcontractorForm(emptySubcontractorFormValue());
+    setCatalogError('');
     setEditing('new');
   };
   const openEdit = (item: BudgetDivisionPlanningItem) => {
@@ -156,6 +162,15 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
     setOverheadError('');
     setEquipmentError('');
     setShowEquipmentCalcDetails(false);
+    if (item.category === 'subcontractors') {
+      const catalogItem = subcontractorCatalogItems.find((value) => value.id === (item.subcontractorCatalogItemId ?? item.vendorId));
+      setSubcontractorForm(catalogItem ? {
+        name: catalogItem.name, trade: catalogItem.trade ?? '', contactName: catalogItem.contactName ?? '',
+        email: catalogItem.email ?? '', phone: catalogItem.phone ?? '', unit: catalogItem.unit,
+        defaultUnitCost: catalogItem.defaultUnitCost, notes: catalogItem.notes,
+      } : emptySubcontractorFormValue());
+    }
+    setCatalogError('');
     setEditing(item);
   };
   const setNumber = (field: keyof BudgetDivisionPlanningItem, value: string) => setDraft((current) => ({ ...current, [field]: numberValue(value) }));
@@ -309,6 +324,40 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
       saveInFlight.current = false;
       if (result) setEditing(null);
       else setEquipmentError('Equipment changes could not be saved. Check your connection and try again.');
+      return;
+    }
+    if (editing === 'new' && (category === 'materials' || category === 'subcontractors')) {
+      const createCatalogItem = category === 'materials' ? !nextDraft.materialCatalogItemId : !nextDraft.subcontractorCatalogItemId;
+      const normalizedSubcontractor = category === 'subcontractors' ? normalizeSubcontractorForm(subcontractorForm) : null;
+      const validationError = category === 'materials'
+        ? (!String(nextDraft.name ?? nextDraft.description ?? '').trim() || !String(nextDraft.unit ?? '').trim() ? 'Material name and unit are required.' : null)
+        : createCatalogItem ? validateSubcontractorForm(normalizedSubcontractor!) : null;
+      if (validationError) {
+        setCatalogError(validationError);
+        setSaving(false);
+        saveInFlight.current = false;
+        return;
+      }
+      if (normalizedSubcontractor) {
+        nextDraft = normalizeSubcontractorPlanAssumptions({
+          ...nextDraft,
+          name: normalizedSubcontractor.name,
+          description: normalizedSubcontractor.trade,
+          unit: normalizedSubcontractor.unit,
+          rate: nextDraft.rate ?? normalizedSubcontractor.defaultUnitCost,
+        });
+      }
+      const result = await saveBudgetCatalogPlanningItem({
+        planningItem: { ...nextDraft, budgetId: budget.id, divisionId: division.id, category } as Omit<BudgetDivisionPlanningItem, 'id' | 'sortOrder' | 'createdAt' | 'updatedAt'>,
+        createCatalogItem,
+        catalogItem: category === 'materials'
+          ? { name: String(nextDraft.name ?? nextDraft.description ?? '').trim(), unit: String(nextDraft.unit ?? '').trim(), defaultUnitCost: Number(nextDraft.unitCost ?? 0), notes: '' }
+          : normalizedSubcontractor!,
+      });
+      setSaving(false);
+      saveInFlight.current = false;
+      if (result) setEditing(null);
+      else setCatalogError('Catalog resource could not be added to this Budget.');
       return;
     }
     if (category === 'subcontractors') nextDraft = normalizeSubcontractorPlanAssumptions(nextDraft);
@@ -813,6 +862,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               <Select
                 label="Material Catalog"
                 value={draft.materialCatalogItemId ?? ''}
+                disabled={editing !== 'new'}
                 onChange={(event) => {
                   const material = materialCatalogItems.find((item) => item.id === event.target.value);
                   setDraft((current) => ({
@@ -825,7 +875,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   }));
                 }}
               >
-                <option value="">Manual material</option>
+                <option value="">Create new material</option>
                 {materialCatalogItems.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
@@ -843,6 +893,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   }))
                 }
                 required
+                disabled={Boolean(draft.materialCatalogItemId)}
               />
               <Input
                 label="Unit"
@@ -853,9 +904,11 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                     unit: event.target.value,
                   }))
                 }
+                disabled={Boolean(draft.materialCatalogItemId)}
               />
               <Input type="number" label="Unit cost" value={draft.unitCost ?? 0} onChange={(event) => setNumber('unitCost', event.target.value)} />
               <Input type="number" label="Planned quantity" value={draft.plannedQuantity ?? 1} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
+              {catalogError ? <p className="sm:col-span-2 text-sm text-accent-700">{catalogError}</p> : null}
             </>
           ) : null}
           {category === 'subcontractors' ? (
@@ -863,6 +916,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
               <Select
                 label="Subcontractor Catalog"
                 value={draft.subcontractorCatalogItemId ?? draft.vendorId ?? ''}
+                disabled={editing !== 'new'}
                 onChange={(event) => {
                   const subcontractor = subcontractorCatalogItems.find((item) => item.id === event.target.value);
                   setDraft((current) => ({
@@ -876,30 +930,10 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                   }));
                 }}
               >
-                <option value="">Manual subcontractor</option>
+                <option value="">Create new subcontractor</option>
                 {subcontractorCatalogItems.map((item) => <option key={item.id} value={item.id}>{item.name}{item.trade ? ` - ${item.trade}` : ''}</option>)}
               </Select>
-              <Input
-                label="Subcontractor name"
-                value={draft.name ?? ''}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                required
-              />
-              <Input
-                label="Unit"
-                value={draft.unit ?? 'each'}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    unit: event.target.value,
-                  }))
-                }
-              />
+              {!draft.subcontractorCatalogItemId && editing === 'new' ? <div className="sm:col-span-2"><SubcontractorFormFields value={subcontractorForm} onChange={(value) => { setSubcontractorForm(value); setDraft((current) => ({ ...current, name: value.name, description: value.trade, unit: value.unit, rate: value.defaultUnitCost })); }} /></div> : null}
               <Input type="number" min={0} step="any" label="Cost per Unit" value={subcontractorCostPerUnit(draft)} onChange={(event) => setNumber('rate', event.target.value)} />
               <Input type="number" min={0} step="any" label="Planned Quantity" value={subcontractorPlannedQuantity(draft)} onChange={(event) => setNumber('plannedQuantity', event.target.value)} />
               <div className="sm:col-span-2">
@@ -918,6 +952,7 @@ export default function DivisionPlanningTab({ budget, division, category, canEdi
                 <p className="text-sm text-brand-400">Calculated Annual Cost</p>
                 <p className="mt-1 text-xl font-semibold text-brand-900 dark:text-brand-50">{formatCurrency(subcontractorAnnualCost)}</p>
               </section>
+              {catalogError ? <p className="sm:col-span-2 text-sm text-accent-700">{catalogError}</p> : null}
             </>
           ) : null}
           {category === 'overhead' ? (

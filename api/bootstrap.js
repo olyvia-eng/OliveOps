@@ -248,7 +248,7 @@ export function createBootstrapHandler(overrides = {}) {
       equipmentAssets: redactEquipmentPricingForSession(session, filterRecordsForSession(session, 'equipment-assets', equipmentAssets)),
       unbillableTimeCategories: filterRecordsForSession(session, 'unbillable-time-categories', unbillableTimeCategories),
       materialCatalogItems: filterRecordsForSession(session, 'material-catalog-items', materialCatalogItems),
-      subcontractorCatalogItems: filterRecordsForSession(session, 'material-catalog-items', subcontractorCatalogItems),
+      subcontractorCatalogItems: filterRecordsForSession(session, 'subcontractor-catalog-items', subcontractorCatalogItems),
       labourClasses,
       templates: filterRecordsForSession(session, 'templates', templates),
       budgetItems: filterRecordsForSession(session, 'budget', budgetItems),

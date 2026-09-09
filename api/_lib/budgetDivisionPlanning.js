@@ -4,6 +4,8 @@ import { divisionPlanIdentity, isEquipmentAllocatedToDivision, normalizeLabourPl
 
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 const equipmentSk = (equipmentId) => `EQUIPMENT#${equipmentId}`;
+const materialSk = (materialId) => `MATERIAL#${materialId}`;
+const subcontractorSk = (subcontractorId) => `SUBCONTRACTOR#${subcontractorId}`;
 const planPrefix = (budgetId, divisionId, category = '') => `BUDGET_DIVISION_PLAN#${budgetId}#DIVISION#${divisionId}#${category ? `CATEGORY#${category}#` : ''}`;
 const budgetCategoryPrefix = (budgetId, category) => `BUDGET_DIVISION_PLAN#${budgetId}#CATEGORY#${category}#`;
 const legacyPlanSk = (item) => `${planPrefix(item.budgetId, item.divisionId, item.category)}ITEM#${item.id}`;
@@ -81,6 +83,24 @@ export async function createDivisionPlanningItem({ businessId, item }) {
     { Put: { TableName: tableName, Item: identityItem(businessId, item), ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
   ] }));
   return item;
+}
+
+export async function createCatalogLinkedPlanningItem({ businessId, category, catalogItem, item }) {
+  const catalogRecord = category === 'materials'
+    ? {
+        PK: businessPk(businessId), SK: materialSk(catalogItem.id), entityType: 'MATERIAL_CATALOG_ITEM',
+        businessId, materialId: catalogItem.id, ...catalogItem,
+      }
+    : {
+        PK: businessPk(businessId), SK: subcontractorSk(catalogItem.id), entityType: 'SUBCONTRACTOR_CATALOG_ITEM',
+        businessId, subcontractorId: catalogItem.id, ...catalogItem,
+      };
+  await ddb.send(new TransactWriteCommand({ TransactItems: [
+    { Put: { TableName: tableName, Item: catalogRecord, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+    { Put: { TableName: tableName, Item: storedItem(businessId, item), ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+    { Put: { TableName: tableName, Item: identityItem(businessId, item), ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+  ] }));
+  return { catalogItem, item };
 }
 
 export async function saveEquipmentPlanningItemWithAsset({ businessId, equipmentAsset, createEquipmentAsset, previous, item }) {

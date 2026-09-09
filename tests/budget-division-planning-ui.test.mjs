@@ -8,6 +8,9 @@ const analysis = readFileSync('src/components/budget/BudgetPricingAnalysis.tsx',
 const importer = readFileSync('src/components/budget/BudgetPlanImportDialog.tsx', 'utf8');
 const budgetPage = readFileSync('src/pages/budget/BudgetPage.tsx', 'utf8');
 const store = readFileSync('src/store/index.ts', 'utf8');
+const subcontractorCatalog = readFileSync('src/pages/data-center/SubcontractorsCatalogSection.tsx', 'utf8');
+const subcontractorFields = readFileSync('src/components/catalog/SubcontractorFormFields.tsx', 'utf8');
+const subcontractorFormModel = readFileSync('src/components/catalog/subcontractorFormModel.ts', 'utf8');
 
 test('all four Division planning tabs provide intentional Add and Import empty states', () => {
   assert.match(workspace, /category=\{activeTab\}/);
@@ -176,4 +179,41 @@ test('subcontractor planning uses assumptions to calculate Annual Cost without a
   assert.match(planner, /calculateAnnualSubcontractorCost\(item\)/);
   assert.match(planner, /subcontractorPlannedQuantity\(item\).*item\.unit.*subcontractorCostPerUnit\(item\)/s);
   assert.match(planner, /normalizeSubcontractorPlanAssumptions\(nextDraft\)/);
+});
+
+test('Catalog and Budget use one canonical Subcontractor form model', () => {
+  assert.match(subcontractorCatalog, /SubcontractorFormFields/);
+  assert.match(planner, /SubcontractorFormFields/);
+  assert.match(subcontractorCatalog, /validateSubcontractorForm/);
+  assert.match(planner, /validateSubcontractorForm/);
+  for (const label of ['Company Name', 'Trade / Service', 'Contact Name', 'Email', 'Phone', 'Unit', 'Default Cost', 'Notes']) {
+    assert.match(subcontractorFields, new RegExp(`label="${label.replace('/', '\\/')}"`));
+  }
+  assert.match(subcontractorFormModel, /normalizeSubcontractorForm/);
+});
+
+test('Material and Subcontractor Budget creation atomically creates or reuses Catalog identity', () => {
+  assert.match(planner, /saveBudgetCatalogPlanningItem/);
+  assert.match(store, /createCatalogItem/);
+  assert.match(planner, /createCatalogItem = category === 'materials' \? !nextDraft\.materialCatalogItemId : !nextDraft\.subcontractorCatalogItemId/);
+  assert.match(planner, /Create new material/);
+  assert.match(planner, /Create new subcontractor/);
+  assert.match(planner, /materialCatalogItemId: event\.target\.value \|\| undefined/);
+  assert.match(planner, /subcontractorCatalogItemId: subcontractor\?\.id/);
+  assert.match(store, /materialCatalogItems: payload\.materialCatalogItem/);
+  assert.match(store, /subcontractorCatalogItems: payload\.subcontractorCatalogItem/);
+});
+
+test('Material and Subcontractor removal deletes only the Budget planning item', () => {
+  const removeBranch = planner.slice(planner.indexOf('const removeItem'), planner.indexOf('const updateOverheadAllocation'));
+  assert.match(removeBranch, /item\.category !== 'equipment'/);
+  assert.match(removeBranch, /deleteBudgetDivisionPlanningItem\(item\)/);
+  assert.doesNotMatch(removeBranch, /deleteMaterialCatalogItem|deleteSubcontractorCatalogItem/);
+});
+
+test('Budget-specific fields are excluded from canonical Catalog payloads', () => {
+  const catalogSave = planner.slice(planner.indexOf('saveBudgetCatalogPlanningItem'), planner.indexOf("if (category === 'subcontractors') nextDraft"));
+  assert.match(catalogSave, /defaultUnitCost/);
+  assert.doesNotMatch(catalogSave, /catalogItem:[\s\S]*plannedQuantity/);
+  assert.doesNotMatch(subcontractorFormModel, /plannedQuantity|plannedAmount|overheadRecovery|recommendedSellPrice|customRate/);
 });
