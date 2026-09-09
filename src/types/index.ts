@@ -57,6 +57,7 @@ export interface LineItem {
 
 export interface EstimateLineItem {
   id: ID;
+  sortOrder?: number;
   sourceTemplateLineItemId?: ID;
   category: LineItemCategory;
   labourClassId?: ID;
@@ -100,6 +101,8 @@ export interface EstimateLineItem {
   quantity: number;
   unit: string;
   unitCost: number;
+  sourceUnitCostAtEstimate?: number;
+  estimateUnitCostOverride?: number | null;
   markupPercent: number;
   sellPrice: number;
   total: number;

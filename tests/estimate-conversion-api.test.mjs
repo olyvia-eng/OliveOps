@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createEstimatesHandler } from '../api/estimates.js';
+import { buildJobWorkAreasFromEstimate, createEstimatesHandler } from '../api/estimates.js';
 
 function createMockRes() {
   return {
@@ -96,6 +96,20 @@ test('convert-to-job requires accepted estimate', async () => {
   assert.equal(res.statusCode, 409);
   assert.equal(res.body.ok, false);
   assert.equal(res.body.error, 'Only accepted estimates can be converted.');
+});
+
+test('Job conversion preserves Estimate line order and overridden cost snapshot', () => {
+  const estimate = baseEstimate();
+  estimate.workAreas[0].lineItems = [
+    { ...estimate.workAreas[0].lineItems[0], id: 'material-b', category: 'material', sortOrder: 0, unitCost: 60, sourceUnitCostAtEstimate: 40, estimateUnitCostOverride: 60, recoveredCostPerUnit: 75, sellPrice: 100, total: 800 },
+    { ...estimate.workAreas[0].lineItems[0], id: 'material-a', category: 'material', sortOrder: 1, unitCost: 40, sourceUnitCostAtEstimate: 40, estimateUnitCostOverride: null, recoveredCostPerUnit: 55, sellPrice: 73.33, total: 586.64 },
+  ];
+  const [workArea] = buildJobWorkAreasFromEstimate(estimate);
+  assert.deepEqual(workArea.lineItems.map((item) => item.sourceEstimateLineItemId), ['material-b', 'material-a']);
+  assert.equal(workArea.lineItems[0].sortOrder, 0);
+  assert.equal(workArea.lineItems[0].unitCost, 60);
+  assert.equal(workArea.lineItems[0].sourceUnitCostAtEstimate, 40);
+  assert.equal(workArea.lineItems[0].estimateUnitCostOverride, 60);
 });
 
 test('convert-to-job returns job and estimate patch on success', async () => {

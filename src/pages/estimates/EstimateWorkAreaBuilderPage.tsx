@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ArrowLeft, GripVertical, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, TextArea } from '../../components/ui';
 import EstimateLinePricingEditor from '../../components/estimates/EstimateLinePricingEditor';
 import { useStore } from '../../store';
@@ -8,6 +8,7 @@ import { emitAppToast } from '../../toast';
 import { formatCurrency, statusColor } from '../../utils';
 import {
   applyEstimatePricingToLineItem,
+  applyEstimateLineItemCostOverride,
   calculateEstimateLineItem,
   computeWorkAreaCategorySellTotals,
   computeWorkAreaEstimatedCost,
@@ -16,9 +17,10 @@ import {
   flattenWorkAreaLineItems,
   getEstimateLinePricingEconomics,
   normalizeEstimateWorkAreas,
+  reorderEstimateLineItemsWithinCategory,
 } from '../../utils/estimateModel';
 import { formatTargetMarginPercent } from '../budget/budgetAnalysisSummaryModel.js';
-import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
+import { formatNumericDisplayValue, normalizeNumericInput, parseNumericInputValue } from '../../utils/numberInput';
 import type { Estimate, EstimateLineItem, EstimatePricingCatalog, EstimatePricingCatalogItem, LineItemCategory } from '../../types';
 import {
   WORK_AREA_CATEGORY_ADD_LABEL as CATEGORY_ADD_LABEL,
@@ -108,6 +110,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [expandedLineItemIds, setExpandedLineItemIds] = useState<Set<string>>(() => new Set());
   const [customItemOpen, setCustomItemOpen] = useState(false);
   const [pricingLineItemId, setPricingLineItemId] = useState<string | null>(null);
+  const [draggedLineItem, setDraggedLineItem] = useState<{ id: string; category: LineItemCategory } | null>(null);
+  const [costErrors, setCostErrors] = useState<Record<string, string>>({});
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
   const [customItem, setCustomItem] = useState({
     category: 'labour' as LineItemCategory,
@@ -221,7 +225,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
   const groupedLineItems = useMemo(() => {
     return CATEGORY_ORDER.reduce<Record<LineItemCategory, EstimateLineItem[]>>((accumulator, category) => {
-      accumulator[category] = (form?.lineItems ?? []).filter((item) => item.category === category);
+      accumulator[category] = (form?.lineItems ?? [])
+        .filter((item) => item.category === category)
+        .slice()
+        .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
       return accumulator;
     }, {
       labour: [],
@@ -284,6 +291,47 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     } : current);
   };
 
+  const reorderLineItem = (category: LineItemCategory, lineItemId: string, destinationId: string) => {
+    setForm((current) => {
+      if (!current || lineItemId === destinationId) return current;
+      const categoryIds = current.lineItems
+        .filter((item) => item.category === category)
+        .slice()
+        .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+        .map((item) => item.id);
+      const sourceIndex = categoryIds.indexOf(lineItemId);
+      const destinationIndex = categoryIds.indexOf(destinationId);
+      if (sourceIndex < 0 || destinationIndex < 0) return current;
+      categoryIds.splice(destinationIndex, 0, categoryIds.splice(sourceIndex, 1)[0]);
+      const result = reorderEstimateLineItemsWithinCategory(current.lineItems, category, categoryIds);
+      return result.ok ? { ...current, lineItems: result.lineItems } : current;
+    });
+  };
+
+  const moveLineItem = (category: LineItemCategory, lineItemId: string, direction: -1 | 1) => {
+    const items = groupedLineItems[category];
+    const currentIndex = items.findIndex((item) => item.id === lineItemId);
+    const destination = items[currentIndex + direction];
+    if (currentIndex < 0 || !destination) return;
+    reorderLineItem(category, lineItemId, destination.id);
+  };
+
+  const setCostOverride = (lineItem: EstimateLineItem, rawValue: string) => {
+    const normalized = normalizeNumericInput(rawValue);
+    const value = normalized ? Number(normalized) : Number.NaN;
+    const result = applyEstimateLineItemCostOverride(lineItem, value);
+    if (!result.ok) {
+      setCostErrors((current) => ({ ...current, [lineItem.id]: result.error ?? 'Enter a valid cost.' }));
+      return;
+    }
+    setCostErrors((current) => {
+      const next = { ...current };
+      delete next[lineItem.id];
+      return next;
+    });
+    replaceLineItem(result.lineItem);
+  };
+
   const deleteLineItem = (lineItemId: string) => {
     setForm((current) => {
       if (!current) return current;
@@ -306,7 +354,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     });
 
     setAddingCandidateKey(candidate.key);
-    setForm((current) => current ? { ...current, lineItems: [...current.lineItems, nextItem] } : current);
+    setForm((current) => current ? { ...current, lineItems: [...current.lineItems, {
+      ...nextItem,
+      sortOrder: current.lineItems.filter((item) => item.category === candidate.category).length,
+    }] } : current);
     if (pricingItem.pricingReadiness === 'needs_review') setPricingLineItemId(nextItem.id);
 
     window.setTimeout(() => setAddingCandidateKey(null), 250);
@@ -347,7 +398,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
     setForm((current) => current ? {
       ...current,
-      lineItems: [...current.lineItems, nextItem],
+      lineItems: [...current.lineItems, {
+        ...nextItem,
+        sortOrder: current.lineItems.filter((item) => item.category === customItem.category).length,
+      }],
     } : current);
     setCustomItemOpen(false);
   };
@@ -549,8 +603,8 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
           <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-lg border border-brand-100 dark:border-brand-600">
-            <div className="hidden min-w-[1120px] grid-cols-[minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid">
-              <span>Item</span><span>Quantity</span><span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
+            <div className="hidden min-w-[1160px] grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid">
+              <span aria-hidden="true" /><span>Item</span><span>Quantity</span><span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
             </div>
             {items.map((lineItem) => {
               const isBudgetPriced = Boolean(lineItem.sourceBudgetItemId || lineItem.sourceRateId || lineItem.equipmentId || lineItem.materialCatalogItemId);
@@ -561,7 +615,37 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               const unitPrice = (value: number | null) => value === null ? 'Not available' : `${formatCurrency(value)}/${lineItem.unit}`;
               return (
               <div key={lineItem.id} className="border-b border-brand-100 bg-brand-50/40 last:border-b-0 dark:border-brand-600 dark:bg-brand-900/20">
-                <div className="grid min-w-[1120px] grid-cols-[minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] items-center gap-3 px-3 py-3 text-sm">
+                <div
+                  className="grid min-w-[1160px] grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px] items-center gap-3 px-3 py-3 text-sm"
+                  onDragOver={(event) => { if (draggedLineItem?.category === category) event.preventDefault(); }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (draggedLineItem?.category === category) reorderLineItem(category, draggedLineItem.id, lineItem.id);
+                    setDraggedLineItem(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    draggable={!isReadOnly}
+                    disabled={isReadOnly}
+                    title="Drag to reorder"
+                    aria-label={`Reorder ${lineItem.itemName || lineItem.description || 'item'}`}
+                    onDragStart={(event) => {
+                      setDraggedLineItem({ id: lineItem.id, category });
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', lineItem.id);
+                    }}
+                    onDragEnd={() => setDraggedLineItem(null)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        moveLineItem(category, lineItem.id, event.key === 'ArrowUp' ? -1 : 1);
+                      }
+                    }}
+                    className="cursor-grab rounded-md p-1.5 text-gray-400 hover:bg-white hover:text-brand-700 focus:outline-none focus:ring-2 focus:ring-accent-500/40 active:cursor-grabbing disabled:cursor-default dark:hover:bg-brand-700"
+                  >
+                    <GripVertical size={16} />
+                  </button>
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
                     <p className="mt-0.5 truncate text-xs capitalize text-gray-500 dark:text-brand-300">{CATEGORY_LABEL[lineItem.category]}</p>
@@ -580,7 +664,25 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     />
                     {usesHours || isBudgetPriced ? <span>{lineItem.unit}</span> : <input disabled={isReadOnly} aria-label={`Unit for ${lineItem.itemName || lineItem.description || 'item'}`} value={lineItem.unit} onChange={(event) => setLineItem(lineItem.id, 'unit', event.target.value)} className="h-9 w-16 rounded-md border border-brand-100 bg-white px-2 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" />}
                   </label>
-                  <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.cost)}</p>
+                  {category === 'labour' ? <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.cost)}</p> : <div>
+                    <label className="flex items-center justify-end gap-1 text-xs text-gray-500 dark:text-brand-300">
+                      <span className="sr-only">Cost for {lineItem.itemName || lineItem.description || 'item'}</span>
+                      <span>$</span>
+                      <input
+                        aria-label={`Cost for ${lineItem.itemName || lineItem.description || 'item'}`}
+                        aria-invalid={Boolean(costErrors[lineItem.id])}
+                        type="text"
+                        inputMode="decimal"
+                        value={formatNumericDisplayValue(lineItem.unitCost)}
+                        disabled={isReadOnly}
+                        onChange={(event) => setCostOverride(lineItem, event.target.value)}
+                        onFocus={(event) => event.currentTarget.select()}
+                        className="h-9 w-20 rounded-md border border-brand-100 bg-white px-2 text-right text-sm font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"
+                      />
+                      <span>/{lineItem.unit}</span>
+                    </label>
+                    {costErrors[lineItem.id] ? <p className="mt-1 text-right text-xs text-accent-700" role="alert">{costErrors[lineItem.id]}</p> : null}
+                  </div>}
                   <p className="text-right font-medium tabular-nums text-gray-700 dark:text-brand-100">{unitPrice(economics.breakeven)}</p>
                   <p className="text-right font-medium tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(economics.totalCost)}</p>
                   <button type="button" disabled={isReadOnly} onClick={() => setPricingLineItemId(lineItem.id)} className="h-9 rounded-md border border-brand-100 bg-white px-2 text-right font-semibold tabular-nums text-brand-900 hover:border-brand-300 focus:outline-none focus:ring-2 focus:ring-accent-500/40 disabled:cursor-default dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50">{economics.profitPercent === null ? 'Set profit' : formatTargetMarginPercent(economics.profitPercent)}</button>
@@ -597,7 +699,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     </button> : null}
                   </div>
                 </div>
-                {isExpanded ? <div className="grid gap-3 border-t border-brand-100 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_12rem] dark:border-brand-600">
+                {isExpanded ? <div className="grid gap-3 border-t border-brand-100 px-3 py-3 sm:grid-cols-[32px_minmax(0,1fr)_12rem] dark:border-brand-600"><span aria-hidden="true" />
                   <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Description / Notes<textarea disabled={isReadOnly} rows={2} value={lineItem.description} onChange={(event) => setLineItem(lineItem.id, 'description', event.target.value)} className="mt-1 w-full rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>
                   {!isBudgetPriced ? <label className="block text-xs font-medium text-gray-600 dark:text-brand-200">Estimated Cost / {lineItem.unit}<input disabled={isReadOnly} type="text" inputMode="decimal" value={formatNumericDisplayValue(lineItem.unitCost)} onChange={(event) => setLineItem(lineItem.id, 'unitCost', parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-1 h-10 w-full rounded-lg border border-brand-100 bg-white px-3 text-right text-sm font-normal text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label> : <div className="space-y-1 text-xs text-gray-600 dark:text-brand-200">
                     {economics.calculatedPrice !== null ? <p>Calculated Price <span className="float-right font-semibold tabular-nums">{unitPrice(economics.calculatedPrice)}</span></p> : null}

@@ -49,7 +49,7 @@ test('Work Area resources expose snapshot economics with editable quantity and a
   assert.match(builderSource, /Price is below breakeven\./);
   assert.doesNotMatch(builderSource, /· \{estimateDivision\.name\}/);
   assert.match(builderSource, /title=\{isExpanded \? 'Collapse item details' : 'Edit description and notes'\}/);
-  assert.match(builderSource, /isExpanded \? <div[^>]*>\s*<label[^>]*>Description \/ Notes/);
+  assert.match(builderSource, /isExpanded \? <div[^>]*><span aria-hidden="true" \/>\s*<label[^>]*>Description \/ Notes/);
   assert.doesNotMatch(builderSource, /Budget pricing snapshot/);
   assert.doesNotMatch(builderSource, /Markup %/);
   assert.doesNotMatch(builderSource, />Unit Cost</);
@@ -144,4 +144,23 @@ test('Material drawer uses compact rows without changing pricing behavior', () =
   assert.match(builderSource, /pricingReadiness === 'needs_review'/);
   assert.match(builderSource, /placeholder=\{`Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}\.\.\.`\}/);
   assert.doesNotMatch(builderSource, /candidate\.category === 'material'[\s\S]{0,2500}CATEGORY_LABEL\[candidate\.category\]/);
+});
+
+test('Work Area rows use category-locked drag handles with keyboard fallback', () => {
+  assert.match(builderSource, /GripVertical/);
+  assert.match(builderSource, /draggable=\{!isReadOnly\}/);
+  assert.match(builderSource, /draggedLineItem\?\.category === category/);
+  assert.match(builderSource, /reorderEstimateLineItemsWithinCategory\(current\.lineItems, category, categoryIds\)/);
+  assert.match(builderSource, /event\.key === 'ArrowUp' \|\| event\.key === 'ArrowDown'/);
+  assert.match(builderSource, /title="Drag to reorder"/);
+  assert.match(builderSource, /sortOrder: current\.lineItems\.filter\(\(item\) => item\.category === candidate\.category\)\.length/);
+});
+
+test('Equipment, Material, and Subcontractor costs are editable while Labour remains read-only', () => {
+  assert.match(builderSource, /category === 'labour' \? <p[^>]*>\{unitPrice\(economics\.cost\)\}<\/p> : <div>/);
+  assert.match(builderSource, /aria-label=\{`Cost for \$\{lineItem\.itemName/);
+  assert.match(builderSource, /setCostOverride\(lineItem, event\.target\.value\)/);
+  assert.match(builderSource, /applyEstimateLineItemCostOverride\(lineItem, value\)/);
+  assert.match(builderSource, /normalizeNumericInput\(rawValue\)/);
+  assert.match(builderSource, /costErrors\[lineItem\.id\][^]*role="alert"/);
 });

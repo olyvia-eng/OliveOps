@@ -128,6 +128,29 @@ test('adding and deleting embedded work areas preserves distinct authoritative I
   assert.equal(afterDelete.workAreas.find((area) => area.id === 'general-id'), undefined);
 });
 
+test('line item category order and estimate-only cost overrides survive DynamoDB reload', async (t) => {
+  installDdbMock(t);
+  const categories = ['labour', 'equipment', 'material', 'subcontractor'];
+  const lineItems = categories.flatMap((category) => [
+    { id: `${category}-b`, category, sortOrder: 0, itemName: `${category} B`, description: '', quantity: 1, unit: 'unit', unitCost: 60, sourceUnitCostAtEstimate: 40, estimateUnitCostOverride: category === 'labour' ? null : 60, recoveredCostPerUnit: 75, sellPrice: 100, total: 100, markupPercent: 0 },
+    { id: `${category}-a`, category, sortOrder: 1, itemName: `${category} A`, description: '', quantity: 1, unit: 'unit', unitCost: 40, sourceUnitCostAtEstimate: 40, estimateUnitCostOverride: null, recoveredCostPerUnit: 55, sellPrice: 73.33, total: 73.33, markupPercent: 0 },
+  ]);
+  const estimate = estimateRecord([{ id: 'area-1', name: 'Area', description: '', sortOrder: 0, lineItems }]);
+  await createEstimateForBusiness({ businessId: 'business-a', estimate });
+  const reloaded = await getEstimateForBusiness('business-a', estimate.id);
+
+  for (const category of categories) {
+    assert.deepEqual(reloaded.workAreas[0].lineItems.filter((item) => item.category === category).map((item) => item.id), [`${category}-b`, `${category}-a`]);
+  }
+  for (const category of ['equipment', 'material', 'subcontractor']) {
+    const overridden = reloaded.workAreas[0].lineItems.find((item) => item.id === `${category}-b`);
+    assert.equal(overridden.unitCost, 60);
+    assert.equal(overridden.sourceUnitCostAtEstimate, 40);
+    assert.equal(overridden.estimateUnitCostOverride, 60);
+    assert.equal(overridden.recoveredCostPerUnit, 75);
+  }
+});
+
 test('Estimate Division is inherited and forged or conflicting Work Area Divisions are rejected', () => {
   const existing = { divisionId: 'landscaping', workAreas: [{ id: 'area-1', divisionId: 'landscaping' }] };
   const inherited = enforceEstimateWorkAreaDivisionModel(existing, {

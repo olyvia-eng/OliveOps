@@ -1,8 +1,12 @@
 import type { BudgetRate, EquipmentAsset, Estimate, EstimateLineItem, EstimatePricingCatalogItem, EstimateTemplate, EstimateWorkArea, LineItem, LineItemCategory } from '../types';
 import { generateId } from './index';
 import { createDefaultEstimateWorkAreaModel, legacyEstimateWorkAreaIdModel } from './estimateWorkAreaIdentity.js';
-import { calculateEstimateSnapshotPricing } from './estimatePricingModel.js';
-export { calculateEstimateSnapshotPricing };
+import {
+  applyEstimateLineItemCostOverride,
+  calculateEstimateSnapshotPricing,
+  reorderEstimateLineItemsWithinCategory,
+} from './estimatePricingModel.js';
+export { applyEstimateLineItemCostOverride, calculateEstimateSnapshotPricing, reorderEstimateLineItemsWithinCategory };
 
 const DEFAULT_AREA_NAME = 'General';
 
@@ -17,7 +21,7 @@ function normalizeCategory(value: unknown): LineItemCategory {
   return 'labour';
 }
 
-function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: string; description?: string }): EstimateLineItem {
+function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: string; description?: string }, fallbackSortOrder = 0): EstimateLineItem {
   const quantity = Math.max(0, asNumber(item.quantity, 0));
   const unitCost = Math.max(0, asNumber(item.unitCost, 0));
   const markupPercent = Math.max(0, asNumber(item.markupPercent, asNumber(item.markup, 0)));
@@ -27,6 +31,7 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
 
   return {
     id: item.id ?? generateId(),
+    sortOrder: Math.max(0, asNumber(item.sortOrder, fallbackSortOrder)),
     category: normalizeCategory(item.category),
     labourClassId: item.labourClassId,
     labourClassName: item.labourClassName,
@@ -69,6 +74,12 @@ function normalizeEstimateLineItem(item: Partial<EstimateLineItem> & { id?: stri
     quantity,
     unit: typeof item.unit === 'string' && item.unit.trim() ? item.unit : 'unit',
     unitCost,
+    sourceUnitCostAtEstimate: item.sourceUnitCostAtEstimate === undefined
+      ? undefined
+      : Math.max(0, asNumber(item.sourceUnitCostAtEstimate, unitCost)),
+    estimateUnitCostOverride: item.estimateUnitCostOverride == null
+      ? item.estimateUnitCostOverride
+      : Math.max(0, asNumber(item.estimateUnitCostOverride, unitCost)),
     markupPercent,
     sellPrice,
     total,
@@ -175,6 +186,8 @@ export function applyEstimatePricingToLineItem(lineItem: EstimateLineItem, budge
     description: pricing.description,
     unit: pricing.unit,
     unitCost,
+    sourceUnitCostAtEstimate: unitCost,
+    estimateUnitCostOverride: null,
     sellPrice,
     markupPercent: 0,
     markup: 0,
@@ -249,7 +262,15 @@ export function normalizeEstimateWorkAreas(estimate: Pick<Estimate, 'id' | 'work
       description: typeof area.description === 'string' ? area.description : '',
       sortOrder: asNumber(area.sortOrder, index),
       lineItems: Array.isArray(area.lineItems)
-        ? area.lineItems.map((item) => normalizeEstimateLineItem(item))
+        ? (() => {
+            const categoryIndexes: Record<LineItemCategory, number> = { labour: 0, equipment: 0, material: 0, subcontractor: 0 };
+            return area.lineItems.map((item) => {
+              const category = normalizeCategory(item.category);
+              const normalized = normalizeEstimateLineItem(item, categoryIndexes[category]);
+              categoryIndexes[category] += 1;
+              return normalized;
+            });
+          })()
         : [],
     }));
   }

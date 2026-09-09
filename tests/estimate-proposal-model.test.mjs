@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildEstimateProposalProjection } from '../src/utils/estimateProposalModel.js';
+import { applyEstimateLineItemCostOverride } from '../src/utils/estimatePricingModel.js';
 
 const estimate = {
   id: 'estimate-a', proposalNumber: 'PROP-2026-0042', title: 'Patio & Grading', description: 'A customer introduction.',
@@ -71,6 +72,25 @@ test('legacy Work Areas without customer scope use a fixed fallback without muta
   assert.equal(projection.proposal.total, 3842);
   assert.deepEqual(legacyEstimate, before);
   assert.doesNotMatch(JSON.stringify(projection), /John Smith|Mike White|Bobcat e50|HPB Aggregate|Trade Partner Inc\./i);
+});
+
+test('proposal totals use the effective estimate cost override pricing snapshot', () => {
+  const overridden = applyEstimateLineItemCostOverride({
+    ...estimate.workAreas[0].lineItems[2],
+    id: 'material-override',
+    recoveredCostPerUnit: 1100,
+    targetMarginPct: 20,
+    estimateTargetMarginPct: 20,
+    estimateCustomSellPrice: null,
+  }, 1200);
+  assert.equal(overridden.ok, true);
+  const overriddenEstimate = structuredClone(estimate);
+  overriddenEstimate.workAreas[0].lineItems = [overridden.lineItem];
+  const projection = buildEstimateProposalProjection({ estimate: overriddenEstimate, customer, business });
+  assert.equal(overridden.lineItem.sellPrice, 1625);
+  assert.equal(projection.proposal.subtotal, 1625);
+  assert.equal(projection.proposal.taxAmount, 211.25);
+  assert.equal(projection.proposal.total, 1836.25);
 });
 
 test('proposal projection omits optional content and rejects external logos cleanly', () => {
