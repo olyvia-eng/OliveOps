@@ -14,17 +14,11 @@ import EmployeeCreateModal from '../../components/employees/EmployeeCreateModal'
 const EMPLOYEES_VIEW_MODE_STORAGE_KEY = 'oliveops.employees.viewMode';
 
 type CompensationType = 'hourly' | 'salary';
-type LabourType = 'field_producing' | 'overhead';
 
 const roleLabel: Record<EmployeeRole, string> = {
   admin: 'admin',
   foreman: 'foreman',
   crew_member: 'crew member',
-};
-
-const labourTypeLabel: Record<LabourType, string> = {
-  field_producing: 'field producing',
-  overhead: 'overhead',
 };
 
 const roleColor: Record<EmployeeRole, string> = {
@@ -102,7 +96,6 @@ export default function EmployeesPage() {
         </div>
         <div className="text-sm text-gray-600 space-y-1">
           <p>{formatCurrency(emp.hourlyRate)}{compensationType === 'salary' ? '/yr' : '/hr'}</p>
-          <p className="text-xs text-gray-500 capitalize">{labourTypeLabel[emp.labourType ?? 'field_producing']}</p>
           <p className="text-xs text-gray-400">Today: {todayHours.toFixed(2)} hrs</p>
         </div>
 
@@ -146,9 +139,6 @@ export default function EmployeesPage() {
         </td>
         <td className="px-4 py-3 text-right text-gray-700">
           {formatCurrency(emp.hourlyRate)}{compensationType === 'salary' ? '/yr' : '/hr'}
-        </td>
-        <td className="px-4 py-3 text-gray-600 capitalize">
-          {labourTypeLabel[emp.labourType ?? 'field_producing']}
         </td>
         <td className="px-4 py-3 text-right text-gray-600">
           {todayHours.toFixed(2)} hrs
@@ -302,7 +292,6 @@ export default function EmployeesPage() {
                   <th className="px-4 py-3 font-medium">Employee</th>
                   <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium text-right">Pay</th>
-                  <th className="px-4 py-3 font-medium">Labour</th>
                   <th className="px-4 py-3 font-medium text-right">Today</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                 </tr>

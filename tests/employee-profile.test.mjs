@@ -43,6 +43,16 @@ test('employees directory links cards and rows to a deep-linkable profile', () =
   assert.match(directorySource, /title="Employees"/);
 });
 
+test('employees directory omits permanent Labour classification from table and cards', () => {
+  const tableHeader = directorySource.slice(directorySource.indexOf('<thead>'), directorySource.indexOf('</thead>'));
+  assert.deepEqual(
+    [...tableHeader.matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map((match) => match[1]),
+    ['Employee', 'Type', 'Pay', 'Today', 'Status'],
+  );
+  assert.doesNotMatch(directorySource, /labourTypeLabel/);
+  assert.doesNotMatch(directorySource, /emp\.labourType/);
+});
+
 test('profile exposes the requested architecture and honest unsupported states', () => {
   for (const label of ['Overview', 'Scorecard', 'Time & Attendance', 'Time Off', 'Training', 'Documents']) {
     assert.match(profileSource, new RegExp(`label: '${label.replace('&', '\\&')}'`));
