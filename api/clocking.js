@@ -40,6 +40,7 @@ import {
   createClockOutOccurrenceId,
   createPendingClockOutWorkflow,
   getPendingClockOutWorkflowForEmployee,
+  reconcilePendingClockOutWorkflow,
   resolveAfterClockOutForms,
 } from './_lib/mandatoryClockOut.js';
 import {
@@ -71,6 +72,13 @@ const VALID_WORK_TYPES = new Set(['job', 'drive_time', 'non_billable']);
 function nowIso() {
   return new Date().toISOString();
 }
+
+const getCanonicalPendingClockOut = (businessId, employeeId) => reconcilePendingClockOutWorkflow({
+  businessId,
+  employeeId,
+  getTimeEntryForBusiness,
+  listFormSubmissionsForBusiness,
+});
 
 function labourCostSnapshot(employee, clockIn, clockOut, breakMinutes = 0) {
   if (!employee) return {};
@@ -286,7 +294,7 @@ export default async function handler(req, res) {
     if (!validation.ok) return res.status(validation.status).json({ ok: false, error: validation.error });
     const employee = await getEmployeeForBusiness(session.businessId, employeeId);
     if (!employee?.active) return res.status(404).json({ ok: false, code: 'employee_not_found', error: 'Active employee profile not found.' });
-    const workflow = await getPendingClockOutWorkflowForEmployee(session.businessId, employeeId);
+    const workflow = await getCanonicalPendingClockOut(session.businessId, employeeId);
     if (!workflow) return res.status(200).json({ ok: true, blocked: false, status: 'no_pending_clock_out', workflow: null });
     return res.status(200).json({ ok: true, blocked: true, ...clockOutWorkflowStatus(workflow) });
   }
@@ -593,7 +601,7 @@ export default async function handler(req, res) {
         : { status: 409, code: 'offline_event_order_conflict', error: 'Clocking event time conflicts with the employee timeline.' });
     }
 
-    const pendingClockOut = await getPendingClockOutWorkflowForEmployee(session.businessId, employeeId);
+    const pendingClockOut = await getCanonicalPendingClockOut(session.businessId, employeeId);
     if (pendingClockOut) {
       return res.status(409).json({
         ok: false,

@@ -12,6 +12,7 @@ import {
   getEmployeeForBusiness,
   getTimeEntryForBusiness,
   getUnbillableTimeCategoryForBusiness,
+  listFormSubmissionsForBusiness,
   listTimeEntriesForBusiness,
 } from './authRepo.js';
 import {
@@ -23,7 +24,7 @@ import {
   buildWorkflowFinalizationItems,
   clockOutWorkflowStatus,
   getClockOutWorkflowForBusiness,
-  getPendingClockOutWorkflowForEmployee,
+  reconcilePendingClockOutWorkflow,
 } from './mandatoryClockOut.js';
 import { WORK_AREA_CLOCKING_CONTRACT_VERSION } from './jobWorkAreas.js';
 import { calculateEmployeeLabourCost } from '../../src/utils/employeeLabourCost.js';
@@ -99,7 +100,12 @@ export async function finalizePendingClockIn({ session, workflowOccurrenceId }) 
   if (workflowState.remainingRequiredFormCount > 0) {
     return { ok: false, status: 409, code: 'required_forms_outstanding', workflow: workflowState };
   }
-  const pendingClockOut = await getPendingClockOutWorkflowForEmployee(session.businessId, workflow.employeeId);
+  const pendingClockOut = await reconcilePendingClockOutWorkflow({
+    businessId: session.businessId,
+    employeeId: workflow.employeeId,
+    getTimeEntryForBusiness,
+    listFormSubmissionsForBusiness,
+  });
   if (pendingClockOut) {
     return {
       ok: false,

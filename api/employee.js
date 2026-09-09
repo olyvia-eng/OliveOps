@@ -376,13 +376,19 @@ export default async function handler(req, res) {
     const candidateClockInRequirement = candidateClockInWorkflow?.employeeId === data.employee.id
       ? findClockInWorkflowRequirement(candidateClockInWorkflow, { formId, requirementId: workflowRequirementId })
       : null;
-    let form = candidateClockInRequirement?.form ?? sourceForm;
+    const candidateClockOutWorkflow = requestedTrigger === 'after_clock_out' && workflowOccurrenceId
+      ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+      : null;
+    const candidateClockOutRequirement = candidateClockOutWorkflow?.employeeId === data.employee.id
+      ? findWorkflowRequirement(candidateClockOutWorkflow, { formId, requirementId: workflowRequirementId })
+      : null;
+    let form = candidateClockInRequirement?.form ?? candidateClockOutRequirement?.form ?? sourceForm;
     if (!form) return res.status(404).json({ ok: false, error: 'Form not found.' });
     const configuredTriggers = Array.isArray(form.trigger) ? form.trigger : [form.trigger].filter(Boolean);
     const deliveryRule = runtimeDeliveryRule(form);
     const trigger = requestedTrigger || (configuredTriggers.includes('on_demand') ? 'on_demand' : configuredTriggers[0]);
     if (!FORM_TRIGGERS.has(trigger) || !configuredTriggers.includes(trigger)) return res.status(400).json({ ok: false, error: 'Form trigger is invalid.' });
-    const requiresClockOutWorkflow = trigger === 'after_clock_out' && form.completionRequirement === 'required';
+    const requiresClockOutWorkflow = trigger === 'after_clock_out' && (candidateClockOutRequirement?.form?.completionRequirement === 'required' || form.completionRequirement === 'required');
     const requiresClockInWorkflow = trigger === 'before_clock_in' && form.completionRequirement === 'required';
     const requiresMandatoryWorkflow = requiresClockOutWorkflow || requiresClockInWorkflow;
     if (requiresMandatoryWorkflow && !workflowOccurrenceId) {
@@ -394,7 +400,7 @@ export default async function handler(req, res) {
     const workflow = requiresClockInWorkflow
       ? candidateClockInWorkflow ?? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
       : requiresClockOutWorkflow
-        ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
+        ? candidateClockOutWorkflow ?? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
         : null;
     if (requiresMandatoryWorkflow && (!workflow || workflow.employeeId !== data.employee.id)) {
       const workflowName = requiresClockInWorkflow ? 'Clock-in' : 'Clock-out';

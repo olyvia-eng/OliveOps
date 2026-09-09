@@ -182,6 +182,25 @@ function clockOutBody(entryId, overrides = {}) {
   };
 }
 
+function seedHistoricalSubmission(store, context, workflow, requirement, overrides = {}) {
+  const submissionId = overrides.formSubmissionId ?? `historical-${context.businessId}`;
+  const businessId = overrides.businessId ?? context.businessId;
+  store.set(key(`BUSINESS#${businessId}`, `FORM_SUBMISSION#${submissionId}`), {
+    PK: `BUSINESS#${businessId}`,
+    SK: `FORM_SUBMISSION#${submissionId}`,
+    entityType: 'FORM_SUBMISSION',
+    businessId,
+    formSubmissionId: submissionId,
+    formId: requirement.formId,
+    employeeId: context.employeeId,
+    trigger: 'after_clock_out',
+    workflowOccurrenceId: workflow.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId,
+    status: 'submitted',
+    ...overrides,
+  });
+}
+
 test('after-clock-out resolution separates requirements and preserves applicable context order', () => {
   const employee = { id: 'employee-a', role: 'crew_member', active: true };
   const divisions = [{ id: 'division-a', name: 'Landscape' }];
@@ -380,7 +399,7 @@ test('canonical submission completes one requirement and finalization preserves 
   assert.equal(replayAfterFinalize.body.replayed, true);
 });
 
-test('persisted after-clock-out workflow remains completable after its job goes on hold', async (t) => {
+test('persisted after-clock-out snapshot remains completable after its live form is deleted and job goes on hold', async (t) => {
   const context = await setup(t, { forms: [{ id: 'job-required', assignedTo: 'job', assignmentValue: 'job-a' }] });
   const pk = `BUSINESS#${context.businessId}`;
   context.store.get(key(pk, `TIME#${context.entryId}`)).jobIds = ['job-a'];
@@ -392,6 +411,8 @@ test('persisted after-clock-out workflow remains completable after its job goes 
   assert.equal(initiated.statusCode, 202);
   const requirement = initiated.body.requiredForms[0];
   context.store.get(key(pk, 'JOB#job-a')).status = 'on_hold';
+  context.store.delete(key(pk, 'FORM#job-required'));
+  context.store.delete(key(pk, 'FORM_FIELD#job-required-notes'));
 
   const submitted = await formRequest(context.token, {
     formId: requirement.formId, trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
@@ -400,6 +421,55 @@ test('persisted after-clock-out workflow remains completable after its job goes 
   assert.equal(submitted.statusCode, 201);
   assert.equal(submitted.body.submission.jobId, 'job-a');
 });
+
+for (const scenario of [
+  { name: 'submitted evidence clears a stale pointer', status: 'submitted', clears: true },
+  { name: 'pending-review evidence clears a stale pointer during bootstrap', status: 'pending_review', surface: 'bootstrap', clears: true },
+  { name: 'approved evidence clears a stale pointer', status: 'approved', clears: true },
+  { name: 'missing evidence preserves a genuine pending workflow', omitSubmission: true, clears: false },
+  { name: 'rejected evidence preserves a genuine pending workflow', status: 'rejected', clears: false },
+  { name: 'a different occurrence cannot satisfy the workflow', workflowOccurrenceId: 'other-occurrence', clears: false },
+  { name: 'a different requirement cannot satisfy the workflow', workflowRequirementId: 'other-requirement', clears: false },
+  { name: 'a different employee cannot satisfy the workflow', employeeId: 'other-employee', clears: false },
+  { name: 'a different tenant cannot satisfy the workflow', businessId: 'other-business', clears: false },
+  { name: 'an open Time Entry cannot be reconciled as completed', timeEntryStatus: 'clocked_in', clears: false },
+]) {
+  test(`stale clock-out reconciliation: ${scenario.name}`, async (t) => {
+    const context = await setup(t, { forms: [{ id: 'required' }] });
+    const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+    const requirement = initiated.body.requiredForms[0];
+    if (!scenario.omitSubmission) {
+      seedHistoricalSubmission(context.store, context, initiated.body, requirement, {
+        ...(scenario.status ? { status: scenario.status } : {}),
+        ...(scenario.workflowOccurrenceId ? { workflowOccurrenceId: scenario.workflowOccurrenceId } : {}),
+        ...(scenario.workflowRequirementId ? { workflowRequirementId: scenario.workflowRequirementId } : {}),
+        ...(scenario.employeeId ? { employeeId: scenario.employeeId } : {}),
+        ...(scenario.businessId ? { businessId: scenario.businessId } : {}),
+      });
+    }
+    if (scenario.timeEntryStatus) {
+      context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${context.entryId}`)).status = scenario.timeEntryStatus;
+    }
+
+    const recovered = scenario.surface === 'bootstrap'
+      ? response()
+      : await clockingRequest(context.token, { method: 'GET', action: 'pending-clock-out' });
+    if (scenario.surface === 'bootstrap') {
+      await bootstrapHandler({ method: 'GET', query: {}, headers: { authorization: `Bearer ${context.token}` } }, recovered);
+    }
+    if (scenario.clears) {
+      if (scenario.surface === 'bootstrap') assert.equal(recovered.body.pendingClockOutWorkflow, null);
+      else {
+        assert.equal(recovered.body.status, 'no_pending_clock_out');
+        assert.equal(recovered.body.workflow, null);
+      }
+      assert.equal(context.store.has(key(`BUSINESS#${context.businessId}`, `CLOCK_OUT_PENDING#EMPLOYEE#${context.employeeId}`)), false);
+    } else {
+      assert.equal(recovered.body.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+      assert.equal(recovered.body.remainingRequiredFormCount, 1);
+    }
+  });
+}
 
 test('multiple required forms are independent while reminder forms remain advisory', async (t) => {
   const context = await setup(t, { forms: [

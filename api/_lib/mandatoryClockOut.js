@@ -277,3 +277,60 @@ export function submissionSatisfiesWorkflowRequirement(submission, workflow, req
     && submission.workflowOccurrenceId === workflow.workflowOccurrenceId
     && submission.workflowRequirementId === requirement.requirementId);
 }
+
+export async function reconcilePendingClockOutWorkflow({
+  businessId,
+  employeeId,
+  getPendingClockOutWorkflow = getPendingClockOutWorkflowForEmployee,
+  getTimeEntryForBusiness,
+  listFormSubmissionsForBusiness,
+  reconciledAt = new Date().toISOString(),
+}) {
+  const workflow = await getPendingClockOutWorkflow(businessId, employeeId);
+  if (!workflow) return null;
+
+  const timeEntry = await getTimeEntryForBusiness(businessId, workflow.timeEntryId);
+  const requirements = Array.isArray(workflow.requiredForms) ? workflow.requiredForms : [];
+  if (timeEntry?.employeeId !== employeeId || timeEntry.status !== 'clocked_out' || requirements.length === 0) return workflow;
+
+  const submissions = await listFormSubmissionsForBusiness(businessId);
+  const completedRequirementIds = requirements.flatMap((requirement) => submissions.some((submission) => (
+    submissionSatisfiesWorkflowRequirement(submission, workflow, requirement)
+  )) ? [requirement.requirementId] : []);
+  if (completedRequirementIds.length !== requirements.length) return workflow;
+
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      {
+        Update: {
+          TableName: tableName,
+          Key: { PK: businessPk(businessId), SK: clockOutWorkflowSk(workflow.workflowOccurrenceId) },
+          UpdateExpression: 'SET #status = :finalized, #finalizedAt = :reconciledAt, #updatedAt = :reconciledAt, #timeEntry = :timeEntry, #completedRequirementIds = :completedRequirementIds, #completedRequirementCount = :completedRequirementCount',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #employeeId = :employeeId AND #status = :pending',
+          ExpressionAttributeNames: {
+            '#status': 'status', '#employeeId': 'employeeId', '#finalizedAt': 'finalizedAt', '#updatedAt': 'updatedAt',
+            '#timeEntry': 'timeEntry', '#completedRequirementIds': 'completedRequirementIds', '#completedRequirementCount': 'completedRequirementCount',
+          },
+          ExpressionAttributeValues: {
+            ':pending': 'pending_required_forms', ':employeeId': employeeId,
+            ':reconciledAt': workflow.finalizedAt ?? reconciledAt, ':timeEntry': workflow.timeEntry ?? timeEntry,
+            ':completedRequirementIds': new Set(completedRequirementIds), ':completedRequirementCount': requirements.length,
+          },
+        },
+      },
+      {
+        Delete: {
+          TableName: tableName,
+          Key: { PK: businessPk(businessId), SK: pendingClockOutSk(employeeId) },
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #workflowOccurrenceId = :workflowOccurrenceId',
+          ExpressionAttributeNames: { '#workflowOccurrenceId': 'workflowOccurrenceId' },
+          ExpressionAttributeValues: { ':workflowOccurrenceId': workflow.workflowOccurrenceId },
+        },
+      },
+    ] }));
+    return null;
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    return getPendingClockOutWorkflow(businessId, employeeId);
+  }
+}

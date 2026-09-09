@@ -40,7 +40,7 @@ import {
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { getBusinessDateParts, normalizeBusinessTimeZone } from './_lib/businessTime.js';
-import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee } from './_lib/mandatoryClockOut.js';
+import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee, reconcilePendingClockOutWorkflow } from './_lib/mandatoryClockOut.js';
 import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
 import { getEligibleJobWorkAreas, WORK_AREA_CLOCKING_CONTRACT_VERSION } from './_lib/jobWorkAreas.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
@@ -111,6 +111,7 @@ export function createBootstrapHandler(overrides = {}) {
     getActiveShiftForEmployee,
     getTimeEntryForBusiness,
     getPendingClockOutWorkflowForEmployee,
+    reconcilePendingClockOutWorkflow,
     getPendingClockInWorkflowForEmployee,
     loadCoreBootstrapData,
     listServiceVisitsForSchedule,
@@ -141,7 +142,13 @@ export function createBootstrapHandler(overrides = {}) {
       ? await deps.getTimeEntryForBusiness(session.businessId, activeShift.activeEntryId)
       : null;
     const pendingClockOutWorkflow = typeof session.employeeId === 'string'
-      ? await deps.getPendingClockOutWorkflowForEmployee(session.businessId, session.employeeId)
+      ? await deps.reconcilePendingClockOutWorkflow({
+          businessId: session.businessId,
+          employeeId: session.employeeId,
+          getPendingClockOutWorkflow: deps.getPendingClockOutWorkflowForEmployee,
+          getTimeEntryForBusiness: deps.getTimeEntryForBusiness,
+          listFormSubmissionsForBusiness,
+        })
       : null;
     const pendingClockInWorkflow = typeof session.employeeId === 'string'
       ? await deps.getPendingClockInWorkflowForEmployee(session.businessId, session.employeeId)
