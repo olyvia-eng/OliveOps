@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Download, Ellipsis, Mail, Pencil, Phone, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, Download, Ellipsis, Mail, Pencil, Phone, Trash2 } from 'lucide-react';
 import type { BusinessUserRole } from '../../auth/types';
 import EmployeeEditModal from '../../components/employees/EmployeeEditModal';
 import TimeOffReviewModal from '../../components/employees/TimeOffReviewModal';
 import DetailWorkspaceTabs, { type DetailWorkspaceTab } from '../../components/detail-workspace/DetailWorkspaceTabs';
-import { Badge, Button, Card, EmptyState, Modal, Select } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Modal, Select, TextArea } from '../../components/ui';
 import { useStore } from '../../store';
 import type { TimeEntry, TimeOffRequest } from '../../types';
 import { durationHours, formatDateTime } from '../../utils';
@@ -16,6 +16,7 @@ import { formatTimeOffRange } from '../../utils/timeOff';
 import { getEmployeeRangeStart, scopeEmployeeProfileRecords } from './employeeProfileModel.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 import EmployeeTrainingSection from '../../components/employees/EmployeeTrainingSection';
+import type { PendingClockingWorkflow } from '../../utils/clockingResponse.js';
 
 interface EmployeeProfilePageProps {
   currentUserRole: BusinessUserRole;
@@ -77,6 +78,13 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
   const [timeOffError, setTimeOffError] = useState('');
   const [selectedTimeOff, setSelectedTimeOff] = useState<TimeOffRequest | null>(null);
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
+  const [pendingClockOutWorkflow, setPendingClockOutWorkflow] = useState<PendingClockingWorkflow | null>(null);
+  const [pendingClockOutLoading, setPendingClockOutLoading] = useState(false);
+  const [pendingClockOutError, setPendingClockOutError] = useState('');
+  const [resolutionOpen, setResolutionOpen] = useState(false);
+  const [resolutionReason, setResolutionReason] = useState('');
+  const [resolutionSubmitting, setResolutionSubmitting] = useState(false);
+  const [resolutionNotice, setResolutionNotice] = useState('');
 
   const employee = employees.find((item) => item.id === employeeId) ?? null;
   const requestedTab = searchParams.get('tab') as ProfileTab | null;
@@ -126,6 +134,22 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
   }, [activeTab, canManageEmployee]);
 
   useEffect(() => {
+    if (activeTab !== 'overview' || !canManageEmployee || !employeeId) return;
+    let cancelled = false;
+    setPendingClockOutLoading(true);
+    setPendingClockOutError('');
+    void fetch(`/api/clocking?action=pending-clock-out&employeeId=${encodeURIComponent(employeeId)}`, { credentials: 'include' })
+      .then(async (response) => {
+        const payload = await response.json() as PendingClockingWorkflow & { error?: string; blocked?: boolean };
+        if (!response.ok) throw new Error(payload.error ?? 'Could not check the required form block.');
+        if (!cancelled) setPendingClockOutWorkflow(payload.blocked ? payload : null);
+      })
+      .catch((error) => { if (!cancelled) setPendingClockOutError(error instanceof Error ? error.message : 'Could not check the required form block.'); })
+      .finally(() => { if (!cancelled) setPendingClockOutLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, canManageEmployee, employeeId]);
+
+  useEffect(() => {
     if (activeTab !== 'documents' || !employeeId) return;
     let cancelled = false;
     setDocumentsLoading(true);
@@ -162,6 +186,34 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
     if (payload.downloadUrl) window.open(payload.downloadUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const resolveRequiredFormBlock = async () => {
+    if (!employeeId || !pendingClockOutWorkflow || !resolutionReason.trim() || resolutionSubmitting) return;
+    setResolutionSubmitting(true);
+    setPendingClockOutError('');
+    try {
+      const response = await fetch('/api/clocking?action=resolve-required-form-block', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId,
+          workflowOccurrenceId: pendingClockOutWorkflow.workflowOccurrenceId,
+          reason: resolutionReason.trim(),
+        }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error ?? 'Could not resolve the required form block.');
+      setPendingClockOutWorkflow(null);
+      setResolutionOpen(false);
+      setResolutionReason('');
+      setResolutionNotice('Required form block resolved manually. The workflow and audit history were retained; no form submission was created.');
+    } catch (error) {
+      setPendingClockOutError(error instanceof Error ? error.message : 'Could not resolve the required form block.');
+    } finally {
+      setResolutionSubmitting(false);
+    }
+  };
+
   if (!employee) {
     return (
       <div className="space-y-6">
@@ -186,12 +238,23 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
 
       <DetailWorkspaceTabs tabs={tabs} activeTab={activeTab} onChange={selectTab} />
 
-      {activeTab === 'overview' ? <div className="grid gap-5 lg:grid-cols-2">
+      {activeTab === 'overview' ? <div className="space-y-5">
+        {pendingClockOutLoading ? <p className="text-sm text-gray-500">Checking required form status...</p> : null}
+        {pendingClockOutError ? <p className="text-sm text-red-700">{pendingClockOutError}</p> : null}
+        {pendingClockOutWorkflow ? <section className="border-l-4 border-amber-500 bg-amber-50 p-4" aria-labelledby="required-form-block-title">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 gap-3"><AlertTriangle className="mt-0.5 shrink-0 text-amber-700" size={20} aria-hidden="true" /><div><h2 id="required-form-block-title" className="font-semibold text-gray-900">Required Form Block</h2><p className="mt-1 max-w-3xl text-sm text-gray-700">This employee is clocked out, but OliveOps cannot verify the required form submission for this historical clock-out. Resolving this will unblock the employee without creating a form submission.</p><p className="mt-2 text-xs text-gray-600">Occurrence: {pendingClockOutWorkflow.workflowOccurrenceId} · {pendingClockOutWorkflow.remainingRequiredFormCount} required {pendingClockOutWorkflow.remainingRequiredFormCount === 1 ? 'form' : 'forms'} unresolved</p></div></div>
+            <Button variant="danger" onClick={() => setResolutionOpen(true)}>Resolve Required Form Block</Button>
+          </div>
+        </section> : null}
+        {resolutionNotice ? <div className="border-l-4 border-green-600 bg-green-50 p-4 text-sm text-green-900">{resolutionNotice}</div> : null}
+        <div className="grid gap-5 lg:grid-cols-2">
         <Card className="p-5"><h2 className="font-semibold text-gray-900">Employment</h2><dl className="mt-4 grid grid-cols-2 gap-4 text-sm"><div><dt className="text-gray-500">Employee ID</dt><dd className="mt-1 font-medium text-gray-900">{employee.id}</dd></div><div><dt className="text-gray-500">Role</dt><dd className="mt-1 font-medium text-gray-900">{roleLabel(employee.role)}</dd></div><div><dt className="text-gray-500">Status</dt><dd className="mt-1 font-medium text-gray-900">{employee.active ? 'Active' : 'Inactive'}</dd></div><div><dt className="text-gray-500">Labour Type</dt><dd className="mt-1 font-medium text-gray-900">{roleLabel(employee.labourType ?? 'field_producing')}</dd></div><div><dt className="text-gray-500">Crew</dt><dd className="mt-1 font-medium text-gray-900">{employeeCrews.length ? employeeCrews.map((crew) => crew.name).join(', ') : 'Not assigned'}</dd></div><div><dt className="text-gray-500">Division</dt><dd className="mt-1 font-medium text-gray-900">{employeeDivisions.length ? employeeDivisions.map((division) => division.name).join(', ') : 'Not assigned'}</dd></div></dl></Card>
         <Card className="p-5"><h2 className="font-semibold text-gray-900">Contact</h2><div className="mt-4 space-y-3 text-sm"><p className="flex items-center gap-2 text-gray-700"><Mail size={15} className="text-gray-400" /> {employee.email || 'No email recorded'}</p><p className="flex items-center gap-2 text-gray-700"><Phone size={15} className="text-gray-400" /> {employee.phone || 'No phone recorded'}</p><p className="text-gray-500">Account access: <span className="font-medium text-gray-900">{employee.userId ? 'Linked' : 'Not linked'}</span></p></div></Card>
         <Card className="p-5"><h2 className="font-semibold text-gray-900">Current Activity</h2>{activeEntry ? <button type="button" onClick={() => setSelectedTimeEntryId(activeEntry.id)} className="mt-4 w-full cursor-pointer rounded-lg border border-brand-200 bg-brand-50 p-4 text-left hover:bg-brand-100 focus:outline-none focus:ring-2 focus:ring-brand-500"><p className="font-semibold text-brand-800">Clocked In</p><p className="mt-1 text-sm text-brand-700">{entryWorkLabel(activeEntry, jobs)}</p><p className="mt-1 text-xs text-brand-600">Since {formatDateTime(activeEntry.clockIn)}</p></button> : <p className="mt-4 text-sm text-gray-500">Not currently clocked in.</p>}<div className="mt-4 border-t border-gray-100 pt-4"><p className="text-xs font-semibold uppercase text-gray-500">Recent time activity</p>{employeeEntries.slice(0, 3).map((entry) => <button type="button" key={entry.id} onClick={() => setSelectedTimeEntryId(entry.id)} className="mt-1 flex w-full cursor-pointer justify-between gap-3 rounded-md p-2 text-left text-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="block font-medium text-gray-800">{entryWorkLabel(entry, jobs)}</span><span className="block text-xs text-gray-500">{formatDateTime(entry.clockIn)}</span></span><span className="font-medium text-gray-700">{formatTimeEntryDuration(durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes))}</span></button>)}{employeeEntries.length === 0 ? <p className="mt-3 text-sm text-gray-500">No time activity yet.</p> : null}</div></Card>
         <Card className="p-5"><h2 className="font-semibold text-gray-900">Attention</h2><div className="mt-4 space-y-3"><div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 p-3"><div><p className="text-sm font-medium text-gray-800">Pending time corrections</p><p className="text-xs text-gray-500">Requests awaiting review</p></div><span className="text-lg font-semibold text-gray-900">{pendingCorrections.length}</span></div><div className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 p-3"><div><p className="text-sm font-medium text-gray-800">Submitted forms</p><p className="text-xs text-gray-500">Recorded form submissions</p></div><span className="text-lg font-semibold text-gray-900">{employeeSubmissions.length}</span></div></div></Card>
         <Card className="p-5"><h2 className="font-semibold text-gray-900">Upcoming Time Off</h2>{timeOffLoading ? <p className="mt-4 text-sm text-gray-500">Loading time off...</p> : upcomingApprovedTimeOff[0] ? <button type="button" onClick={() => { selectTab('time-off'); setSelectedTimeOff(upcomingApprovedTimeOff[0]); }} className="mt-4 w-full rounded-lg bg-brand-50 p-4 text-left"><p className="font-medium text-brand-800">{roleLabel(upcomingApprovedTimeOff[0].requestType)}</p><p className="mt-1 text-sm text-brand-700">{formatTimeOffRange(upcomingApprovedTimeOff[0])}</p></button> : <p className="mt-4 text-sm text-gray-500">No upcoming approved time off.</p>}</Card>
+        </div>
       </div> : null}
 
       {activeTab === 'scorecard' ? <div className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-semibold text-gray-900">Employee Scorecard</h2><p className="text-sm text-gray-500">Objective activity metrics from recorded OliveOps data. No composite score is calculated.</p></div><Select label="Date Range" value={dateRange} onChange={(event) => setDateRange(event.target.value as DateRange)}><option value="30-days">Last 30 Days</option><option value="90-days">Last 90 Days</option><option value="year-to-date">Year to Date</option></Select></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"><Card className="p-4"><p className="text-sm text-gray-500">Recorded Hours</p><p className="mt-1 text-2xl font-semibold text-gray-900">{totalHours.toFixed(2)}h</p></Card><Card className="p-4"><p className="text-sm text-gray-500">Average Weekly Hours</p><p className="mt-1 text-2xl font-semibold text-gray-900">{averageWeeklyHours.toFixed(2)}h</p></Card><Card className="p-4"><p className="text-sm text-gray-500">Time Corrections</p><p className="mt-1 text-2xl font-semibold text-gray-900">{rangeCorrections.length}</p></Card><Card className="p-4"><p className="text-sm text-gray-500">Forms Submitted</p><p className="mt-1 text-2xl font-semibold text-gray-900">{rangeSubmissions.length}</p></Card><EmployeeTrainingSection employeeId={employee.id} scorecard /></div><Card className="p-5"><h3 className="font-semibold text-gray-900">Deferred Metrics</h3><p className="mt-2 text-sm text-gray-600">Overtime, missed shifts, certification status, and required-form completion are not calculated because OliveOps does not yet store the schedules or domain records needed to support them reliably.</p></Card></div> : null}
@@ -205,6 +268,9 @@ export default function EmployeeProfilePage({ currentUserRole }: EmployeeProfile
       <EmployeeEditModal open={editOpen} employeeId={employee.id} onClose={() => setEditOpen(false)} />
       <TimeEntryDetailModal entry={selectedTimeEntry} employeeName={employee.name} currentUserRole={currentUserRole} onClose={() => setSelectedTimeEntryId(null)} onDeleted={() => setSelectedTimeEntryId(null)} />
       <TimeOffReviewModal request={selectedTimeOff} onClose={() => setSelectedTimeOff(null)} onUpdated={(request) => { setTimeOffRequests((current) => current.map((item) => item.id === request.id ? { ...item, ...request } : item)); setSelectedTimeOff((current) => current?.id === request.id ? { ...current, ...request } : current); }} />
+      <Modal open={resolutionOpen} onClose={() => { if (!resolutionSubmitting) setResolutionOpen(false); }} title="Resolve Required Form Block" footer={<><Button variant="secondary" onClick={() => setResolutionOpen(false)} disabled={resolutionSubmitting}>Cancel</Button><Button variant="danger" onClick={() => void resolveRequiredFormBlock()} disabled={!resolutionReason.trim() || resolutionSubmitting}>{resolutionSubmitting ? 'Resolving...' : 'Resolve Block'}</Button></>}>
+        <div className="space-y-4"><p className="text-sm text-gray-700">This employee is clocked out, but OliveOps cannot verify the required form submission for this historical clock-out. Resolving this will unblock the employee without creating a form submission.</p><div className="border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-900">This is an administrative override. The workflow will be marked as manually resolved and retained for audit history.</div><TextArea label="Admin reason" required value={resolutionReason} onChange={(event) => setResolutionReason(event.target.value)} placeholder="Describe why this historical block must be resolved" /></div>
+      </Modal>
       <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Employee" footer={<><Button variant="secondary" onClick={() => setDeleteOpen(false)}>Cancel</Button><Button variant="danger" onClick={() => { deleteEmployee(employee.id); navigate('/employees'); }}>Delete</Button></>}><p className="text-gray-600">Delete {employee.name}'s employee record?</p></Modal>
     </div>
   );

@@ -61,6 +61,19 @@ test('direct employee clock-out also keeps pending workflows visible', async () 
   assert.match(employeesPage, /required post-shift/);
 });
 
+test('owner and admin employee profile exposes explicit required-form recovery without fabricating submission', async () => {
+  const profile = await source('../src/pages/employees/EmployeeProfilePage.tsx');
+  assert.match(profile, /canManageEmployee[^]*pending-clock-out&employeeId=/);
+  assert.match(profile, /Resolve Required Form Block/);
+  assert.match(profile, /cannot verify the required form submission/);
+  assert.match(profile, /without creating a form submission/);
+  assert.match(profile, /workflowOccurrenceId: pendingClockOutWorkflow\.workflowOccurrenceId/);
+  assert.match(profile, /label="Admin reason" required/);
+  assert.match(profile, /disabled=\{!resolutionReason\.trim\(\) \|\| resolutionSubmitting\}/);
+  assert.match(profile, /action=resolve-required-form-block/);
+  assert.match(profile, /workflow and audit history were retained; no form submission was created/);
+});
+
 test('employee portal preserves Work Area intent and displays pending workflows', async () => {
   const portal = await source('../src/pages/employees/EmployeePortalPage.tsx');
   assert.match(portal, /workAreaId: clockType === 'job' \? selectedWorkAreaId/);

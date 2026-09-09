@@ -36,6 +36,7 @@ import {
 import { authorizeRecordAccess, canClockForEmployee } from './_lib/authorization.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
+  administrativelyResolvePendingClockOutWorkflow,
   clockOutWorkflowStatus,
   createClockOutOccurrenceId,
   createPendingClockOutWorkflow,
@@ -386,6 +387,22 @@ export default async function handler(req, res) {
     }
     const result = await finalizePendingClockOut({ session, workflowOccurrenceId });
     return sendMandatoryFinalizationResult(res, result, workflowOccurrenceId);
+  }
+
+  if (clockingAction === 'resolve-required-form-block') {
+    const employeeId = typeof req.body?.employeeId === 'string' ? req.body.employeeId.trim() : '';
+    const workflowOccurrenceId = typeof req.body?.workflowOccurrenceId === 'string' ? req.body.workflowOccurrenceId.trim() : '';
+    if (!employeeId || !workflowOccurrenceId) {
+      return res.status(400).json({ ok: false, code: 'clock_out_admin_resolution_target_required', error: 'Employee and workflow occurrence are required.' });
+    }
+    const result = await administrativelyResolvePendingClockOutWorkflow({
+      session,
+      employeeId,
+      workflowOccurrenceId,
+      reason: req.body?.reason,
+    });
+    if (!result.ok) return res.status(result.status).json({ ok: false, code: result.code, error: result.error });
+    return res.status(200).json({ ok: true, status: result.status, workflow: result.workflow });
   }
 
   if (clockingAction === 'reconcile-current-shift-work-areas') {

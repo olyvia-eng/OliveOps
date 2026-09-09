@@ -100,12 +100,12 @@ function installDdb(t) {
   return store;
 }
 
-async function seedEmployee(store, { businessId, employeeId, userId, token }) {
+async function seedEmployee(store, { businessId, employeeId, userId, token, role = 'crew_member' }) {
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, 'PROFILE'), { PK: pk, SK: 'PROFILE', entityType: 'BUSINESS', businessId, name: businessId, timezone: 'America/Toronto' });
-  store.set(key(pk, `USER#${userId}`), { PK: pk, SK: `USER#${userId}`, entityType: 'USER', businessId, userId, name: userId, email: `${userId}@example.com`, role: 'crew_member', active: true, sessionVersion: 0 });
-  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role: 'crew_member', active: true });
-  await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role: 'crew_member', employeeId }, accessToken: token, expiresInSeconds: 3600 });
+  store.set(key(pk, `USER#${userId}`), { PK: pk, SK: `USER#${userId}`, entityType: 'USER', businessId, userId, name: userId, email: `${userId}@example.com`, role, active: true, sessionVersion: 0 });
+  store.set(key(pk, `EMPLOYEE#${employeeId}`), { PK: pk, SK: `EMPLOYEE#${employeeId}`, entityType: 'EMPLOYEE', businessId, employeeId, id: employeeId, userId, name: employeeId, email: `${userId}@example.com`, role, active: true });
+  await createMobileSessionForUser({ user: { id: userId, businessId, name: userId, email: `${userId}@example.com`, role, employeeId }, accessToken: token, expiresInSeconds: 3600 });
 }
 
 function seedActiveShift(store, { businessId, employeeId, entryId, jobIds = [] }) {
@@ -162,13 +162,25 @@ async function formRequest(token, body) {
   return res;
 }
 
-async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', forms = [] } = {}) {
+async function setup(t, { businessId = 'biz-a', employeeId = 'employee-a', userId = 'user-a', token = 'token-a', role = 'crew_member', forms = [] } = {}) {
   const store = installDdb(t);
-  await seedEmployee(store, { businessId, employeeId, userId, token });
+  await seedEmployee(store, { businessId, employeeId, userId, token, role });
   seedActiveShift(store, { businessId, employeeId, entryId: 'entry-a' });
   for (const form of forms) seedForm(store, { businessId, ...form });
   return { store, businessId, employeeId, token, entryId: 'entry-a' };
 }
+
+async function setupCorruptPendingWorkflow(t, overrides = {}) {
+  const context = await setup(t, { role: 'admin', forms: [{ id: 'required' }], ...overrides });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  assert.equal(initiated.statusCode, 202);
+  return { ...context, workflowOccurrenceId: initiated.body.workflowOccurrenceId, requirement: initiated.body.requiredForms[0] };
+}
+
+const resolveRequiredFormBlock = (token, employeeId, workflowOccurrenceId, reason = 'Historical mobile submission was not persisted') => clockingRequest(token, {
+  action: 'resolve-required-form-block',
+  body: { employeeId, workflowOccurrenceId, reason },
+});
 
 function clockOutBody(entryId, overrides = {}) {
   return {
@@ -564,6 +576,121 @@ test('admin bootstrap returns mandatory submission after its source form is dele
   assert.equal(historical.trigger, 'after_clock_out');
   assert.equal(historical.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
   assert.equal(historical.workflowRequirementId, requirement.requirementId);
+});
+
+for (const role of ['owner', 'admin']) {
+  test(`${role} can resolve one exact corrupted pending workflow`, async (t) => {
+    const context = await setupCorruptPendingWorkflow(t, { role });
+    const resolved = await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+    assert.equal(resolved.statusCode, 200);
+    assert.equal(resolved.body.status, 'clock_out_administratively_resolved');
+    assert.equal(resolved.body.workflow.status, 'administratively_resolved');
+  });
+}
+
+test('crew member and foreman cannot administratively resolve a workflow', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  for (const role of ['crew_member', 'foreman']) {
+    const token = `token-${role}`;
+    await seedEmployee(context.store, {
+      businessId: context.businessId, employeeId: `employee-${role}`, userId: `user-${role}`, token, role,
+    });
+    const denied = await resolveRequiredFormBlock(token, context.employeeId, context.workflowOccurrenceId);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(denied.body.code, 'clock_out_admin_resolution_forbidden');
+  }
+});
+
+test('cross-tenant administrative resolution is rejected', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  await seedEmployee(context.store, { businessId: 'biz-b', employeeId: 'employee-b', userId: 'admin-b', token: 'token-b', role: 'admin' });
+  const rejected = await resolveRequiredFormBlock('token-b', context.employeeId, context.workflowOccurrenceId);
+  assert.equal(rejected.statusCode, 404);
+  assert.equal(rejected.body.code, 'clock_out_workflow_not_found');
+});
+
+test('wrong workflow occurrence is rejected', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  const rejected = await resolveRequiredFormBlock(context.token, context.employeeId, 'wrong-occurrence');
+  assert.equal(rejected.statusCode, 404);
+  assert.equal(rejected.body.code, 'clock_out_workflow_not_found');
+});
+
+test('already administratively resolved workflow is idempotent', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  assert.equal((await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId)).statusCode, 200);
+  const duplicate = await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId, 'Duplicate request');
+  assert.equal(duplicate.statusCode, 200);
+  assert.equal(duplicate.body.status, 'clock_out_already_administratively_resolved');
+  assert.equal([...context.store.values()].filter((item) => item.action === 'mandatory_clock_out_administratively_resolved').length, 1);
+});
+
+test('administrative resolution cannot clear a different pending pointer', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  const pointerKey = key(`BUSINESS#${context.businessId}`, `CLOCK_OUT_PENDING#EMPLOYEE#${context.employeeId}`);
+  context.store.get(pointerKey).workflowOccurrenceId = 'different-occurrence';
+  const rejected = await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(context.store.get(pointerKey).workflowOccurrenceId, 'different-occurrence');
+  assert.equal(context.store.get(key(`BUSINESS#${context.businessId}`, `CLOCK_OUT_WORKFLOW#${context.workflowOccurrenceId}`)).status, 'pending_required_forms');
+});
+
+test('open associated Time Entry prevents unsafe administrative resolution', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  context.store.get(key(`BUSINESS#${context.businessId}`, `TIME#${context.entryId}`)).status = 'clocked_in';
+  const rejected = await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(rejected.body.code, 'clock_out_admin_resolution_conflict');
+});
+
+test('administrative resolution persists workflow and audit metadata', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  const reason = 'Confirmed historical mobile persistence failure with operations manager';
+  await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId, reason);
+  const workflow = context.store.get(key(`BUSINESS#${context.businessId}`, `CLOCK_OUT_WORKFLOW#${context.workflowOccurrenceId}`));
+  assert.equal(workflow.resolutionType, 'admin_override_missing_submission');
+  assert.equal(workflow.resolvedBy, 'user-a');
+  assert.equal(workflow.resolutionReason, reason);
+  assert.ok(workflow.resolvedAt);
+  assert.equal(workflow.originalWorkflowOccurrenceId, context.workflowOccurrenceId);
+  assert.deepEqual(workflow.originalRequirementIds, [context.requirement.requirementId]);
+  assert.equal(workflow.requiredForms[0].requirementId, context.requirement.requirementId);
+  const audit = [...context.store.values()].find((item) => item.action === 'mandatory_clock_out_administratively_resolved');
+  assert.equal(audit.actorUserId, 'user-a');
+  assert.equal(audit.metadata.resolutionType, 'admin_override_missing_submission');
+  assert.equal(audit.metadata.reason, reason);
+  assert.deepEqual(audit.metadata.originalRequirementIds, [context.requirement.requirementId]);
+});
+
+test('administrative resolution creates no form submission', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+  assert.equal([...context.store.values()].some((item) => item.entityType === 'FORM_SUBMISSION'), false);
+});
+
+test('bootstrap after administrative resolution has no pending mandatory clock-out workflow', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+  const bootstrapResponse = response();
+  await bootstrapHandler({ method: 'GET', query: {}, headers: { authorization: `Bearer ${context.token}` } }, bootstrapResponse);
+  assert.equal(bootstrapResponse.statusCode, 200);
+  assert.equal(bootstrapResponse.body.pendingClockOutWorkflow, null);
+});
+
+test('employee can clock in normally after administrative resolution', async (t) => {
+  const context = await setupCorruptPendingWorkflow(t);
+  await resolveRequiredFormBlock(context.token, context.employeeId, context.workflowOccurrenceId);
+  const clockedIn = await clockingRequest(context.token, {
+    action: 'clock-in',
+    body: {
+      employeeId: context.employeeId,
+      workType: 'non_billable',
+      unbillableCategoryId: 'training',
+      requestId: 'post-resolution-clock-in',
+      idempotencyKey: 'post-resolution-clock-in',
+    },
+  });
+  assert.notEqual(clockedIn.body.code, 'pending_clock_out_requires_finalization');
 });
 
 test('multiple required forms are independent while reminder forms remain advisory', async (t) => {

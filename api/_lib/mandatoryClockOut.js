@@ -8,6 +8,8 @@ const SATISFYING_SUBMISSION_STATUSES = new Set(['submitted', 'pending_review', '
 const businessPk = (businessId) => `BUSINESS#${businessId}`;
 export const clockOutWorkflowSk = (occurrenceId) => `CLOCK_OUT_WORKFLOW#${occurrenceId}`;
 export const pendingClockOutSk = (employeeId) => `CLOCK_OUT_PENDING#EMPLOYEE#${employeeId}`;
+const timeEntrySk = (timeEntryId) => `TIME#${timeEntryId}`;
+const auditEventSk = (eventId) => `AUDIT#${eventId}`;
 
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const normalized = (value) => text(value).toLowerCase().replace(/\s+/g, ' ');
@@ -191,6 +193,113 @@ export async function getPendingClockOutWorkflowForEmployee(businessId, employee
   }));
   const occurrenceId = pointerResult.Item?.workflowOccurrenceId;
   return occurrenceId ? getClockOutWorkflowForBusiness(businessId, occurrenceId) : null;
+}
+
+export async function administrativelyResolvePendingClockOutWorkflow({
+  session,
+  employeeId,
+  workflowOccurrenceId,
+  reason,
+  resolvedAt = new Date().toISOString(),
+}) {
+  if (session?.role !== 'owner' && session?.role !== 'admin') {
+    return { ok: false, status: 403, code: 'clock_out_admin_resolution_forbidden', error: 'Only an Owner or Admin can resolve a required form block.' };
+  }
+
+  const workflow = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+  if (!workflow || workflow.employeeId !== employeeId) {
+    return { ok: false, status: 404, code: 'clock_out_workflow_not_found', error: 'Pending clock-out workflow not found.' };
+  }
+  if (workflow.status === 'administratively_resolved') {
+    return { ok: true, status: 'clock_out_already_administratively_resolved', workflow };
+  }
+  if (workflow.status !== 'pending_required_forms') {
+    return { ok: false, status: 409, code: 'clock_out_workflow_not_pending', error: 'This clock-out workflow is no longer pending.' };
+  }
+
+  const trimmedReason = text(reason);
+  if (!trimmedReason) {
+    return { ok: false, status: 400, code: 'clock_out_admin_resolution_reason_required', error: 'A reason is required.' };
+  }
+  if (trimmedReason.length > 1000) {
+    return { ok: false, status: 400, code: 'clock_out_admin_resolution_reason_invalid', error: 'Reason must be 1,000 characters or fewer.' };
+  }
+
+  const originalRequirementIds = (workflow.requiredForms ?? []).map((requirement) => requirement.requirementId);
+  const resolutionType = 'admin_override_missing_submission';
+  const auditEventId = `clock-out-admin-resolution-${workflowOccurrenceId}`;
+  const administrativeResolution = {
+    resolutionType,
+    resolvedBy: session.id,
+    resolvedAt,
+    reason: trimmedReason,
+    originalWorkflowOccurrenceId: workflowOccurrenceId,
+    originalRequirementIds,
+  };
+
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      {
+        ConditionCheck: {
+          TableName: tableName,
+          Key: { PK: businessPk(session.businessId), SK: timeEntrySk(workflow.timeEntryId) },
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #employeeId = :employeeId AND #status = :clockedOut',
+          ExpressionAttributeNames: { '#employeeId': 'employeeId', '#status': 'status' },
+          ExpressionAttributeValues: { ':employeeId': employeeId, ':clockedOut': 'clocked_out' },
+        },
+      },
+      {
+        Update: {
+          TableName: tableName,
+          Key: { PK: businessPk(session.businessId), SK: clockOutWorkflowSk(workflowOccurrenceId) },
+          UpdateExpression: 'SET #status = :resolved, #updatedAt = :resolvedAt, #administrativeResolution = :administrativeResolution, #resolvedBy = :resolvedBy, #resolvedAt = :resolvedAt, #resolutionReason = :reason, #resolutionType = :resolutionType, #originalWorkflowOccurrenceId = :workflowOccurrenceId, #originalRequirementIds = :requirementIds',
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :pending AND #employeeId = :employeeId',
+          ExpressionAttributeNames: {
+            '#status': 'status', '#updatedAt': 'updatedAt', '#administrativeResolution': 'administrativeResolution',
+            '#resolvedBy': 'resolvedBy', '#resolvedAt': 'resolvedAt', '#resolutionReason': 'resolutionReason',
+            '#resolutionType': 'resolutionType', '#originalWorkflowOccurrenceId': 'originalWorkflowOccurrenceId',
+            '#originalRequirementIds': 'originalRequirementIds', '#employeeId': 'employeeId',
+          },
+          ExpressionAttributeValues: {
+            ':resolved': 'administratively_resolved', ':pending': 'pending_required_forms', ':resolvedAt': resolvedAt,
+            ':administrativeResolution': administrativeResolution, ':resolvedBy': session.id, ':reason': trimmedReason,
+            ':resolutionType': resolutionType, ':workflowOccurrenceId': workflowOccurrenceId,
+            ':requirementIds': originalRequirementIds, ':employeeId': employeeId,
+          },
+        },
+      },
+      {
+        Delete: {
+          TableName: tableName,
+          Key: { PK: businessPk(session.businessId), SK: pendingClockOutSk(employeeId) },
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #employeeId = :employeeId AND #workflowOccurrenceId = :workflowOccurrenceId',
+          ExpressionAttributeNames: { '#employeeId': 'employeeId', '#workflowOccurrenceId': 'workflowOccurrenceId' },
+          ExpressionAttributeValues: { ':employeeId': employeeId, ':workflowOccurrenceId': workflowOccurrenceId },
+        },
+      },
+      {
+        Put: {
+          TableName: tableName,
+          Item: {
+            PK: businessPk(session.businessId), SK: auditEventSk(auditEventId), entityType: 'AUDIT_EVENT',
+            businessId: session.businessId, eventId: auditEventId, id: auditEventId,
+            action: 'mandatory_clock_out_administratively_resolved', actorUserId: session.id,
+            actorName: session.name ?? '', actorEmail: session.email ?? '', createdAt: resolvedAt,
+            metadata: { employeeId, timeEntryId: workflow.timeEntryId, ...administrativeResolution },
+          },
+          ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+        },
+      },
+    ] }));
+    return { ok: true, status: 'clock_out_administratively_resolved', workflow: { ...workflow, status: 'administratively_resolved', administrativeResolution } };
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    const current = await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId);
+    if (current?.employeeId === employeeId && current.status === 'administratively_resolved') {
+      return { ok: true, status: 'clock_out_already_administratively_resolved', workflow: current };
+    }
+    return { ok: false, status: 409, code: 'clock_out_admin_resolution_conflict', error: 'The workflow, pointer, or Time Entry changed. Refresh and try again.' };
+  }
 }
 
 export function buildWorkflowCompletionUpdate({ businessId, employeeId, workflowOccurrenceId, requirementId: completedRequirementId, updatedAt }) {
