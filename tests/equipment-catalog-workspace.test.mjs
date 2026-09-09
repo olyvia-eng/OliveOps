@@ -36,15 +36,23 @@ test('legacy equipment sell fields are not presented as explicit custom rates', 
   assert.equal(row.estimateRate, 70);
 });
 
-test('equipment catalog is a compact direct-cost resource list', () => {
+test('equipment catalog is a reusable identity list with distinct Budget use', () => {
   assert.match(catalogSource, /<table className="w-full text-sm">/);
-  for (const heading of ['Equipment', 'ID / SKU', 'Direct Cost']) {
+  for (const heading of ['Equipment', 'Year / Type', 'Ownership', 'Budget Use']) {
     assert.match(catalogSource, new RegExp(`>${heading.replace('/', '\\/')}<`));
   }
-  assert.match(catalogSource, /costUnit/);
-  for (const removed of ['>Type<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed));
-  assert.doesNotMatch(catalogSource, /recommendedSellPrice|customRate|division rates/);
-  assert.match(catalogSource, /Not calculated/);
+  for (const removed of ['>ID / SKU<', '>Direct Cost<', '>Calculated Rate<', '>Custom Rate<', '>Status<', '>Allocated To<']) assert.doesNotMatch(catalogSource, new RegExp(removed.replace('/', '\\/')));
+  assert.doesNotMatch(catalogSource, /resolveEquipmentCostRate|costUnit|recommendedSellPrice|customRate|division rates|Not calculated/);
+  assert.match(catalogSource, /asset\.purchaseDate\?\.match/);
+  assert.match(catalogSource, /asset\.type\?\.trim\(\)/);
+  assert.match(catalogSource, /new Set\(rows\.map\(\(row\) => row\.budgetId\)\)\.size/);
+  assert.match(catalogSource, /count === 1 \? 'Budget' : 'Budgets'/);
+  assert.match(catalogSource, /: 'Not used'/);
+});
+
+test('Catalog page uses the reusable resources description', () => {
+  assert.match(catalogSource, /Reusable resources and costs used across your budgets and estimates\./);
+  assert.doesNotMatch(catalogSource, /What reusable resources and costs should every plan start from\?/);
 });
 
 test('equipment list search does not require Budget, type, or ownership filters', () => {
@@ -84,6 +92,15 @@ test('Budget-specific equipment assumptions stay in Budgets instead of the Catal
   assert.doesNotMatch(detailSource, /Overhead Recovery|Breakeven|Calculated Rate|Estimate Rate/);
 });
 
+test('normal drawer allocation rows avoid horizontal scrolling while expanded mode retains annual allocation cost', () => {
+  assert.doesNotMatch(detailSource, /overflow-x-auto| min-w-\[520px\]/);
+  assert.match(detailSource, /expanded \? \(/);
+  assert.match(detailSource, /grid-cols-\[minmax\(0,1fr\)_auto\]/);
+  assert.match(detailSource, /allocated annual cost/);
+  assert.match(detailSource, /Allocated Annual Cost/);
+  assert.match(detailSource, /Not used in a budget yet/);
+});
+
 test('Catalog finds exact-linked planning rows across Divisions and keeps annual Budgets distinct', () => {
   const rows = buildEquipmentBudgetRelationshipRows({
     equipmentId: 'equipment-1',
@@ -117,6 +134,8 @@ test('Catalog finds exact-linked planning rows across Divisions and keeps annual
   assert.equal(rows[1].costPerHour, 35);
   assert.equal(rows[1].operatingDays, 125);
   assert.equal(rows.some((row) => row.id === 'same-name-other-tenant'), false);
+  assert.equal(new Set(rows[1].divisions.map(() => rows[1].budgetId)).size, 1);
+  assert.equal(new Set(rows.map((row) => row.budgetId)).size, 2);
 });
 
 test('Catalog relationship model preserves correctly-linked legacy Budget allocations without duplicating current rows', () => {

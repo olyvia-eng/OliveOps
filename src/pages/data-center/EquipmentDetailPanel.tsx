@@ -49,9 +49,9 @@ export default function EquipmentDetailPanel({
         title={equipment.name}
         subtitle={(
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>{equipment.serialNumber || 'No ID / SKU'}</span>
+            <span>{equipment.serialNumber || '—'}</span>
             <span aria-hidden="true">•</span>
-            <span>{equipment.type || 'No type'}</span>
+            <span>{equipment.type || '—'}</span>
           </span>
         )}
         status={<Badge label={ownershipLabel(equipment.costType)} className="bg-accent-50 text-accent-700" />}
@@ -98,20 +98,30 @@ export default function EquipmentDetailPanel({
                     <div><dt className="text-gray-500 dark:text-brand-200">Operating Schedule</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{row.hoursPerDay > 0 ? `${row.hoursPerDay} hours/day${row.operatingDays !== null ? ` · ${row.operatingDays.toFixed(1)} days/year` : ''}` : 'Not planned'}</dd></div>
                     <div><dt className="text-gray-500 dark:text-brand-200">Cost per Operating Hour</dt><dd className="mt-1 font-semibold text-gray-900 dark:text-brand-50">{row.costPerHour !== null ? formatCurrency(row.costPerHour) : 'Not calculated'}</dd></div>
                   </dl>
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px] text-sm">
+                  {expanded ? (
+                    <table className="w-full text-sm">
                       <thead><tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500"><th className="px-4 py-3 font-medium">Division</th><th className="px-4 py-3 text-right font-medium">Months</th><th className="px-4 py-3 text-right font-medium">Allocated Annual Cost</th></tr></thead>
                       <tbody className="divide-y divide-gray-100">
                         {row.divisions.length ? row.divisions.map((allocation) => (
-                          <tr key={`${row.id}:${allocation.divisionId ?? 'budget-wide'}`}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{allocation.division?.name ?? (allocation.divisionId ? 'Unavailable Division' : 'Budget-wide')}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{allocation.months}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{formatCurrency(allocation.annualCost)}</td></tr>
+                          <tr key={`${row.id}:${allocation.divisionId ?? 'budget-wide'}`}><td className="px-4 py-3 font-medium text-gray-900 dark:text-brand-50">{allocation.division?.name ?? (allocation.divisionId ? '—' : 'Budget-wide')}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{allocation.months}</td><td className="px-4 py-3 text-right text-gray-600 dark:text-brand-100">{formatCurrency(allocation.annualCost)}</td></tr>
                         )) : <tr><td className="px-4 py-3 text-gray-500 dark:text-brand-200" colSpan={3}>No Division month allocation recorded.</td></tr>}
                       </tbody>
                     </table>
-                  </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100 text-sm dark:divide-brand-600">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-gray-50 px-4 py-2 text-xs font-medium uppercase text-gray-500"><span>Division</span><span>Months</span></div>
+                      {row.divisions.length ? row.divisions.map((allocation) => (
+                        <div key={`${row.id}:${allocation.divisionId ?? 'budget-wide'}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3">
+                          <div className="min-w-0"><p className="font-medium text-gray-900 dark:text-brand-50">{allocation.division?.name ?? (allocation.divisionId ? '—' : 'Budget-wide')}</p><p className="mt-0.5 text-xs text-gray-500 dark:text-brand-200">{formatCurrency(allocation.annualCost)} allocated annual cost</p></div>
+                          <span className="text-right text-gray-600 dark:text-brand-100">{allocation.months}</span>
+                        </div>
+                      )) : <p className="px-4 py-3 text-gray-500 dark:text-brand-200">No Division month allocation recorded.</p>}
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
-          ) : <EmptyState title="No budget allocations" description="This equipment has not been allocated to an operating budget yet." />
+          ) : <EmptyState title="Not used in a budget yet" description="Add this equipment to a budget when you are ready to plan its annual use." />
         ) : null}
       </div>
     </div>

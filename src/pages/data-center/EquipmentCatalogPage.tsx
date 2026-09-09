@@ -11,7 +11,6 @@ import {
   setDetailWorkspaceTab,
 } from '../../components/detail-workspace/detailWorkspaceQuery';
 import { useStore } from '../../store';
-import { formatCurrency } from '../../utils';
 import type { EquipmentAsset } from '../../types';
 import EquipmentInfoForm from '../../components/equipment/EquipmentInfoForm';
 import {
@@ -20,7 +19,7 @@ import {
   type EquipmentInfoFormValue,
   validateEquipmentInfoForm,
 } from '../../components/equipment/equipmentFormModel';
-import { calculateEquipmentCostBreakdown, resolveEquipmentCostRate } from '../../utils/equipmentPricing';
+import { calculateEquipmentCostBreakdown } from '../../utils/equipmentPricing';
 import EquipmentDetailPanel, { type EquipmentDetailTab } from './EquipmentDetailPanel';
 import { buildEquipmentBudgetRelationshipRows } from './equipmentBudgetRelationshipModel.js';
 import MaterialsCatalogSection from './MaterialsCatalogSection';
@@ -37,6 +36,13 @@ const CATALOG_TABS: Array<{ key: CatalogTab; label: string; icon: typeof Truck }
   { key: 'materials', label: 'Materials', icon: Package },
   { key: 'subcontractors', label: 'Subcontractors', icon: BriefcaseBusiness },
 ];
+
+const equipmentYearAndType = (asset: EquipmentAsset) => {
+  const purchaseYear = asset.purchaseDate?.match(/^\d{4}/)?.[0];
+  return [purchaseYear, asset.type?.trim()].filter(Boolean).join(' · ') || '—';
+};
+
+const budgetUseLabel = (count: number) => count > 0 ? `${count} ${count === 1 ? 'Budget' : 'Budgets'}` : 'Not used';
 
 export default function EquipmentCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -84,6 +90,17 @@ export default function EquipmentCatalogPage() {
         legacyAllocations: equipmentBudgetAllocations,
       })
     : [], [budgetDivisionPlanningItems, budgetDivisions, budgetItems, budgets, equipmentBudgetAllocations, selectedEquipment]);
+  const budgetUseByEquipmentId = useMemo(() => new Map(equipmentAssets.map((asset) => {
+    const rows = buildEquipmentBudgetRelationshipRows({
+      equipmentId: asset.id,
+      planningItems: budgetDivisionPlanningItems,
+      budgets,
+      budgetDivisions,
+      budgetItems,
+      legacyAllocations: equipmentBudgetAllocations,
+    });
+    return [asset.id, new Set(rows.map((row) => row.budgetId)).size];
+  })), [budgetDivisionPlanningItems, budgetDivisions, budgetItems, budgets, equipmentAssets, equipmentBudgetAllocations]);
   const visibleEquipment = useMemo(() => {
     const query = equipmentQuery.trim().toLowerCase();
     return sortedEquipment.filter((asset) => !query || [asset.name, asset.serialNumber, asset.type].some((value) => value?.toLowerCase().includes(query)));
@@ -196,7 +213,7 @@ export default function EquipmentCatalogPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Catalog"
-        subtitle="What reusable resources and costs should every plan start from?"
+        subtitle="Reusable resources and costs used across your budgets and estimates."
       />
 
       <div className="overflow-x-auto">
@@ -254,15 +271,13 @@ export default function EquipmentCatalogPage() {
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-600 dark:text-brand-200">
                       <th className="px-4 py-3 font-medium">Equipment</th>
-                      <th className="px-4 py-3 font-medium">ID / SKU</th>
-                      <th className="px-4 py-3 text-right font-medium">Direct Cost</th>
+                      <th className="px-4 py-3 font-medium">Year / Type</th>
+                      <th className="px-4 py-3 font-medium">Ownership</th>
+                      <th className="px-4 py-3 text-right font-medium">Budget Use</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-brand-600">
-                    {visibleEquipment.map((asset) => {
-                      const costRate = asset.costType === 'rental' ? asset.rentalCost ?? 0 : resolveEquipmentCostRate(asset);
-                      const costUnit = asset.costType === 'rental' ? asset.rentalUnit ?? 'hr' : 'hr';
-                      return (
+                    {visibleEquipment.map((asset) => (
                         <tr
                           key={asset.id}
                           className={`cursor-pointer transition-colors ${workspace.recordId === asset.id ? 'bg-brand-50 dark:bg-brand-600' : 'hover:bg-gray-50 dark:hover:bg-brand-600/60'}`}
@@ -272,11 +287,11 @@ export default function EquipmentCatalogPage() {
                           aria-selected={workspace.recordId === asset.id}
                         >
                           <td className="px-4 py-3 font-semibold text-gray-900 dark:text-brand-50">{asset.name}</td>
-                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.serialNumber || '—'}</td>
-                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{costRate !== null ? `${formatCurrency(costRate)}/${costUnit}` : 'Not calculated'}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{equipmentYearAndType(asset)}</td>
+                          <td className="px-4 py-3 text-gray-600 dark:text-brand-100">{asset.costType.charAt(0).toUpperCase() + asset.costType.slice(1)}</td>
+                          <td className="px-4 py-3 text-right font-medium text-gray-800 dark:text-brand-50">{budgetUseLabel(budgetUseByEquipmentId.get(asset.id) ?? 0)}</td>
                         </tr>
-                      );
-                    })}
+                      ))}
                   </tbody>
                 </table>
               </div>

@@ -9,12 +9,14 @@ const estimatesSource = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'u
 const businessSource = readFileSync('api/business.js', 'utf8');
 const appSource = readFileSync('src/App.tsx', 'utf8');
 
-test('Catalog is a Budget-independent resource and direct-cost library', () => {
+test('Catalog is a Budget-independent reusable resource library', () => {
   assert.doesNotMatch(catalogPageSource, /useCatalogPricing|catalog-pricing|pricingBudgetId/);
   assert.match(catalogPageSource, /<LabourCatalogSection \/>/);
   assert.match(catalogPageSource, /<MaterialsCatalogSection \/>/);
-  assert.match(catalogPageSource, /Direct Cost/);
-  assert.doesNotMatch(catalogPageSource, /Calculated Rate|Custom Rate|Estimate Rate|Allocated To/);
+  assert.match(catalogPageSource, /Year \/ Type/);
+  assert.match(catalogPageSource, /Ownership/);
+  assert.match(catalogPageSource, /Budget Use/);
+  assert.doesNotMatch(catalogPageSource, /Direct Cost|Calculated Rate|Custom Rate|Estimate Rate|Allocated To/);
 });
 
 test('Catalog uses Labour Classes and material costs without universal selling economics', () => {
