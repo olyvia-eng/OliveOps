@@ -162,6 +162,9 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
   const activeTab = (searchParams.get('tab') ?? 'info') as EstimateTab;
   const persistedEstimateUpdatedAt = estimate?.updatedAt;
+  const convertDateError = convertForm.startDate && convertForm.endDate && convertForm.startDate > convertForm.endDate
+    ? 'Start Date must be on or before End Date.'
+    : '';
 
   useEffect(() => {
     const persistedEstimate = useStore.getState().estimates.find((item) => item.id === id);
@@ -397,13 +400,13 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     setConfirmConvert(true);
     setConvertForm({
       title: estimate.title ?? '',
-      startDate: '',
-      endDate: '',
+      startDate: estimate.serviceStartDate?.slice(0, 10) ?? '',
+      endDate: estimate.serviceEndDate?.slice(0, 10) ?? '',
     });
   };
 
   const handleConvertEstimate = async () => {
-    if (!estimate) return;
+    if (!estimate || convertDateError) return;
     setConvertingEstimateId(estimate.id);
     const result = await convertEstimateToJob(estimate.id, {
       title: convertForm.title.trim() || undefined,
@@ -952,34 +955,40 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
         footer={(
           <>
             <Button variant="secondary" onClick={() => setConfirmConvert(false)}>Cancel</Button>
-            <Button onClick={() => void handleConvertEstimate()}>
-              {convertingEstimateId ? 'Converting...' : 'Convert'}
+            <Button disabled={!!convertingEstimateId || !!convertDateError} onClick={() => void handleConvertEstimate()}>
+              {convertingEstimateId ? 'Creating Job...' : 'Create Job'}
             </Button>
           </>
         )}
       >
         <div className="space-y-4">
-          <p className="text-gray-600">Create a job from this accepted estimate. Leave any field blank to use defaults.</p>
+          <p className="text-gray-600">Create a job from this accepted estimate. Review the job details below before converting.</p>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <p><span className="font-medium text-gray-900">Estimate:</span> {estimate.title}</p>
+            <p><span className="font-medium text-gray-900">Customer:</span> {customer?.name ?? 'Unknown Customer'}</p>
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input
-              label="Job Title Override"
+              label="Job Title"
               value={convertForm.title}
               onChange={(event) => setConvertForm((current) => ({ ...current, title: event.target.value }))}
-              placeholder="Leave blank to use the estimate title"
             />
             <Input
-              label="Start Date Override"
+              label="Start Date"
               type="date"
               value={convertForm.startDate}
+              max={convertForm.endDate || undefined}
               onChange={(event) => setConvertForm((current) => ({ ...current, startDate: event.target.value }))}
             />
           </div>
           <Input
-            label="End Date Override"
+            label="End Date"
             type="date"
             value={convertForm.endDate}
+            min={convertForm.startDate || undefined}
             onChange={(event) => setConvertForm((current) => ({ ...current, endDate: event.target.value }))}
           />
+          {convertDateError ? <p className="text-sm font-medium text-rose-700" role="alert">{convertDateError}</p> : null}
         </div>
       </Modal>
       {guardModal}
