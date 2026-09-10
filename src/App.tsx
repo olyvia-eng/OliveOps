@@ -10,6 +10,7 @@ import { mergeEstimateSnapshotsModel, shouldApplySequencedResponseModel } from '
 import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
 import { resolveWorkType } from './utils/workTypeModel.js';
 import { DEFAULT_BUSINESS_FEATURES, normalizeBusinessFeatures, type BusinessFeatureKey, type BusinessFeatures } from '../shared/businessFeatures.js';
+import RouteErrorBoundary from './components/errors/RouteErrorBoundary';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
@@ -570,6 +571,7 @@ export default function App() {
         </div>
       )}
       <BrowserRouter>
+      <RouteErrorBoundary>
       <Suspense
         fallback={(
           <div className="min-h-screen flex items-center justify-center bg-cream text-brand-400 text-sm">
@@ -851,6 +853,7 @@ export default function App() {
         )}
       </Routes>
       </Suspense>
+      </RouteErrorBoundary>
     </BrowserRouter>
     </>
   );

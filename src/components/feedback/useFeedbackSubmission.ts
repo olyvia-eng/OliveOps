@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { emitAppToast } from '../../toast';
 import { uploadFileToStorage } from '../../utils/fileUpload';
 import type { FeedbackType } from '../../types';
+import { getAppVersion } from '../../errors/routeErrorRecovery.js';
 
 const FEEDBACK_ENDPOINT = '/api/feedback';
 
@@ -13,11 +14,6 @@ type SubmitFeedbackInput = {
   screenshotFile?: File;
   route?: string;
 };
-
-function getAppVersion() {
-  const env = import.meta.env;
-  return env.VITE_APP_VERSION || env.VITE_VERCEL_GIT_COMMIT_SHA || env.VERCEL_GIT_COMMIT_SHA || 'unknown';
-}
 
 function buildViewport() {
   if (typeof window === 'undefined') return undefined;
