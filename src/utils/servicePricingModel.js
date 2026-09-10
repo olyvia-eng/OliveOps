@@ -17,8 +17,15 @@ export function resolveServiceEstimatedVisits(service) {
   return calculateSuggestedServiceVisits(service) ?? 0;
 }
 
-export function calculateServiceLineEconomics(lineItem) {
+export function calculateServiceResourceUsage(lineItem, estimatedVisits) {
   const quantity = Math.max(0, number(lineItem?.quantity));
+  const costScope = lineItem?.costScope === 'service_period' ? 'service_period' : 'per_visit';
+  const applicationCount = costScope === 'per_visit' ? Math.max(0, number(estimatedVisits)) : 1;
+  return { quantity, costScope, applicationCount, totalQuantity: quantity * applicationCount };
+}
+
+export function calculateServiceLineEconomics(lineItem) {
+  const { quantity, costScope } = calculateServiceResourceUsage(lineItem, 1);
   const directRate = Math.max(0, number(lineItem?.directCostPerUnit, number(lineItem?.unitCost)));
   const recoveredRate = Math.max(directRate, number(lineItem?.recoveredCostPerUnit, directRate));
   const recommendedRate = Math.max(0, number(lineItem?.calculatedRateAtEstimate, number(lineItem?.recommendedRateAtEstimate, number(lineItem?.sellPrice))));
@@ -26,7 +33,7 @@ export function calculateServiceLineEconomics(lineItem) {
   const directCost = roundServiceMoney(quantity * directRate);
   const loadedCost = roundServiceMoney(quantity * recoveredRate);
   return {
-    costScope: lineItem?.costScope === 'service_period' ? 'service_period' : 'per_visit',
+    costScope,
     directCost,
     overhead: roundServiceMoney(loadedCost - directCost),
     loadedCost,

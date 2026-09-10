@@ -1,9 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateServiceEconomics, calculateServiceEstimateTotals, formatServiceFrequency, validateServicePricing } from '../src/utils/servicePricingModel.js';
+import { calculateServiceEconomics, calculateServiceEstimateTotals, calculateServiceResourceUsage, formatServiceFrequency, validateServicePricing } from '../src/utils/servicePricingModel.js';
 
 const line = (category, quantity, direct, recovered, sell, costScope = 'per_visit') => ({ id: `${category}-${costScope}`, category, itemName: category, description: '', quantity, unit: 'hr', unitCost: direct, directCostPerUnit: direct, recoveredCostPerUnit: recovered, calculatedRateAtEstimate: sell, sellPrice: sell, total: quantity * sell, markupPercent: 0, costScope, pricingReadiness: 'priced' });
 const service = (billingType, overrides = {}) => ({ id: billingType, name: billingType, description: '', sortOrder: 0, scheduleType: 'recurring', billingType, startDate: '2027-04-01', endDate: '2027-10-01', frequency: { interval: 1, unit: 'week' }, estimatedVisits: 20, lineItems: [line('labour', 2, 30, 45, 75), line('equipment', 1, 20, 30, 50), line('material', 10, 2, 2.5, 4), line('subcontractor', 1, 100, 120, 160, 'service_period')], ...overrides });
+
+test('Service resource usage applies per-visit quantities across estimated visits', () => {
+  assert.deepEqual(calculateServiceResourceUsage({ quantity: 1.5, costScope: 'per_visit' }, 5), {
+    quantity: 1.5,
+    costScope: 'per_visit',
+    applicationCount: 5,
+    totalQuantity: 7.5,
+  });
+  assert.equal(calculateServiceResourceUsage({ quantity: 1.5, costScope: 'service_period' }, 5).totalQuantity, 1.5);
+});
 
 test('calculates all resource categories per visit and counts service-period costs once', () => {
   const result = calculateServiceEconomics(service('contract'));

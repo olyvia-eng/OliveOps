@@ -19,6 +19,12 @@ export function calculateEstimateSnapshotPricing(input) {
   return { breakeven, targetMarginPct, calculatedSellPrice, customSellPrice, sellPrice, effectiveMarginPct };
 }
 
+export function normalizeEstimateCustomSellPrice(value, calculatedSellPrice) {
+  const roundedValue = Math.round((Math.max(0, finiteNumber(value)) + Number.EPSILON) * 100) / 100;
+  const roundedCalculated = Math.round((Math.max(0, finiteNumber(calculatedSellPrice)) + Number.EPSILON) * 100) / 100;
+  return roundedValue === roundedCalculated ? null : roundedValue;
+}
+
 export function applyEstimateLineSnapshotPricing(lineItem, { targetMarginPct, customSellPrice, quantity = lineItem.quantity, costScope = lineItem.costScope } = {}) {
   const breakeven = lineItem.recoveredCostPerUnit ?? lineItem.breakevenRate ?? lineItem.unitCost;
   const pricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice });

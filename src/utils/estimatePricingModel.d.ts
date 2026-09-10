@@ -17,6 +17,8 @@ export interface EstimateSnapshotPricing {
 
 export function calculateEstimateSnapshotPricing(input: EstimateSnapshotPricingInput): EstimateSnapshotPricing;
 
+export function normalizeEstimateCustomSellPrice(value: number, calculatedSellPrice: number): number | null;
+
 export function applyEstimateLineSnapshotPricing<T extends EstimateLineItem>(
   lineItem: T,
   input?: {

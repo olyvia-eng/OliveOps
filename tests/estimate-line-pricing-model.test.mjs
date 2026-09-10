@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { applyEstimateLineSnapshotPricing, calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
+import { applyEstimateLineSnapshotPricing, calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers, normalizeEstimateCustomSellPrice } from '../src/utils/estimatePricingModel.js';
 import { applyEstimateLineItemCostOverride, reorderEstimateLineItemsWithinCategory } from '../src/utils/estimatePricingModel.js';
 
 test('Estimate snapshot pricing uses gross margin and guards the divisor', () => {
@@ -20,6 +20,13 @@ test('custom Estimate sell price is authoritative and reset restores calculated 
   const reset = calculateEstimateSnapshotPricing({ breakeven: 80, targetMarginPct: 20, customSellPrice: null });
   assert.equal(reset.sellPrice, 100);
   assert.equal(reset.customSellPrice, null);
+});
+
+test('currency-level Sell Price edits preserve calculated precision without creating false overrides', () => {
+  const calculated = calculateEstimateSnapshotPricing({ breakeven: 61.62624320974152, targetMarginPct: 30 });
+  assert.ok(Math.abs(calculated.calculatedSellPrice - 88.03749029963075) < 0.000000000001);
+  assert.equal(normalizeEstimateCustomSellPrice(88.04, calculated.calculatedSellPrice), null);
+  assert.equal(normalizeEstimateCustomSellPrice(95, calculated.calculatedSellPrice), 95);
 });
 
 test('Service resource snapshot updates quantity, Applied, margin, and custom price without changing source pricing', () => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ChangeEvent, ChangeEventHandler, FocusEvent, FocusEventHandler, HTMLAttributes, ReactNode } from 'react';
-import { formatNumericDisplayValue, normalizeNumericInput } from '../../utils/numberInput';
+import { formatCurrencyInputValue, formatNumericDisplayValue, normalizeNumericInput } from '../../utils/numberInput';
 
 interface BadgeProps {
   label: string;
@@ -94,6 +94,7 @@ export function Button({ variant = 'primary', size = 'md', children, className =
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  currency?: boolean;
 }
 
 function renderFieldLabel(label: string, required?: boolean) {
@@ -108,7 +109,7 @@ function renderFieldLabel(label: string, required?: boolean) {
   );
 }
 
-export function Input({ label, error, className = '', ...rest }: InputProps) {
+export function Input({ label, error, currency = false, className = '', ...rest }: InputProps) {
   const isNumericInput = rest.type === 'number';
   const [numericDraftValue, setNumericDraftValue] = useState<string | null>(null);
   let rawValue: string | number = '';
@@ -118,14 +119,15 @@ export function Input({ label, error, className = '', ...rest }: InputProps) {
     rawValue = rest.value.join('');
   }
 
-  const numericDisplayValue = numericDraftValue ?? formatNumericDisplayValue(rawValue);
+  const numericDisplayValue = numericDraftValue ?? (currency ? formatCurrencyInputValue(rawValue) : formatNumericDisplayValue(rawValue));
   const displayedValue = isNumericInput
     ? numericDisplayValue
     : rest.value;
 
   const handleNumberChange: ChangeEventHandler<HTMLInputElement> = (event) => {
     const normalized = normalizeNumericInput(event.target.value);
-    if (!/^-?\d*\.?\d*$/.test(normalized)) return;
+    const numericPattern = currency ? /^-?\d*\.?\d{0,2}$/ : /^-?\d*\.?\d*$/;
+    if (!numericPattern.test(normalized)) return;
     setNumericDraftValue(normalized);
 
     if (!rest.onChange) return;
@@ -146,7 +148,9 @@ export function Input({ label, error, className = '', ...rest }: InputProps) {
   };
 
   const handleNumberFocus: FocusEventHandler<HTMLInputElement> = (event) => {
-    setNumericDraftValue(normalizeNumericInput(String(rawValue ?? '')));
+    setNumericDraftValue(currency
+      ? normalizeNumericInput(formatCurrencyInputValue(rawValue))
+      : normalizeNumericInput(String(rawValue ?? '')));
     event.currentTarget.select();
     rest.onFocus?.(event);
   };
@@ -159,16 +163,19 @@ export function Input({ label, error, className = '', ...rest }: InputProps) {
   return (
     <div className="flex flex-col gap-1.5">
       {label && renderFieldLabel(label, rest.required)}
-      <input
-        className={`h-10 border border-brand-100 dark:border-brand-600 rounded-xl bg-white dark:bg-brand-700 px-3 text-sm text-brand-900 dark:text-brand-50 shadow-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-500 ${error ? 'border-accent-500' : ''} ${className}`}
-        {...rest}
-        type={isNumericInput ? 'text' : rest.type}
-        inputMode={isNumericInput ? 'decimal' : rest.inputMode}
-        value={displayedValue}
-        onChange={isNumericInput ? handleNumberChange : rest.onChange}
-        onFocus={isNumericInput ? handleNumberFocus : rest.onFocus}
-        onBlur={isNumericInput ? handleNumberBlur : rest.onBlur}
-      />
+      <div className="relative">
+        {currency ? <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-brand-500">$</span> : null}
+        <input
+          className={`h-10 w-full border border-brand-100 dark:border-brand-600 rounded-xl bg-white dark:bg-brand-700 px-3 text-sm text-brand-900 dark:text-brand-50 shadow-sm focus:outline-none focus:ring-2 focus:ring-accent-500/40 focus:border-accent-500 ${currency ? 'pl-7' : ''} ${error ? 'border-accent-500' : ''} ${className}`}
+          {...rest}
+          type={isNumericInput ? 'text' : rest.type}
+          inputMode={isNumericInput ? 'decimal' : rest.inputMode}
+          value={displayedValue}
+          onChange={isNumericInput ? handleNumberChange : rest.onChange}
+          onFocus={isNumericInput ? handleNumberFocus : rest.onFocus}
+          onBlur={isNumericInput ? handleNumberBlur : rest.onBlur}
+        />
+      </div>
       {error && <p className="text-xs text-accent-700">{error}</p>}
     </div>
   );

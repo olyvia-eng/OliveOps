@@ -2,31 +2,36 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { EstimateLineItem, ServiceCostScope } from '../../types';
 import { formatCurrency } from '../../utils';
-import { applyEstimateLineSnapshotPricing, calculateEstimateSnapshotPricing } from '../../utils/estimatePricingModel.js';
+import { applyEstimateLineSnapshotPricing, calculateEstimateSnapshotPricing, normalizeEstimateCustomSellPrice } from '../../utils/estimatePricingModel.js';
 import { formatNumericDisplayValue, parseNumericInputValue } from '../../utils/numberInput';
-import { Button } from '../ui';
+import { calculateServiceResourceUsage } from '../../utils/servicePricingModel.js';
+import { Button, Input } from '../ui';
 
 interface Props {
   lineItem: EstimateLineItem;
   initialMode?: 'profit' | 'price';
   editServiceUsage?: boolean;
+  estimatedVisits?: number;
   title?: string;
   saveLabel?: string;
   onChange: (lineItem: EstimateLineItem) => void;
   onClose: () => void;
 }
 
-export default function EstimateLinePricingEditor({ lineItem, initialMode = 'profit', editServiceUsage = false, title, saveLabel, onChange, onClose }: Props) {
+export default function EstimateLinePricingEditor({ lineItem, initialMode = 'profit', editServiceUsage = false, estimatedVisits = 0, title, saveLabel, onChange, onClose }: Props) {
   const breakeven = lineItem.recoveredCostPerUnit ?? lineItem.breakevenRate ?? lineItem.unitCost;
   const [quantity, setQuantity] = useState(lineItem.quantity);
   const [costScope, setCostScope] = useState<ServiceCostScope>('costScope' in lineItem && lineItem.costScope === 'service_period' ? 'service_period' : 'per_visit');
   const [targetMarginPct, setTargetMarginPct] = useState(lineItem.estimateTargetMarginPct ?? lineItem.targetMarginPct ?? 0);
   const [customSellPrice, setCustomSellPrice] = useState<number | null>(lineItem.estimateCustomSellPrice ?? null);
-  const pricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice });
+  const calculatedPricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice: null });
+  const normalizedCustomSellPrice = customSellPrice == null ? null : normalizeEstimateCustomSellPrice(customSellPrice, calculatedPricing.calculatedSellPrice);
+  const pricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice: normalizedCustomSellPrice });
+  const usage = calculateServiceResourceUsage({ ...lineItem, quantity, costScope }, estimatedVisits);
   const savePricing = () => {
     onChange(applyEstimateLineSnapshotPricing(lineItem, {
       targetMarginPct,
-      customSellPrice,
+      customSellPrice: normalizedCustomSellPrice,
       quantity,
       ...(editServiceUsage ? { costScope } : {}),
     }));
@@ -41,19 +46,19 @@ export default function EstimateLinePricingEditor({ lineItem, initialMode = 'pro
         <button type="button" title="Close pricing editor" onClick={onClose} className="rounded-md p-2 text-gray-400 hover:bg-brand-50 hover:text-gray-700 dark:hover:bg-brand-700 dark:hover:text-brand-100"><X size={18} /></button>
       </div>
       <div className="flex-1 space-y-6 overflow-y-auto p-4">
-        {editServiceUsage ? <div className="grid grid-cols-2 gap-4 border-b border-brand-100 pb-5"><label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Hours / Qty<input aria-label="Hours / Qty" type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(Math.max(0, Number(event.target.value)))} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-right text-base font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label><label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Unit<input aria-label="Unit" value={lineItem.unit} disabled className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-brand-50 px-3 text-base text-brand-700 disabled:opacity-100 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100" /></label><label className="col-span-2 block text-sm font-medium text-gray-700 dark:text-brand-100">Applied<select aria-label="Applied" value={costScope} onChange={(event) => setCostScope(event.target.value as ServiceCostScope)} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"><option value="per_visit">Per visit</option><option value="service_period">Once</option></select></label></div> : null}
-        <div className="grid grid-cols-2 gap-4 border-b border-brand-100 pb-5 text-sm dark:border-brand-600">
+        {editServiceUsage ? <div className="grid grid-cols-2 gap-4 border-b border-brand-100 pb-5"><label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Hours / Qty<input aria-label="Hours / Qty" type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(Math.max(0, Number(event.target.value)))} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-right text-base font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label><label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Unit<input aria-label="Unit" value={lineItem.unit} disabled className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-brand-50 px-3 text-base text-brand-700 disabled:opacity-100 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-100" /></label><label className="col-span-2 block text-sm font-medium text-gray-700 dark:text-brand-100">Applied<select aria-label="Applied" value={costScope} onChange={(event) => setCostScope(event.target.value as ServiceCostScope)} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"><option value="per_visit">Per visit</option><option value="service_period">Once</option></select></label>{usage.costScope === 'per_visit' ? <p className="col-span-2 text-xs text-brand-400" data-testid="service-resource-usage">{formatNumericDisplayValue(usage.quantity)} {lineItem.unit}/visit × {formatNumericDisplayValue(usage.applicationCount)} visits = {formatNumericDisplayValue(usage.totalQuantity)} total {lineItem.unit}</p> : <p className="col-span-2 text-xs text-brand-400" data-testid="service-resource-usage">{formatNumericDisplayValue(usage.totalQuantity)} total {lineItem.unit} for this service commitment</p>}</div> : null}
+        <div className={`${editServiceUsage ? 'grid-cols-3' : 'grid-cols-2'} grid gap-4 border-b border-brand-100 pb-5 text-sm dark:border-brand-600`}>
           <div><p className="text-xs text-gray-500 dark:text-brand-300">Direct Cost</p><p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(lineItem.directCostPerUnit ?? lineItem.unitCost)}/{lineItem.unit}</p></div>
           <div><p className="text-xs text-gray-500 dark:text-brand-300">Breakeven</p><p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(pricing.breakeven)}/{lineItem.unit}</p></div>
           <div><p className="text-xs text-gray-500 dark:text-brand-300">Calculated Price</p><p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(pricing.calculatedSellPrice)}/{lineItem.unit}</p></div>
-          <div><p className="text-xs text-gray-500 dark:text-brand-300">Sell Price</p><p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(pricing.sellPrice)}/{lineItem.unit}</p>{customSellPrice !== null ? <p className="mt-1 text-xs font-medium text-accent-700">Custom price</p> : null}</div>
+          {!editServiceUsage ? <div><p className="text-xs text-gray-500 dark:text-brand-300">Sell Price</p><p className="mt-1 font-semibold tabular-nums text-gray-900 dark:text-brand-50">{formatCurrency(pricing.sellPrice)}/{lineItem.unit}</p>{normalizedCustomSellPrice !== null ? <p className="mt-1 text-xs font-medium text-accent-700">Custom price</p> : null}</div> : null}
         </div>
         {initialMode === 'profit' || editServiceUsage ? <label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Profit margin<input aria-label="Profit margin" type="text" inputMode="decimal" value={formatNumericDisplayValue(targetMarginPct)} onChange={(event) => setTargetMarginPct(parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-right text-base font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>
           : <label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Estimate Price / {lineItem.unit}<input aria-label="Estimate Price" type="text" inputMode="decimal" value={formatNumericDisplayValue(customSellPrice ?? pricing.calculatedSellPrice)} onChange={(event) => setCustomSellPrice(parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-right text-base font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label>}
-        {editServiceUsage ? <label className="block text-sm font-medium text-gray-700 dark:text-brand-100">Sell Price / {lineItem.unit}<input aria-label="Sell Price" type="text" inputMode="decimal" value={formatNumericDisplayValue(customSellPrice ?? pricing.calculatedSellPrice)} onChange={(event) => setCustomSellPrice(parseNumericInputValue(event.target.value))} onFocus={(event) => event.currentTarget.select()} className="mt-2 h-11 w-full rounded-md border border-brand-100 bg-white px-3 text-right text-base font-semibold text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50" /></label> : null}
-        <div className="border-t border-brand-100 pt-5 dark:border-brand-600"><p className="text-xs text-gray-500 dark:text-brand-300">Estimate Price</p><p className="mt-1 text-2xl font-semibold tabular-nums text-gray-950 dark:text-brand-50">{formatCurrency(pricing.sellPrice)}/{lineItem.unit}</p><p className="mt-1 text-xs text-gray-500 dark:text-brand-300">Effective margin {pricing.effectiveMarginPct.toFixed(2)}%</p></div>
+        {editServiceUsage ? <div><Input label={`Sell Price / ${lineItem.unit}`} aria-label="Sell Price" type="number" min={0} currency value={normalizedCustomSellPrice ?? pricing.calculatedSellPrice} onChange={(event) => setCustomSellPrice(normalizeEstimateCustomSellPrice(parseNumericInputValue(event.target.value), pricing.calculatedSellPrice))} /><div className="mt-2 flex items-center justify-between gap-3"><p className="text-xs text-gray-500 dark:text-brand-300">Effective margin {pricing.effectiveMarginPct.toFixed(2)}%</p>{normalizedCustomSellPrice !== null ? <div className="flex items-center gap-3"><span className="text-xs font-medium text-accent-700">Custom price</span><button type="button" className="text-xs font-semibold text-brand-600 hover:text-brand-800 dark:text-brand-200" onClick={() => setCustomSellPrice(null)}>Reset to calculated</button></div> : null}</div></div> : null}
+        {!editServiceUsage ? <div className="border-t border-brand-100 pt-5 dark:border-brand-600"><p className="text-xs text-gray-500 dark:text-brand-300">Estimate Price</p><p className="mt-1 text-2xl font-semibold tabular-nums text-gray-950 dark:text-brand-50">{formatCurrency(pricing.sellPrice)}/{lineItem.unit}</p><p className="mt-1 text-xs text-gray-500 dark:text-brand-300">Effective margin {pricing.effectiveMarginPct.toFixed(2)}%</p></div> : null}
       </div>
-      <div className="flex flex-wrap justify-end gap-2 border-t border-brand-100 p-4 dark:border-brand-600">{(initialMode === 'price' || editServiceUsage) && customSellPrice !== null ? <Button variant="secondary" onClick={() => setCustomSellPrice(null)}>Reset to Calculated Price</Button> : null}<Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={savePricing}>{saveLabel ?? (initialMode === 'price' ? 'Save Price' : 'Save Profit')}</Button></div>
+      <div className="flex flex-wrap justify-end gap-2 border-t border-brand-100 p-4 dark:border-brand-600">{initialMode === 'price' && !editServiceUsage && customSellPrice !== null ? <Button variant="secondary" onClick={() => setCustomSellPrice(null)}>Reset to Calculated Price</Button> : null}<Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={savePricing}>{saveLabel ?? (initialMode === 'price' ? 'Save Price' : 'Save Profit')}</Button></div>
     </aside>
   </div>;
 }

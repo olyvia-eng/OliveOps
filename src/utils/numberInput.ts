@@ -18,6 +18,11 @@ export function formatNumericDisplayValue(value: number | string | null | undefi
   return withThousandsSeparators(normalizeNumericInput(String(value ?? '')));
 }
 
+export function formatCurrencyInputValue(value: number | string | null | undefined) {
+  const numericValue = Number(normalizeNumericInput(String(value ?? '')));
+  return Number.isFinite(numericValue) ? withThousandsSeparators(numericValue.toFixed(2)) : '';
+}
+
 export function parseNumericInputValue(value: string) {
   const numericValue = Number(normalizeNumericInput(value));
   return Number.isFinite(numericValue) ? numericValue : 0;

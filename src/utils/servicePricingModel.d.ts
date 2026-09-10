@@ -4,6 +4,7 @@ export interface ServiceEstimateTotals { serviceEconomics: Array<{ service: Esti
 export function roundServiceMoney(value: unknown): number;
 export function formatServiceFrequency(service: Partial<EstimateService>): string;
 export function resolveServiceEstimatedVisits(service: Partial<EstimateService>): number;
+export function calculateServiceResourceUsage(lineItem: Partial<ServiceEstimateLineItem>, estimatedVisits: number): { quantity: number; costScope: 'per_visit' | 'service_period'; applicationCount: number; totalQuantity: number };
 export function calculateServiceLineEconomics(lineItem: Partial<ServiceEstimateLineItem>): { costScope: 'per_visit' | 'service_period'; directCost: number; overhead: number; loadedCost: number; recommendedSell: number; effectiveSell: number };
 export function calculateServiceEconomics(service: Partial<EstimateService>): ServiceEconomics;
 export function calculateServiceEstimateTotals(services: EstimateService[] | undefined, taxRate?: number): ServiceEstimateTotals;
