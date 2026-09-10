@@ -17,6 +17,16 @@ export interface EstimateSnapshotPricing {
 
 export function calculateEstimateSnapshotPricing(input: EstimateSnapshotPricingInput): EstimateSnapshotPricing;
 
+export function applyEstimateLineSnapshotPricing<T extends EstimateLineItem>(
+  lineItem: T,
+  input?: {
+    targetMarginPct?: number;
+    customSellPrice?: number | null;
+    quantity?: number;
+    costScope?: 'per_visit' | 'service_period';
+  },
+): T;
+
 export function estimateLineWorkers(item: Partial<EstimateLineItem>): number;
 
 export function estimateLineEffectiveQuantity(item: Partial<EstimateLineItem>): number;

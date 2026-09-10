@@ -19,6 +19,29 @@ export function calculateEstimateSnapshotPricing(input) {
   return { breakeven, targetMarginPct, calculatedSellPrice, customSellPrice, sellPrice, effectiveMarginPct };
 }
 
+export function applyEstimateLineSnapshotPricing(lineItem, { targetMarginPct, customSellPrice, quantity = lineItem.quantity, costScope = lineItem.costScope } = {}) {
+  const breakeven = lineItem.recoveredCostPerUnit ?? lineItem.breakevenRate ?? lineItem.unitCost;
+  const pricing = calculateEstimateSnapshotPricing({ breakeven, targetMarginPct, customSellPrice });
+  const nextLineItem = {
+    ...lineItem,
+    quantity: Math.max(0, finiteNumber(quantity)),
+    ...(costScope === 'per_visit' || costScope === 'service_period' ? { costScope } : {}),
+    pricingReadiness: 'priced',
+    estimateTargetMarginPct: pricing.targetMarginPct,
+    calculatedRateAtEstimate: pricing.calculatedSellPrice,
+    estimateRateAtEstimate: pricing.sellPrice,
+    estimateCustomSellPrice: pricing.customSellPrice,
+    sellPrice: pricing.sellPrice,
+  };
+  const effectiveQuantity = estimateLineEffectiveQuantity(nextLineItem);
+  nextLineItem.total = effectiveQuantity * pricing.sellPrice;
+  if (lineItem.category === 'equipment') {
+    nextLineItem.chargeOutRateAtEstimate = pricing.sellPrice;
+    nextLineItem.estimatedSell = effectiveQuantity * pricing.sellPrice;
+  }
+  return nextLineItem;
+}
+
 export function reorderEstimateLineItemsWithinCategory(lineItems, category, orderedIds) {
   const categoryItems = lineItems.filter((item) => item.category === category);
   const categoryIds = new Set(categoryItems.map((item) => item.id));

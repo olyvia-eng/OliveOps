@@ -20,6 +20,27 @@ test('calculates all resource categories per visit and counts service-period cos
   assert.equal(legacy.effectivePricePerVisit, 150);
 });
 
+test('quantity and estimated visits immediately recalculate loaded cost and recommended contract', () => {
+  const initial = service('contract', { estimatedVisits: 5, lineItems: [line('labour', 1, 30, 45, 75)] });
+  const increasedHours = { ...initial, lineItems: [{ ...initial.lineItems[0], quantity: 1.5, total: 112.5 }] };
+  assert.equal(calculateServiceEconomics(initial).estimatedCost, 225);
+  assert.equal(calculateServiceEconomics(initial).recommendedContractValue, 375);
+  assert.equal(calculateServiceEconomics(increasedHours).estimatedCost, 337.5);
+  assert.equal(calculateServiceEconomics(increasedHours).recommendedContractValue, 562.5);
+  assert.equal(calculateServiceEconomics({ ...increasedHours, estimatedVisits: 8 }).estimatedCost, 540);
+  assert.equal(calculateServiceEconomics({ ...increasedHours, estimatedVisits: 8 }).recommendedContractValue, 900);
+});
+
+test('Applied Once resources do not multiply while per-visit materials and subcontractors do', () => {
+  const result = calculateServiceEconomics(service('contract', { estimatedVisits: 4, lineItems: [
+    { ...line('material', 3, 2, 2.5, 4), unit: 'bag' },
+    { ...line('subcontractor', 2, 100, 120, 160), unit: 'visit' },
+    { ...line('equipment', 1.5, 20, 30, 50, 'service_period'), unit: 'hr' },
+  ] }));
+  assert.equal(result.estimatedCost, 1035);
+  assert.equal(result.recommendedContractValue, 1403);
+});
+
 test('contract override is fixed while per-visit and T&M revenue remain projected', () => {
   const contract = service('contract', { contractPricing: { customContractPrice: 5200 } });
   const perVisit = service('per_visit', { estimatedVisits: 10, perVisitPricing: { customPricePerVisit: 260, oneTimeCharge: 200 } });

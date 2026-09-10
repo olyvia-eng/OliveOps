@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
+import { applyEstimateLineSnapshotPricing, calculateEstimateSnapshotPricing, estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
 import { applyEstimateLineItemCostOverride, reorderEstimateLineItemsWithinCategory } from '../src/utils/estimatePricingModel.js';
 
 test('Estimate snapshot pricing uses gross margin and guards the divisor', () => {
@@ -20,6 +20,39 @@ test('custom Estimate sell price is authoritative and reset restores calculated 
   const reset = calculateEstimateSnapshotPricing({ breakeven: 80, targetMarginPct: 20, customSellPrice: null });
   assert.equal(reset.sellPrice, 100);
   assert.equal(reset.customSellPrice, null);
+});
+
+test('Service resource snapshot updates quantity, Applied, margin, and custom price without changing source pricing', () => {
+  const source = line('service-equipment', 'equipment', 0, {
+    quantity: 1,
+    unit: 'hr',
+    costScope: 'per_visit',
+    sourceBudgetId: 'budget-a',
+    sourceBudgetItemId: 'equipment-a',
+    pricingVersion: 4,
+  });
+  const custom = applyEstimateLineSnapshotPricing(source, { quantity: 1.5, costScope: 'service_period', targetMarginPct: 20, customSellPrice: 90 });
+  assert.equal(custom.quantity, 1.5);
+  assert.equal(custom.costScope, 'service_period');
+  assert.equal(custom.calculatedRateAtEstimate, 68.75);
+  assert.equal(custom.sellPrice, 90);
+  assert.equal(custom.estimateCustomSellPrice, 90);
+  assert.equal(custom.total, 135);
+  assert.equal(custom.chargeOutRateAtEstimate, 90);
+  assert.equal(custom.estimatedSell, 135);
+  assert.equal(custom.sourceBudgetId, 'budget-a');
+  assert.equal(custom.sourceBudgetItemId, 'equipment-a');
+  assert.equal(custom.pricingVersion, 4);
+  assert.equal(source.quantity, 1, 'persisted source snapshot must not be mutated');
+});
+
+test('changing margin recalculates normal sell price and reset removes a Service custom price', () => {
+  const source = line('service-material', 'material', 0, { estimateCustomSellPrice: 120 });
+  const margin = applyEstimateLineSnapshotPricing(source, { targetMarginPct: 45, customSellPrice: null, quantity: 3, costScope: 'per_visit' });
+  assert.ok(Math.abs(margin.calculatedRateAtEstimate - 100) < 0.000001);
+  assert.ok(Math.abs(margin.sellPrice - 100) < 0.000001);
+  assert.equal(margin.estimateCustomSellPrice, null);
+  assert.ok(Math.abs(margin.total - 300) < 0.000001);
 });
 
 const line = (id, category, sortOrder, overrides = {}) => ({
