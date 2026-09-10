@@ -120,7 +120,7 @@ export default function ServiceEstimateWorkspacePage() {
   };
   const downloadProposal = async () => {
     if (!(await save())) return;
-    try { const projection = await fetchEstimateProposal(estimate.id); createEstimateProposalDocument(projection).save(proposalPdfFileName(projection)); } catch { emitAppToast({ tone: 'error', message: 'Proposal PDF could not be created.' }); }
+    try { const projection = await fetchEstimateProposal(estimate.id, latestProposalVersion?.versionNumber ?? estimate.proposalVersionNumber); createEstimateProposalDocument(projection).save(proposalPdfFileName(projection)); } catch { emitAppToast({ tone: 'error', message: 'Proposal PDF could not be created.' }); }
   };
   const convert = async () => {
     setConverting(true);

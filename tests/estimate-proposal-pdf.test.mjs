@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 import { buildEstimateProposalProjection } from '../src/utils/estimateProposalModel.js';
+import { buildProposalPresentation } from '../src/utils/proposalPresentationModel.js';
 
 const tempDir = await mkdtemp(join(tmpdir(), 'oliveops-proposal-pdf-'));
 const bundlePath = join(tempDir, 'proposal-pdf.mjs');
@@ -50,14 +51,14 @@ test('proposal PDF renders the compact customer-safe layout in the required orde
   const output = pdfText(pdf);
   const renderedText = pdfRenderedText(output);
 
-  for (const visible of ['PROPOSAL', 'PREPARED FOR', 'PROPERTY', 'ISSUE DATE', 'VALID UNTIL', 'INTRODUCTION', 'WORK AREAS', 'Scope of Work', 'PAYMENT SCHEDULE', 'Deposit', 'Final Payment', 'TOTAL', 'ACCEPTANCE', 'Green Earth Contracting', 'PROP-2026-0042', '20 Project Road', 'Sep 1, 2026', 'Oct 1, 2026']) {
-    assert.match(output, new RegExp(visible));
+  for (const visible of ['PROPOSAL', 'PREPARED FOR', 'PROPERTY', 'ISSUE DATE', 'VALID UNTIL', 'Introduction', 'Work Areas', 'SCOPE OF WORK', 'Payment Schedule', 'Deposit', 'Final Payment', 'TOTAL', 'Acceptance', 'Green Earth Contracting', 'PROP-2026-0042', '20 Project Road', 'September 1, 2026', 'October 1, 2026']) {
+    assert.match(renderedText, new RegExp(visible), `missing customer-visible PDF text: ${visible}`);
   }
   assert.doesNotMatch(output, /DRAFT/);
-  assert.ok(renderedText.indexOf('INTRODUCTION') < renderedText.indexOf('WORK AREAS'));
-  assert.ok(renderedText.indexOf('WORK AREAS') < renderedText.indexOf('PAYMENT SCHEDULE'));
-  assert.ok(renderedText.indexOf('PAYMENT SCHEDULE') < renderedText.indexOf('Tax (13%)'));
+  assert.ok(renderedText.indexOf('Introduction') < renderedText.indexOf('Work Areas'));
+  assert.ok(renderedText.indexOf('Work Areas') < renderedText.indexOf('Tax (13%)'));
   assert.ok(renderedText.indexOf('Tax (13%)') < renderedText.indexOf('TOTAL'));
+  assert.ok(renderedText.indexOf('TOTAL') < renderedText.indexOf('Payment Schedule'));
   for (const hidden of ['unitCost', 'sellPrice', 'overheadRecovery', 'estimatedProfit', 'margin', 'John Smith', 'Mike White', 'Bobcat e50', 'HPB Aggregate', 'Trade Partner Inc.', 'Equipment catalog record', 'Employee record', 'Generated:']) {
     assert.doesNotMatch(output, new RegExp(hidden, 'i'));
   }
@@ -79,7 +80,7 @@ test('accepted PDF renders the immutable customer signature, accepted name, and 
     signatureDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     acceptanceStatementVersion: 1,
   } }));
-  assert.match(output, /ACCEPTANCE/);
+  assert.match(output, /Acceptance/);
   assert.match(output, /ACCEPTED/);
   assert.match(output, /Barbara Bartholomew/);
   assert.match(output, /September 8, 2026/);
@@ -101,12 +102,11 @@ test('multiple Work Areas render each sell price without exposing an internal to
   assert.match(output, /\$456\.52/);
 });
 
-test('Terms retain the validity statement when no custom terms are configured', () => {
+test('PDF does not inject terms that are absent from the canonical Proposal', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business: { ...business, proposalTerms: '' } });
   const output = pdfText(createEstimateProposalDocument(projection));
-  assert.match(output, /\(TERMS\)/);
-  assert.match(output, /This proposal is valid until October 1, 2026\./);
-  assert.match(output, /ACCEPTANCE/);
+  assert.doesNotMatch(output, /Terms & Conditions|This proposal is valid until/);
+  assert.match(output, /Acceptance/);
 });
 
 test('long proposal paginates without clipping and prints proposal/page footers on every page', () => {
@@ -132,8 +132,7 @@ test('optional sections are omitted when empty and a non-taxable proposal preser
 
   assert.match(output, /Tax \\\(0%\\\)/);
   assert.match(output, /\$0\.00/);
-  assert.doesNotMatch(output, /\(NOTES\)|\(EXCLUSIONS\)/);
-  assert.match(output, /\(TERMS\)/);
+  assert.doesNotMatch(output, /\(Notes\)|\(Exclusions\)|Terms & Conditions/);
 });
 
 test('legacy proposal renders the safe scope fallback without resource names', () => {
@@ -207,6 +206,24 @@ test('Service proposal PDF distinguishes contracted and projected pricing', () =
   ] };
   const output = pdfText(createEstimateProposalDocument(buildEstimateProposalProjection({ estimate: source, customer, business })));
 
-  for (const visible of ['SERVICES', 'Seasonal Lawn Care', 'Every week', 'Spring Cleanup', '$250.00 / visit', 'One-time charge: $50.00', 'Storm Response', 'Time & Material', 'Contracted services', 'Projected per-visit services', 'Projected time & material', 'Estimated Tax', 'ESTIMATED TOTAL']) assert.match(output, new RegExp(visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const visible of ['Services', 'Seasonal Lawn Care', 'Every week', 'Spring Cleanup', '$250.00 / visit', 'One-time charge: $50.00', 'Storm Response', 'Time & Material', 'Contracted services', 'Projected per-visit services', 'Projected time & material', 'Estimated Tax', 'ESTIMATED TOTAL']) assert.match(output, new RegExp(visible.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(output, /unitCost|recoveredCost|estimatedProfit|marginPercent/);
+});
+
+test('PDF customer-visible values match the canonical secure Proposal presentation', () => {
+  const projection = buildEstimateProposalProjection({ estimate: estimate(2, 2), customer, business });
+  const presentation = buildProposalPresentation(projection);
+  const renderedText = pdfRenderedText(pdfText(createEstimateProposalDocument(projection)));
+  const visibleValues = [
+    presentation.document.number,
+    presentation.document.title,
+    ...presentation.information.flatMap((item) => [item.value, ...(item.details ?? [])]),
+    ...presentation.workAreas.flatMap((area) => [area.name, area.displayPrice, ...area.scopeLines]),
+    ...presentation.totals.rows.flatMap((row) => [row.label, row.displayValue]),
+    presentation.totals.displayValue,
+    ...presentation.paymentSchedule.flatMap((payment) => [payment.label, payment.due, payment.displayAmount]),
+    ...presentation.sections.flatMap((section) => [section.label, ...section.blocks.map((block) => block.text)]),
+  ].filter(Boolean);
+
+  for (const value of visibleValues) assert.match(renderedText, new RegExp(String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });

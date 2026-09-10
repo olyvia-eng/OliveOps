@@ -11,4 +11,4 @@ export interface ProposalPdfAcceptance {
 
 export const createEstimateProposalDocument = (projection: EstimateProposalProjection, options?: { acceptance?: ProposalPdfAcceptance }): jsPDF => createDocument(projection, options);
 export const proposalPdfFileName = (projection: EstimateProposalProjection, accepted = false): string => buildFileName(projection, accepted);
-export const fetchEstimateProposal = (estimateId: string): Promise<EstimateProposalProjection> => fetchProposal(estimateId);
+export const fetchEstimateProposal = (estimateId: string, versionNumber?: number): Promise<EstimateProposalProjection> => fetchProposal(estimateId, versionNumber);

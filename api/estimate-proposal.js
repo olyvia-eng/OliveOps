@@ -1,12 +1,13 @@
 import { getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, getFileForBusiness } from './_lib/authRepo.js';
 import { requireSession } from './_lib/session.js';
 import { readStoredFile } from './_lib/storage.js';
+import { getProposalVersionForBusiness } from './_lib/proposalRepo.js';
 import { buildEstimateProposalProjection } from '../src/utils/estimateProposalModel.js';
 
 const READ_ROLES = ['owner', 'admin', 'foreman'];
 
 export function createEstimateProposalHandler(overrides = {}) {
-  const deps = { requireSession, getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, getFileForBusiness, readStoredFile, ...overrides };
+  const deps = { requireSession, getBusinessProfile, getCustomerForBusiness, getEstimateForBusiness, getFileForBusiness, readStoredFile, getProposalVersionForBusiness, ...overrides };
 
   return async function estimateProposalHandler(req, res) {
     const session = await deps.requireSession(req, res, READ_ROLES, 'estimates');
@@ -21,6 +22,14 @@ export function createEstimateProposalHandler(overrides = {}) {
 
     const estimate = await deps.getEstimateForBusiness(session.businessId, estimateId);
     if (!estimate) return res.status(404).json({ ok: false, error: 'Estimate not found.' });
+
+    if (req.query?.versionNumber !== undefined) {
+      const versionNumber = Number(req.query.versionNumber);
+      if (!Number.isInteger(versionNumber) || versionNumber < 1) return res.status(400).json({ ok: false, error: 'Proposal version is invalid.' });
+      const version = await deps.getProposalVersionForBusiness(session.businessId, estimateId, versionNumber);
+      if (!version?.snapshot) return res.status(404).json({ ok: false, error: 'Proposal version not found.' });
+      return res.status(200).json({ ok: true, proposal: version.snapshot });
+    }
 
     const [customer, business] = await Promise.all([
       deps.getCustomerForBusiness(session.businessId, estimate.customerId),

@@ -327,7 +327,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
 
   const createProposalPdf = async (estimateId: string) => {
     try {
-      const proposal = await fetchEstimateProposal(estimateId);
+      const proposal = await fetchEstimateProposal(estimateId, latestProposalVersion?.versionNumber ?? estimate?.proposalVersionNumber);
       const fileName = proposalPdfFileName(proposal);
       createEstimateProposalDocument(proposal).save(fileName);
       emitAppToast({ tone: 'success', message: `Proposal PDF generated: ${fileName}` });

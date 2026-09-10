@@ -4,17 +4,32 @@ import { readFileSync } from 'node:fs';
 
 const listPage = readFileSync('src/pages/estimates/EstimatesPage.tsx', 'utf8');
 const workspace = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
+const serviceWorkspace = readFileSync('src/pages/estimates/ServiceEstimateWorkspacePage.tsx', 'utf8');
+const publicProposal = readFileSync('src/pages/public/PublicProposalPage.tsx', 'utf8');
 const renderer = readFileSync('src/utils/estimateProposalPdf.js', 'utf8');
 const proposalBrand = readFileSync('src/utils/proposalBrand.js', 'utf8');
 
-test('both Estimate proposal actions use the shared ID-only authorized PDF path', () => {
+test('Estimate proposal actions request immutable versions when available', () => {
   for (const source of [listPage, workspace]) {
-    assert.match(source, /fetchEstimateProposal\(estimateId\)/);
+    assert.match(source, /fetchEstimateProposal\(estimateId, (?:proposalVersionNumber|latestProposalVersion\?\.versionNumber \?\? estimate\?\.proposalVersionNumber)\)/);
     assert.match(source, /createEstimateProposalDocument\(proposal\)\.save\(fileName\)/);
     assert.doesNotMatch(source, /new jsPDF|autoTable|Category.*Description.*Qty.*Unit.*Rate.*Line Total/);
   }
+  assert.match(serviceWorkspace, /fetchEstimateProposal\(estimate\.id, latestProposalVersion\?\.versionNumber \?\? estimate\.proposalVersionNumber\)/);
+  assert.match(renderer, /versionNumber=\$\{versionNumber\}/);
   assert.match(renderer, /fetch\(`\/api\/estimate-proposal\?estimateId=/);
   assert.doesNotMatch(renderer, /unitCost|sellPrice|estimatedCost|profit|margin|overhead|category/);
+});
+
+test('secure web and PDF renderers consume the same canonical presentation model', () => {
+  assert.match(publicProposal, /buildProposalPresentation\(proposal\.snapshot\)/);
+  assert.match(renderer, /buildProposalPresentation\(projection\)/);
+  assert.match(publicProposal, /presentation\.workAreas/);
+  assert.match(renderer, /presentation\.workAreas/);
+  assert.match(publicProposal, /presentation\.paymentSchedule/);
+  assert.match(renderer, /presentation\.paymentSchedule/);
+  assert.match(publicProposal, /presentation\.sections/);
+  assert.match(renderer, /presentation\.sections/);
 });
 
 test('proposal renderer has guarded pagination, compact continuation headers, and per-page footer numbering', () => {

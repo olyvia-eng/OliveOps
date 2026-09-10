@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { PROPOSAL_BRAND } from './proposalBrand.js';
+import { buildProposalPresentation, proposalDisplayDate } from './proposalPresentationModel.js';
 
 const PAGE_WIDTH = 612;
 const MARGIN = 42;
@@ -15,17 +16,15 @@ const cleanInline = (value) => Array.from(String(value ?? '')).filter((character
   const codePoint = character.codePointAt(0) ?? 0;
   return codePoint === 9 || codePoint === 10 || codePoint === 13 || (codePoint >= 32 && codePoint !== 127);
 }).join('');
-const currency = (value) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value);
-const shortDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
-const longDate = (value) => value ? new Date(value).toLocaleDateString('en-CA', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
 
 export function proposalPdfFileName(projection, accepted = false) {
   const safe = (value) => clean(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return [accepted ? 'accepted-proposal' : 'proposal', safe(projection.proposal.number), safe(projection.proposal.title)].filter(Boolean).join('-') + '.pdf';
 }
 
-export async function fetchEstimateProposal(estimateId) {
-  const response = await fetch(`/api/estimate-proposal?estimateId=${encodeURIComponent(estimateId)}`, { credentials: 'include' });
+export async function fetchEstimateProposal(estimateId, versionNumber) {
+  const versionQuery = Number.isInteger(versionNumber) && versionNumber > 0 ? `&versionNumber=${versionNumber}` : '';
+  const response = await fetch(`/api/estimate-proposal?estimateId=${encodeURIComponent(estimateId)}${versionQuery}`, { credentials: 'include' });
   const payload = await response.json();
   if (!response.ok || !payload.ok || !payload.proposal) throw new Error(payload.error || 'Proposal could not be generated.');
   return payload.proposal;
@@ -33,7 +32,8 @@ export async function fetchEstimateProposal(estimateId) {
 
 export function createEstimateProposalDocument(projection, options = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: false });
-  const companyName = clean(projection.company.name || 'Contractor');
+  const presentation = buildProposalPresentation(projection);
+  const companyName = clean(presentation.company.name);
   const customerDocumentLabel = options.acceptance ? 'ACCEPTED' : 'PROPOSAL';
   let cursorY = 0;
 
@@ -49,16 +49,13 @@ export function createEstimateProposalDocument(projection, options = {}) {
     doc.line(left, y, right, y);
   };
   const continuationHeader = () => {
-    doc.setFillColor(...WHITE);
-    doc.rect(0, 0, PAGE_WIDTH, 50, 'F');
-    setText(10, INK, 'bold');
+    doc.setFillColor(...OLIVE_DEEP);
+    doc.rect(0, 0, PAGE_WIDTH, 54, 'F');
+    setText(10, WHITE, 'bold');
     doc.text(companyName, MARGIN, 30, { maxWidth: 300 });
-    setText(9, OLIVE_DEEP, 'bold');
-    doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 30, { align: 'right' });
-    doc.setDrawColor(...OLIVE);
-    doc.setLineWidth(1.4);
-    doc.line(MARGIN, 49, PAGE_WIDTH - MARGIN, 49);
-    cursorY = 68;
+    setText(9, WHITE, 'bold');
+    doc.text(clean(presentation.document.number), PAGE_WIDTH - MARGIN, 30, { align: 'right' });
+    cursorY = 72;
   };
   const addPage = () => {
     doc.addPage();
@@ -68,13 +65,13 @@ export function createEstimateProposalDocument(projection, options = {}) {
     if (cursorY + height > CONTENT_BOTTOM) addPage();
   };
   const heading = (value, followingHeight = 0) => {
-    ensureSpace(32 + followingHeight);
-    setText(10, OLIVE_DEEP, 'bold');
-    doc.text(clean(value).toUpperCase(), MARGIN, cursorY);
+    ensureSpace(38 + followingHeight);
+    setText(15, OLIVE_DEEP, 'bold');
+    doc.text(clean(value), MARGIN, cursorY);
     doc.setDrawColor(...OLIVE);
-    doc.setLineWidth(1.4);
-    doc.line(MARGIN, cursorY + 8, PAGE_WIDTH - MARGIN, cursorY + 8);
-    cursorY += 25;
+    doc.setLineWidth(1.6);
+    doc.line(MARGIN, cursorY + 9, PAGE_WIDTH - MARGIN, cursorY + 9);
+    cursorY += 29;
   };
   const formattedText = (value) => {
     for (const rawLine of clean(value).split(/\r\n?|\n/)) {
@@ -161,89 +158,92 @@ export function createEstimateProposalDocument(projection, options = {}) {
     };
     (document?.content ?? []).forEach((node) => renderBlock(node));
   };
+  const richTextHeight = (document, width) => {
+    let height = 0;
+    const measure = (node) => {
+      if (node.type === 'paragraph') {
+        const value = (node.content ?? []).map((item) => item.type === 'hardBreak' ? '\n' : item.text ?? '').join('');
+        height += value ? value.split('\n').reduce((sum, line) => sum + Math.max(1, lines(line, width).length) * 13, 0) + 4 : 8;
+      } else if (node.type === 'bulletList' || node.type === 'orderedList') {
+        (node.content ?? []).forEach((item) => (item.content ?? []).forEach(measure));
+      }
+    };
+    (document?.content ?? []).forEach(measure);
+    return height;
+  };
 
-  doc.setFillColor(...WHITE);
-  doc.setDrawColor(...OLIVE_BORDER);
-  doc.roundedRect(24, 18, PAGE_WIDTH - 48, 92, 8, 8, 'FD');
+  doc.setFillColor(...OLIVE_DEEP);
+  doc.roundedRect(24, 18, PAGE_WIDTH - 48, 94, 8, 8, 'F');
   let logoRendered = false;
-  if (projection.company.logoDataUrl) {
+  if (presentation.company.logoDataUrl) {
     try {
-      const format = projection.company.logoDataUrl.toLowerCase().startsWith('data:image/png') ? 'PNG' : 'JPEG';
-      const properties = doc.getImageProperties(projection.company.logoDataUrl);
+      const format = presentation.company.logoDataUrl.toLowerCase().startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      const properties = doc.getImageProperties(presentation.company.logoDataUrl);
       const scale = Math.min(66 / properties.width, 56 / properties.height);
       const logoWidth = properties.width * scale;
       const logoHeight = properties.height * scale;
       doc.setFillColor(...WHITE);
-      doc.roundedRect(MARGIN, 30, 70, 56, 6, 6, 'F');
-      doc.addImage(projection.company.logoDataUrl, format, MARGIN + (70 - logoWidth) / 2, 30 + (56 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
+      doc.roundedRect(MARGIN, 37, 70, 56, 6, 6, 'F');
+      doc.addImage(presentation.company.logoDataUrl, format, MARGIN + (70 - logoWidth) / 2, 37 + (56 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
       logoRendered = true;
     } catch { /* Invalid snapshot logos fall back to the company name. */ }
   }
   const companyX = logoRendered ? MARGIN + 80 : MARGIN;
-  setText(15, INK, 'bold');
-  doc.text(companyName, companyX, 38, { maxWidth: 280 });
-  setText(8.5, MUTED);
-  const companyDetails = [projection.company.address, [projection.company.phone, projection.company.email].map(clean).filter(Boolean).join('  |  '), projection.company.website].map(clean).filter(Boolean);
-  companyDetails.slice(0, 3).forEach((detail, index) => doc.text(detail, companyX, 54 + index * 12, { maxWidth: 290 }));
-  setText(25, OLIVE_DEEP, 'bold');
-  doc.text('PROPOSAL', PAGE_WIDTH - MARGIN, 43, { align: 'right' });
-  setText(10, OLIVE_DEEP, 'bold');
-  doc.text(clean(projection.proposal.number), PAGE_WIDTH - MARGIN, 63, { align: 'right' });
+  setText(15, WHITE, 'bold');
+  doc.text(companyName, companyX, 45, { maxWidth: 280 });
+  setText(8.5, WHITE);
+  presentation.company.details.slice(0, 3).forEach((detail, index) => doc.text(clean(detail), companyX, 61 + index * 12, { maxWidth: 290 }));
+  setText(25, WHITE, 'bold');
+  doc.text(presentation.document.label.toUpperCase(), PAGE_WIDTH - MARGIN, 50, { align: 'right' });
+  setText(10, WHITE, 'bold');
+  doc.text(clean(presentation.document.number), PAGE_WIDTH - MARGIN, 70, { align: 'right' });
 
+  const information = presentation.information.map((item) => [item.label.toUpperCase(), [item.value, ...(item.details ?? [])].filter(Boolean).join('\n')]);
+  const columnWidths = [138, 206, 92, 92];
+  const informationLines = information.map(([, value], index) => lines(value || '-', columnWidths[index] - 10));
+  const informationPanelHeight = Math.max(66, 44 + Math.max(...informationLines.map((value) => value.length)) * 11);
   doc.setFillColor(...OLIVE_TINT);
   doc.setDrawColor(...OLIVE_BORDER);
   doc.setLineWidth(0.8);
-  doc.roundedRect(MARGIN, 122, CONTENT_WIDTH, 66, 8, 8, 'FD');
-  const information = [
-    ['PREPARED FOR', [projection.customer.displayName, projection.customer.contactName].map(clean).filter(Boolean).join('\n')],
-    ['PROPERTY', projection.proposal.projectAddress || projection.proposal.title],
-    ['ISSUE DATE', shortDate(projection.proposal.date)],
-    ['VALID UNTIL', shortDate(projection.proposal.validUntil)],
-  ];
-  const columnWidths = [138, 206, 92, 92];
+  doc.roundedRect(MARGIN, 122, CONTENT_WIDTH, informationPanelHeight, 8, 8, 'FD');
   let columnX = MARGIN;
-  information.forEach(([label, value], index) => {
+  information.forEach(([label], index) => {
     setText(7.5, MUTED, 'bold');
     doc.text(label, columnX, 141);
     setText(9, INK, 'bold');
-    doc.text(lines(value || '-', columnWidths[index] - 10).slice(0, 3), columnX, 158);
+    doc.text(informationLines[index], columnX, 158);
     columnX += columnWidths[index];
   });
-  cursorY = 214;
+  cursorY = 122 + informationPanelHeight + 26;
 
-  if (clean(projection.proposal.introduction)) {
+  if (clean(presentation.introduction)) {
     heading('Introduction', 17);
-    formattedText(projection.proposal.introduction);
+    formattedText(presentation.introduction);
     cursorY += 8;
   }
 
-  if (projection.workType === 'service') {
+  if (presentation.workType === 'service') {
     heading('Services', 57);
-    for (const service of projection.services ?? []) {
+    for (const service of presentation.services) {
       ensureSpace(88);
       setText(12, OLIVE_DEEP, 'bold');
       doc.text(lines(service.name, CONTENT_WIDTH - 170), MARGIN, cursorY);
-      const price = service.billingType === 'contract'
-        ? currency(service.contractPrice)
-        : service.billingType === 'per_visit'
-          ? `${currency(service.effectivePricePerVisit)} / visit`
-          : 'Time & Material';
-      doc.text(price, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+      doc.text(service.displayPrice, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
       cursorY += 18;
       setText(8.5, MUTED, 'italic');
-      doc.text(`${service.scheduleLabel}  |  ${service.estimatedVisits} estimated visit${service.estimatedVisits === 1 ? '' : 's'}`, MARGIN, cursorY);
+      doc.text(service.scheduleSummary.replace(' · ', '  |  '), MARGIN, cursorY);
       cursorY += 18;
       if (clean(service.description)) formattedText(service.description);
       if (service.billingType === 'per_visit' && service.oneTimeCharge > 0) {
         setText(9, MUTED);
-        doc.text(`One-time charge: ${currency(service.oneTimeCharge)}`, MARGIN, cursorY);
+        doc.text(`One-time charge: ${service.displayOneTimeCharge}`, MARGIN, cursorY);
         cursorY += 16;
       }
       if (service.billingType === 'time_and_material') {
         for (const rate of service.customerRates) {
           ensureSpace(15);
           setText(9, MUTED);
-          doc.text(`${clean(rate.name) || 'Service rate'}: ${currency(rate.sellRate)} / ${clean(rate.unit)}`, MARGIN, cursorY);
+          doc.text(`${clean(rate.name) || 'Service rate'}: ${rate.displayRate} / ${clean(rate.unit)}`, MARGIN, cursorY);
           cursorY += 14;
         }
         if (clean(service.timeAndMaterialNotes)) formattedText(service.timeAndMaterialNotes);
@@ -253,42 +253,71 @@ export function createEstimateProposalDocument(projection, options = {}) {
     }
   } else {
     heading('Work Areas', 57);
-    for (const area of projection.workAreas) {
-      const areaName = lines(area.name, CONTENT_WIDTH - 157);
-      ensureSpace(areaName.length * 14 + 58);
-      doc.setDrawColor(...OLIVE_BORDER);
-      doc.setLineWidth(0.8);
-      doc.line(MARGIN, cursorY - 12, PAGE_WIDTH - MARGIN, cursorY - 12);
-      setText(12, OLIVE_DEEP, 'bold');
-      doc.text(areaName, MARGIN, cursorY);
-      doc.text(currency(area.subtotal), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-      cursorY += areaName.length * 14 + 10;
-      setText(9, INK, 'bold');
-      doc.text('Scope of Work', MARGIN, cursorY);
-      cursorY += 17;
+    for (const area of presentation.workAreas) {
+      const cardLeft = MARGIN;
+      const cardWidth = CONTENT_WIDTH;
+      const innerLeft = cardLeft + 16;
+      const innerWidth = cardWidth - 32;
+      const areaName = lines(area.name, innerWidth - 130);
       const scopeDocument = area.scopeRichText ?? {
         type: 'doc',
-        content: (area.scopeLines?.length ? area.scopeLines : ['Scope details to be confirmed.'])
-          .map((scopeLine) => ({ type: 'paragraph', content: [{ type: 'text', text: scopeLine }] })),
+        content: area.scopeLines.map((scopeLine) => ({ type: 'paragraph', content: [{ type: 'text', text: scopeLine }] })),
       };
-      richText(scopeDocument, MARGIN, CONTENT_WIDTH, MUTED);
-      cursorY += 12;
+      const estimatedCardHeight = areaName.length * 14 + richTextHeight(scopeDocument, innerWidth) + 65;
+      ensureSpace(Math.min(estimatedCardHeight, CONTENT_BOTTOM - 72));
+      const cardTop = cursorY - 10;
+      doc.setDrawColor(...OLIVE_BORDER);
+      doc.setLineWidth(0.8);
+      if (estimatedCardHeight < CONTENT_BOTTOM - 72) doc.roundedRect(cardLeft, cardTop, cardWidth, estimatedCardHeight, 8, 8, 'S');
+      setText(12, OLIVE_DEEP, 'bold');
+      doc.text(areaName, innerLeft, cursorY + 8);
+      doc.text(area.displayPrice, PAGE_WIDTH - MARGIN - 16, cursorY + 8, { align: 'right' });
+      cursorY += areaName.length * 14 + 14;
+      setText(8.5, OLIVE_DEEP, 'bold');
+      doc.text('SCOPE OF WORK', innerLeft, cursorY);
+      cursorY += 17;
+      richText(scopeDocument, innerLeft, innerWidth, MUTED);
+      cursorY = Math.max(cursorY + 16, cardTop + estimatedCardHeight + 14);
     }
   }
 
-  if (projection.paymentSchedule?.length) {
-    const firstDueLines = lines(projection.paymentSchedule[0].due, CONTENT_WIDTH - 135);
+  ensureSpace(presentation.totals.rows.length * 16 + 70);
+  const totalsX = PAGE_WIDTH - MARGIN - 260;
+  const totalsPanelHeight = presentation.totals.rows.length * 16 + 52;
+  doc.setFillColor(...OLIVE_TINT);
+  doc.setDrawColor(...OLIVE_BORDER);
+  doc.setLineWidth(0.8);
+  doc.roundedRect(totalsX - 14, cursorY - 17, 274, totalsPanelHeight, 8, 8, 'FD');
+  for (const row of presentation.totals.rows) {
+    setText(9.5, INK);
+    doc.text(row.label, totalsX, cursorY);
+    doc.text(row.displayValue, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+    cursorY += 16;
+  }
+  doc.setDrawColor(...OLIVE);
+  doc.setLineWidth(1.2);
+  doc.line(totalsX, cursorY, PAGE_WIDTH - MARGIN, cursorY);
+  cursorY += 22;
+  setText(13, OLIVE_DEEP, 'bold');
+  doc.text(presentation.totals.label.toUpperCase(), totalsX, cursorY);
+  doc.text(presentation.totals.displayValue, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+  cursorY += 40;
+
+  if (presentation.paymentSchedule.length) {
+    const firstDueLines = lines(presentation.paymentSchedule[0].due, CONTENT_WIDTH - 170);
     heading('Payment Schedule', Math.max(43, firstDueLines.length * 11 + 27));
-    for (const payment of projection.paymentSchedule) {
-      const dueLines = lines(payment.due, CONTENT_WIDTH - 135);
+    for (const payment of presentation.paymentSchedule) {
+      const dueLines = lines(payment.due, CONTENT_WIDTH - 170);
       const rowHeight = Math.max(43, dueLines.length * 11 + 27);
       ensureSpace(rowHeight);
+      setText(9, OLIVE, 'bold');
+      doc.text(`${payment.index}.`, MARGIN, cursorY);
       setText(10, INK, 'bold');
-      doc.text(clean(payment.label), MARGIN, cursorY);
-      doc.text(currency(payment.amount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-      setText(8.5, MUTED, 'italic');
-      doc.text(dueLines, MARGIN, cursorY + 15);
-      if (payment.type === 'percentage') doc.text(`${payment.percentage}%`, PAGE_WIDTH - MARGIN, cursorY + 15, { align: 'right' });
+      doc.text(clean(payment.label), MARGIN + 24, cursorY);
+      doc.text(payment.displayAmount, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
+      setText(8.5, MUTED);
+      doc.text(dueLines, MARGIN + 24, cursorY + 15);
+      if (payment.percentageLabel) doc.text(payment.percentageLabel, PAGE_WIDTH - MARGIN - 100, cursorY + 15, { align: 'right' });
       cursorY += rowHeight - 8;
       divider(cursorY);
       cursorY += 8;
@@ -296,48 +325,22 @@ export function createEstimateProposalDocument(projection, options = {}) {
     cursorY += 3;
   }
 
-  ensureSpace(projection.workType === 'service' ? 120 : 64);
-  const totalsX = PAGE_WIDTH - MARGIN - 260;
-  const totalsPanelHeight = projection.workType === 'service' ? 108 : 67;
-  doc.setFillColor(...OLIVE_TINT);
-  doc.setDrawColor(...OLIVE_BORDER);
-  doc.setLineWidth(0.8);
-  doc.roundedRect(totalsX - 14, cursorY - 17, 274, totalsPanelHeight, 8, 8, 'FD');
-  if (projection.workType === 'service' && projection.servicePricingSummary) {
-    setText(9.5, INK);
-    doc.text('Contracted services', totalsX, cursorY);
-    doc.text(currency(projection.servicePricingSummary.contractedRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-    cursorY += 13;
-    doc.text('Projected per-visit services', totalsX, cursorY);
-    doc.text(currency(projection.servicePricingSummary.projectedPerVisitRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-    cursorY += 13;
-    doc.text('Projected time & material', totalsX, cursorY);
-    doc.text(currency(projection.servicePricingSummary.projectedTimeAndMaterialRevenue), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-    cursorY += 18;
-  }
-  setText(9.5, INK);
-  doc.text(`${projection.workType === 'service' ? 'Estimated ' : ''}${clean(projection.proposal.taxLabel || 'Tax')} (${projection.proposal.taxRate}%)`, totalsX, cursorY);
-  doc.text(currency(projection.proposal.taxAmount), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-  cursorY += 13;
-  doc.setDrawColor(...OLIVE);
-  doc.setLineWidth(1.2);
-  doc.line(totalsX, cursorY, PAGE_WIDTH - MARGIN, cursorY);
-  cursorY += 22;
-  setText(13, OLIVE_DEEP, 'bold');
-  doc.text(projection.workType === 'service' ? 'ESTIMATED TOTAL' : 'TOTAL', totalsX, cursorY);
-  doc.text(currency(projection.proposal.total), PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
-  cursorY += 33;
-
-  const textSection = (label, value) => {
-    if (!clean(value)) return;
-    heading(label, 17);
-    formattedText(value);
+  const textSection = (section) => {
+    const firstBlock = section.blocks[0];
+    const firstHeight = firstBlock ? Math.max(17, lines(firstBlock.text, CONTENT_WIDTH - 18).length * 13) : 17;
+    heading(section.label, firstHeight);
+    for (const block of section.blocks) {
+      const marker = block.kind === 'list-item' ? block.marker : '';
+      const blockLines = lines(block.text, CONTENT_WIDTH - (marker ? 18 : 0));
+      ensureSpace(blockLines.length * 13 + 6);
+      setText(9.5, INK);
+      if (marker) doc.text(marker, MARGIN, cursorY);
+      doc.text(blockLines, MARGIN + (marker ? 18 : 0), cursorY);
+      cursorY += blockLines.length * 13 + 6;
+    }
     cursorY += 8;
   };
-  textSection('Notes', projection.proposal.notes);
-  textSection('Exclusions', projection.proposal.exclusions);
-  const validityTerm = projection.proposal.validUntil ? `- This proposal is valid until ${longDate(projection.proposal.validUntil)}.` : '';
-  textSection('Terms', [validityTerm, clean(projection.proposal.terms)].filter(Boolean).join('\n'));
+  presentation.sections.forEach(textSection);
 
   ensureSpace(options.acceptance ? 150 : 142);
   heading('Acceptance');
@@ -351,7 +354,7 @@ export function createEstimateProposalDocument(projection, options = {}) {
     setText(9, INK, 'bold');
     doc.text(clean(options.acceptance.customerName), MARGIN, cursorY + 75);
     setText(8.5, MUTED);
-    doc.text(longDate(options.acceptance.acceptedAt), MARGIN + 210, cursorY + 75, { align: 'right' });
+    doc.text(proposalDisplayDate(options.acceptance.acceptedAt), MARGIN + 210, cursorY + 75, { align: 'right' });
     doc.text(`Electronic acceptance statement version ${options.acceptance.acceptanceStatementVersion}`, MARGIN, cursorY + 91);
   } else {
     setText(8.5, MUTED);

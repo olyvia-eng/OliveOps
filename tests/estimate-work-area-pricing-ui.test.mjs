@@ -86,7 +86,7 @@ test('Estimate Analysis consumes internal cost snapshots while proposals use the
   assert.match(workspaceSource, />Gross Profit</);
   assert.match(workspaceSource, />Gross Margin</);
   for (const source of [workspaceSource, estimatesSource]) {
-    assert.match(source, /fetchEstimateProposal\(estimateId\)/);
+    assert.match(source, /fetchEstimateProposal\(estimateId,/);
     assert.match(source, /createEstimateProposalDocument\(proposal\)/);
     assert.doesNotMatch(source, /head: \[\['Category', 'Description', 'Qty', 'Unit', 'Rate', 'Line Total'\]\]/);
   }

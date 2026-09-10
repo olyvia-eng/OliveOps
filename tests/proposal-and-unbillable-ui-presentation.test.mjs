@@ -23,5 +23,6 @@ test('customer proposal uses the OliveOps palette and rounded document hierarchy
   assert.match(pdfRenderer, /import \{ PROPOSAL_BRAND \} from '\.\/proposalBrand\.js'/);
   assert.match(proposalBrand, /accentStrong:[^\n]+\/\/ accent-700/);
   assert.match(proposalBrand, /neutral:[^\n]+\/\/ brand-50/);
-  assert.match(pdfRenderer, /doc\.roundedRect\(24, 18, PAGE_WIDTH - 48, 92, 8, 8, 'FD'\)/);
+  assert.match(pdfRenderer, /doc\.roundedRect\(24, 18, PAGE_WIDTH - 48, 94, 8, 8, 'F'\)/);
+  assert.match(pdfRenderer, /doc\.roundedRect\(cardLeft, cardTop, cardWidth, estimatedCardHeight, 8, 8, 'S'\)/);
 });

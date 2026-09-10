@@ -52,3 +52,29 @@ test('proposal API rejects cross-tenant and missing Estimate access', async () =
   assert.equal(res.statusCode, 404);
   assert.equal(res.body.error, 'Estimate not found.');
 });
+
+test('proposal API returns the requested immutable version without rebuilding current Proposal data', async () => {
+  const snapshot = {
+    schemaVersion: 2,
+    company: { name: 'Original Contractor' },
+    customer: { displayName: 'Original Customer' },
+    proposal: { number: 'PROP-1', title: 'Original Patio', total: 565 },
+    workAreas: [{ name: 'Original Scope', scopeLines: ['Build original patio.'], subtotal: 500 }],
+    paymentSchedule: [],
+  };
+  const handler = createEstimateProposalHandler({
+    requireSession: async () => ({ businessId: 'business-a', id: 'user-a', role: 'owner' }),
+    getEstimateForBusiness: async () => ({ ...estimate(), title: 'Changed Patio', customerId: 'changed-customer' }),
+    getProposalVersionForBusiness: async (businessId, estimateId, versionNumber) => {
+      assert.deepEqual([businessId, estimateId, versionNumber], ['business-a', 'estimate-a', 1]);
+      return { id: 'version-1', versionNumber: 1, snapshot };
+    },
+    getCustomerForBusiness: async () => { throw new Error('versioned downloads must not load the current customer'); },
+    getBusinessProfile: async () => { throw new Error('versioned downloads must not load the current business'); },
+  });
+  const res = response();
+  await handler({ method: 'GET', query: { estimateId: 'estimate-a', versionNumber: '1' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.proposal, snapshot);
+});

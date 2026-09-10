@@ -320,7 +320,8 @@ export default function EstimatesPage({ currentUserRole }: EstimatesPageProps) {
 
   const createProposalPdf = async (estimateId: ID) => {
     try {
-      const proposal = await fetchEstimateProposal(estimateId);
+      const proposalVersionNumber = estimates.find((item) => item.id === estimateId)?.proposalVersionNumber;
+      const proposal = await fetchEstimateProposal(estimateId, proposalVersionNumber);
       const fileName = proposalPdfFileName(proposal);
       createEstimateProposalDocument(proposal).save(fileName);
       emitAppToast({ tone: 'success', message: `Proposal PDF generated: ${fileName}` });
