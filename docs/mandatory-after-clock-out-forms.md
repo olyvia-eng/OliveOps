@@ -74,6 +74,16 @@ Accepted-response rules are evaluated from the immutable occurrence snapshot. Ed
 
 A submission can satisfy exactly one requirement in exactly one occurrence. Previous clock-out submissions, another form's requirement ID, another employee, and another business cannot satisfy it.
 
+### Temporary compatibility for older mobile builds
+
+The canonical contract remains `workflowOccurrenceId` plus `workflowRequirementId`, and current clients must send both values. As a temporary production compatibility measure, the server can fill in one or both missing values for older clients submitting a required `after_clock_out` Form.
+
+Compatibility lookup uses only the authenticated employee's canonical pending clock-out pointer after durable-submission reconciliation. It considers unresolved requirements and requires exactly one match by canonical `formId`, `after_clock_out` trigger, immutable Form snapshot ID, any supplied workflow ID, and every supplied persisted context ID (`jobId`, `equipmentId`, `divisionId`, `serviceId`, and `serviceVisitId`). Names and titles are never used. Request-body business and employee IDs are ignored.
+
+If no pending workflow exists, no requirement matches, supplied correlation conflicts, or multiple requirements match, the server creates nothing and returns `409`. The compatibility codes are `legacy_workflow_correlation_not_found` and `legacy_workflow_correlation_ambiguous`. Requests containing both workflow IDs bypass inference and retain the strict canonical behavior.
+
+After a compatible request is correlated, the server feeds the canonical IDs into the normal mandatory submission path. Immutable field and context validation, attachment binding, atomic completion, and finalization are unchanged. A retry with the same `clientSubmissionId` can recover the already-persisted canonical IDs from that authenticated employee's idempotency claim after finalization; mismatched retry content still returns `submission_idempotency_conflict`.
+
 ## Finalization recovery
 
 ```http

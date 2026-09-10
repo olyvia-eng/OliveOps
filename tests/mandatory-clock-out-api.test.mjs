@@ -310,11 +310,106 @@ test('required forms close the entry first and create one recoverable idempotent
   assert.equal(blocked.statusCode, 409);
   assert.equal(blocked.body.code, 'required_forms_outstanding');
 
-  const uncorrelatedSubmission = await formRequest(context.token, {
-    formId: 'required', trigger: 'after_clock_out', responses: [{ fieldId: 'required-notes', value: 'Missing occurrence' }],
+  const legacySubmission = await formRequest(context.token, {
+    formId: 'required', trigger: 'after_clock_out', clientSubmissionId: 'legacy-required-submit-1',
+    responses: [{ fieldId: 'required-notes', value: 'Missing occurrence' }],
   });
-  assert.equal(uncorrelatedSubmission.statusCode, 409);
-  assert.equal(uncorrelatedSubmission.body.code, 'workflow_occurrence_required');
+  assert.equal(legacySubmission.statusCode, 201);
+  assert.equal(legacySubmission.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+  assert.equal(legacySubmission.body.submission.workflowRequirementId, initiated.body.requiredForms[0].requirementId);
+  assert.equal(legacySubmission.body.clocking.status, 'clock_out_completed');
+  assert.equal((await clockingRequest(context.token, { method: 'GET', action: 'pending-clock-out' })).body.status, 'no_pending_clock_out');
+  const replayed = await formRequest(context.token, {
+    formId: 'required', trigger: 'after_clock_out', clientSubmissionId: 'legacy-required-submit-1',
+    responses: [{ fieldId: 'required-notes', value: 'Missing occurrence' }],
+  });
+  assert.equal(replayed.statusCode, 200);
+  assert.equal(replayed.body.replayed, true);
+  assert.equal([...context.store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+});
+
+for (const omittedId of ['workflowOccurrenceId', 'workflowRequirementId']) {
+  test(`legacy clock-out correlation infers only the missing ${omittedId}`, async (t) => {
+    const context = await setup(t, { forms: [{ id: 'required' }] });
+    const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+    const requirement = initiated.body.requiredForms[0];
+    const correlation = {
+      workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+      workflowRequirementId: requirement.requirementId,
+    };
+    delete correlation[omittedId];
+
+    const submitted = await formRequest(context.token, {
+      formId: requirement.formId,
+      trigger: 'after_clock_out',
+      ...correlation,
+      responses: [{ fieldId: 'required-notes', value: 'Partially correlated' }],
+    });
+    assert.equal(submitted.statusCode, 201);
+    assert.equal(submitted.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+    assert.equal(submitted.body.submission.workflowRequirementId, requirement.requirementId);
+  });
+}
+
+test('legacy clock-out correlation rejects ambiguous unresolved requirements', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  const workflow = context.store.get(key(`BUSINESS#${context.businessId}`, `CLOCK_OUT_WORKFLOW#${initiated.body.workflowOccurrenceId}`));
+  workflow.requiredForms.push({ ...workflow.requiredForms[0], requirementId: 'duplicate-requirement' });
+  workflow.requiredRequirementIds.push('duplicate-requirement');
+
+  const submitted = await formRequest(context.token, {
+    formId: 'required', trigger: 'after_clock_out', responses: [{ fieldId: 'required-notes', value: 'Ambiguous' }],
+  });
+  assert.equal(submitted.statusCode, 409);
+  assert.equal(submitted.body.code, 'legacy_workflow_correlation_ambiguous');
+  assert.equal([...context.store.values()].some((item) => item.entityType === 'FORM_SUBMISSION'), false);
+});
+
+test('legacy clock-out correlation does not guess without an authenticated pending workflow', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const submitted = await formRequest(context.token, {
+    formId: 'required', trigger: 'after_clock_out', responses: [{ fieldId: 'required-notes', value: 'No workflow' }],
+  });
+  assert.equal(submitted.statusCode, 409);
+  assert.equal(submitted.body.code, 'legacy_workflow_correlation_not_found');
+});
+
+test('legacy clock-out correlation ignores spoofed ownership and another employee workflow', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  await seedEmployee(context.store, {
+    businessId: context.businessId, employeeId: 'employee-b', userId: 'user-b', token: 'token-b',
+  });
+
+  const submitted = await formRequest('token-b', {
+    formId: 'required', trigger: 'after_clock_out', employeeId: context.employeeId, businessId: context.businessId,
+    responses: [{ fieldId: 'required-notes', value: 'Foreign employee' }],
+  });
+  assert.equal(submitted.statusCode, 409);
+  assert.equal(submitted.body.code, 'legacy_workflow_correlation_not_found');
+});
+
+test('legacy clock-out correlation requires supplied context to match persisted context', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  const submitted = await formRequest(context.token, {
+    formId: 'required', trigger: 'after_clock_out', jobId: 'other-job',
+    responses: [{ fieldId: 'required-notes', value: 'Wrong context' }],
+  });
+  assert.equal(submitted.statusCode, 409);
+  assert.equal(submitted.body.code, 'legacy_workflow_correlation_not_found');
+});
+
+test('advisory after-clock-out forms submit normally without a matching pending workflow', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'reminder', completionRequirement: 'reminder' }] });
+  const submitted = await formRequest(context.token, {
+    formId: 'reminder', trigger: 'after_clock_out', clientSubmissionId: 'advisory-submit-1',
+    responses: [{ fieldId: 'reminder-notes', value: 'Advisory response' }],
+  });
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.workflowOccurrenceId, undefined);
+  assert.equal(submitted.body.submission.workflowRequirementId, undefined);
 });
 
 test('clock-out uses immutable accepted-response and approval rules without approval blocking finalization', async (t) => {
@@ -478,26 +573,27 @@ test('persisted after-clock-out snapshot remains completable after its live form
   context.store.delete(key(pk, 'FORM_FIELD#job-required-notes'));
 
   const submitted = await formRequest(context.token, {
-    formId: requirement.formId, trigger: 'after_clock_out', workflowOccurrenceId: initiated.body.workflowOccurrenceId,
-    workflowRequirementId: requirement.requirementId, clientSubmissionId: 'closed-job-submit', responses: [{ fieldId: 'job-required-notes', value: 'Done' }],
+    formId: requirement.formId, trigger: 'after_clock_out', clientSubmissionId: 'closed-job-submit',
+    responses: [{ fieldId: 'job-required-notes', value: 'Done' }],
   });
   assert.equal(submitted.statusCode, 201);
   assert.equal(submitted.body.submission.jobId, 'job-a');
+  assert.equal(submitted.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+  assert.equal(submitted.body.submission.workflowRequirementId, requirement.requirementId);
 });
 
-test('persisted after-clock-out snapshot remains completable after its live form is archived', async (t) => {
+test('persisted after-clock-out snapshot remains completable after its live form policy is edited and archived', async (t) => {
   const context = await setup(t, { forms: [{ id: 'required' }] });
   const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
   assert.equal(initiated.statusCode, 202);
   const requirement = initiated.body.requiredForms[0];
   const liveForm = context.store.get(key(`BUSINESS#${context.businessId}`, 'FORM#required'));
   liveForm.status = 'archived';
+  liveForm.completionRequirement = 'reminder';
 
   const submitted = await formRequest(context.token, {
     formId: requirement.formId,
     trigger: 'after_clock_out',
-    workflowOccurrenceId: initiated.body.workflowOccurrenceId,
-    workflowRequirementId: requirement.requirementId,
     clientSubmissionId: 'archived-live-form-submit',
     responses: [{ fieldId: 'required-notes', value: 'Completed from persisted occurrence' }],
   });
@@ -778,4 +874,11 @@ test('workflow and submission correlation are tenant scoped and manipulated IDs 
   });
   assert.equal(foreignSubmission.statusCode, 404);
   assert.equal(foreignSubmission.body.code, 'clock_out_workflow_not_found');
+
+  const legacyForeignSubmission = await formRequest('token-b', {
+    formId: 'required', trigger: 'after_clock_out', businessId: 'biz-a', employeeId: 'employee-a',
+    responses: [{ fieldId: 'required-notes', value: 'Foreign legacy client' }],
+  });
+  assert.equal(legacyForeignSubmission.statusCode, 409);
+  assert.equal(legacyForeignSubmission.body.code, 'legacy_workflow_correlation_not_found');
 });

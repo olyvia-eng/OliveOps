@@ -356,6 +356,33 @@ export function findWorkflowRequirement(workflow, { formId, requirementId: reque
     && (!requestedRequirementId || requirement.requirementId === requestedRequirementId)) ?? null;
 }
 
+export function matchLegacyClockOutRequirement(workflow, {
+  formId,
+  workflowOccurrenceId,
+  workflowRequirementId,
+  context = {},
+}) {
+  if (!workflow || workflow.status !== 'pending_required_forms') return { result: 'no_match', candidateCount: 0, formCandidateCount: 0 };
+  if (workflowOccurrenceId && workflow.workflowOccurrenceId !== workflowOccurrenceId) return { result: 'no_match', candidateCount: 0, formCandidateCount: 0 };
+
+  const completedRequirementIds = new Set(workflow.completedRequirementIds ?? []);
+  const contextFields = ['jobId', 'equipmentId', 'divisionId', 'serviceId', 'serviceVisitId'];
+  const formCandidates = (workflow.requiredForms ?? []).filter((requirement) => (
+    !completedRequirementIds.has(requirement.requirementId)
+    && requirement.formId === formId
+  ));
+  const candidates = formCandidates.filter((requirement) => (
+    requirement.trigger === 'after_clock_out'
+    && requirement.form?.id === formId
+    && requirement.form?.trigger === 'after_clock_out'
+    && (!workflowRequirementId || requirement.requirementId === workflowRequirementId)
+    && contextFields.every((field) => !text(context[field]) || text(requirement.context?.[field]) === text(context[field]))
+  ));
+
+  if (candidates.length === 1) return { result: 'matched', candidateCount: 1, formCandidateCount: formCandidates.length, requirement: candidates[0] };
+  return { result: candidates.length > 1 ? 'ambiguous' : 'no_match', candidateCount: candidates.length, formCandidateCount: formCandidates.length };
+}
+
 export function clockOutWorkflowStatus(workflow) {
   const completedIds = new Set(workflow?.completedRequirementIds ?? []);
   const requiredForms = workflow?.requiredForms ?? [];

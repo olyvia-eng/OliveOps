@@ -35,6 +35,7 @@ import {
   buildWorkflowCompletionUpdate,
   findWorkflowRequirement,
   getClockOutWorkflowForBusiness,
+  matchLegacyClockOutRequirement,
   reconcilePendingClockOutWorkflow,
 } from './_lib/mandatoryClockOut.js';
 import {
@@ -435,20 +436,104 @@ export default async function handler(req, res) {
     const sourceForm = data.forms.find((candidate) => candidate.id === formId);
     const requestedTrigger = text(payload?.trigger);
     const requestedDeliveryOccurrenceId = text(payload?.deliveryOccurrenceId ?? payload?.occurrenceId);
-    const workflowOccurrenceId = text(payload?.workflowOccurrenceId);
-    const workflowRequirementId = text(payload?.workflowRequirementId);
+    let workflowOccurrenceId = text(payload?.workflowOccurrenceId);
+    let workflowRequirementId = text(payload?.workflowRequirementId);
+    let existingIdempotency = null;
+    let inferredClockOutWorkflow = null;
+    let inferredClockOutRequirement = null;
+    if (requestedTrigger === 'after_clock_out' && clientSubmissionId && (!workflowOccurrenceId || !workflowRequirementId)) {
+      existingIdempotency = await getEmployeeFormSubmissionIdempotency({
+        businessId: session.businessId,
+        employeeId: data.employee.id,
+        clientSubmissionId,
+      });
+      if (existingIdempotency) {
+        const persisted = existingIdempotency.submission;
+        if (persisted?.formId !== formId || persisted.trigger !== 'after_clock_out') return idempotencyConflict(res);
+        const persistedOccurrenceId = text(persisted.workflowOccurrenceId);
+        const persistedRequirementId = text(persisted.workflowRequirementId);
+        if (persistedOccurrenceId && persistedRequirementId) {
+          if ((workflowOccurrenceId && workflowOccurrenceId !== persistedOccurrenceId)
+            || (workflowRequirementId && workflowRequirementId !== persistedRequirementId)) return idempotencyConflict(res);
+          workflowOccurrenceId = persistedOccurrenceId;
+          workflowRequirementId = persistedRequirementId;
+          console.info('[employee:forms:legacy-clock-out-correlation]', {
+            businessId: session.businessId,
+            employeeId: data.employee.id,
+            formId,
+            result: 'idempotent_replay',
+            candidateCount: 1,
+          });
+        } else if (workflowOccurrenceId || workflowRequirementId) {
+          return idempotencyConflict(res);
+        }
+      }
+    }
+    const needsLegacyClockOutCorrelation = requestedTrigger === 'after_clock_out'
+      && (!workflowOccurrenceId || !workflowRequirementId);
+    if (needsLegacyClockOutCorrelation) {
+      const pendingWorkflow = await reconcilePendingClockOutWorkflow({
+        businessId: session.businessId,
+        employeeId: data.employee.id,
+        getTimeEntryForBusiness,
+        listFormSubmissionsForBusiness,
+      });
+      const match = matchLegacyClockOutRequirement(pendingWorkflow, {
+        formId,
+        workflowOccurrenceId,
+        workflowRequirementId,
+        context: payload,
+      });
+      if (match.result !== 'matched') {
+        const ambiguous = match.result === 'ambiguous';
+        const mustCorrelate = ambiguous
+          || !sourceForm
+          || sourceForm.completionRequirement === 'required'
+          || match.formCandidateCount > 0
+          || workflowOccurrenceId
+          || workflowRequirementId;
+        if (mustCorrelate) {
+          console.info('[employee:forms:legacy-clock-out-correlation]', {
+            businessId: session.businessId,
+            employeeId: data.employee.id,
+            formId,
+            result: pendingWorkflow ? match.result : 'no_pending_workflow',
+            candidateCount: match.candidateCount,
+          });
+          return res.status(409).json({
+            ok: false,
+            code: ambiguous ? 'legacy_workflow_correlation_ambiguous' : 'legacy_workflow_correlation_not_found',
+            error: ambiguous
+              ? 'The pending clock-out workflow has multiple matching required Forms.'
+              : 'A matching pending clock-out workflow requirement was not found.',
+          });
+        }
+      } else {
+        console.info('[employee:forms:legacy-clock-out-correlation]', {
+          businessId: session.businessId,
+          employeeId: data.employee.id,
+          formId,
+          result: 'matched',
+          candidateCount: match.candidateCount,
+        });
+        workflowOccurrenceId = pendingWorkflow.workflowOccurrenceId;
+        workflowRequirementId = match.requirement.requirementId;
+        inferredClockOutWorkflow = pendingWorkflow;
+        inferredClockOutRequirement = match.requirement;
+      }
+    }
     const candidateClockInWorkflow = requestedTrigger === 'before_clock_in' && workflowOccurrenceId
       ? await getClockInWorkflowForBusiness(session.businessId, workflowOccurrenceId)
       : null;
     const candidateClockInRequirement = candidateClockInWorkflow?.employeeId === data.employee.id
       ? findClockInWorkflowRequirement(candidateClockInWorkflow, { formId, requirementId: workflowRequirementId })
       : null;
-    const candidateClockOutWorkflow = requestedTrigger === 'after_clock_out' && workflowOccurrenceId
+    const candidateClockOutWorkflow = inferredClockOutWorkflow ?? (requestedTrigger === 'after_clock_out' && workflowOccurrenceId
       ? await getClockOutWorkflowForBusiness(session.businessId, workflowOccurrenceId)
-      : null;
-    const candidateClockOutRequirement = candidateClockOutWorkflow?.employeeId === data.employee.id
+      : null);
+    const candidateClockOutRequirement = inferredClockOutRequirement ?? (candidateClockOutWorkflow?.employeeId === data.employee.id
       ? findWorkflowRequirement(candidateClockOutWorkflow, { formId, requirementId: workflowRequirementId })
-      : null;
+      : null);
     let form = candidateClockInRequirement?.form ?? candidateClockOutRequirement?.form ?? sourceForm;
     if (!form) return res.status(404).json({ ok: false, error: 'Form not found.' });
     const configuredTriggers = Array.isArray(form.trigger) ? form.trigger : [form.trigger].filter(Boolean);
@@ -571,7 +656,7 @@ export default async function handler(req, res) {
       ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses, workflowOccurrenceId, workflowRequirementId })
       : undefined;
     if (clientSubmissionId) {
-      const existing = await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
+      const existing = existingIdempotency ?? await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
       if (existing) {
         if (existing.payloadFingerprint !== payloadFingerprint) return idempotencyConflict(res);
         return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
