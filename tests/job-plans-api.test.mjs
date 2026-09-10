@@ -64,6 +64,34 @@ test('quantity edits preserve sold line revenue', async () => {
   assert.equal(savedPlan.plan.operationalWorkAreas[0].lineItems[0].total, 1100);
 });
 
+test('one Work Area save persists nested planning edits without accepting sold snapshot changes', async () => {
+  const labourLine = {
+    id: 'labour-1', sourceEstimateLineItemId: 'estimate-labour-1', category: 'labour', itemName: 'Crew', description: 'Sold description',
+    workers: 2, hoursPerWorker: 8, quantity: 16, unit: 'hr', unitCost: 40, sellPrice: 75, contractRevenue: 1200, total: 1200,
+  };
+  const originalEstimateSnapshot = { proposalNumber: 'PROP-1', subtotal: 1200, workAreas: [{ id: 'estimate-area-1', lineItems: [{ ...labourLine, id: 'estimate-labour-1' }] }] };
+  const currentJob = job({ operationalWorkAreas: [{ ...job().operationalWorkAreas[0], lineItems: [labourLine] }], currentContractRevenue: 1200, originalContractRevenue: 1200, originalEstimateSnapshot });
+  const { res, savedPlan } = await request({ currentJob, body: {
+    action: 'save-work-area', workAreaId: 'area-1', name: 'Updated Driveway', description: 'Planned scope', status: 'in_progress', expectedRevision: 2,
+    lines: [{ id: 'labour-1', workers: 3, hoursPerWorker: 6, quantity: 999, unitCost: 42.5, description: 'Crew planning note', contractRevenue: 1, sourceEstimateLineItemId: 'tampered' }],
+  } });
+
+  assert.equal(res.statusCode, 200);
+  const savedArea = savedPlan.plan.operationalWorkAreas[0];
+  const savedLine = savedArea.lineItems[0];
+  assert.equal(savedArea.name, 'Updated Driveway');
+  assert.equal(savedArea.status, 'in_progress');
+  assert.equal(savedLine.workers, 3);
+  assert.equal(savedLine.hoursPerWorker, 6);
+  assert.equal(savedLine.quantity, 18);
+  assert.equal(savedLine.unitCost, 42.5);
+  assert.equal(savedLine.plannedCost, 765);
+  assert.equal(savedLine.contractRevenue, 1200);
+  assert.equal(savedLine.total, 1200);
+  assert.equal(savedLine.sourceEstimateLineItemId, 'estimate-labour-1');
+  assert.deepEqual(currentJob.originalEstimateSnapshot, originalEstimateSnapshot);
+});
+
 test('foreman can edit scope and quantities but cannot edit costs or remove resources', async () => {
   const quantity = await request({ role: 'foreman', body: { action: 'update-line', workAreaId: 'area-1', lineItemId: 'line-1', quantity: 22, expectedRevision: 2 } });
   assert.equal(quantity.res.statusCode, 200);

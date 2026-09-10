@@ -15,9 +15,10 @@ interface UnsavedChangesGuardProps {
   isDirty: boolean;
   isSaving: boolean;
   onSave: () => Promise<boolean>;
+  subject?: string;
 }
 
-export function useUnsavedChangesGuard({ isDirty, isSaving, onSave }: UnsavedChangesGuardProps) {
+export function useUnsavedChangesGuard({ isDirty, isSaving, onSave, subject = 'estimate' }: UnsavedChangesGuardProps) {
   const navigate = useNavigate();
   const [pendingDestination, setPendingDestination] = useState<string | null>(null);
 
@@ -52,7 +53,7 @@ export function useUnsavedChangesGuard({ isDirty, isSaving, onSave }: UnsavedCha
       setPendingDestination(`${destination.pathname}${destination.search}${destination.hash}`);
     };
     const handleBrowserBack = () => {
-      if (window.confirm("You have changes to this estimate that haven't been saved. Leave without saving?")) return;
+      if (window.confirm(`You have changes to this ${subject} that haven't been saved. Leave without saving?`)) return;
       window.history.forward();
     };
 
@@ -66,7 +67,7 @@ export function useUnsavedChangesGuard({ isDirty, isSaving, onSave }: UnsavedCha
       document.removeEventListener('click', handleInternalLink, true);
       window.removeEventListener('popstate', handleBrowserBack);
     };
-  }, [isDirty]);
+  }, [isDirty, subject]);
 
   const leaveWithoutSaving = () => {
     const destination = pendingDestination;
@@ -96,7 +97,7 @@ export function useUnsavedChangesGuard({ isDirty, isSaving, onSave }: UnsavedCha
         </>
       )}
     >
-      <p className="text-sm text-gray-600 dark:text-brand-200">You have changes to this estimate that haven't been saved. If you leave now, those changes will be lost.</p>
+      <p className="text-sm text-gray-600 dark:text-brand-200">You have changes to this {subject} that haven't been saved. If you leave now, those changes will be lost.</p>
     </Modal>
   );
 

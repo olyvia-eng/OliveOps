@@ -850,6 +850,8 @@ export interface JobWorkAreaLineItem {
   category: LineItemCategory;
   itemName: string;
   description: string;
+  workers?: number;
+  hoursPerWorker?: number;
   quantity: number;
   unit: string;
   unitCost: number;
@@ -982,6 +984,7 @@ export interface JobScheduleUpdate {
 export type JobPlanMutation =
   | { action: 'add-work-area'; name?: string }
   | { action: 'update-work-area'; workAreaId: ID; name?: string; description?: string; status?: JobWorkAreaStatus }
+  | { action: 'save-work-area'; workAreaId: ID; name: string; description: string; status: JobWorkAreaStatus; lines: Array<{ id: ID; workers?: number; hoursPerWorker?: number; quantity: number; unitCost?: number; description: string }> }
   | { action: 'delete-work-area'; workAreaId: ID }
   | { action: 'update-line'; workAreaId: ID; lineItemId: ID; quantity?: number; unitCost?: number; description?: string }
   | { action: 'remove-line'; workAreaId: ID; lineItemId: ID }

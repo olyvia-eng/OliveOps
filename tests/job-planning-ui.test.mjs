@@ -7,6 +7,8 @@ const jobSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const analysisSummarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
 const analysisWorkspaceSource = readFileSync('src/components/jobs/JobAnalysisWorkspace.tsx', 'utf8');
 const builderSource = readFileSync('src/pages/jobs/JobWorkAreaBuilderPage.tsx', 'utf8');
+const estimateBuilderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
+const sharedSectionSource = readFileSync('src/components/work-areas/WorkAreaResourceSection.tsx', 'utf8');
 const storeSource = readFileSync('src/store/index.ts', 'utf8');
 
 test('Job Work Areas initialize once and open a dedicated current-plan editor', () => {
@@ -19,17 +21,35 @@ test('Job Work Areas initialize once and open a dedicated current-plan editor', 
 });
 
 test('Job editor separates editable planned cost from immutable sold revenue', () => {
-  assert.match(builderSource, /label=\{`Planned Cost \/ \$\{line\.unit\}`\}/);
-  assert.match(builderSource, /Contract revenue/);
-  assert.match(builderSource, /sourceEstimateLineItemId \? ' · Sold Estimate line' : ' · Job-only resource'/);
-  assert.match(builderSource, /canEditFinancials \? \{ unitCost: Math\.max/);
-  assert.match(builderSource, /quantity: Math\.max/);
+  for (const heading of ['Planned Cost / Unit', 'Sold Rate', 'Total Planned Cost', 'Sold Revenue']) assert.match(builderSource, new RegExp(heading));
+  assert.match(builderSource, />From Estimate</);
+  assert.doesNotMatch(builderSource, /Sold Estimate line|internal snapshot/i);
+  assert.match(builderSource, /formatJobPlanRateInput\(line\.unitCost\)/);
+  assert.match(builderSource, /formatCurrency\(line\.contractRevenue \?\? line\.total\)/);
+});
+
+test('Job and Estimate Work Areas reuse the same compact resource section pattern', () => {
+  assert.match(builderSource, /<WorkAreaResourceSection/);
+  assert.match(estimateBuilderSource, /<WorkAreaResourceSection/);
+  assert.match(sharedSectionSource, /WORK_AREA_CATEGORY_LABEL\[category\]/);
+  assert.match(sharedSectionSource, /WORK_AREA_CATEGORY_ADD_LABEL\[category\]/);
+  for (const category of ['labour', 'equipment', 'material', 'subcontractor']) assert.match(builderSource, new RegExp(category));
+  for (const heading of ['Workers', 'Hours / Worker', 'Hours / Quantity', 'Actions']) assert.match(builderSource, new RegExp(heading));
+});
+
+test('nested Job edits are dirty and persist through one Work Area save without line Save buttons', () => {
+  assert.match(builderSource, /isEstimateEditorDirty\(form,/);
+  assert.match(builderSource, /useUnsavedChangesGuard\(\{ isDirty/);
+  assert.match(builderSource, /action: 'save-work-area'/);
+  assert.match(builderSource, /lines: form\.lineItems\.map/);
+  assert.match(builderSource, /Save Work Area/);
+  assert.doesNotMatch(builderSource, /saveLine|>Save<\/Button>/);
 });
 
 test('new Job resources use the authorized planning catalog and revisioned store mutation', () => {
   assert.match(builderSource, /\/api\/job-plans\?jobId=.*action=catalog/);
   assert.match(builderSource, /action: 'add-resource'/);
-  assert.match(builderSource, /New resources affect planned cost, not contract revenue/);
+  assert.match(builderSource, /New resources affect planned cost, not sold revenue/);
   assert.match(storeSource, /expectedRevision: current\.planningRevision/);
 });
 

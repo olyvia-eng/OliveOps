@@ -32,6 +32,7 @@ import {
   WORK_AREA_CATEGORY_LABEL as CATEGORY_LABEL,
   WORK_AREA_CATEGORY_ORDER as CATEGORY_ORDER,
 } from '../../components/work-areas/workAreaCategories';
+import WorkAreaResourceSection from '../../components/work-areas/WorkAreaResourceSection';
 
 interface Props {
   currentUserRole: string;
@@ -584,20 +585,14 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     const items = groupedLineItems[category];
 
     return (
-      <Card key={category} className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-brand-50">{CATEGORY_LABEL[category]}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-brand-300">{items.length} item{items.length === 1 ? '' : 's'}</p>
-          </div>
-          {!isReadOnly ? <Button variant="secondary" size="sm" onClick={() => openCatalog(category)}>
-            <Plus size={14} /> Add {CATEGORY_ADD_LABEL[category]}
-          </Button> : null}
-        </div>
-
-        {items.length === 0 ? (
-          <p className="mt-4 text-sm text-gray-500 dark:text-brand-300">No {CATEGORY_LABEL[category].toLowerCase()} items added yet.</p>
-        ) : (
+      <WorkAreaResourceSection
+        key={category}
+        category={category}
+        itemCount={items.length}
+        canAdd={!isReadOnly}
+        onAdd={() => openCatalog(category)}
+        emptyText={`No ${CATEGORY_LABEL[category].toLowerCase()} items added yet.`}
+      >
           <div className="mt-4 overflow-x-auto rounded-lg border border-brand-100 dark:border-brand-600">
             <div className={`hidden min-w-[1160px] ${category === 'labour' ? 'grid-cols-[32px_minmax(180px,1.4fr)_80px_110px_repeat(6,minmax(105px,0.7fr))_76px]' : 'grid-cols-[32px_minmax(180px,1.4fr)_110px_repeat(6,minmax(105px,0.7fr))_76px]'} gap-3 border-b border-brand-100 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200 lg:grid`}>
               <span aria-hidden="true" /><span>Item</span>{category === 'labour' ? <><span>Workers</span><span>Hours / Worker</span></> : <span>Quantity</span>}<span className="text-right">Cost</span><span className="text-right">Breakeven</span><span className="text-right">Total Cost</span><span className="text-right">Profit</span><span className="text-right">Price</span><span className="text-right">Total Price</span><span className="text-right">Actions</span>
@@ -711,8 +706,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               </div>
             );})}
           </div>
-        )}
-      </Card>
+      </WorkAreaResourceSection>
     );
   };
 

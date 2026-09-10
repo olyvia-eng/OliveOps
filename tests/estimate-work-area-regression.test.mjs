@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const workspaceSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 const builderSource = readFileSync('src/pages/estimates/EstimateWorkAreaBuilderPage.tsx', 'utf8');
+const resourceSectionSource = readFileSync('src/components/work-areas/WorkAreaResourceSection.tsx', 'utf8');
 const modelSource = readFileSync('src/utils/estimateModel.ts', 'utf8');
 
 test('new and additional work areas are persisted before becoming actionable', () => {
@@ -31,7 +32,8 @@ test('builder waits for persistence before save and delete navigation', () => {
 
 test('builder uses category-specific pickers without a persistent catalog or editable Division', () => {
   assert.match(builderSource, /openCatalog\(category\)/);
-  assert.match(builderSource, /Add \{CATEGORY_ADD_LABEL\[category\]\}/);
+  assert.match(builderSource, /<WorkAreaResourceSection/);
+  assert.match(resourceSectionSource, /Add \{WORK_AREA_CATEGORY_ADD_LABEL\[category\]\}/);
   assert.match(builderSource, /candidate\.category === catalogCategory/);
   assert.match(builderSource, /Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}/);
   assert.match(builderSource, /candidate\.alreadyAdded \|\|/);

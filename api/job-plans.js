@@ -151,6 +151,49 @@ function updatePlan(job, body, role) {
       if (!WORK_AREA_STATUSES.has(body.status)) return { error: 'Job Work Area status is invalid.', status: 400 };
       area.status = body.status;
     }
+  } else if (body.action === 'save-work-area') {
+    if (!area) return { error: 'Job Work Area not found.', status: 404 };
+    if (!isNonEmptyString(body.name)) return { error: 'Job Work Area name is required.', status: 400 };
+    if (typeof body.description !== 'string') return { error: 'Job Work Area description is invalid.', status: 400 };
+    if (!WORK_AREA_STATUSES.has(body.status)) return { error: 'Job Work Area status is invalid.', status: 400 };
+    if (!Array.isArray(body.lines)) return { error: 'Job Work Area lines are required.', status: 400 };
+    const persistedById = new Map(area.lineItems.map((line) => [line.id, line]));
+    const requestedIds = body.lines.map((line) => line?.id);
+    if (new Set(requestedIds).size !== requestedIds.length || requestedIds.some((id) => !persistedById.has(id))) {
+      return { error: 'Job Work Area lines are invalid.', status: 400 };
+    }
+    if (!isFinancial && requestedIds.length !== area.lineItems.length) return { error: 'Only owners and admins can remove Job resources.', status: 403 };
+    const nextLines = [];
+    for (const changes of body.lines) {
+      const persisted = persistedById.get(changes.id);
+      if (!persisted || typeof changes.description !== 'string') return { error: 'Job line item is invalid.', status: 400 };
+      let quantity;
+      let workers;
+      let hoursPerWorker;
+      if (persisted.category === 'labour') {
+        workers = changes.workers;
+        hoursPerWorker = changes.hoursPerWorker;
+        if (!Number.isInteger(workers) || workers < 1 || !isNonNegativeNumber(hoursPerWorker)) return { error: 'Job Labour workers and hours are invalid.', status: 400 };
+        quantity = workers * hoursPerWorker;
+      } else {
+        quantity = changes.quantity;
+        if (!isNonNegativeNumber(quantity)) return { error: 'Job line quantity must be zero or greater.', status: 400 };
+      }
+      const unitCost = changes.unitCost;
+      if (unitCost !== undefined && !isFinancial && unitCost !== persisted.unitCost) return { error: 'Only owners and admins can edit current planned costs.', status: 403 };
+      if (unitCost !== undefined && !isNonNegativeNumber(unitCost)) return { error: 'Job line planned cost must be zero or greater.', status: 400 };
+      nextLines.push({
+        ...persisted,
+        description: changes.description,
+        quantity,
+        ...(persisted.category === 'labour' ? { workers, hoursPerWorker } : {}),
+        ...(isFinancial && unitCost !== undefined ? { unitCost } : {}),
+      });
+    }
+    area.name = body.name.trim();
+    area.description = body.description;
+    area.status = body.status;
+    area.lineItems = nextLines;
   } else if (body.action === 'delete-work-area') {
     if (!isFinancial) return { error: 'Only owners and admins can delete Job Work Areas.', status: 403 };
     if (!area) return { error: 'Job Work Area not found.', status: 404 };
