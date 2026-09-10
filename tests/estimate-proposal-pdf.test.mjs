@@ -45,6 +45,31 @@ const pdfRenderedText = (output) => (output.match(/\((?:\\.|[^)])*\) Tj/g) ?? []
   .join(' ')
   .replace(/\s+/g, ' ');
 
+const boxesOverlap = (left, right) => left.page === right.page
+  && left.x < right.x + right.width
+  && left.x + left.width > right.x
+  && left.y < right.y + right.height
+  && left.y + left.height > right.y;
+
+function assertMeasuredLayout(doc) {
+  const boxes = doc.__oliveOpsLayout ?? [];
+  assert.ok(boxes.length > 0, 'renderer exposes measured layout boxes');
+  for (const box of boxes) {
+    const isFooter = box.kind.startsWith('footer-');
+    assert.ok(box.x >= 42, `${box.kind} starts inside the printable margin`);
+    assert.ok(box.x + box.width <= 570.01, `${box.kind} ends inside the printable margin`);
+    assert.ok(box.y >= (isFooter ? 752 : 0), `${box.kind} starts in its page region`);
+    assert.ok(box.y + box.height <= (isFooter ? 792 : 752), `${box.kind} ends in its page region`);
+  }
+  const verticallyStackedKinds = ['company-name', 'company-detail', 'information-label-customer', 'information-value-customer', 'information-detail-customer', 'information-label-property', 'information-value-property', 'information-detail-property'];
+  const stacked = boxes.filter((box) => verticallyStackedKinds.includes(box.kind));
+  for (let left = 0; left < stacked.length; left += 1) {
+    for (let right = left + 1; right < stacked.length; right += 1) {
+      assert.equal(boxesOverlap(stacked[left], stacked[right]), false, `${stacked[left].kind} does not overlap ${stacked[right].kind}`);
+    }
+  }
+}
+
 test('proposal PDF renders the compact customer-safe layout in the required order', () => {
   const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
   const pdf = createEstimateProposalDocument(projection);
@@ -226,4 +251,73 @@ test('PDF customer-visible values match the canonical secure Proposal presentati
   ].filter(Boolean);
 
   for (const value of visibleValues) assert.match(renderedText, new RegExp(String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('Greendale proposal header and information grid use measured non-overlapping layout', () => {
+  const greendaleBusiness = {
+    name: 'Greendale Landscaping',
+    businessAddress: '1245 Main St.\nToronto, ON K9K 2R3\nCanada',
+    phone: '705-111-2345',
+    email: 'admin@greendalelandscaping.ca',
+    website: 'greendalelandscaping.ca',
+    proposalTerms: 'Payment is due according to the accepted schedule.',
+  };
+  const greendaleCustomer = {
+    name: 'Karen Sullivan',
+    email: 'karen.sullivan.with.a.long.address@customer-example.ca',
+    phone: '705-555-0188',
+    address: '9867 County Road 42, Peterborough, Ontario K9J 8N8',
+  };
+  const source = estimate(2, 5);
+  source.proposalNumber = 'PROP-2026-0001';
+  source.title = 'Patio and Retaining Wall';
+  source.createdAt = '2026-09-09';
+  source.validUntil = '2026-10-09';
+  const projection = buildEstimateProposalProjection({ estimate: source, customer: greendaleCustomer, business: greendaleBusiness });
+  const pdf = createEstimateProposalDocument(projection);
+  const rendered = pdfRenderedText(pdfText(pdf));
+
+  for (const value of ['Greendale Landscaping', '1245 Main St.', 'Toronto, ON K9K 2R3', 'Canada', '705-111-2345 | admin@greendalelandscaping.ca', 'greendalelandscaping.ca', 'September 9, 2026']) {
+    assert.match(rendered, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assertMeasuredLayout(pdf);
+  const proposalLabel = pdf.__oliveOpsLayout.find((box) => box.kind === 'proposal-label');
+  assert.equal(proposalLabel.text, 'PROPOSAL');
+  assert.equal(proposalLabel.height, 28, 'Proposal label remains on one fitted line');
+  assert.equal(pdf.__oliveOpsLayout.filter((box) => box.kind === 'footer-company').length, pdf.getNumberOfPages());
+  assert.equal(pdf.__oliveOpsLayout.filter((box) => box.kind === 'footer-email').length, pdf.getNumberOfPages());
+  assert.equal(pdf.__oliveOpsLayout.filter((box) => box.kind === 'continuation-company').length, pdf.getNumberOfPages() - 1);
+  assert.equal(pdf.__oliveOpsLayout.filter((box) => box.kind === 'continuation-number').length, pdf.getNumberOfPages() - 1);
+  const issueDate = pdf.__oliveOpsLayout.find((box) => box.kind === 'information-value-issued');
+  assert.equal(issueDate.text, 'September 9, 2026');
+  assert.equal(issueDate.height, 13, 'issue date remains on one fitted line');
+});
+
+test('adversarial proposal content remains complete and inside printable page bounds', () => {
+  const source = estimate(10, 12);
+  source.title = 'Complete Landscape Redevelopment for the North Residential Courtyard and Shared Outdoor Amenity';
+  source.propertyAddressSnapshot = 'Building 14, 987654 Regional Highway 17, Township of Otonabee-South Monaghan, Ontario K9J 6X7';
+  source.proposalTerms = Array.from({ length: 140 }, (_, index) => `${index + 1}. Extended term ${index + 1} describes responsibilities, scheduling, access, warranty limitations, and project administration without clipping at the page footer.`).join('\n');
+  source.exclusions = Array.from({ length: 20 }, (_, index) => `- Exclusion ${index + 1} remains explicitly outside the contracted scope.`).join('\n');
+  const longBusiness = {
+    name: 'Greendale Landscaping and Comprehensive Exterior Construction Services Incorporated',
+    businessAddress: '1245 Main Street, Building C, Suite 240\nToronto, Ontario K9K 2R3\nCanada',
+    phone: '705-111-2345',
+    email: 'administration-and-proposals@greendalelandscaping.ca',
+    website: 'https://www.greendalelandscaping.ca/commercial-landscape-construction',
+  };
+  const longCustomer = {
+    company: 'The North Residential Community and Property Management Corporation',
+    name: 'Alexandria Montgomery-Wellington',
+    email: 'alexandria.montgomery-wellington@north-residential-community.example.ca',
+    phone: '416-555-0199',
+    billingAddress: 'Suite 1800, 100 Extremely Long Corporate Boulevard, Toronto, Ontario M5V 3A8, Canada',
+  };
+  const projection = buildEstimateProposalProjection({ estimate: source, customer: longCustomer, business: longBusiness });
+  const pdf = createEstimateProposalDocument(projection);
+  const rendered = pdfRenderedText(pdfText(pdf));
+
+  assert.ok(pdf.getNumberOfPages() >= 5);
+  for (const value of ['Extended term 140', 'Exclusion 20', 'Complete customer scope item 10.12', 'Final Payment']) assert.match(rendered, new RegExp(value));
+  assertMeasuredLayout(pdf);
 });

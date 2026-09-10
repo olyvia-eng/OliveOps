@@ -41,6 +41,26 @@ function sample(areaCount, descriptionsPerArea, longNames = false) {
 
 await mkdir('public/proposal-previews', { recursive: true });
 const samples = [
+  ['greendale-layout.pdf', {
+    ...sample(3, 7, true),
+    proposalNumber: 'PROP-2026-0001',
+    title: 'Patio and Retaining Wall',
+    createdAt: '2026-09-09',
+    validUntil: '2026-10-09',
+    propertyAddressSnapshot: '9867 County Road 42, Peterborough, Ontario K9J 8N8',
+    proposalTerms: Array.from({ length: 35 }, (_, index) => `${index + 1}. Term ${index + 1} describes scheduling, access, warranty, and project administration requirements.`).join('\n'),
+  }, {
+    name: 'Karen Sullivan', company: '',
+    email: 'karen.sullivan.with.a.long.address@customer-example.ca',
+    phone: '705-555-0188',
+    address: '9867 County Road 42, Peterborough, Ontario K9J 8N8',
+  }, {
+    name: 'Greendale Landscaping',
+    phone: '705-111-2345',
+    email: 'admin@greendalelandscaping.ca',
+    website: 'greendalelandscaping.ca',
+    businessAddress: '1245 Main St.\nToronto, ON K9K 2R3\nCanada',
+  }],
   ['stone-firepit.pdf', {
     ...sample(1, 1),
     proposalNumber: 'PROP-2026-0004',
