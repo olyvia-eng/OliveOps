@@ -28,7 +28,9 @@ test('client diagnostics require a session and accept only a sanitized schema', 
       route: '/jobs?token=must-not-be-logged',
       errorName: 'TypeError',
       errorMessage: 'Failed for person@example.com with Bearer must-not-be-logged',
+      failedAssetUrl: '/assets/FormsPage-old.js?token=must-not-be-logged',
       chunkLoadFailure: true,
+      automaticRecoveryAttempted: true,
       appVersion: 'commit-123',
       token: 'must-not-be-logged',
       customer: { name: 'must-not-be-logged' },
@@ -37,10 +39,13 @@ test('client diagnostics require a session and accept only a sanitized schema', 
 
   assert.equal(res.statusCode, 202);
   assert.deepEqual(Object.keys(captured), [
-    'source', 'route', 'errorName', 'errorMessage', 'chunkLoadFailure', 'appVersion', 'occurredAt',
+    'source', 'route', 'errorName', 'errorMessage', 'failedAssetUrl', 'chunkLoadFailure',
+    'automaticRecoveryAttempted', 'appVersion', 'occurredAt',
   ]);
   assert.equal(captured.route, '/jobs');
+  assert.equal(captured.failedAssetUrl, '/assets/FormsPage-old.js');
   assert.equal(captured.chunkLoadFailure, true);
+  assert.equal(captured.automaticRecoveryAttempted, true);
   assert.equal(JSON.stringify(captured).includes('must-not-be-logged'), false);
   assert.equal(JSON.stringify(captured).includes('person@example.com'), false);
   assert.equal(JSON.stringify(captured).includes('business-secret'), false);

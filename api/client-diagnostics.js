@@ -1,6 +1,6 @@
 import { requireSession } from './_lib/session.js';
 
-const ALLOWED_SOURCES = new Set(['react-boundary', 'unhandled-rejection', 'vite-preload-error']);
+const ALLOWED_SOURCES = new Set(['react-boundary', 'window-error', 'unhandled-rejection', 'vite-preload-error']);
 
 function parseJsonBody(req) {
   if (typeof req.body !== 'string') return req.body ?? {};
@@ -30,6 +30,12 @@ function sanitizeErrorMessage(value) {
     .replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[redacted-email]');
 }
 
+function sanitizeFailedAssetUrl(value) {
+  const assetUrl = safeString(value, 500, '');
+  if (!assetUrl || !/^\/assets\/[^\s]+$/i.test(assetUrl)) return null;
+  return assetUrl.split(/[?#]/, 1)[0];
+}
+
 export function createClientDiagnosticsHandler(overrides = {}) {
   const requireSessionFn = overrides.requireSession ?? requireSession;
   const writeDiagnostic = overrides.writeDiagnostic ?? ((diagnostic) => {
@@ -55,7 +61,9 @@ export function createClientDiagnosticsHandler(overrides = {}) {
       route: sanitizeRoute(body.route),
       errorName: safeString(body.errorName, 100, 'UnknownError'),
       errorMessage: sanitizeErrorMessage(body.errorMessage),
+      failedAssetUrl: sanitizeFailedAssetUrl(body.failedAssetUrl),
       chunkLoadFailure: body.chunkLoadFailure === true,
+      automaticRecoveryAttempted: body.automaticRecoveryAttempted === true,
       appVersion: safeString(body.appVersion, 120, 'unknown'),
       occurredAt: safeString(body.occurredAt, 40, new Date().toISOString()),
     };

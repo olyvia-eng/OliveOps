@@ -11,6 +11,7 @@ import { mergeBudgetSnapshotsModel } from './utils/budgetPersistenceState.js';
 import { resolveWorkType } from './utils/workTypeModel.js';
 import { DEFAULT_BUSINESS_FEATURES, normalizeBusinessFeatures, type BusinessFeatureKey, type BusinessFeatures } from '../shared/businessFeatures.js';
 import RouteErrorBoundary from './components/errors/RouteErrorBoundary';
+import RouteRecoverySuccess from './components/errors/RouteRecoverySuccess';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HomePage = lazy(() => import('./pages/home/HomePage'));
@@ -852,6 +853,7 @@ export default function App() {
           </>
         )}
       </Routes>
+      <RouteRecoverySuccess />
       </Suspense>
       </RouteErrorBoundary>
     </BrowserRouter>

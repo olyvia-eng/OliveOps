@@ -1,11 +1,13 @@
-export type ClientErrorSource = 'react-boundary' | 'unhandled-rejection' | 'vite-preload-error';
+export type ClientErrorSource = 'react-boundary' | 'window-error' | 'unhandled-rejection' | 'vite-preload-error';
 
 export interface ClientErrorDiagnostic {
   source: ClientErrorSource;
   route: string;
   errorName: string;
   errorMessage: string;
+  failedAssetUrl: string | null;
   chunkLoadFailure: boolean;
+  automaticRecoveryAttempted: boolean;
   appVersion: string;
   occurredAt: string;
 }
@@ -24,6 +26,11 @@ export function claimChunkRecovery(input: {
   appVersion?: string;
   now?: number;
 }): boolean;
+export function clearChunkRecovery(input: {
+  storage: Storage | null;
+  route: string;
+  appVersion?: string;
+}): boolean;
 export function reportClientError(diagnostic: ClientErrorDiagnostic, error: unknown): void;
 export function handleClientError(input: {
   error: unknown;
@@ -34,3 +41,10 @@ export function handleClientError(input: {
   report?: (diagnostic: ClientErrorDiagnostic, error: unknown) => void;
   forceChunkLoadFailure?: boolean;
 }): { diagnostic: ClientErrorDiagnostic; recoveryStarted: boolean };
+export function installGlobalErrorHandlers(input: {
+  target: Window;
+  storage: Storage | null;
+  reload: () => void;
+  route: () => string;
+  report?: (diagnostic: ClientErrorDiagnostic, error: unknown) => void;
+}): () => void;

@@ -5,12 +5,14 @@ import { readFile } from 'node:fs/promises';
 const source = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
 test('route rendering is protected by a branded Error Boundary outside Suspense', async () => {
-  const [app, boundary] = await Promise.all([
+  const [app, boundary, recoverySuccess] = await Promise.all([
     source('../src/App.tsx'),
     source('../src/components/errors/RouteErrorBoundary.tsx'),
+    source('../src/components/errors/RouteRecoverySuccess.tsx'),
   ]);
 
   assert.match(app, /<BrowserRouter>\s*<RouteErrorBoundary>\s*<Suspense/);
+  assert.match(app, /<\/Routes>\s*<RouteRecoverySuccess \/>\s*<\/Suspense>/);
   assert.match(app, /<\/Suspense>\s*<\/RouteErrorBoundary>\s*<\/BrowserRouter>/);
   assert.match(boundary, /class AppErrorBoundary extends Component/);
   assert.match(boundary, /getDerivedStateFromError/);
@@ -20,6 +22,8 @@ test('route rendering is protected by a branded Error Boundary outside Suspense'
   assert.match(boundary, /Try Again/);
   assert.match(boundary, /Reload OliveOps/);
   assert.doesNotMatch(boundary, /stack|componentStack/);
+  assert.match(recoverySuccess, /useEffect/);
+  assert.match(recoverySuccess, /clearChunkRecovery/);
 });
 
 test('route changes reset the boundary and sidebar navigation remains client-side', async () => {
@@ -35,19 +39,21 @@ test('route changes reset the boundary and sidebar navigation remains client-sid
   assert.doesNotMatch(sidebar, /window\.location/);
 });
 
-test('unhandled rejections use the same classified recovery path and builds expose a version', async () => {
-  const [main, viteConfig] = await Promise.all([
+test('global failures use one cleanup-aware recovery installer and builds expose a version', async () => {
+  const [main, recovery, viteConfig] = await Promise.all([
     source('../src/main.tsx'),
+    source('../src/errors/routeErrorRecovery.js'),
     source('../vite.config.ts'),
   ]);
 
-  assert.match(main, /addEventListener\('unhandledrejection'/);
-  assert.match(main, /source: 'unhandled-rejection'/);
-  assert.match(main, /addEventListener\('vite:preloadError'/);
-  assert.match(main, /forceChunkLoadFailure: true/);
-  assert.match(main, /if \(result\.recoveryStarted\) event\.preventDefault\(\)/);
-  assert.doesNotMatch(main, /vite:preloadError'[\s\S]{0,80}event\.preventDefault/);
+  assert.match(main, /installGlobalErrorHandlers/);
+  assert.match(main, /import\.meta\.hot\.dispose\(removeGlobalErrorHandlers\)/);
   assert.match(main, /window\.location\.pathname/);
+  assert.match(recovery, /addEventListener\('error'/);
+  assert.match(recovery, /addEventListener\('unhandledrejection'/);
+  assert.match(recovery, /addEventListener\('vite:preloadError'/);
+  assert.match(recovery, /if \(result\.recoveryStarted\) event\.preventDefault\(\)/);
+  assert.match(recovery, /removeEventListener\('vite:preloadError'/);
   assert.match(viteConfig, /VERCEL_GIT_COMMIT_SHA/);
   assert.match(viteConfig, /import\.meta\.env\.VITE_APP_VERSION/);
 });
