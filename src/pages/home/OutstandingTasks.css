@@ -1,0 +1,73 @@
+.tasks-widget {
+  container-type: inline-size;
+}
+
+.tasks-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.tasks-editor-title {
+  width: 100%;
+  min-width: 12rem;
+}
+
+.tasks-editor-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.tasks-editor-controls > :not(.tasks-editor-category, .tasks-editor-submit) {
+  flex: 1 1 8rem;
+  min-width: 7rem;
+}
+
+.tasks-editor-category {
+  position: relative;
+  flex: 1 1 10rem;
+  min-width: 9rem;
+}
+
+.tasks-editor-category > select,
+.tasks-editor-submit {
+  width: 100%;
+}
+
+.tasks-editor-submit {
+  flex: 0 1 auto;
+  min-width: max-content;
+}
+
+.tasks-category-create {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.375rem);
+  right: 0;
+  width: min(18rem, calc(100cqw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid rgb(220 224 216);
+  border-radius: 0.5rem;
+  background: white;
+  box-shadow: 0 12px 28px rgb(25 40 30 / 0.16);
+}
+
+@container (min-width: 56rem) {
+  .tasks-editor {
+    grid-template-columns: minmax(12rem, 1fr) auto;
+    align-items: start;
+  }
+
+  .tasks-editor-controls {
+    flex-wrap: nowrap;
+  }
+}
+
+.dark .tasks-category-create {
+  border-color: rgb(72 91 78);
+  background: rgb(35 55 42);
+}

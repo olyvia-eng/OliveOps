@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { JobTaskHeading, Task, TaskPriority, TaskTab } from '../../types';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select } from '../../components/ui';
 import { taskCreationDefaults } from './homeDashboardModel.js';
+import './OutstandingTasks.css';
 
 interface OutstandingTasksProps {
   heading?: string;
@@ -52,6 +53,10 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('normal');
   const [taskTabId, setTaskTabId] = useState('');
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [managingCategories, setManagingCategories] = useState(false);
+  const [categoryName, setCategoryName] = useState('');
+  const [categoryError, setCategoryError] = useState('');
   const [headingId, setHeadingId] = useState('');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [parentTask, setParentTask] = useState<Task | null>(null);
@@ -90,6 +95,10 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     setDueDate(defaults.dueDate);
     setPriority('normal');
     setTaskTabId(defaults.taskTabId);
+    setCreatingCategory(false);
+    setManagingCategories(false);
+    setCategoryName('');
+    setCategoryError('');
     setHeadingId(selectedHeadingId);
     setAdding(true);
   };
@@ -101,6 +110,10 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     setDueDate(task.dueDate ?? '');
     setPriority('normal');
     setTaskTabId(task.taskTabId ?? '');
+    setCreatingCategory(false);
+    setManagingCategories(false);
+    setCategoryName('');
+    setCategoryError('');
     setHeadingId(task.headingId ?? '');
     setAdding(true);
   };
@@ -128,6 +141,23 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     setAdding(false);
   };
 
+  const createCategory = () => {
+    const result = onCreateCustomTab(categoryName);
+    if (!result.ok || !result.tab) return setCategoryError(result.error ?? 'Category could not be created.');
+    setTaskTabId(result.tab.id);
+    setCreatingCategory(false);
+    setManagingCategories(false);
+    setCategoryName('');
+    setCategoryError('');
+  };
+
+  const cancelCategory = () => {
+    setCreatingCategory(false);
+    setManagingCategories(false);
+    setCategoryName('');
+    setCategoryError('');
+  };
+
   const openEditTask = (task: Task) => {
     setEditingTask(task);
     setParentTask(null);
@@ -135,6 +165,10 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
     setDueDate(task.dueDate ?? '');
     setPriority(task.priority ?? 'normal');
     setTaskTabId(task.taskTabId ?? '');
+    setCreatingCategory(false);
+    setManagingCategories(false);
+    setCategoryName('');
+    setCategoryError('');
     setHeadingId(task.headingId ?? '');
     setAdding(true);
   };
@@ -256,7 +290,7 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
   })}</ul>;
 
   return (
-    <Card id="outstanding-tasks" className="overflow-hidden rounded-lg">
+    <Card id="outstanding-tasks" className="tasks-widget overflow-hidden rounded-lg">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-100 px-4 py-3 dark:border-brand-600">
         <div>
           <h2 className="font-semibold text-brand-900 dark:text-brand-50">{heading}</h2>
@@ -264,7 +298,7 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
         </div>
         <div className="flex items-center gap-2">
           {jobTaskHeadings && canManageJobTaskHeadings ? <Button size="sm" variant="secondary" onClick={() => openHeadingDialog('create')}><Plus />Add Tab</Button> : null}
-          <Button size="sm" onClick={() => { if (adding) { setAdding(false); setEditingTask(null); setParentTask(null); } else openAdd(jobTaskHeadings && activeHeadingId !== 'general' ? activeHeadingId : ''); }}>{adding ? <X /> : <Plus />}{adding ? 'Cancel' : 'Add Task'}</Button>
+          <Button size="sm" variant={adding ? 'ghost' : 'primary'} onClick={() => { if (adding) { setAdding(false); setEditingTask(null); setParentTask(null); cancelCategory(); } else openAdd(jobTaskHeadings && activeHeadingId !== 'general' ? activeHeadingId : ''); }}>{adding ? <X /> : <Plus />}{adding ? 'Cancel' : 'Add Task'}</Button>
         </div>
       </div>
 
@@ -299,13 +333,19 @@ export default function OutstandingTasks({ heading = 'Tasks', subtitle = 'Your n
       {adding ? (
         <div className="border-b border-brand-100 bg-brand-50/60 p-4 dark:border-brand-600 dark:bg-brand-800/30">
           {parentTask ? <p className="mb-2 text-xs font-semibold text-brand-600 dark:text-brand-200">Subtask of {parentTask.title}</p> : null}
-          <div className={`grid gap-2 ${jobTaskHeadings ? 'sm:grid-cols-[minmax(0,1fr)_10rem_8rem_11rem_11rem_auto]' : 'sm:grid-cols-[minmax(0,1fr)_10rem_8rem_11rem_auto]'}`}>
-            <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What needs doing?" aria-label="Task title" />
-            <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} aria-label="Due date" />
-            <Select value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)} aria-label="Priority"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></Select>
-            <Select value={taskTabId} onChange={(event) => setTaskTabId(event.target.value)} aria-label="Task Tab / Category"><option value="">No category</option>{customTaskTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</Select>
-            {jobTaskHeadings ? <Select value={headingId} onChange={(event) => setHeadingId(event.target.value)} aria-label="Task tab"><option value="">General</option>{jobTaskHeadings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select> : null}
-            <Button onClick={() => void submit()} disabled={!title.trim() || submitting}>{submitting ? 'Saving...' : editingTask ? 'Save' : parentTask ? 'Add subtask' : 'Add'}</Button>
+          <div className="tasks-editor" data-editor-kind={parentTask ? 'subtask' : editingTask ? 'edit' : 'task'}>
+            <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={parentTask ? 'Describe the subtask' : 'What needs doing?'} aria-label="Task title" className="tasks-editor-title min-h-10 bg-white focus:ring-2 dark:bg-brand-700" />
+            <div className="tasks-editor-controls">
+              <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} aria-label="Due date" />
+              <Select value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)} aria-label="Priority"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option></Select>
+              <div className="tasks-editor-category">
+                <Select value={taskTabId} onChange={(event) => { if (event.target.value === '__new_category__') { setCreatingCategory(true); setManagingCategories(false); setCategoryError(''); return; } if (event.target.value === '__manage_categories__') { setManagingCategories(true); setCreatingCategory(false); return; } setTaskTabId(event.target.value); cancelCategory(); }} aria-label="Task Tab / Category"><option value="">No category</option>{customTaskTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}{allowCustomTabs ? <option value="__new_category__">+ New category</option> : null}{allowCustomTabs && customTaskTabs.length ? <option value="__manage_categories__">Manage categories...</option> : null}</Select>
+                {creatingCategory ? <div className="tasks-category-create" role="group" aria-label="Create task category"><Input autoFocus label="Category name" maxLength={30} value={categoryName} onChange={(event) => { setCategoryName(event.target.value); setCategoryError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') createCategory(); if (event.key === 'Escape') cancelCategory(); }} error={categoryError} /><div className="mt-2 flex justify-end gap-2"><Button size="sm" variant="ghost" onClick={cancelCategory}>Cancel</Button><Button size="sm" onClick={createCategory} disabled={!categoryName.trim()}>Create</Button></div></div> : null}
+                {managingCategories ? <div className="tasks-category-create" role="group" aria-label="Manage task categories"><div className="mb-2 flex items-center justify-between gap-3"><p className="text-sm font-semibold text-brand-900 dark:text-brand-50">Categories</p><button type="button" onClick={cancelCategory} className="grid h-7 w-7 place-items-center rounded text-brand-400 hover:bg-brand-50" aria-label="Close category management"><X size={14} /></button></div><ul className="space-y-1">{customTaskTabs.map((tab) => <li key={tab.id} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 hover:bg-brand-50 dark:hover:bg-brand-600"><span className="min-w-0 flex-1 truncate text-sm text-brand-700 dark:text-brand-100">{tab.name}</span><button type="button" onClick={() => { setManagingCategories(false); openTabDialog('rename', tab); }} className="grid h-7 w-7 shrink-0 place-items-center rounded text-brand-400 hover:bg-white hover:text-brand-700" aria-label={`Rename ${tab.name}`}><Pencil size={14} /></button><button type="button" onClick={() => { setManagingCategories(false); openTabDialog('delete', tab); }} className="grid h-7 w-7 shrink-0 place-items-center rounded text-brand-400 hover:bg-accent-50 hover:text-accent-700" aria-label={`Delete ${tab.name}`}><X size={14} /></button></li>)}</ul></div> : null}
+              </div>
+              {jobTaskHeadings ? <Select value={headingId} onChange={(event) => setHeadingId(event.target.value)} aria-label="Task tab"><option value="">General</option>{jobTaskHeadings.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select> : null}
+              <Button className="tasks-editor-submit" onClick={() => void submit()} disabled={!title.trim() || submitting}>{submitting ? 'Saving...' : editingTask ? 'Save' : parentTask ? 'Add Subtask' : 'Add Task'}</Button>
+            </div>
           </div>
         </div>
       ) : null}
