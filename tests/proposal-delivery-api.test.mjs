@@ -24,6 +24,8 @@ const createResponse = () => ({
 function createHarness(overrides = {}) {
   let persisted;
   let email;
+  let completion;
+  let beginCount = 0;
   const handler = createProposalDeliveryHandler({
     requireSession: async () => ({ id: 'user-1', name: 'Ryan', email: 'ryan@contractor.ca', role: 'owner', businessId: 'business-1' }),
     getEstimateForBusiness: async (businessId, estimateId) => businessId === 'business-1' && estimateId === estimate.id ? structuredClone(estimate) : null,
@@ -33,13 +35,17 @@ function createHarness(overrides = {}) {
     readStoredFile: async () => new Uint8Array(),
     listProposalVersionsForEstimate: async () => [],
     createProposalVersionForBusiness: async (value) => { persisted = value; return value.version; },
-    proposalMailer: { sendProposal: async (value) => { email = value; return { ok: true }; } },
-    randomBytes: () => Buffer.from('01234567890123456789012345678901'),
+    beginProposalVersionDeliveryAttempt: async () => { beginCount += 1; return true; },
+    completeProposalVersionDeliveryForBusiness: async (value) => { completion = value; return true; },
+    proposalEmailConfiguration: () => ({ ok: true, from: 'proposals@example.ca' }),
+    proposalMailer: { sendProposal: async (value) => { email = value; return { ok: true, providerMessageId: 'resend-message-1' }; } },
+    createProposalAccessToken: ({ versionId }) => `secure-proposal-access-token-${versionId}-1234567890`,
     randomUUID: () => 'version-1',
     applicationOrigin: () => 'https://app.example.ca',
+    now: () => new Date('2026-09-07T12:00:00.000Z'),
     ...overrides,
   });
-  return { handler, get persisted() { return persisted; }, get email() { return email; } };
+  return { handler, get persisted() { return persisted; }, get email() { return email; }, get completion() { return completion; }, get beginCount() { return beginCount; } };
 }
 
 async function request(harness, { method = 'POST', query = { action: 'send' }, body = { estimateId: estimate.id } } = {}) {
@@ -53,9 +59,14 @@ test('sending creates a redacted immutable snapshot and persists only a token ha
   const response = await request(harness);
   assert.equal(response.statusCode, 201);
   assert.equal(response.body.emailSent, true);
+  assert.equal(response.body.emailStatus, 'sent');
+  assert.equal(response.body.estimatePatch.status, 'sent');
+  assert.equal(response.body.estimatePatch.proposalVersionNumber, 1);
   assert.match(response.body.viewUrl, /^https:\/\/app\.example\.ca\/proposal\//);
   assert.equal(harness.persisted.version.id, 'version-1');
   assert.equal(harness.persisted.version.versionNumber, 1);
+  assert.equal(harness.persisted.version.status, 'pending');
+  assert.equal(harness.persisted.version.deliveryStatus, 'pending');
   assert.equal(harness.persisted.tokenHash.length, 64);
   assert.doesNotMatch(JSON.stringify(harness.persisted), /01234567890123456789012345678901/);
   assert.doesNotMatch(JSON.stringify(harness.persisted.version.snapshot), /internalNotes|estimatedProfit|unitCost|sellPrice/);
@@ -63,6 +74,71 @@ test('sending creates a redacted immutable snapshot and persists only a token ha
   assert.equal(harness.persisted.version.snapshot.schemaVersion, 2);
   assert.deepEqual(harness.persisted.version.snapshot.paymentSchedule.map((payment) => payment.amount), [2280.57, 9122.26]);
   assert.equal(harness.email.to, 'barbara@example.ca');
+  assert.equal(harness.completion.delivery.status, 'sent');
+  assert.equal(harness.completion.delivery.providerMessageId, 'resend-message-1');
+});
+
+test('email configuration is validated before creating a Proposal version', async () => {
+  let persisted = false;
+  const harness = createHarness({
+    proposalEmailConfiguration: () => ({ ok: false, reason: 'not_configured', message: 'Proposal email delivery is not configured: RESEND_API_KEY is missing.' }),
+    createProposalVersionForBusiness: async () => { persisted = true; },
+  });
+  const response = await request(harness);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.emailStatus, 'not_configured');
+  assert.equal(persisted, false);
+});
+
+test('invalid customer email is rejected before creating a Proposal version', async () => {
+  let persisted = false;
+  const harness = createHarness({
+    getCustomerForBusiness: async () => ({ id: 'customer-1', name: 'Barbara', email: 'not-an-email' }),
+    createProposalVersionForBusiness: async () => { persisted = true; },
+  });
+  const response = await request(harness);
+  assert.equal(response.statusCode, 400);
+  assert.match(response.body.error, /valid customer email/i);
+  assert.equal(persisted, false);
+});
+
+test('Resend failure preserves V1 and records failed delivery without reporting sent', async () => {
+  const harness = createHarness({
+    proposalMailer: { sendProposal: async () => ({ ok: false, reason: 'provider_rejected', message: 'Resend rejected the recipient.' }) },
+  });
+  const response = await request(harness);
+  assert.equal(response.statusCode, 502);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.emailSent, false);
+  assert.equal(response.body.emailStatus, 'failed');
+  assert.equal(response.body.version.versionNumber, 1);
+  assert.equal(response.body.version.status, 'pending');
+  assert.equal(response.body.estimatePatch.status, undefined);
+  assert.equal(response.body.estimatePatch.proposalVersionNumber, 1);
+  assert.equal(harness.persisted.version.versionNumber, 1);
+  assert.equal(harness.completion.delivery.status, 'failed');
+  assert.equal(harness.completion.delivery.failureCategory, 'provider_rejected');
+});
+
+test('retrying failed delivery reuses V1 and its exact secure URL', async () => {
+  const failedVersion = {
+    id: 'version-1', versionNumber: 1, status: 'pending', deliveryStatus: 'failed', deliveryRecipient: 'barbara@example.ca',
+    expiresAt: '2026-10-07T23:59:59.999Z', snapshot: { company: { name: 'Shoreline Contracting', phone: '705-111-2345', email: 'admin@example.ca' }, customer: { displayName: 'Barbara Bartholomew', contactName: 'Barbara', email: 'barbara@example.ca' }, proposal: { title: 'Shoreline Restoration', number: 'PROP-2026-0001', total: 11402.83, validUntil: '2026-10-07' } },
+  };
+  let created = 0;
+  const harness = createHarness({
+    getProposalVersionForBusiness: async () => structuredClone(failedVersion),
+    createProposalVersionForBusiness: async () => { created += 1; },
+  });
+  const response = await request(harness, { query: { action: 'retry' }, body: { estimateId: estimate.id, versionNumber: 1 } });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.version.versionNumber, 1);
+  assert.equal(created, 0, 'retry must not create Proposal V2');
+  assert.equal(harness.beginCount, 1);
+  assert.equal(response.body.viewUrl, 'https://app.example.ca/proposal/secure-proposal-access-token-version-1-1234567890');
+  assert.equal(harness.email.viewUrl, response.body.viewUrl);
 });
 
 test('invalid payment allocation is rejected before version persistence or email', async () => {
@@ -139,4 +215,27 @@ test('Service send rejects incomplete pricing and schedules payments against con
   assert.equal(response.statusCode, 201);
   assert.equal(harness.persisted.version.snapshot.servicePricingSummary.contractedRevenue, 1200);
   assert.deepEqual(harness.persisted.version.snapshot.paymentSchedule.map((payment) => payment.amount), [271.2, 1084.8]);
+});
+
+test('APP_ORIGIN is validated before creating a Proposal version', async () => {
+  let persisted = false;
+  const harness = createHarness({
+    applicationOrigin: () => { throw new Error('APP_ORIGIN is required to send Proposals.'); },
+    createProposalVersionForBusiness: async () => { persisted = true; },
+  });
+  const response = await request(harness);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.emailStatus, 'not_configured');
+  assert.equal(persisted, false);
+});
+
+test('successful response requires an email provider acceptance id', async () => {
+  const harness = createHarness({ proposalMailer: { sendProposal: async () => ({ ok: true }) } });
+  const response = await request(harness);
+  assert.equal(response.statusCode, 502);
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.emailSent, false);
+  assert.equal(response.body.version.status, 'pending');
+  assert.equal(harness.completion.delivery.status, 'failed');
+  assert.equal(harness.completion.delivery.failureCategory, 'provider_invalid_response');
 });

@@ -16,6 +16,7 @@ const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'co
 const CATEGORIES: Array<{ value: LineItemCategory; label: string }> = [{ value: 'labour', label: 'Labour' }, { value: 'equipment', label: 'Equipment' }, { value: 'material', label: 'Materials' }, { value: 'subcontractor', label: 'Subcontractors' }];
 const TABS = [{ id: 'info', label: 'Info' }, { id: 'services', label: 'Services' }, { id: 'proposal', label: 'Proposal' }, { id: 'analysis', label: 'Analysis' }] as const;
 const newService = (sortOrder: number): EstimateService => ({ id: crypto.randomUUID(), name: '', description: '', sortOrder, scheduleType: 'recurring', billingType: 'contract', frequency: { interval: 1, unit: 'week' }, lineItems: [] });
+type ProposalDeliverySummary = { id: string; versionNumber: number; status: string; sentAt?: string; deliveryStatus?: 'pending' | 'sent' | 'failed'; deliveryRecipient?: string; deliveryFailureReason?: string };
 
 export default function ServiceEstimateWorkspacePage() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +35,7 @@ export default function ServiceEstimateWorkspacePage() {
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [proposalVersions, setProposalVersions] = useState<ProposalDeliverySummary[]>([]);
 
   useEffect(() => setForm(estimate ?? null), [estimate]);
   useEffect(() => {
@@ -47,6 +49,13 @@ export default function ServiceEstimateWorkspacePage() {
     }).catch((reason: unknown) => { if (!controller.signal.aborted) setCatalogError(reason instanceof Error ? reason.message : 'Could not load pricing resources.'); });
     return () => controller.abort();
   }, [estimate]);
+  useEffect(() => {
+    if (!estimate || searchParams.get('tab') !== 'proposal') return;
+    void fetch(`/api/proposal-delivery?estimateId=${encodeURIComponent(estimate.id)}`, { credentials: 'include' }).then(async (response) => {
+      const payload = await response.json();
+      if (response.ok && payload.ok && Array.isArray(payload.versions)) setProposalVersions(payload.versions);
+    });
+  }, [estimate, searchParams]);
 
   if (!estimate || !form) return <EmptyState title="Service Estimate not found" description="It may have been removed or you may not have access." action={<Button onClick={() => navigate('/estimates/services')}><ArrowLeft /> Service Estimates</Button>} />;
   const services = form.services ?? [];
@@ -60,6 +69,10 @@ export default function ServiceEstimateWorkspacePage() {
     const service = services.find((item) => item.id === serviceId);
     if (!service) return;
     updateService(serviceId, { lineItems: (service.lineItems ?? []).map((line) => line.id === lineId ? { ...calculateEstimateLineItem({ ...line, ...patch }), costScope: patch.costScope ?? line.costScope } : line) });
+  };
+  const applyProposalEstimatePatch = (patch?: Partial<Estimate>) => {
+    if (!patch) return;
+    useStore.setState((state) => ({ estimates: state.estimates.map((item) => item.id === estimate.id ? { ...item, ...patch } : item) }));
   };
   const save = async () => {
     if (!form.title.trim() || !form.customerId || !form.pricingBudgetId || saving) return false;
@@ -75,9 +88,35 @@ export default function ServiceEstimateWorkspacePage() {
     try {
       const response = await fetch(`/api/proposal-delivery?action=send&estimateId=${encodeURIComponent(estimate.id)}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estimateId: estimate.id, email: customer?.email }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Proposal could not be sent.');
+      applyProposalEstimatePatch(payload.estimatePatch);
+      if (!response.ok || !payload.ok) {
+        if (payload.version) setProposalVersions((current) => [payload.version, ...current.filter((version) => version.id !== payload.version.id)]);
+        throw new Error(payload.error || 'Proposal email could not be delivered.');
+      }
+      setProposalVersions((current) => [payload.version, ...current.filter((version) => version.id !== payload.version.id)]);
+      setForm((current) => current ? { ...current, status: 'sent', sentAt: payload.version.sentAt } : current);
       emitAppToast({ tone: 'success', message: 'Service Proposal sent.' });
     } catch (reason) { emitAppToast({ tone: 'error', message: reason instanceof Error ? reason.message : 'Proposal could not be sent.' }); } finally { setSending(false); }
+  };
+  const retryProposalEmail = async (version: ProposalDeliverySummary) => {
+    if (sending) return;
+    setSending(true);
+    try {
+      const response = await fetch(`/api/proposal-delivery?action=retry&estimateId=${encodeURIComponent(estimate.id)}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estimateId: estimate.id, versionNumber: version.versionNumber, email: version.deliveryRecipient }) });
+      const payload = await response.json();
+      applyProposalEstimatePatch(payload.estimatePatch);
+      if (!response.ok || !payload.ok) {
+        if (payload.version) setProposalVersions((current) => current.map((item) => item.id === payload.version.id ? payload.version : item));
+        throw new Error(payload.error || 'Proposal email could not be delivered.');
+      }
+      setProposalVersions((current) => current.map((item) => item.id === payload.version.id ? payload.version : item));
+      setForm((current) => current ? { ...current, status: 'sent', sentAt: payload.version.sentAt } : current);
+      emitAppToast({ tone: 'success', message: 'Service Proposal email sent.' });
+    } catch (reason) {
+      emitAppToast({ tone: 'error', message: reason instanceof Error ? reason.message : 'Proposal email could not be delivered.' });
+    } finally {
+      setSending(false);
+    }
   };
   const downloadProposal = async () => {
     if (!(await save())) return;
@@ -100,6 +139,7 @@ export default function ServiceEstimateWorkspacePage() {
     updateService(catalogService.id, { lineItems: [...(catalogService.lineItems ?? []), line] });
   };
   const pricingLine = pricingTarget ? services.find((service) => service.id === pricingTarget.serviceId)?.lineItems?.find((line) => line.id === pricingTarget.lineId) : null;
+  const latestProposalVersion = proposalVersions[0];
 
   return <div>
     <button type="button" className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-brand-600" onClick={() => navigate('/estimates/services')}><ArrowLeft size={16} /> Service Estimates</button>
@@ -110,7 +150,7 @@ export default function ServiceEstimateWorkspacePage() {
 
     {activeTab === 'services' ? <section className="space-y-4"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Services and pricing</h2><p className="text-sm text-brand-400">Build the expected cost and customer price for each commitment. This does not generate Visits.</p></div><Button variant="secondary" onClick={() => setField('services', [...services, newService(services.length)])}><Plus /> Add Service</Button></div>{services.length === 0 ? <EmptyState title="No services defined" description="Add the first service included in this agreement." /> : services.map((service, index) => <ServiceEditor key={service.id} service={service} index={index} divisions={divisions} updateService={updateService} updateLine={updateLine} remove={() => setField('services', services.filter((item) => item.id !== service.id))} openCatalog={() => setCatalogServiceId(service.id)} openPricing={(lineId) => setPricingTarget({ serviceId: service.id, lineId })} />)}</section> : null}
 
-    {activeTab === 'proposal' ? <div className="space-y-4"><Card className="p-5"><h2 className="font-semibold">Customer pricing</h2><div className="mt-4 grid gap-4 sm:grid-cols-3"><Summary label="Contracted" value={totals.contractedRevenue} /><Summary label="Projected per visit" value={totals.projectedPerVisitRevenue} /><Summary label="Projected T&M" value={totals.projectedTimeAndMaterialRevenue} /></div><div className="mt-5 flex flex-wrap gap-2"><Button onClick={() => void sendProposal()} disabled={sending}><Send /> {sending ? 'Sending...' : 'Send Proposal'}</Button><Button variant="secondary" onClick={() => void downloadProposal()}><Download /> Download PDF</Button></div></Card><Card className="p-5"><TextArea label="Proposal terms" value={form.proposalTerms ?? ''} onChange={(event) => setField('proposalTerms', event.target.value)} /><div className="mt-4"><TextArea label="Exclusions" value={form.exclusions ?? ''} onChange={(event) => setField('exclusions', event.target.value)} /></div></Card></div> : null}
+    {activeTab === 'proposal' ? <div className="space-y-4"><Card className="p-5"><h2 className="font-semibold">Customer pricing</h2><div className="mt-4 grid gap-4 sm:grid-cols-3"><Summary label="Contracted" value={totals.contractedRevenue} /><Summary label="Projected per visit" value={totals.projectedPerVisitRevenue} /><Summary label="Projected T&M" value={totals.projectedTimeAndMaterialRevenue} /></div>{latestProposalVersion ? <div className="mt-5 border-y border-brand-100 py-3 text-sm dark:border-brand-700"><p className="font-semibold">Email delivery: <span className={latestProposalVersion.deliveryStatus === 'failed' ? 'text-rose-700' : 'text-brand-700'}>{latestProposalVersion.deliveryStatus === 'failed' ? 'Delivery failed' : latestProposalVersion.deliveryStatus === 'pending' ? 'Pending' : 'Sent'}</span></p>{latestProposalVersion.deliveryRecipient ? <p className="mt-1 text-xs text-brand-400">{latestProposalVersion.deliveryRecipient}</p> : null}{latestProposalVersion.deliveryStatus === 'failed' ? <div className="mt-3"><p className="mb-2 text-sm text-rose-700">{latestProposalVersion.deliveryFailureReason || 'The Proposal email could not be delivered.'}</p><Button variant="secondary" disabled={sending} onClick={() => void retryProposalEmail(latestProposalVersion)}><Send /> {sending ? 'Sending...' : 'Retry Email'}</Button></div> : null}</div> : null}<div className="mt-5 flex flex-wrap gap-2"><Button onClick={() => void sendProposal()} disabled={sending || latestProposalVersion?.deliveryStatus === 'failed' || latestProposalVersion?.deliveryStatus === 'pending'}><Send /> {sending ? 'Sending...' : latestProposalVersion ? 'Send New Version' : 'Send Proposal'}</Button><Button variant="secondary" onClick={() => void downloadProposal()}><Download /> Download PDF</Button></div></Card><Card className="p-5"><TextArea label="Proposal terms" value={form.proposalTerms ?? ''} onChange={(event) => setField('proposalTerms', event.target.value)} /><div className="mt-4"><TextArea label="Exclusions" value={form.exclusions ?? ''} onChange={(event) => setField('exclusions', event.target.value)} /></div></Card></div> : null}
 
     {activeTab === 'analysis' ? <Analysis services={services} selected={analysisServiceId} onSelect={setAnalysisServiceId} taxRate={form.taxRate} /> : null}
     {form.status === 'accepted' ? <div className="mt-6 flex justify-end"><Button onClick={() => void convert()} disabled={converting || services.length === 0}><RefreshCw /> {converting ? 'Converting...' : 'Convert to Service Job'}</Button></div> : null}

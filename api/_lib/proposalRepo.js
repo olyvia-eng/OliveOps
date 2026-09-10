@@ -13,6 +13,13 @@ const mapVersion = (item) => item ? ({
   estimateId: item.estimateId,
   versionNumber: item.versionNumber,
   status: item.status,
+  deliveryStatus: item.deliveryStatus,
+  deliveryRecipient: item.deliveryRecipient,
+  deliveryAttemptedAt: item.deliveryAttemptedAt,
+  deliverySubmittedAt: item.deliverySubmittedAt,
+  deliveryProviderMessageId: item.deliveryProviderMessageId,
+  deliveryFailureCategory: item.deliveryFailureCategory,
+  deliveryFailureReason: item.deliveryFailureReason,
   snapshot: item.snapshot,
   sentAt: item.sentAt,
   sentByUserId: item.sentByUserId,
@@ -43,11 +50,48 @@ export async function createProposalVersionForBusiness({ businessId, estimate, v
     TransactItems: [
       { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: key, entityType: 'PROPOSAL_VERSION', businessId, versionId: version.id, estimateId: estimate.id, tokenHash, ...version }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
       { Put: { TableName: tableName, Item: { PK: tokenPk(tokenHash), SK: tokenPk(tokenHash), entityType: 'PROPOSAL_TOKEN', businessId, estimateId: estimate.id, versionId: version.id, versionKey: key, tokenHash, expiresAt: version.expiresAt, createdAt: version.createdAt }, ConditionExpression: 'attribute_not_exists(PK)' } },
-      { Update: { TableName: tableName, Key: { PK: businessPk(businessId), SK: estimateSk(estimate.id) }, UpdateExpression: 'SET #status = :sent, sentAt = :sentAt, activeProposalVersionId = :versionId, proposalVersionNumber = :versionNumber, updatedAt = :updatedAt', ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':sent': 'sent', ':sentAt': version.sentAt, ':versionId': version.id, ':versionNumber': version.versionNumber, ':updatedAt': version.sentAt } } },
-      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: `AUDIT_EVENT#${auditId}`, entityType: 'AUDIT_EVENT', businessId, eventId: auditId, action: 'proposal_version_sent', actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email, affectedEntryCount: 1, createdAt: version.sentAt, metadata: { estimateId: estimate.id, proposalVersionId: version.id, versionNumber: version.versionNumber, sentToEmail: version.sentToEmail } }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+      { Update: { TableName: tableName, Key: { PK: businessPk(businessId), SK: estimateSk(estimate.id) }, UpdateExpression: 'SET activeProposalVersionId = :versionId, proposalVersionNumber = :versionNumber, updatedAt = :updatedAt', ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)', ExpressionAttributeValues: { ':versionId': version.id, ':versionNumber': version.versionNumber, ':updatedAt': version.createdAt } } },
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: `AUDIT_EVENT#${auditId}`, entityType: 'AUDIT_EVENT', businessId, eventId: auditId, action: 'proposal_version_created', actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email, affectedEntryCount: 1, createdAt: version.createdAt, metadata: { estimateId: estimate.id, proposalVersionId: version.id, versionNumber: version.versionNumber, deliveryRecipient: version.deliveryRecipient } }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
     ],
   }));
   return mapVersion({ ...version, versionId: version.id, estimateId: estimate.id });
+}
+
+export async function beginProposalVersionDeliveryAttempt({ businessId, estimateId, versionNumber, recipient, attemptedAt }) {
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: versionSk(estimateId, versionNumber) },
+      UpdateExpression: 'SET deliveryStatus = :pending, deliveryRecipient = :recipient, deliveryAttemptedAt = :attemptedAt REMOVE deliverySubmittedAt, deliveryProviderMessageId, deliveryFailureCategory, deliveryFailureReason',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND (attribute_not_exists(deliveryStatus) OR deliveryStatus = :failed OR deliveryStatus = :pending)',
+      ExpressionAttributeValues: { ':pending': 'pending', ':failed': 'failed', ':recipient': recipient, ':attemptedAt': attemptedAt },
+    }));
+    return true;
+  } catch (error) {
+    if (error?.name === 'ConditionalCheckFailedException') return false;
+    throw error;
+  }
+}
+
+export async function completeProposalVersionDeliveryForBusiness({ businessId, estimateId, version, delivery, actor }) {
+  const auditId = `${version.id}-${delivery.status}-${Date.parse(delivery.attemptedAt) || Date.now()}`;
+  const versionKey = { PK: businessPk(businessId), SK: versionSk(estimateId, version.versionNumber) };
+  if (delivery.status === 'sent') {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Update: { TableName: tableName, Key: versionKey, UpdateExpression: 'SET #status = :sent, sentAt = :submittedAt, sentToEmail = :recipient, deliveryStatus = :sent, deliveryRecipient = :recipient, deliveryAttemptedAt = :attemptedAt, deliverySubmittedAt = :submittedAt, deliveryProviderMessageId = :providerMessageId REMOVE deliveryFailureCategory, deliveryFailureReason', ConditionExpression: 'deliveryStatus = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':sent': 'sent', ':pending': 'pending', ':recipient': delivery.recipient, ':attemptedAt': delivery.attemptedAt, ':submittedAt': delivery.submittedAt, ':providerMessageId': delivery.providerMessageId } } },
+      { Update: { TableName: tableName, Key: { PK: businessPk(businessId), SK: estimateSk(estimateId) }, UpdateExpression: 'SET #status = :sent, sentAt = :submittedAt, activeProposalVersionId = :versionId, proposalVersionNumber = :versionNumber, updatedAt = :submittedAt', ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':sent': 'sent', ':submittedAt': delivery.submittedAt, ':versionId': version.id, ':versionNumber': version.versionNumber } } },
+      { Put: { TableName: tableName, Item: { PK: businessPk(businessId), SK: `AUDIT_EVENT#${auditId}`, entityType: 'AUDIT_EVENT', businessId, eventId: auditId, action: 'proposal_email_sent', actorUserId: actor.id, actorName: actor.name, actorEmail: actor.email, affectedEntryCount: 1, createdAt: delivery.submittedAt, metadata: { estimateId, proposalVersionId: version.id, versionNumber: version.versionNumber, recipient: delivery.recipient, providerMessageId: delivery.providerMessageId } }, ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)' } },
+    ] }));
+  } else {
+    await ddb.send(new UpdateCommand({
+      TableName: tableName,
+      Key: versionKey,
+      UpdateExpression: 'SET deliveryStatus = :failed, deliveryRecipient = :recipient, deliveryAttemptedAt = :attemptedAt, deliveryFailureCategory = :failureCategory, deliveryFailureReason = :failureReason REMOVE deliverySubmittedAt, deliveryProviderMessageId',
+      ConditionExpression: 'deliveryStatus = :pending',
+      ExpressionAttributeValues: { ':failed': 'failed', ':pending': 'pending', ':recipient': delivery.recipient, ':attemptedAt': delivery.attemptedAt, ':failureCategory': delivery.failureCategory, ':failureReason': delivery.failureReason },
+    }));
+  }
+  return true;
 }
 
 export async function getPublicProposalVersionByTokenHash(tokenHash) {

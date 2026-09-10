@@ -50,6 +50,13 @@ type ProposalVersionSummary = {
   acceptedAt?: string;
   acceptedBy?: string;
   signedPdfFileId?: string;
+  deliveryStatus?: 'pending' | 'sent' | 'failed';
+  deliveryRecipient?: string;
+  deliveryAttemptedAt?: string;
+  deliverySubmittedAt?: string;
+  deliveryProviderMessageId?: string;
+  deliveryFailureCategory?: string;
+  deliveryFailureReason?: string;
 };
 
 const STATUSES: EstimateStatus[] = ['draft', 'sent', 'accepted', 'declined', 'converted'];
@@ -228,6 +235,11 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     return updateEstimate(estimate.id, payload);
   };
 
+  const applyProposalEstimatePatch = (patch?: Partial<Estimate>) => {
+    if (!patch || !estimate) return;
+    useStore.setState((state) => ({ estimates: state.estimates.map((item) => item.id === estimate.id ? { ...item, ...patch } : item) }));
+  };
+
   const saveIfDirty = async ({ force = false, showSuccess = false } = {}) => {
     if (!estimate || !form || saveInFlight.current) return false;
     const isDirty = !persistedFormBaseline.current
@@ -338,17 +350,43 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
     try {
       const response = await fetch(`/api/proposal-delivery?action=send&estimateId=${encodeURIComponent(item.id)}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estimateId: item.id, email: proposalCustomer.email }) });
       const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error || 'Proposal could not be sent.');
+      applyProposalEstimatePatch(payload.estimatePatch);
+      if (!response.ok || !payload.ok) {
+        if (payload.version) setProposalVersions((current) => [payload.version, ...current.filter((version) => version.id !== payload.version.id)]);
+        throw new Error(payload.error || 'Proposal email could not be delivered.');
+      }
       setLatestProposalUrl(payload.viewUrl ?? '');
       const versionResponse = await fetch(`/api/proposal-delivery?estimateId=${encodeURIComponent(item.id)}`, { credentials: 'include' });
       const versionPayload = await versionResponse.json();
       if (versionResponse.ok && versionPayload.ok) setProposalVersions(versionPayload.versions ?? []);
       setForm((current) => current ? { ...current, status: 'sent', sentAt: payload.version.sentAt } : current);
-      emitAppToast({ tone: payload.emailSent ? 'success' : 'error', message: payload.emailSent ? 'Proposal sent securely.' : 'Proposal version created, but email delivery is not configured. Use the secure link.' });
+      emitAppToast({ tone: 'success', message: 'Proposal sent securely.' });
       return true;
     } catch (error) {
       emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Proposal could not be sent.' });
       return false;
+    } finally {
+      setSendingProposal(false);
+    }
+  };
+
+  const retryProposalEmail = async (version: ProposalVersionSummary) => {
+    if (!estimate || sendingProposal) return;
+    setSendingProposal(true);
+    try {
+      const response = await fetch(`/api/proposal-delivery?action=retry&estimateId=${encodeURIComponent(estimate.id)}`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estimateId: estimate.id, versionNumber: version.versionNumber, email: version.deliveryRecipient }) });
+      const payload = await response.json();
+      applyProposalEstimatePatch(payload.estimatePatch);
+      if (!response.ok || !payload.ok) {
+        if (payload.version) setProposalVersions((current) => current.map((item) => item.id === payload.version.id ? payload.version : item));
+        throw new Error(payload.error || 'Proposal email could not be delivered.');
+      }
+      setLatestProposalUrl(payload.viewUrl ?? '');
+      setProposalVersions((current) => current.map((item) => item.id === payload.version.id ? payload.version : item));
+      setForm((current) => current ? { ...current, status: 'sent', sentAt: payload.version.sentAt } : current);
+      emitAppToast({ tone: 'success', message: 'Proposal email sent.' });
+    } catch (error) {
+      emitAppToast({ tone: 'error', message: error instanceof Error ? error.message : 'Proposal email could not be delivered.' });
     } finally {
       setSendingProposal(false);
     }
@@ -764,7 +802,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <p><span className="font-medium text-gray-900">Valid Until:</span> {form.validUntil ? formatDate(form.validUntil) : 'Not specified'}</p>
               <p><span className="font-medium text-gray-900">Total:</span> {formatCurrency(analysis.total)}</p>
             </div>
-            {latestProposalVersion ? <div className="grid gap-3 border-y border-gray-200 py-4 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs font-semibold uppercase text-gray-500">Status</p><p className="mt-1 font-semibold capitalize text-gray-900">{latestProposalVersion.status}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Sent</p><p className="mt-1 text-gray-900">{formatDateTime(latestProposalVersion.sentAt)}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Viewed</p><p className="mt-1 text-gray-900">{latestProposalVersion.firstViewedAt ? formatDateTime(latestProposalVersion.firstViewedAt) : 'Not yet'}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Accepted</p><p className="mt-1 text-gray-900">{latestProposalVersion.acceptedAt ? `${formatDateTime(latestProposalVersion.acceptedAt)}${latestProposalVersion.acceptedBy ? ` by ${latestProposalVersion.acceptedBy}` : ''}` : 'Not yet'}</p></div></div> : null}
+            {latestProposalVersion ? <div className="grid gap-3 border-y border-gray-200 py-4 text-sm sm:grid-cols-2 lg:grid-cols-4"><div><p className="text-xs font-semibold uppercase text-gray-500">Status</p><p className="mt-1 font-semibold capitalize text-gray-900">{latestProposalVersion.status}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Email delivery</p><p className={`mt-1 font-semibold ${latestProposalVersion.deliveryStatus === 'failed' ? 'text-rose-700' : 'text-gray-900'}`}>{latestProposalVersion.deliveryStatus === 'failed' ? 'Delivery failed' : latestProposalVersion.deliveryStatus === 'pending' ? 'Pending' : 'Sent'}</p>{latestProposalVersion.deliveryRecipient ? <p className="mt-1 text-xs text-gray-500">{latestProposalVersion.deliveryRecipient}</p> : null}</div><div><p className="text-xs font-semibold uppercase text-gray-500">Viewed</p><p className="mt-1 text-gray-900">{latestProposalVersion.firstViewedAt ? formatDateTime(latestProposalVersion.firstViewedAt) : 'Not yet'}</p></div><div><p className="text-xs font-semibold uppercase text-gray-500">Accepted</p><p className="mt-1 text-gray-900">{latestProposalVersion.acceptedAt ? `${formatDateTime(latestProposalVersion.acceptedAt)}${latestProposalVersion.acceptedBy ? ` by ${latestProposalVersion.acceptedBy}` : ''}` : 'Not yet'}</p></div>{latestProposalVersion.deliveryStatus === 'failed' ? <div className="sm:col-span-2 lg:col-span-4"><p className="mb-2 text-sm text-rose-700">{latestProposalVersion.deliveryFailureReason || 'The Proposal email could not be delivered.'}</p><Button variant="secondary" disabled={sendingProposal} onClick={() => void retryProposalEmail(latestProposalVersion)}><Send size={14} /> {sendingProposal ? 'Sending...' : 'Retry Email'}</Button></div> : null}</div> : null}
             <div>
               <TextArea label="Introduction (optional)" rows={4} value={form.description} onChange={(event) => setField('description', event.target.value)} />
               <p className="mt-1.5 text-xs text-gray-500">Use separate lines for paragraphs. This appears before Work Areas in the proposal.</p>
@@ -777,7 +815,7 @@ export default function EstimateWorkspacePage({ currentUserRole }: Props) {
               <Button variant="secondary" onClick={() => void createProposalPdf(estimate.id)}>
                 <FileDown size={14} /> Download PDF
               </Button>
-              <Button disabled={!paymentCalculation.valid || sendingProposal} onClick={() => void sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
+              <Button disabled={!paymentCalculation.valid || sendingProposal || latestProposalVersion?.deliveryStatus === 'failed' || latestProposalVersion?.deliveryStatus === 'pending'} onClick={() => void sendProposalToClient({ ...estimate, ...form, lineItems: flattenWorkAreaLineItems(form.workAreas) })}>
                 <Send size={14} /> {sendingProposal ? 'Sending...' : latestProposalVersion ? 'Send New Version' : 'Send to Customer'}
               </Button>
               {latestProposalUrl ? <a href={latestProposalUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700"><ExternalLink size={14} /> Open secure Proposal</a> : null}
