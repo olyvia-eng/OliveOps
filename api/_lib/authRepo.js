@@ -87,6 +87,10 @@ function jobInvoiceLedgerSk(jobId) {
   return `JOB_INVOICE_LEDGER#${jobId}`;
 }
 
+function invoiceScheduleClaimSk(jobId, paymentScheduleItemId) {
+  return `INVOICE_SCHEDULE_CLAIM#${jobId}#${paymentScheduleItemId}`;
+}
+
 function expenseSk(expenseId) {
   return `EXPENSE#${expenseId}`;
 }
@@ -1856,23 +1860,75 @@ export async function reserveNextInvoiceNumberForBusiness({ businessId, year }) 
   return `INV-${year}-${String(sequence).padStart(3, '0')}`;
 }
 
-export async function createInvoiceForBusiness({ businessId, invoice }) {
-  await ddb.send(
-    new PutCommand({
-      TableName: tableName,
-      Item: {
-        PK: businessPk(businessId),
-        SK: invoiceSk(invoice.id),
-        entityType: 'INVOICE',
-        businessId,
-        invoiceId: invoice.id,
-        ...invoice,
-      },
-      ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
-    })
-  );
+function invoiceScheduleClaim(businessId, invoice) {
+  if (!invoice.jobId || !invoice.paymentScheduleItemId) return null;
+  return {
+    PK: businessPk(businessId),
+    SK: invoiceScheduleClaimSk(invoice.jobId, invoice.paymentScheduleItemId),
+    entityType: 'INVOICE_SCHEDULE_CLAIM',
+    businessId,
+    jobId: invoice.jobId,
+    paymentScheduleItemId: invoice.paymentScheduleItemId,
+    invoiceId: invoice.id,
+    updatedAt: invoice.updatedAt,
+  };
+}
 
-  return { ok: true };
+function scheduleClaimPut(claim) {
+  return {
+    Put: {
+      TableName: tableName,
+      Item: claim,
+      ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    },
+  };
+}
+
+function scheduleClaimDelete(claim, invoiceId) {
+  return {
+    Delete: {
+      TableName: tableName,
+      Key: { PK: claim.PK, SK: claim.SK },
+      ConditionExpression: '#invoiceId = :invoiceId',
+      ExpressionAttributeNames: { '#invoiceId': 'invoiceId' },
+      ExpressionAttributeValues: { ':invoiceId': invoiceId },
+    },
+  };
+}
+
+async function getInvoiceScheduleClaim(businessId, invoice) {
+  const claim = invoiceScheduleClaim(businessId, invoice);
+  if (!claim) return null;
+  const result = await ddb.send(new GetCommand({ TableName: tableName, Key: { PK: claim.PK, SK: claim.SK } }));
+  return result.Item?.invoiceId === invoice.id ? claim : null;
+}
+
+export async function createInvoiceForBusiness({ businessId, invoice }) {
+  const claim = invoiceScheduleClaim(businessId, invoice);
+  try {
+    if (!claim) {
+      await ddb.send(new PutCommand({
+        TableName: tableName,
+        Item: invoicePersistenceItem(businessId, invoice),
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      }));
+    } else {
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        scheduleClaimPut(claim),
+        { Put: {
+          TableName: tableName,
+          Item: invoicePersistenceItem(businessId, invoice),
+          ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+        } },
+      ] }));
+    }
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException' || error?.name === 'ConditionalCheckFailedException') {
+      return { ok: false, error: 'This payment schedule item already has an invoice.' };
+    }
+    throw error;
+  }
 }
 
 export async function getInvoiceForBusiness(businessId, invoiceId) {
@@ -1889,23 +1945,36 @@ export async function getInvoiceForBusiness(businessId, invoiceId) {
   return invoiceFromItem(result.Item);
 }
 
-export async function updateInvoiceForBusiness({ businessId, invoice }) {
-  await ddb.send(
-    new PutCommand({
-      TableName: tableName,
-      Item: {
-        PK: businessPk(businessId),
-        SK: invoiceSk(invoice.id),
-        entityType: 'INVOICE',
-        businessId,
-        invoiceId: invoice.id,
-        ...invoice,
-      },
-      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
-    })
-  );
-
-  return { ok: true };
+export async function updateInvoiceForBusiness({ businessId, invoice, existing }) {
+  const previousClaim = invoiceScheduleClaim(businessId, existing ?? invoice);
+  const nextClaim = invoiceScheduleClaim(businessId, invoice);
+  const claimUnchanged = previousClaim?.SK === nextClaim?.SK;
+  try {
+    if (claimUnchanged || (!previousClaim && !nextClaim)) {
+      await ddb.send(new PutCommand({
+        TableName: tableName,
+        Item: invoicePersistenceItem(businessId, invoice),
+        ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+      }));
+    } else {
+      const previousOwnedClaim = previousClaim ? await getInvoiceScheduleClaim(businessId, existing) : null;
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        ...(previousOwnedClaim ? [scheduleClaimDelete(previousOwnedClaim, invoice.id)] : []),
+        ...(nextClaim ? [scheduleClaimPut(nextClaim)] : []),
+        { Put: {
+          TableName: tableName,
+          Item: invoicePersistenceItem(businessId, invoice),
+          ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',
+        } },
+      ] }));
+    }
+    return { ok: true };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException' || error?.name === 'ConditionalCheckFailedException') {
+      return { ok: false, error: 'This payment schedule item already has an invoice.' };
+    }
+    throw error;
+  }
 }
 
 function invoicePersistenceItem(businessId, invoice) {
@@ -1997,6 +2066,8 @@ export async function voidInvoiceForBusiness({ businessId, invoice, actor }) {
     ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
   };
   const ledger = await ddb.send(new GetCommand({ TableName: tableName, Key: ledgerKey }));
+  const scheduleClaim = await getInvoiceScheduleClaim(businessId, invoice);
+  const releaseScheduleClaim = scheduleClaim ? [scheduleClaimDelete(scheduleClaim, invoice.id)] : [];
 
   try {
     if (ledger.Item) {
@@ -2011,12 +2082,14 @@ export async function voidInvoiceForBusiness({ businessId, invoice, actor }) {
         } },
         { Put: invoicePut },
         { Put: auditPut },
+        ...releaseScheduleClaim,
       ] }));
     } else {
       await ddb.send(new TransactWriteCommand({ TransactItems: [
         { ConditionCheck: { TableName: tableName, Key: ledgerKey, ConditionExpression: 'attribute_not_exists(PK)' } },
         { Put: invoicePut },
         { Put: auditPut },
+        ...releaseScheduleClaim,
       ] }));
     }
     return { ok: true, idempotent: false };
@@ -2028,17 +2101,25 @@ export async function voidInvoiceForBusiness({ businessId, invoice, actor }) {
   }
 }
 
-export async function deleteInvoiceForBusiness(businessId, invoiceId) {
-  await ddb.send(
-    new DeleteCommand({
+export async function deleteInvoiceForBusiness(businessId, invoiceId, invoice) {
+  const scheduleClaim = invoice ? await getInvoiceScheduleClaim(businessId, invoice) : null;
+  if (!scheduleClaim) {
+    await ddb.send(new DeleteCommand({
       TableName: tableName,
-      Key: {
-        PK: businessPk(businessId),
-        SK: invoiceSk(invoiceId),
-      },
-    })
-  );
-
+      Key: { PK: businessPk(businessId), SK: invoiceSk(invoiceId) },
+    }));
+  } else {
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      scheduleClaimDelete(scheduleClaim, invoiceId),
+      { Delete: {
+        TableName: tableName,
+        Key: { PK: businessPk(businessId), SK: invoiceSk(invoiceId) },
+        ConditionExpression: '#status = :draft',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':draft': 'draft' },
+      } },
+    ] }));
+  }
   return { ok: true };
 }
 

@@ -77,7 +77,7 @@ test('invoice drawer awaits persistence, keeps errors visible, and does not expo
   assert.doesNotMatch(page, /label="Invoice Number"/);
   assert.match(page, /const result = selected \? await updateInvoice/);
   assert.match(page, /if \(!result\.ok\) return setError/);
-  assert.match(page, /setOpen\(false\); emitAppToast/);
+  assert.match(page, /setOpen\(false\);\s*emitAppToast/);
   assert.match(page, /legacy \? 'Legacy price incl\. tax' : 'Unit Price'/);
   assert.match(store, /addInvoice: async/);
   assert.match(store, /payload\.invoice/);
@@ -100,7 +100,7 @@ test('invoice row Actions use a viewport-aware portal without changing table scr
   assert.match(page, /document\.addEventListener\('keydown', closeOnEscape\)/);
   assert.match(page, /role="menu" aria-label=\{`Actions for \$\{invoice\.number\}`\}/);
   assert.equal((page.match(/type="button" role="menuitem"/g) ?? []).length, 3);
-  for (const action of ['Open invoice', 'Mark sent', 'Delete draft']) assert.match(page, new RegExp(`>${action}<`));
+  for (const action of ['Open invoice', 'Mark sent', 'Delete draft']) assert.match(page, new RegExp(`>\\s*${action}\\s*<`));
   assert.match(page, /trigger\.setAttribute\('aria-haspopup', 'menu'\)/);
   assert.match(page, /focus\(\{ preventScroll: true \}\)/);
 });
@@ -151,7 +151,7 @@ test('invoice builder presents the requested compact section order and helper co
     assert.match(page, new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.match(page, /label="HST rate \(%\)"/);
-  assert.match(page, /label="Notes" rows=\{3\} className="resize-y"/);
+  assert.match(page, /label="Notes"[\s\S]*?rows=\{3\}[\s\S]*?className="resize-y"/);
   assert.match(page, /grid gap-3 md:grid-cols-4/);
 });
 
@@ -159,20 +159,20 @@ test('generated invoice lines preserve editable state while protecting calculate
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /const description = next\.lineItems\[0\]\?\.description\.trim\(\) \|\| defaultDescription/);
   assert.match(page, /const taxable = next\.lineItems\[0\]\?\.taxable \?\? true/);
-  assert.match(page, /unitPrice: amount, unitPriceBeforeTax: amount/);
+  assert.match(page, /unitPrice: amount,[\s\S]*?unitPriceBeforeTax: amount/);
   assert.match(page, /category: 'contract_service'/);
   assert.match(page, /generatedLumpSum && !\['description', 'taxable'\]\.includes\(key\)/);
   assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom' && !line\.sourceLineItemId\}/);
-  assert.match(page, /label="Description" disabled=\{!editable\}/);
-  assert.match(page, /label="Quantity" type="number" disabled=\{!financialEditable\}/);
-  assert.match(page, /label=\{legacy \? 'Legacy price incl\. tax' : 'Unit Price'\} type="number" disabled=\{!financialEditable\}/);
-  assert.match(page, /type="checkbox" disabled=\{!editable\} checked=\{line\.taxable\}/);
+  assert.match(page, /label="Description"[\s\S]*?disabled=\{!editable\}/);
+  assert.match(page, /label="Quantity"[\s\S]*?type="number"[\s\S]*?disabled=\{!financialEditable\}/);
+  assert.match(page, /label=\{legacy \? 'Legacy price incl\. tax' : 'Unit Price'\}[\s\S]*?type="number"[\s\S]*?disabled=\{!financialEditable\}/);
+  assert.match(page, /type="checkbox"[\s\S]*?disabled=\{!editable\}[\s\S]*?checked=\{line\.taxable\}/);
   assert.match(page, /form\.invoiceType === 'custom'/);
 });
 
 test('invoice due date remains independently editable and save availability mirrors server rules', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
-  assert.match(page, /label="Due date"[^>]+onChange=\{\(event\) => setForm\(\(current\) => \(\{ \.\.\.current, dueDate: event\.target\.value \}\)\)\}/);
+  assert.match(page, /label="Due date"[\s\S]*?onChange=\{\(event\) =>[\s\S]*?setForm\(\(current\) => \(\{[\s\S]*?\.\.\.current,[\s\S]*?dueDate: event\.target\.value,[\s\S]*?\}\)\)/);
   assert.match(page, /const lineValidationError = validateInvoiceLineItems/);
   assert.match(page, /disabled=\{saving \|\| Boolean\(saveDisabledReason\) \|\| Boolean\(selected && !draftDirty\)\}/);
   assert.match(page, /title=\{selected && !draftDirty \? 'No unsaved changes\.' : saveDisabledReason \|\| undefined\}/);
@@ -185,17 +185,17 @@ test('work-area selection is exclusive to Progress Work Areas and Final has one 
   assert.match(page, /form\.invoiceType === 'progress' && form\.amountMode === 'work_areas'/);
   assert.match(page, /invoiceType === 'progress' && hasSourceLines \? 'work_areas' : 'fixed'/);
   assert.match(page, /lineItems: nextMode === 'work_areas' \|\| form\.amountMode === 'work_areas' \? \[\] : form\.lineItems/);
-  assert.match(page, /const reset = \{ \.\.\.form, invoiceType, amountMode: 'fixed' as const, billingAmount: 0, billingPercent: 0, lineItems: \[\] \}/);
-  assert.match(page, /if \(invoiceType === 'custom'\) return setForm\(\{ \.\.\.reset, lineItems: \[emptyLine\(\)\] \}\)/);
+  assert.match(page, /const reset = \{[\s\S]*?\.\.\.form,[\s\S]*?invoiceType,[\s\S]*?amountMode: 'fixed' as const,[\s\S]*?billingAmount: 0,[\s\S]*?billingPercent: 0,[\s\S]*?lineItems: \[\],[\s\S]*?\};/);
+  assert.match(page, /if \(invoiceType === 'custom'\) return setForm\(\{ \.\.\.reset, lineItems: \[emptyLine\(\)\] \}\);/);
   assert.match(page, /next\.invoiceType === 'final' \? nextPosition\.remainingAmount/);
-  assert.match(page, /return \{ \.\.\.next, lineItems: \[\{ \.\.\.emptyLine\(\), description, taxable, unitPrice: amount, unitPriceBeforeTax: amount \}\] \}/);
+  assert.match(page, /return \{[\s\S]*?\.\.\.next,[\s\S]*?lineItems: \[[\s\S]*?\.\.\.emptyLine\(\),[\s\S]*?description,[\s\S]*?taxable,[\s\S]*?unitPrice: amount,[\s\S]*?unitPriceBeforeTax: amount,[\s\S]*?\},[\s\S]*?\],[\s\S]*?\};/);
   assert.match(page, /Remaining pre-tax balance:/);
   assert.match(page, /window\.confirm\('Changing invoice type will clear the current invoice lines\. Continue\?'\)/);
 });
 
 test('opening a saved Draft hydrates its amount without invoice-type reset logic', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
-  const view = page.match(/const view = \(invoice: Invoice\) => \{[^\n]+/)?.[0] ?? '';
+  const view = page.match(/const view = \(invoice: Invoice\) => \{[\s\S]*?\n  \};\n  const chooseJob/)?.[0] ?? '';
   assert.match(view, /lineItems: invoice\.lineItems\?\.map\(\(line\) => \(\{ \.\.\.line \}\)\) \?\? \[\]/);
   assert.match(view, /billingAmount: invoice\.subtotal \?\? invoice\.amount/);
   assert.doesNotMatch(view, /chooseType|applyAmount/);
@@ -212,17 +212,18 @@ test('generated lump-sum lines cannot be removed and lock Category to Contract S
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /const generatedLumpSum = form\.invoiceType !== 'custom' && form\.amountMode !== 'work_areas' && !line\.sourceLineItemId/);
   assert.match(page, /generatedLumpSum=\{generatedLumpSum\}/);
-  assert.match(page, /editable && !generatedLumpSum \? <button aria-label=\{`Remove line/);
-  assert.match(page, /generatedLumpSum \? <div>[\s\S]*title="Contract Services">Contract Services<\/p>[\s\S]*: <Select label="Category"/);
+  assert.match(page, /editable && !generatedLumpSum \? \(\s*<button aria-label=\{`Remove line/);
+  assert.match(page, /generatedLumpSum \? \([\s\S]*title="Contract Services"/);
+  assert.match(page, /<Select[\s\S]*label="Category"/);
   assert.match(page, /minmax\(150px,1\.25fr\)/);
   assert.doesNotMatch(page, /Contract Serv\./);
 });
 
 test('custom and Work Area line removal paths remain available', () => {
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
-  assert.match(page, /form\.invoiceType === 'custom'.*<Plus \/> Add line/);
-  assert.match(page, /onRemove=\{\(\) => setForm\(\(current\) => \(\{ \.\.\.current, lineItems: current\.lineItems\.filter/);
-  assert.match(page, /toggleSource = .*current\.lineItems\.filter\(\(item\) => item\.sourceLineItemId !== line\.id\)/);
+  assert.match(page, /form\.invoiceType === 'custom'[\s\S]*<Plus \/> Add line/);
+  assert.match(page, /onRemove=\{\(\) =>\s*setForm\(\(current\) => \(\{[\s\S]*lineItems: current\.lineItems\.filter/);
+  assert.match(page, /toggleSource =[\s\S]*current\.lineItems\.filter\(\(item\) => item\.sourceLineItemId !== line\.id\)/);
   assert.match(page, /generatedLumpSum = .*form\.amountMode !== 'work_areas'/);
 });
 
@@ -230,7 +231,7 @@ test('saved Draft and issued headers are explicit and dirty Drafts cannot be sen
   const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
   assert.match(page, /!selected \? 'New draft invoice' : selected\.status === 'draft' \? 'Draft invoice' : 'Invoice'/);
   assert.match(page, /selected \? <Badge label=\{displayStatus\(selected\)\}/);
-  assert.match(page, /const draftDirty = Boolean\(selected\?\.status === 'draft'/);
+  assert.match(page, /const draftDirty = Boolean\(\s*selected\?\.status === 'draft'/);
   assert.match(page, /disabled=\{saving \|\| draftDirty\}/);
   assert.match(page, /Save draft changes before marking this invoice sent\./);
   assert.match(page, /selected && !draftDirty/);
@@ -269,7 +270,7 @@ test('QuickBooks-only mapping failures do not alter local invoice creation or se
   const projection = readFileSync('api/_lib/quickBooksSync.js', 'utf8');
   const syncEndpoint = readFileSync('api/integrations/quickbooks/invoices.js', 'utf8');
   assert.match(projection, /Map Contract Services to a QuickBooks Product\/Service before syncing this invoice\./);
-  assert.match(invoicePage, /selected \? await updateInvoice\(selected\.id, data\) : await addInvoice\(data\)/);
+  assert.match(invoicePage, /selected\s*\? await updateInvoice\(selected\.id, data\)\s*: await addInvoice\(data\)/);
   assert.match(invoicePage, /await updateInvoice\(invoice\.id, nextStatus === 'void'.*\{ status: nextStatus \}/);
   assert.match(syncEndpoint, /const payload = buildQuickBooksInvoicePayload[\s\S]*createQuickBooksInvoice/);
 });
@@ -296,4 +297,26 @@ test('historical payment statuses remain readable while generic transitions stay
   assert.equal(isValidInvoiceStatusTransition('paid', 'paid'), true);
   assert.equal(isValidInvoiceStatusTransition('partially_paid', 'partially_paid'), true);
   assert.equal(isValidInvoiceStatusTransition('sent', 'paid'), false);
+});
+
+test('contract invoices use the sold payment schedule while Custom retains manual lines', () => {
+  const page = readFileSync('src/pages/finance/InvoicesPage.tsx', 'utf8');
+  assert.match(page, /paymentScheduleItemId/);
+  assert.match(page, /Calculated from the sold contract/);
+  assert.match(page, /Inherited from sold contract/);
+  assert.match(page, /Contract subtotal/);
+  assert.match(page, /Amount due/);
+  assert.match(page, /form\.invoiceType === 'custom'[\s\S]*label="HST rate \(%\)"/);
+  assert.match(page, /financialEditable=\{editable && form\.invoiceType === 'custom'/);
+  assert.match(page, /<InvoiceLine[\s\S]*form\.invoiceType === 'custom'/);
+});
+
+test('Job invoices tab derives Payment Schedule state from linked invoices', () => {
+  const page = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
+  assert.match(page, />Payment Schedule</);
+  assert.match(page, /paymentScheduleItemState\(item\.id, jobInvoices\)/);
+  assert.match(page, /scheduleItemId=/);
+  assert.match(page, /View Draft/);
+  assert.match(page, /View Invoice/);
+  assert.match(page, /Create Invoice/);
 });

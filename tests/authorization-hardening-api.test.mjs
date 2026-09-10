@@ -56,6 +56,11 @@ function installDdbMock(t) {
     if (commandType === 'UpdateCommand') {
       const key = mapKey(input.Key.PK, input.Key.SK);
       const existing = store.get(key);
+      if (input.Key.SK.startsWith('INVOICE_COUNTER#')) {
+        const sequence = Number(existing?.sequence ?? 0) + 1;
+        store.set(key, { ...(existing ?? input.Key), sequence });
+        return { Attributes: { sequence } };
+      }
       if (!existing) {
         const error = new Error('Conditional check failed');
         error.name = 'ConditionalCheckFailedException';
@@ -637,6 +642,33 @@ test('cross-tenant id probes on mutating endpoints do not disclose or mutate rec
 
   const foreignTask = store.get(mapKey('BUSINESS#biz-2', 'TASK#task-foreign'));
   assert.equal(foreignTask.title, 'Foreign Task');
+});
+
+test('invoice creation rejects a Job owned by another business', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-a', userId: 'user-invoice-admin', role: 'admin', email: 'invoice-admin@example.com' });
+  store.set(mapKey('BUSINESS#biz-b', 'JOB#foreign-job'), {
+    PK: 'BUSINESS#biz-b', SK: 'JOB#foreign-job', entityType: 'JOB', businessId: 'biz-b',
+    jobId: 'foreign-job', id: 'foreign-job', customerId: 'foreign-customer', title: 'Foreign Job',
+  });
+  await createBearerSession({
+    businessId: 'biz-a', userId: 'user-invoice-admin', role: 'admin',
+    email: 'invoice-admin@example.com', token: 'invoice-tenant-token',
+  });
+
+  const response = createMockRes();
+  await dataHandler(requestWithToken('invoice-tenant-token', 'POST', 'invoices', { data: {
+    id: 'foreign-job-invoice', jobId: 'foreign-job', customerId: 'foreign-customer',
+    invoiceType: 'custom', issueDate: '2027-01-01', dueDate: '2027-01-31', taxRate: 0,
+    notes: '', lineItems: [{
+      id: 'line-1', category: 'contract_service', description: 'Attempted invoice', unit: 'item',
+      quantity: 1, unitPriceBeforeTax: 100, taxable: false,
+    }],
+  } }), response);
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, 'Invoice job must belong to this business.');
+  assert.equal(store.has(mapKey('BUSINESS#biz-a', 'INVOICE#foreign-job-invoice')), false);
 });
 test('Form configuration persists supported assignments and rejects foreign targets', async (t) => {
   const store = installDdbMock(t);

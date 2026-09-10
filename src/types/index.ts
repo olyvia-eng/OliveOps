@@ -438,6 +438,8 @@ export interface InvoiceLineItem {
   unitPriceBeforeTax?: number;
   subtotal?: number;
   taxAmount?: number;
+  contractBilling?: true;
+  taxAmountOverride?: number;
   total?: number;
   sourceWorkAreaId?: ID;
   sourceLineItemId?: ID;
@@ -451,6 +453,7 @@ export interface Invoice {
   customerId: ID;
   estimateId?: ID;
   sourceEstimateSnapshotId?: ID;
+  paymentScheduleItemId?: ID;
   number: string;
   issueDate: string;
   dueDate: string;
@@ -905,6 +908,34 @@ export interface JobEstimateSnapshot {
   proposalVersionNumber?: number;
 }
 
+export interface ContractBillingScheduleItem {
+  id: ID;
+  label: string;
+  due: string;
+  sortOrder: number;
+  type: 'percentage' | 'fixed';
+  percentage: number;
+  invoiceType: Exclude<InvoiceType, 'custom'>;
+  subtotal: number;
+  taxableSubtotal: number;
+  nonTaxableSubtotal: number;
+  taxAmount: number;
+  total: number;
+}
+
+export interface ContractBillingSchedule {
+  schemaVersion: 1;
+  proposalVersionId?: ID;
+  proposalVersionNumber?: number;
+  contractSubtotal: number;
+  taxableSubtotal: number;
+  nonTaxableSubtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  contractTotal: number;
+  items: ContractBillingScheduleItem[];
+}
+
 export interface JobScheduleOccurrence {
   id: ID;
   scheduledStartAt?: string;
@@ -936,6 +967,7 @@ export interface Job {
   operationalWorkAreas?: JobWorkArea[];
   services?: ServiceJobService[];
   originalEstimateSnapshot?: JobEstimateSnapshot;
+  contractBillingSchedule?: ContractBillingSchedule;
   planningSnapshotVersion?: number;
   planningRevision?: number;
   status: JobStatus;

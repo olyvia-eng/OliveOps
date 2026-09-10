@@ -25,7 +25,9 @@ export function calculateInvoiceLineFinancials(lineItem, taxRate = 0, schemaVers
 
   const subtotal = roundCurrency(Number(lineItem?.quantity) * Number(lineItem?.unitPriceBeforeTax));
   const taxAmount = lineItem?.taxable
-    ? roundCurrency(subtotal * (Number(taxRate) / 100))
+    ? lineItem?.contractBilling === true && Number.isFinite(lineItem?.taxAmountOverride)
+      ? roundCurrency(lineItem.taxAmountOverride)
+      : roundCurrency(subtotal * (Number(taxRate) / 100))
     : 0;
   return { subtotal, taxAmount, total: roundCurrency(subtotal + taxAmount) };
 }

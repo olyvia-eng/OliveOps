@@ -15,6 +15,9 @@ import { calculateServiceEstimateTotals } from '../src/utils/servicePricingModel
 import { buildGeneratedServiceVisits } from '../src/utils/serviceVisitModel.js';
 import { estimateLineEffectiveQuantity, estimateLineWorkers } from '../src/utils/estimatePricingModel.js';
 import { createGeneratedServiceVisitsForBusiness } from './_lib/serviceVisitRepo.js';
+import { getProposalVersionForBusiness } from './_lib/proposalRepo.js';
+import { calculateProposalPaymentSchedule } from '../src/utils/proposalPaymentSchedule.js';
+import { buildContractBillingSchedule } from '../src/utils/contractBillingModel.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -37,6 +40,30 @@ function convertedJobTitle(estimate, requestedTitle, jobNumber) {
   if (candidates[0]) return candidates[0];
   if (isNonEmptyString(estimate.propertyLabel)) return estimate.propertyLabel.trim();
   return `Job ${jobNumber}`;
+}
+
+function acceptedBillingSnapshot(estimate, estimateSnapshot, proposalVersion) {
+  if (proposalVersion?.snapshot) {
+    return { ...structuredClone(proposalVersion.snapshot), id: proposalVersion.id, versionNumber: proposalVersion.versionNumber };
+  }
+  const paymentSchedule = calculateProposalPaymentSchedule(estimate.paymentSchedule, estimateSnapshot.total);
+  return {
+    proposal: {
+      subtotal: estimateSnapshot.subtotal,
+      taxRate: estimateSnapshot.taxRate,
+      taxAmount: estimateSnapshot.taxAmount,
+      total: estimateSnapshot.total,
+    },
+    paymentSchedule: paymentSchedule.stages.map((stage) => ({
+      id: stage.id,
+      label: stage.label,
+      type: stage.type,
+      percentage: stage.percentage,
+      due: stage.due,
+      amount: stage.calculatedAmount,
+      sortOrder: stage.sortOrder,
+    })),
+  };
 }
 
 function normalizeEstimateWorkAreas(estimate) {
@@ -212,7 +239,7 @@ function buildServiceEstimateSnapshot(estimate, services) {
   };
 }
 
-function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
+function buildServiceJobFromEstimate({ estimate, acceptedProposalVersion, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   const acceptedServices = normalizeEstimateServices(estimate.services, generateId);
   const totals = calculateServiceEstimateTotals(acceptedServices, estimate.taxRate);
   const firstServiceStart = acceptedServices.map((service) => service.startDate).filter(Boolean).sort()[0];
@@ -224,6 +251,8 @@ function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actor
     ? endDate
     : (estimate.serviceEndDate ?? lastServiceEnd);
 
+  const originalEstimateSnapshot = buildServiceEstimateSnapshot(estimate, acceptedServices);
+  const contractBillingSchedule = buildContractBillingSchedule(acceptedBillingSnapshot(estimate, originalEstimateSnapshot, acceptedProposalVersion));
   return {
     id: generateId(),
     workType: 'service',
@@ -267,7 +296,8 @@ function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actor
         revision: 1,
       },
     })),
-    originalEstimateSnapshot: buildServiceEstimateSnapshot(estimate, acceptedServices),
+    originalEstimateSnapshot,
+    ...(contractBillingSchedule.items.length ? { contractBillingSchedule } : {}),
     status: 'scheduled',
     startDate: jobStartDate,
     endDate: jobEndDate,
@@ -288,9 +318,9 @@ function buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actor
   };
 }
 
-function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
+function buildJobFromEstimate({ estimate, acceptedProposalVersion, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber }) {
   if (resolveWorkType(estimate) === 'service') {
-    return buildServiceJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber });
+    return buildServiceJobFromEstimate({ estimate, acceptedProposalVersion, convertedAt, actorUserId, actorName, title, startDate, endDate, jobNumber });
   }
   const operationalWorkAreas = buildJobWorkAreasFromEstimate(estimate);
   const snapshot = buildOriginalEstimateSnapshot(estimate, operationalWorkAreas);
@@ -320,6 +350,9 @@ function buildJobFromEstimate({ estimate, convertedAt, actorUserId, actorName, t
     workAreas: operationalWorkAreas.map((workArea) => workArea.name),
     operationalWorkAreas: cloneJobPlan(plan.operationalWorkAreas),
     originalEstimateSnapshot: snapshot,
+    ...(estimate.paymentSchedule?.length || acceptedProposalVersion?.snapshot?.paymentSchedule?.length
+      ? { contractBillingSchedule: buildContractBillingSchedule(acceptedBillingSnapshot(estimate, snapshot, acceptedProposalVersion)) }
+      : {}),
     planningSnapshotVersion: JOB_PLANNING_SNAPSHOT_VERSION,
     planningRevision: 1,
     status: 'scheduled',
@@ -348,6 +381,7 @@ export function createEstimatesHandler(overrides = {}) {
     getEstimateForBusiness,
     reserveNextJobNumberForBusiness,
     convertEstimateToJobForBusiness,
+    getProposalVersionForBusiness,
     createGeneratedServiceVisitsForBusiness,
     ...overrides,
   };
@@ -384,6 +418,13 @@ export function createEstimatesHandler(overrides = {}) {
       return res.status(409).json({ ok: false, error: 'Only accepted estimates can be converted.' });
     }
 
+    const acceptedProposalVersion = estimate.activeProposalVersionId && Number.isInteger(estimate.proposalVersionNumber) && estimate.proposalVersionNumber > 0
+      ? await deps.getProposalVersionForBusiness(session.businessId, estimate.id, estimate.proposalVersionNumber)
+      : null;
+    if (estimate.activeProposalVersionId && (!acceptedProposalVersion || acceptedProposalVersion.id !== estimate.activeProposalVersionId)) {
+      return res.status(409).json({ ok: false, error: 'The accepted Proposal snapshot could not be loaded.' });
+    }
+
     const convertedAt = nowIso();
     const year = convertedAt.slice(0, 4);
     const jobNumber = await deps.reserveNextJobNumberForBusiness({
@@ -393,6 +434,7 @@ export function createEstimatesHandler(overrides = {}) {
 
     const job = buildJobFromEstimate({
       estimate,
+      acceptedProposalVersion,
       convertedAt,
       actorUserId: session.id,
       actorName: session.name,

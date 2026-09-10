@@ -15,6 +15,7 @@ import JobAnalysisWorkspace from '../../components/jobs/JobAnalysisWorkspace';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 import JobSopsCard from '../../components/jobs/JobSopsCard';
+import { paymentScheduleItemState } from '../../utils/contractBillingModel.js';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -574,6 +575,32 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'invoices' && (
+        <div className="space-y-4">
+        {job.contractBillingSchedule?.items.length ? (
+          <Card>
+            <div className="border-b border-gray-100 p-4">
+              <h2 className="font-semibold text-gray-900">Payment Schedule</h2>
+              <p className="text-sm text-gray-500">Accepted contract billing milestones.</p>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {job.contractBillingSchedule.items.map((item) => {
+                const state = paymentScheduleItemState(item.id, jobInvoices);
+                const statusLabel = state.status === 'not_invoiced' ? 'Not invoiced' : state.status.replaceAll('_', ' ');
+                const href = state.invoice
+                  ? `/finance/invoices?invoiceId=${encodeURIComponent(state.invoice.id)}`
+                  : `/finance/invoices?jobId=${encodeURIComponent(job.id)}&scheduleItemId=${encodeURIComponent(item.id)}`;
+                return <div key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="font-medium text-gray-900">{item.label}</h3><Badge label={statusLabel} className="bg-gray-100 text-gray-700" /></div>
+                    <p className="mt-1 text-sm text-gray-600">{item.percentage ? `${item.percentage}% · ` : ''}{item.due}</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{formatCurrency(item.subtotal)} + tax</p>
+                  </div>
+                  <Link to={href}><Button size="sm" variant={state.invoice ? 'secondary' : 'primary'}>{state.invoice ? (state.status === 'draft' ? 'View Draft' : 'View Invoice') : 'Create Invoice'}</Button></Link>
+                </div>;
+              })}
+            </div>
+          </Card>
+        ) : null}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4">
             <div><h2 className="font-semibold text-gray-900">Related Invoices</h2><p className="text-sm text-gray-500">{jobInvoices.length} invoice{jobInvoices.length === 1 ? '' : 's'} · {formatCurrency(jobInvoices.reduce((sum, invoice) => sum + invoice.amount, 0))} billed</p></div>
@@ -596,6 +623,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             </div>
           )}
         </Card>
+        </div>
       )}
 
       <Modal

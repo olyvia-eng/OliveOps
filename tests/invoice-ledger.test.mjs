@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { ddb } from '../api/_lib/db.js';
-import { issueInvoiceForBusiness, voidInvoiceForBusiness } from '../api/_lib/authRepo.js';
+import { createInvoiceForBusiness, deleteInvoiceForBusiness, issueInvoiceForBusiness, voidInvoiceForBusiness } from '../api/_lib/authRepo.js';
 
 const transactionCancelled = () => Object.assign(new Error('transaction cancelled'), { name: 'TransactionCanceledException' });
 const invoiceItem = (id, status = 'draft') => ({
@@ -13,11 +13,12 @@ const invoiceItem = (id, status = 'draft') => ({
 
 function installLedgerMock(context) {
   const originalSend = ddb.send.bind(ddb);
-  const state = { invoices: new Map([['invoice-a', invoiceItem('invoice-a')], ['invoice-b', invoiceItem('invoice-b')]]), ledger: null, audits: new Set() };
+  const state = { invoices: new Map([['invoice-a', invoiceItem('invoice-a')], ['invoice-b', invoiceItem('invoice-b')]]), claims: new Map(), ledger: null, audits: new Set() };
   ddb.send = async (command) => {
     const input = command.input;
     if (command.constructor.name === 'GetCommand') {
       if (input.Key.SK.startsWith('INVOICE#')) return { Item: state.invoices.get(input.Key.SK.slice('INVOICE#'.length)) };
+      if (input.Key.SK.startsWith('INVOICE_SCHEDULE_CLAIM#')) return { Item: state.claims.get(input.Key.SK) };
       return { Item: state.ledger ? { ...state.ledger } : undefined };
     }
     if (command.constructor.name !== 'TransactWriteCommand') throw new Error(`Unexpected ${command.constructor.name}`);
@@ -54,6 +55,11 @@ function installLedgerMock(context) {
         if (operation.Put.ConditionExpression.includes(':draft') && current?.status !== 'draft') throw transactionCancelled();
         if (operation.Put.ConditionExpression.includes(':overdue') && !['sent', 'overdue'].includes(current?.status)) throw transactionCancelled();
         nextInvoices.set(id, { ...operation.Put.Item });
+      }
+      if (operation.Delete) {
+        const current = state.claims.get(operation.Delete.Key.SK);
+        if (current?.invoiceId !== operation.Delete.ExpressionAttributeValues[':invoiceId']) throw transactionCancelled();
+        state.claims.delete(operation.Delete.Key.SK);
       }
     }
     state.invoices = nextInvoices;
@@ -104,4 +110,77 @@ test('historical issued invoice voids idempotently when no ledger exists', async
   assert.equal(state.ledger, null);
   assert.equal(state.invoices.get('historical').status, 'void');
   assert.equal(state.audits.size, 1);
+});
+
+test('voiding an issued contract invoice releases its payment schedule claim', async (context) => {
+  const state = installLedgerMock(context);
+  const claimKey = 'INVOICE_SCHEDULE_CLAIM#job-a#deposit';
+  const sent = {
+    ...invoiceItem('scheduled', 'sent'), paymentScheduleItemId: 'deposit',
+    contractReservationAmount: 60, sentAt: '2027-01-01T00:00:00.000Z',
+  };
+  state.invoices.set(sent.id, sent);
+  state.claims.set(claimKey, { SK: claimKey, invoiceId: sent.id });
+  state.ledger = { issuedAmount: 60, [`reserved#${sent.id}`]: 60 };
+
+  const invoice = { ...sent, status: 'void', voidedAt: '2027-01-02T00:00:00.000Z', voidReason: 'Contract cancelled' };
+  const result = await voidInvoiceForBusiness({
+    businessId: 'business-a', invoice,
+    actor: { id: 'user-a', name: 'Admin', email: 'admin@example.com' },
+  });
+
+  assert.deepEqual(result, { ok: true, idempotent: false });
+  assert.equal(state.claims.has(claimKey), false);
+});
+
+test('payment schedule claims reject concurrent invoice drafts and release on deletion', async (context) => {
+  const originalSend = ddb.send.bind(ddb);
+  const state = { items: new Map() };
+  ddb.send = async (command) => {
+    const input = command.input;
+    if (command.constructor.name === 'GetCommand') return { Item: state.items.get(input.Key.SK) };
+    if (command.constructor.name === 'DeleteCommand') {
+      state.items.delete(input.Key.SK);
+      return {};
+    }
+    if (command.constructor.name !== 'TransactWriteCommand') throw new Error(`Unexpected ${command.constructor.name}`);
+
+    const nextItems = new Map(state.items);
+    for (const operation of input.TransactItems) {
+      if (operation.Put) {
+        const key = operation.Put.Item.SK;
+        if (operation.Put.ConditionExpression.includes('attribute_not_exists') && nextItems.has(key)) throw transactionCancelled();
+        nextItems.set(key, { ...operation.Put.Item });
+      }
+      if (operation.Delete) {
+        const current = nextItems.get(operation.Delete.Key.SK);
+        if (operation.Delete.ConditionExpression?.includes('#invoiceId') && current?.invoiceId !== operation.Delete.ExpressionAttributeValues[':invoiceId']) throw transactionCancelled();
+        if (operation.Delete.ConditionExpression?.includes('#status') && current?.status !== 'draft') throw transactionCancelled();
+        nextItems.delete(operation.Delete.Key.SK);
+      }
+    }
+    state.items = nextItems;
+    return {};
+  };
+  context.after(() => { ddb.send = originalSend; });
+
+  const base = {
+    jobId: 'job-a', customerId: 'customer-a', paymentScheduleItemId: 'deposit',
+    status: 'draft', updatedAt: '2027-01-01T00:00:00.000Z',
+  };
+  const invoiceA = { ...base, id: 'invoice-a' };
+  const invoiceB = { ...base, id: 'invoice-b' };
+  const results = await Promise.all([
+    createInvoiceForBusiness({ businessId: 'business-a', invoice: invoiceA }),
+    createInvoiceForBusiness({ businessId: 'business-a', invoice: invoiceB }),
+  ]);
+
+  assert.equal(results.filter((result) => result.ok).length, 1);
+  assert.equal(results.filter((result) => !result.ok).length, 1);
+  const created = results[0].ok ? invoiceA : invoiceB;
+  const rejected = results[0].ok ? invoiceB : invoiceA;
+  assert.match(results.find((result) => !result.ok).error, /already has an invoice/);
+
+  await deleteInvoiceForBusiness('business-a', created.id, created);
+  assert.deepEqual(await createInvoiceForBusiness({ businessId: 'business-a', invoice: rejected }), { ok: true });
 });

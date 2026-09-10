@@ -189,6 +189,17 @@ test('convert-to-job creates a Service Job without Project operational Work Area
   const handler = createEstimatesHandler({
     requireSession: async () => baseSession(),
     getEstimateForBusiness: async () => estimate,
+    getProposalVersionForBusiness: async () => ({
+      id: 'proposal-version-3',
+      versionNumber: 3,
+      snapshot: {
+        proposal: { subtotal: 3200, taxRate: 10, taxAmount: 320, total: 3520 },
+        paymentSchedule: [
+          { id: 'deposit', label: 'Initial Deposit', type: 'percentage', percentage: 50, amount: 1760, due: 'Before project start', sortOrder: 0 },
+          { id: 'final', label: 'Final Payment', type: 'percentage', percentage: 50, amount: 1760, due: 'On project completion', sortOrder: 1 },
+        ],
+      },
+    }),
     reserveNextJobNumberForBusiness: async () => 'JOB-2027-0001',
     convertEstimateToJobForBusiness: async () => ({ ok: true }),
     createGeneratedServiceVisitsForBusiness: async ({ visits }) => ({ created: visits, existing: [] }),
@@ -213,6 +224,10 @@ test('convert-to-job creates a Service Job without Project operational Work Area
   assert.notEqual(res.body.job.services[0].pricingSnapshot.lineItems, estimate.services[0].lineItems);
   assert.equal(res.body.job.originalContractRevenue, 3200);
   assert.equal(res.body.job.currentContractRevenue, 3200);
+  assert.deepEqual(res.body.job.contractBillingSchedule.items.map((item) => [item.id, item.subtotal, item.taxAmount]), [
+    ['deposit', 1600, 160],
+    ['final', 1600, 160],
+  ]);
   assert.equal(res.body.job.estimatedCost, 1595);
   assert.equal(res.body.job.originalEstimateSnapshot.estimatedProfit, 1605);
   assert.equal(res.body.job.originalEstimateSnapshot.acceptedProposalVersionId, 'proposal-version-3');

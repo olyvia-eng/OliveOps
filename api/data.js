@@ -150,6 +150,7 @@ import { enforceEstimateWorkAreaDivisionModel, ensureDefaultEstimateWorkAreaMode
 import { normalizeFormDeliveryRecord, validateFormDeliveryRule } from '../src/utils/formDeliveryRules.js';
 import { requireSession } from './_lib/session.js';
 import { syncJobToExternalCalendars } from './_lib/calendarSync.js';
+import { configureContractInvoice } from '../src/utils/contractBillingModel.js';
 import { listDivisionPlanningItemsForBusiness } from './_lib/budgetDivisionPlanning.js';
 import { applyAuthoritativeEstimatePricing, buildEstimatePricingCatalog } from './_lib/estimatePricingCatalog.js';
 import { getCrewForBusiness, getDivisionForBusiness, listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
@@ -565,6 +566,7 @@ const INVOICE_TYPES = new Set(['deposit', 'progress', 'final', 'custom']);
 const INVOICE_FINANCIAL_FIELDS = new Set([
   'jobId', 'customerId', 'estimateId', 'sourceEstimateSnapshotId', 'invoiceType', 'issueDate',
   'dueDate', 'lineItems', 'taxRate', 'subtotal', 'taxAmount', 'amount', 'pricingMode',
+  'paymentScheduleItemId',
   'contractAmountSnapshot', 'previouslyInvoicedSnapshot', 'remainingContractAmountSnapshot',
 ]);
 const EXPENSE_STATUSES = new Set(['pending', 'approved', 'paid']);
@@ -758,6 +760,9 @@ async function authorizeInvoiceRecord({ businessId, record, existing }) {
   }
 
   const otherInvoices = (await listInvoicesForBusiness(businessId)).filter((invoice) => invoice.id !== existing?.id);
+  const configured = configureContractInvoice({ job, record, invoices: otherInvoices, idFactory: generateId });
+  if (!configured.ok) return configured;
+  record = configured.record;
   const position = calculateJobInvoicePosition(job, otherInvoices);
   const invoiceContractAmount = getInvoiceContractAmount(record);
   const exceedsContract = record.schemaVersion === 2 && invoiceContractAmount > position.remainingAmount;
@@ -2088,7 +2093,10 @@ export default async function handler(req, res) {
     }
 
     try {
-      await config.create({ businessId: session.businessId, [config.createArgKey]: record });
+      const createResult = await config.create({ businessId: session.businessId, [config.createArgKey]: record });
+      if (createResult?.ok === false) {
+        return res.status(409).json({ ok: false, error: createResult.error ?? `Could not create ${entity}` });
+      }
       if (entity === 'budget' && req.body?.allocationMonths !== undefined) {
         const allocationResult = await saveEquipmentBudgetAllocationForItem({
           businessId: session.businessId,
@@ -2446,6 +2454,7 @@ export default async function handler(req, res) {
         updateResult = await config.update({
           businessId: session.businessId,
           [config.updateArgKey]: next,
+          ...(entity === 'invoices' ? { existing } : {}),
           ...(entity === 'estimates' ? { expectedUpdatedAt: req.body?.baseUpdatedAt } : {}),
         });
       }
@@ -2557,7 +2566,8 @@ export default async function handler(req, res) {
         if (!result.ok) return res.status(result.status).json(result);
         return res.status(200).json(result);
       }
-      await config.remove(session.businessId, id);
+      if (entity === 'invoices') await config.remove(session.businessId, id, existing);
+      else await config.remove(session.businessId, id);
       if (entity === 'budget') {
         await deleteEquipmentBudgetAllocationForItem({ businessId: session.businessId, budgetItemId: id });
       }
