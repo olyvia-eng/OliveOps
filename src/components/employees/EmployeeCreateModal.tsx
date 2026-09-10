@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import type { Employee, EmployeeRole } from '../../types';
 import type { BusinessUserSummary } from '../../auth/types';
 import SchedulingColourPicker, { DEFAULT_SCHEDULING_COLOR } from './SchedulingColourPicker';
+import TimeTrackingPermissionsSection from './TimeTrackingPermissionsSection';
 
 type AccountAccessMode = 'none' | 'link_existing' | 'create_login';
 
@@ -17,6 +18,8 @@ type EmployeeForm = {
   hourlyRate: number;
   compensationType: 'hourly' | 'salary';
   labourClassId: string;
+  adjustClockInTime: boolean;
+  editShiftWorkAreas: boolean;
   active: boolean;
 };
 
@@ -46,6 +49,8 @@ const emptyForm = (): EmployeeForm => ({
   hourlyRate: 30,
   compensationType: 'hourly',
   labourClassId: '',
+  adjustClockInTime: false,
+  editShiftWorkAreas: false,
   active: true,
 });
 
@@ -180,6 +185,10 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
             compensationType: form.compensationType,
             labourType: DEFAULT_CREATE_EMPLOYEE_LABOUR_TYPE,
             labourClassId: form.labourClassId || null,
+            mobileTimePermissions: {
+              adjustClockInTime: form.adjustClockInTime,
+              editShiftWorkAreas: form.editShiftWorkAreas,
+            },
             active: form.active,
           },
           accountAccess,
@@ -266,6 +275,13 @@ export default function EmployeeCreateModal({ open, onClose, onCreated }: Props)
           min={0}
           value={form.hourlyRate}
           onChange={(event) => setField('hourlyRate', Number(event.target.value))}
+        />
+
+        <TimeTrackingPermissionsSection
+          adjustClockInTime={form.adjustClockInTime}
+          editShiftWorkAreas={form.editShiftWorkAreas}
+          onAdjustClockInTimeChange={(value) => setField('adjustClockInTime', value)}
+          onEditShiftWorkAreasChange={(value) => setField('editShiftWorkAreas', value)}
         />
 
         <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">

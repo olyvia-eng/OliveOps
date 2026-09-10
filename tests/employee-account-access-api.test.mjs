@@ -317,6 +317,60 @@ test('employees can be created with no account access', async (t) => {
   assert.equal(employees.length, 1);
 });
 
+test('employee creation persists every time tracking permission combination with secure defaults', async (t) => {
+  installDdbMock(t);
+  const owner = await createUserEmployeePair({
+    businessId: 'biz-create-time-permissions',
+    name: 'Permission Owner',
+    email: 'owner@create-permissions.test',
+    password: 'ownerpass123',
+    role: 'owner',
+  });
+  await createBearerTokenForUser({
+    businessId: 'biz-create-time-permissions',
+    userId: owner.user.id,
+    role: 'owner',
+    email: owner.user.email,
+    employeeId: null,
+    token: 'token-create-time-permissions',
+  });
+
+  const cases = [
+    { name: 'Default Crew', role: 'crew_member', input: undefined, expected: { adjustClockInTime: false, editShiftWorkAreas: false } },
+    { name: 'Clock Adjustment', role: 'crew_member', input: { adjustClockInTime: true, editShiftWorkAreas: false }, expected: { adjustClockInTime: true, editShiftWorkAreas: false } },
+    { name: 'Work Area Editing', role: 'crew_member', input: { adjustClockInTime: false, editShiftWorkAreas: true }, expected: { adjustClockInTime: false, editShiftWorkAreas: true } },
+    { name: 'Foreman Both Enabled', role: 'foreman', input: { adjustClockInTime: true, editShiftWorkAreas: true }, expected: { adjustClockInTime: true, editShiftWorkAreas: true } },
+  ];
+
+  for (const scenario of cases) {
+    const res = createMockRes();
+    await dataHandler({
+      method: 'POST',
+      query: { entity: 'employees' },
+      headers: { authorization: 'Bearer token-create-time-permissions' },
+      body: {
+        data: {
+          name: scenario.name,
+          email: '',
+          phone: '',
+          role: scenario.role,
+          hourlyRate: 30,
+          compensationType: 'hourly',
+          labourType: 'field_producing',
+          ...(scenario.input ? { mobileTimePermissions: scenario.input } : {}),
+          active: true,
+        },
+        accountAccess: { mode: 'none' },
+      },
+    }, res);
+
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.employee.mobileTimePermissions, scenario.expected);
+    const persisted = await getEmployeeForBusiness('biz-create-time-permissions', res.body.employee.id);
+    assert.deepEqual(persisted.mobileTimePermissions, scenario.expected);
+  }
+});
+
 test('owner can link existing account to employee and owner self-unlink is blocked', async (t) => {
   installDdbMock(t);
 

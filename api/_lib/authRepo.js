@@ -5198,6 +5198,7 @@ export async function createEmployeeWithAccessForBusiness({ businessId, payload 
     hourlyRate: employeeInput.hourlyRate,
     compensationType: employeeInput.compensationType,
     labourType: employeeInput.labourType,
+    mobileTimePermissions: employeeInput.mobileTimePermissions,
     userId: null,
     active: employeeInput.active,
     createdAt: nowIso(),
