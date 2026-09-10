@@ -7,10 +7,11 @@ const jobDetailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8')
 const estimateDetailSource = readFileSync('src/pages/estimates/EstimateWorkspacePage.tsx', 'utf8');
 
 test('Jobs index uses the compact Estimates-style table instead of record cards', () => {
-  assert.match(jobsSource, /<div className="overflow-x-auto">\s*<table className="w-full min-w-\[1120px\] table-fixed text-sm">/);
-  for (const column of ['Job', 'Customer', 'Work Areas', 'Status', 'Labour Hours', 'Contract Value', 'Actions']) {
+  assert.match(jobsSource, /<div className="overflow-x-auto">\s*<table className="w-full table-fixed text-sm">/);
+  for (const column of ['Job', 'Customer', 'Work Areas', 'Status', 'Actions']) {
     assert.match(jobsSource, new RegExp(`>${column}<`));
   }
+  assert.doesNotMatch(jobsSource, />Labour Hours<|>Contract Value</);
   assert.doesNotMatch(jobsSource, />Risk<\/th>/);
   assert.match(jobsSource, /<tbody className="divide-y divide-gray-100 dark:divide-brand-700">/);
   assert.doesNotMatch(jobsSource, /<Card\s+key=\{job\.id\}/);
@@ -23,22 +24,18 @@ test('Jobs search and status filter remain while risk filtering is absent from t
   assert.doesNotMatch(jobsSource, /riskFilter|All Risk Levels|At Risk Jobs/);
 });
 
-test('Jobs rows preserve customer, work-area, labour-hours, and contract presentation', () => {
+test('Jobs rows preserve customer and work-area presentation without list-only labour calculations', () => {
   assert.match(jobsSource, /customer\?\.name \?\? '—'/);
   assert.match(jobsSource, /job\.operationalWorkAreas\?\.map\(\(area\) => area\.name\) \?\? job\.workAreas \?\? \[\]/);
   assert.match(jobsSource, /title=\{workAreaLabel\}/);
-  assert.match(jobsSource, /const actualHours = performance\.labour\.actual\.hours/);
-  assert.match(jobsSource, /const estimatedHours = performance\.labour\.estimated\.hours/);
-  assert.match(jobsSource, /actualHours\.toFixed\(1\).*estimatedHours\.toFixed\(1\)/);
-  assert.match(jobsSource, /formatCurrency\(performance\.revenue\.contract\)/);
+  assert.doesNotMatch(jobsSource, /calculateJobPerformance|performance\.labour|timeEntries|timeCorrections|labourClasses/);
   assert.doesNotMatch(jobsSource, /label="At Risk"|label="On Track"/);
   assert.match(jobsSource, /label="From Estimate" className="shrink-0 whitespace-nowrap/);
   assert.doesNotMatch(jobsSource, /formatCurrency\(profit\).*margin/);
 });
 
-test('Jobs list uses the shared performance model without drawer-only risk state', () => {
-  assert.match(jobsSource, /const jobPerformanceById = useMemo/);
-  assert.match(jobsSource, /calculateJobPerformance\(\{/);
+test('Jobs list avoids performance and drawer-only risk calculations', () => {
+  assert.doesNotMatch(jobsSource, /jobPerformanceById|calculateJobPerformance/);
   assert.doesNotMatch(jobsSource, /jobRiskById|selectedJob|JobDetailPanel/);
   assert.doesNotMatch(jobsSource, /projectedMarginFromTracking|HIGH_LABOR_VARIANCE_THRESHOLD_PCT/);
 });
@@ -56,8 +53,8 @@ test('Jobs toolbar and table retain responsive and dark-mode treatments', () => 
   assert.match(jobsSource, /flex flex-col sm:flex-row gap-3 mb-6/);
   assert.match(jobsSource, /dark:border-brand-600 dark:bg-brand-800 dark:text-brand-50/);
   assert.match(jobsSource, /dark:hover:bg-brand-600\/60/);
-  assert.match(jobsSource, /min-w-\[1120px\] table-fixed/);
-  assert.match(jobsSource, /whitespace-nowrap pb-2 text-right font-medium">Contract Value/);
+  assert.match(jobsSource, /w-full table-fixed text-sm/);
+  assert.doesNotMatch(jobsSource, /min-w-\[1120px\]/);
 });
 
 test('dedicated Job and Estimate detail pages remain available and separate from list markup', () => {

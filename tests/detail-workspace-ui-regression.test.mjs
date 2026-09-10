@@ -26,9 +26,8 @@ test('clients retain URL-owned drawer state while jobs and estimates use full ro
   assert.doesNotMatch(estimatesSource, /DetailWorkspace|recordParam: 'estimate'|aria-selected=/);
 });
 
-test('job and estimate financial values remain role gated', () => {
-  assert.match(jobsSource, /canViewFinancials \? <th className="whitespace-nowrap pb-2 text-right font-medium">Contract Value<\/th>/);
-  assert.match(jobsSource, /canViewFinancials \? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold/);
+test('financial values remain absent from the Jobs list and role gated elsewhere', () => {
+  assert.doesNotMatch(jobsSource, />Contract Value<|canViewFinancials/);
   assert.match(estimatesSource, /canViewFinancials \? <th/);
   assert.match(jobDetailSource, /const canEditFinancials = currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
   assert.match(jobDetailSource, /\{canEditFinancials \? <>/);

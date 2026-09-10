@@ -9,9 +9,9 @@ const costingSource = readFileSync('src/utils/jobCostingModel.js', 'utf8');
 const workspaceSource = readFileSync('src/components/jobs/JobAnalysisWorkspace.tsx', 'utf8');
 const labourSource = readFileSync('src/utils/jobLabourSummary.js', 'utf8');
 
-test('Jobs list and Analysis retain canonical labour calculations with an employee breakdown', () => {
+test('Job Analysis retains canonical labour calculations with an employee breakdown', () => {
   assert.match(detailSource, /JobAnalysisWorkspace/);
-  assert.match(jobsSource, /calculateJobPerformance\(\{/);
+  assert.doesNotMatch(jobsSource, /calculateJobPerformance\(\{/);
   assert.match(costingSource, /calculateJobLabourSummary\(\{/);
   assert.match(workspaceSource, /actualEmployees\.map/);
   assert.match(workspaceSource, /Time Analysis/);

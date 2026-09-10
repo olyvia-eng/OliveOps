@@ -3,9 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
 import { PageHeader, Button, Badge, Modal, Input, Select, TextArea, EmptyState } from '../../components/ui';
 import { Plus, Pencil, Trash2, Search, ChevronRight, BriefcaseBusiness, ClipboardList, FilterX } from 'lucide-react';
-import { statusColor, formatCurrency, formatDate } from '../../utils';
+import { statusColor, formatDate } from '../../utils';
 import type { Job, JobStatus } from '../../types';
-import { calculateJobPerformance } from '../../utils/jobPerformanceModel.js';
 import { resolveWorkType } from '../../utils/workTypeModel.js';
 
 const STATUSES: JobStatus[] = ['scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
@@ -33,8 +32,8 @@ interface JobsPageProps {
   currentUserRole: string;
 }
 
-export default function JobsPage({ currentUserRole }: JobsPageProps) {
-  const { jobs, customers, employees, labourClasses, estimates, invoices, expenses, timeEntries, timeCorrections, addJob, deleteJob } = useStore();
+export default function JobsPage({ currentUserRole: _currentUserRole }: JobsPageProps) {
+  const { jobs, customers, employees, estimates, addJob, deleteJob } = useStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = useState('');
@@ -42,23 +41,12 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(empty(customers));
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const canViewFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
   const projectJobs = jobs.filter((job) => resolveWorkType(job) === 'project');
   const hasFilters = search.trim().length > 0 || statusFilter !== 'all';
 
   const availableEstimateConversions = useMemo(() => {
     return estimates.filter((estimate) => resolveWorkType(estimate) === 'project' && estimate.status === 'accepted' && !estimate.convertedToJobId);
   }, [estimates]);
-
-  const jobPerformanceById = useMemo(() => new Map(jobs.map((job) => [job.id, calculateJobPerformance({
-    job,
-    employees,
-    labourClasses,
-    timeEntries,
-    timeCorrections,
-    invoices,
-    expenses,
-  })])), [employees, expenses, invoices, jobs, labourClasses, timeCorrections, timeEntries]);
 
   const filtered = projectJobs.filter((j) => {
     const c = customers.find((c) => c.id === j.customerId);
@@ -172,15 +160,13 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
         )
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] table-fixed text-sm">
+          <table className="w-full table-fixed text-sm">
             <colgroup>
-              <col className="w-[18rem]" />
-              <col className="w-[14rem]" />
-              <col className="w-[14rem]" />
-              <col className="w-[10rem]" />
-              <col className="w-[13rem]" />
-              {canViewFinancials ? <col className="w-[9rem]" /> : null}
-              <col className="w-[7rem]" />
+              <col className="w-[28%]" />
+              <col className="w-[24%]" />
+              <col className="w-[28%]" />
+              <col className="w-[13%]" />
+              <col className="w-[7%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-brand-600 dark:text-brand-300">
@@ -188,20 +174,12 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                 <th className="pb-2 font-medium">Customer</th>
                 <th className="pb-2 font-medium">Work Areas</th>
                 <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium" title="Actual labour hours used compared with estimated labour hours">Labour Hours</th>
-                {canViewFinancials ? <th className="whitespace-nowrap pb-2 text-right font-medium">Contract Value</th> : null}
                 <th className="pb-2 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-brand-700">
               {filtered.map((job) => {
                 const customer = customers.find((item) => item.id === job.customerId);
-                const performance = jobPerformanceById.get(job.id)!;
-                const actualHours = performance.labour.actual.hours;
-                const estimatedHours = performance.labour.estimated.hours;
-                const hasEstimate = performance.labour.estimated.hasData && estimatedHours > 0;
-                const progress = hasEstimate ? Math.min(100, (actualHours / estimatedHours) * 100) : 0;
-                const overHours = hasEstimate && actualHours > estimatedHours;
                 const workAreaNames = job.operationalWorkAreas?.map((area) => area.name) ?? job.workAreas ?? [];
                 const workAreaLabel = workAreaNames.length ? workAreaNames.join(', ') : '—';
 
@@ -226,12 +204,6 @@ export default function JobsPage({ currentUserRole }: JobsPageProps) {
                     </td>
                     <td className="max-w-56 py-3 pr-4 text-gray-600 dark:text-brand-100"><p className="truncate" title={workAreaLabel}>{workAreaLabel}</p></td>
                     <td className="py-3 pr-4"><Badge label={job.status} className={statusColor[job.status]} /></td>
-                    <td className="w-44 py-3 pr-4" title="Actual labour hours used compared with estimated labour hours; this is not percent complete.">
-                      {hasEstimate ? <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-brand-700"><div className={`h-1.5 rounded-full ${overHours ? 'bg-accent-600' : 'bg-brand-500'}`} style={{ width: `${progress}%` }} /></div> : null}
-                      <p className={`mt-1 text-xs tabular-nums ${overHours ? 'font-semibold text-accent-700' : 'text-gray-500 dark:text-brand-300'}`}>{actualHours.toFixed(1)} hr{hasEstimate ? ` / ${estimatedHours.toFixed(1)} hr` : ''}</p>
-                      {!hasEstimate ? <p className="text-xs text-gray-400">No hours estimate</p> : overHours ? <p className="text-xs font-medium text-accent-700">{(actualHours - estimatedHours).toFixed(1)} hr over</p> : null}
-                    </td>
-                    {canViewFinancials ? <td className="whitespace-nowrap py-3 pr-4 text-right font-semibold tabular-nums text-gray-900 dark:text-brand-50">{performance.revenue.contract === null ? 'Unavailable' : formatCurrency(performance.revenue.contract)}</td> : null}
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); navigate(`/jobs/${job.id}`); }} title="Open Job"><ChevronRight size={13} /></Button>

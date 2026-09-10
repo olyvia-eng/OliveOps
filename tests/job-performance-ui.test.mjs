@@ -12,21 +12,17 @@ const analysisTabSource = detailSource.slice(
   detailSource.indexOf("activeTab === 'project-management'"),
 );
 
-test('Jobs list contains long titles and presents labour hours instead of completion progress', () => {
-  assert.match(jobsSource, /min-w-\[1120px\] table-fixed/);
+test('Jobs list contains long titles without loading labour performance', () => {
+  assert.match(jobsSource, /w-full table-fixed text-sm/);
   assert.match(jobsSource, /title=\{job\.title\}/);
   assert.match(jobsSource, /max-w-full break-words text-left/);
-  assert.match(jobsSource, />Labour Hours</);
-  assert.match(jobsSource, /Actual labour hours used compared with estimated labour hours; this is not percent complete\./);
-  assert.match(jobsSource, /No hours estimate/);
-  assert.match(jobsSource, /hr over/);
+  assert.doesNotMatch(jobsSource, />Labour Hours|No hours estimate|hr over|calculateJobPerformance/);
   assert.doesNotMatch(jobsSource, />Progress</);
   assert.doesNotMatch(jobsSource, /job\.actualHours \/ job\.estimatedHours/);
 });
 
 test('Job summary and Analysis use the normalized server performance model', () => {
-  assert.match(jobsSource, /new Map\(jobs\.map\(\(job\) => \[job\.id, calculateJobPerformance\(\{/);
-  assert.match(jobsSource, /const performance = jobPerformanceById\.get\(job\.id\)!/);
+  assert.doesNotMatch(jobsSource, /calculateJobPerformance|jobPerformanceById/);
   assert.match(detailSource, /<JobAnalysisWorkspace job=\{job\}/);
   assert.match(analysisApiSource, /scopeWorkAreaId/);
   assert.match(workspaceSource, /useState\('entire-job'\)/);
