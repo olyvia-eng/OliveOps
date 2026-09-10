@@ -367,7 +367,7 @@ function submissionPayloadFingerprint({ formId, trigger, scope, responses, workf
 }
 
 function idempotencyConflict(res) {
-  return res.status(409).json({ ok: false, error: 'submission_idempotency_conflict' });
+  return res.status(409).json({ ok: false, code: 'submission_idempotency_conflict', error: 'submission_idempotency_conflict' });
 }
 
 export default async function handler(req, res) {

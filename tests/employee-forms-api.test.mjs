@@ -594,6 +594,8 @@ test('same scoped key with changed answer or authorized context returns stable c
 
   assert.equal(first.statusCode, 201);
   assert.deepEqual([changedAnswer.statusCode, changedContext.statusCode], [409, 409]);
+  assert.equal(changedAnswer.body.code, 'submission_idempotency_conflict');
+  assert.equal(changedContext.body.code, 'submission_idempotency_conflict');
   assert.equal(changedAnswer.body.error, 'submission_idempotency_conflict');
   assert.equal(changedContext.body.error, 'submission_idempotency_conflict');
   assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
