@@ -5,6 +5,7 @@ import {
   getBusinessProfile,
   getEmployeeFormSubmissionIdempotency,
   getFileForBusiness,
+  getTimeEntryForBusiness,
   listCustomersForBusiness,
   listEmployeesForBusiness,
   listEquipmentAssetsForBusiness,
@@ -34,11 +35,13 @@ import {
   buildWorkflowCompletionUpdate,
   findWorkflowRequirement,
   getClockOutWorkflowForBusiness,
+  reconcilePendingClockOutWorkflow,
 } from './_lib/mandatoryClockOut.js';
 import {
   buildClockInWorkflowCompletionUpdate,
   findClockInWorkflowRequirement,
   getClockInWorkflowForBusiness,
+  getPendingClockInWorkflowForEmployee,
 } from './_lib/mandatoryClockIn.js';
 import { finalizeCompletedMandatoryWorkflow } from './_lib/mandatoryClockingFinalization.js';
 import { resolveServiceVisitContext } from './_lib/serviceVisitContext.js';
@@ -211,6 +214,69 @@ function toDoInstances(data, query, instant, triggerFilter) {
   return packages;
 }
 
+function workflowContextMatchesQuery(context, query) {
+  if (text(query.jobId) && text(context?.jobId) !== text(query.jobId)) return false;
+  if (text(query.equipmentId) && text(context?.equipmentId) !== text(query.equipmentId)) return false;
+  if (text(query.divisionId) && text(context?.divisionId) !== text(query.divisionId)) return false;
+  return true;
+}
+
+function mandatoryWorkflowInstances(workflow, requiredFor, query) {
+  if (workflow?.status !== 'pending_required_forms') return [];
+  const completedRequirementIds = new Set(workflow.completedRequirementIds ?? []);
+  return (workflow.requiredForms ?? []).flatMap((requirement) => {
+    if (completedRequirementIds.has(requirement.requirementId)) return [];
+    const snapshot = requirement.form;
+    const context = snapshot?.context ?? requirement.context ?? {};
+    if (!snapshot || !workflowContextMatchesQuery(context, query)) return [];
+    return [{
+      ...snapshot,
+      id: snapshot.id ?? requirement.formId,
+      trigger: requiredFor === 'clock_in' ? 'before_clock_in' : 'after_clock_out',
+      required: true,
+      completionRequirement: 'required',
+      enforcement: 'blocking',
+      context,
+      submissionState: { completed: false },
+      workflowOccurrenceId: workflow.workflowOccurrenceId,
+      workflowRequirementId: requirement.requirementId,
+      requiredFor,
+    }];
+  });
+}
+
+function sameDeliveryInstance(left, right) {
+  if (left.id !== right.id || left.trigger !== right.trigger) return false;
+  return ['jobId', 'equipmentId', 'divisionId', 'serviceId', 'serviceVisitId']
+    .every((field) => text(left.context?.[field]) === text(right.context?.[field]));
+}
+
+async function allToDoInstances(data, query, instant, session) {
+  const [clockInWorkflow, clockOutWorkflow] = await Promise.all([
+    getPendingClockInWorkflowForEmployee(session.businessId, data.employee.id),
+    reconcilePendingClockOutWorkflow({
+      businessId: session.businessId,
+      employeeId: data.employee.id,
+      getTimeEntryForBusiness,
+      listFormSubmissionsForBusiness,
+    }),
+  ]);
+  const mandatory = [
+    ...mandatoryWorkflowInstances(clockInWorkflow, 'clock_in', query),
+    ...mandatoryWorkflowInstances(clockOutWorkflow, 'clock_out', query),
+  ];
+  const mandatoryKeys = new Set();
+  const uniqueMandatory = mandatory.filter((item) => {
+    const key = `${item.workflowOccurrenceId}|${item.workflowRequirementId}`;
+    if (mandatoryKeys.has(key)) return false;
+    mandatoryKeys.add(key);
+    return true;
+  });
+  const scheduled = toDoInstances(data, query, instant)
+    .filter((item) => !uniqueMandatory.some((workflowItem) => sameDeliveryInstance(item, workflowItem)));
+  return [...scheduled, ...uniqueMandatory];
+}
+
 function completedSubmissions(data) {
   const formsById = new Map(data.forms.map((form) => [form.id, form]));
   const jobsById = new Map(data.jobs.map((job) => [job.id, job]));
@@ -322,7 +388,8 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET' && req.query.action === 'forms') {
     const instant = new Date();
-    return res.status(200).json({ ok: true, timezone: data.timeZone, generatedAt: instant.toISOString(), toDo: toDoInstances(data, req.query, instant), available: availableInstances(data, req.query, instant), completed: completedSubmissions(data) });
+    const toDo = await allToDoInstances(data, req.query, instant, session);
+    return res.status(200).json({ ok: true, timezone: data.timeZone, generatedAt: instant.toISOString(), toDo, available: availableInstances(data, req.query, instant), completed: completedSubmissions(data) });
   }
 
   if (req.method === 'GET' && req.query.action === 'required') {

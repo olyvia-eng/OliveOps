@@ -40,7 +40,7 @@ The optional context filters narrow the returned instances. They do not grant ac
 }
 ```
 
-`toDo` contains server-authoritative incomplete scheduled occurrences. `available` contains only Forms whose delivery rule permits manual access. `completed` contains up to 50 of the employee's non-draft submissions, newest first. Ambiguous legacy configurations are retained for review but do not create new Job-event or schedule occurrences.
+`toDo` contains server-authoritative incomplete scheduled occurrences plus unresolved required Forms from the authenticated employee's persisted clock-in and clock-out workflows. Clock-out workflows are reconciled against durable submissions before they are returned. Mandatory items use the immutable workflow snapshot and include `workflowOccurrenceId`, `workflowRequirementId`, and `requiredFor` (`clock_in` or `clock_out`) for correlated submission. `available` contains only Forms whose delivery rule permits manual access. `completed` contains up to 50 of the employee's non-draft submissions, newest first. Ambiguous legacy configurations are retained for review but do not create new Job-event or schedule occurrences.
 
 Current Form discovery and Job/Customer selector choices include only operational Jobs. Jobs with status `completed`, `cancelled`, or `on_hold` are non-actionable; all other and legacy missing statuses remain actionable. Changing a Job back to an actionable status makes its assigned Forms available on the next request.
 

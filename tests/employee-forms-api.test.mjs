@@ -34,7 +34,8 @@ function installDdb(t) {
         const update = item.Update;
         if (update) {
           const existing = store.get(key(update.Key.PK, update.Key.SK));
-          if (!existing || existing.uploadStatus !== 'uploaded' || existing.claimedSubmissionId) {
+          const isWorkflow = ['CLOCK_IN_WORKFLOW', 'CLOCK_OUT_WORKFLOW'].includes(existing?.entityType);
+          if (!existing || (!isWorkflow && (existing.uploadStatus !== 'uploaded' || existing.claimedSubmissionId))) {
             throw Object.assign(new Error('conflict'), { name: 'TransactionCanceledException' });
           }
         }
@@ -42,11 +43,28 @@ function installDdb(t) {
       for (const item of input.TransactItems) if (item.Put) store.set(key(item.Put.Item.PK, item.Put.Item.SK), { ...item.Put.Item });
       for (const item of input.TransactItems) if (item.Update) {
         const existing = store.get(key(item.Update.Key.PK, item.Update.Key.SK));
-        existing.claimedSubmissionId = item.Update.ExpressionAttributeValues[':submissionId'];
-        existing.signedAt = item.Update.ExpressionAttributeValues[':signedAt'];
-        delete existing.ttl;
-        delete existing.expiresAt;
+        const values = item.Update.ExpressionAttributeValues;
+        if (['CLOCK_IN_WORKFLOW', 'CLOCK_OUT_WORKFLOW'].includes(existing.entityType)) {
+          if (values[':requirementIds']) {
+            existing.completedRequirementIds = new Set([...(existing.completedRequirementIds ?? []), ...values[':requirementIds']]);
+            existing.completedRequirementCount = Number(existing.completedRequirementCount ?? 0) + Number(values[':one'] ?? 0);
+            existing.updatedAt = values[':updatedAt'];
+          }
+          if (values[':finalized']) {
+            existing.status = values[':finalized'];
+            existing.completedRequirementIds = values[':completedRequirementIds'] ?? existing.completedRequirementIds;
+            existing.completedRequirementCount = values[':completedRequirementCount'] ?? existing.completedRequirementCount;
+            existing.finalizedAt = values[':reconciledAt'] ?? values[':finalizedAt'];
+            existing.updatedAt = existing.finalizedAt;
+          }
+        } else {
+          existing.claimedSubmissionId = values[':submissionId'];
+          existing.signedAt = values[':signedAt'];
+          delete existing.ttl;
+          delete existing.expiresAt;
+        }
       }
+      for (const item of input.TransactItems) if (item.Delete) store.delete(key(item.Delete.Key.PK, item.Delete.Key.SK));
       return {};
     }
     return original(command);
@@ -66,6 +84,64 @@ function seedForm(store, { id, businessId = 'biz-a', assignedTo = 'everyone', as
   const pk = `BUSINESS#${businessId}`;
   store.set(key(pk, `FORM#${id}`), { PK: pk, SK: `FORM#${id}`, entityType: 'FORM', businessId, formId: id, name: id, description: 'Test form', category: 'operations', status, assignedTo, assignmentValue, trigger, deliveryRule, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
   store.set(key(pk, `FORM_FIELD#${id}-notes`), { PK: pk, SK: `FORM_FIELD#${id}-notes`, entityType: 'FORM_FIELD', businessId, formFieldId: `${id}-notes`, formId: id, type: 'single_line_text', label: 'Notes', required: true, options: [], order: 0 });
+}
+
+function seedMandatoryWorkflow(store, {
+  requiredFor,
+  occurrenceId,
+  employeeId = 'employee-a',
+  businessId = 'biz-a',
+  forms,
+  completedRequirementIds = [],
+  status = 'pending_required_forms',
+  timeEntryId = 'time-entry-a',
+}) {
+  const clockIn = requiredFor === 'clock_in';
+  const entityType = clockIn ? 'CLOCK_IN_WORKFLOW' : 'CLOCK_OUT_WORKFLOW';
+  const trigger = clockIn ? 'before_clock_in' : 'after_clock_out';
+  const prefix = clockIn ? 'CLOCK_IN' : 'CLOCK_OUT';
+  const requiredForms = forms.map((form, order) => {
+    const requirementId = form.requirementId ?? `requirement-${occurrenceId}-${order}`;
+    const context = form.context ?? {};
+    return {
+      requirementId,
+      formId: form.formId,
+      title: form.name ?? form.formId,
+      description: form.description ?? 'Snapshot description',
+      category: form.category ?? 'operations',
+      trigger,
+      order,
+      context,
+      completionRequirement: 'required',
+      form: {
+        id: form.formId,
+        name: form.name ?? form.formId,
+        description: form.description ?? 'Snapshot description',
+        category: form.category ?? 'operations',
+        trigger,
+        deliveryRule: { type: trigger, frequency: 'each_time', completionBehavior: 'blocking', allowManualAccess: false },
+        required: true,
+        completionRequirement: 'required',
+        enforcement: 'blocking',
+        context,
+        fields: form.fields ?? [{ id: `${form.formId}-snapshot-field`, type: 'single_line_text', label: `Snapshot ${form.formId}`, required: true, defaultValue: '', placeholder: '', options: [], order: 0 }],
+        submissionState: { completed: false },
+      },
+    };
+  });
+  const pk = `BUSINESS#${businessId}`;
+  store.set(key(pk, `${prefix}_WORKFLOW#${occurrenceId}`), {
+    PK: pk, SK: `${prefix}_WORKFLOW#${occurrenceId}`, entityType, businessId, employeeId,
+    workflowOccurrenceId: occurrenceId, timeEntryId, status, requiredForms,
+    requiredRequirementIds: requiredForms.map((form) => form.requirementId),
+    completedRequirementIds: new Set(completedRequirementIds),
+    completedRequirementCount: completedRequirementIds.length,
+  });
+  store.set(key(pk, `${prefix}_PENDING#EMPLOYEE#${employeeId}`), {
+    PK: pk, SK: `${prefix}_PENDING#EMPLOYEE#${employeeId}`, entityType: `${prefix}_PENDING`, businessId, employeeId,
+    workflowOccurrenceId: occurrenceId, ...(clockIn ? {} : { timeEntryId }),
+  });
+  return requiredForms;
 }
 
 function makeSignatureForm(store, { id = 'signature-form', required = true, requiresApproval = false } = {}) {
@@ -154,6 +230,103 @@ test('employee Forms API returns renderable assigned packages without generic fi
   const required = await request('token-a', { action: 'required', query: { trigger: 'daily' } });
   assert.equal(required.statusCode, 200);
   assert.deepEqual(required.body.forms.map((item) => item.id), ['daily-check']);
+});
+
+test('employee Forms To Do merges scheduled and ordered mandatory workflow snapshots', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedForm(store, { id: 'daily-check', trigger: ['daily'] });
+  seedForm(store, { id: 'archived-live-form', trigger: ['after_clock_out'], status: 'archived' });
+  store.get(key('BUSINESS#biz-a', 'FORM#archived-live-form')).name = 'Edited live name';
+  const clockOutForms = seedMandatoryWorkflow(store, {
+    requiredFor: 'clock_out', occurrenceId: 'clock-out-a', completedRequirementIds: ['requirement-clock-out-a-0'],
+    forms: [
+      { formId: 'completed-form' },
+      { formId: 'archived-live-form', name: 'Original snapshot name' },
+      { formId: 'second-pending-form', name: 'Second pending form' },
+    ],
+  });
+  seedMandatoryWorkflow(store, {
+    requiredFor: 'clock_in', occurrenceId: 'clock-in-a',
+    forms: [{ formId: 'clock-in-form', name: 'Clock-in snapshot' }],
+  });
+
+  const result = await request('token-a', { action: 'forms' });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.toDo.map((item) => item.id), ['daily-check', 'clock-in-form', 'archived-live-form', 'second-pending-form']);
+  const clockIn = result.body.toDo[1];
+  assert.equal(clockIn.requiredFor, 'clock_in');
+  assert.equal(clockIn.workflowOccurrenceId, 'clock-in-a');
+  const pendingClockOut = result.body.toDo.slice(2);
+  assert.deepEqual(pendingClockOut.map((item) => item.workflowRequirementId), clockOutForms.slice(1).map((item) => item.requirementId));
+  assert.ok(pendingClockOut.every((item) => item.requiredFor === 'clock_out' && item.enforcement === 'blocking'));
+  assert.equal(pendingClockOut[0].name, 'Original snapshot name');
+  assert.equal(pendingClockOut[0].fields[0].label, 'Snapshot archived-live-form');
+});
+
+test('workflow To Do identity is occurrence plus requirement and remains employee and tenant scoped', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  await seedIdentity(store, { userId: 'user-b', employeeId: 'employee-b', token: 'token-b' });
+  await seedIdentity(store, { businessId: 'biz-b', userId: 'user-c', employeeId: 'employee-c', token: 'token-c' });
+  seedMandatoryWorkflow(store, { requiredFor: 'clock_in', occurrenceId: 'same-form-clock-in', forms: [{ formId: 'same-form' }] });
+  seedMandatoryWorkflow(store, { requiredFor: 'clock_out', occurrenceId: 'same-form-clock-out', forms: [{ formId: 'same-form' }] });
+  seedMandatoryWorkflow(store, { requiredFor: 'clock_out', occurrenceId: 'employee-b-workflow', employeeId: 'employee-b', forms: [{ formId: 'employee-b-form' }] });
+  seedMandatoryWorkflow(store, { requiredFor: 'clock_out', occurrenceId: 'business-b-workflow', employeeId: 'employee-c', businessId: 'biz-b', forms: [{ formId: 'business-b-form' }] });
+
+  const own = await request('token-a', { action: 'forms' });
+  assert.deepEqual(own.body.toDo.map((item) => [item.workflowOccurrenceId, item.workflowRequirementId]), [
+    ['same-form-clock-in', 'requirement-same-form-clock-in-0'],
+    ['same-form-clock-out', 'requirement-same-form-clock-out-0'],
+  ]);
+  assert.equal(own.body.toDo.some((item) => ['employee-b-form', 'business-b-form'].includes(item.id)), false);
+  assert.deepEqual((await request('token-b', { action: 'forms' })).body.toDo.map((item) => item.id), ['employee-b-form']);
+  assert.deepEqual((await request('token-c', { action: 'forms' })).body.toDo.map((item) => item.id), ['business-b-form']);
+});
+
+test('clock-out reconciliation suppresses a satisfied stale workflow pointer', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  const [requirement] = seedMandatoryWorkflow(store, { requiredFor: 'clock_out', occurrenceId: 'stale-clock-out', forms: [{ formId: 'satisfied-form' }] });
+  store.set(key('BUSINESS#biz-a', 'TIME#time-entry-a'), {
+    PK: 'BUSINESS#biz-a', SK: 'TIME#time-entry-a', entityType: 'TIME_ENTRY', businessId: 'biz-a', timeEntryId: 'time-entry-a', id: 'time-entry-a', employeeId: 'employee-a', status: 'clocked_out',
+  });
+  store.set(key('BUSINESS#biz-a', 'FORM_SUBMISSION#durable-satisfaction'), {
+    PK: 'BUSINESS#biz-a', SK: 'FORM_SUBMISSION#durable-satisfaction', entityType: 'FORM_SUBMISSION', businessId: 'biz-a', formSubmissionId: 'durable-satisfaction',
+    formId: requirement.formId, employeeId: 'employee-a', trigger: 'after_clock_out', status: 'submitted', submittedAt: '2026-09-10T12:00:00.000Z',
+    workflowOccurrenceId: 'stale-clock-out', workflowRequirementId: requirement.requirementId,
+  });
+
+  const result = await request('token-a', { action: 'forms' });
+  assert.equal(result.statusCode, 200);
+  assert.deepEqual(result.body.toDo, []);
+  assert.equal(store.get(key('BUSINESS#biz-a', 'CLOCK_OUT_WORKFLOW#stale-clock-out')).status, 'finalized');
+  assert.equal(store.has(key('BUSINESS#biz-a', 'CLOCK_OUT_PENDING#EMPLOYEE#employee-a')), false);
+});
+
+test('mandatory snapshot returned by Forms can be submitted with its workflow identities', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  seedMandatoryWorkflow(store, {
+    requiredFor: 'clock_in', occurrenceId: 'submittable-clock-in',
+    forms: [{ formId: 'first-form' }, { formId: 'submitted-form' }],
+  });
+  const forms = await request('token-a', { action: 'forms' });
+  const item = forms.body.toDo.find((candidate) => candidate.id === 'submitted-form');
+  const submitted = await request('token-a', { method: 'POST', action: 'submit', body: {
+    formId: item.id,
+    trigger: item.trigger,
+    workflowOccurrenceId: item.workflowOccurrenceId,
+    workflowRequirementId: item.workflowRequirementId,
+    clientSubmissionId: 'mandatory-workflow-submission-001',
+    responses: [{ fieldId: item.fields[0].id, value: 'Completed from snapshot' }],
+  } });
+
+  assert.equal(submitted.statusCode, 201, JSON.stringify(submitted.body));
+  assert.equal(submitted.body.submission.workflowOccurrenceId, item.workflowOccurrenceId);
+  assert.equal(submitted.body.submission.workflowRequirementId, item.workflowRequirementId);
+  const refreshed = await request('token-a', { action: 'forms' });
+  assert.deepEqual(refreshed.body.toDo.map((candidate) => candidate.id), ['first-form']);
 });
 
 test('employee Forms API scopes division and equipment assignments through an authorized job', async (t) => {

@@ -448,7 +448,7 @@ export async function reconcilePendingClockOutWorkflow({
             '#timeEntry': 'timeEntry', '#completedRequirementIds': 'completedRequirementIds', '#completedRequirementCount': 'completedRequirementCount',
           },
           ExpressionAttributeValues: {
-            ':pending': 'pending_required_forms', ':employeeId': employeeId,
+            ':finalized': 'finalized', ':pending': 'pending_required_forms', ':employeeId': employeeId,
             ':reconciledAt': workflow.finalizedAt ?? reconciledAt, ':timeEntry': workflow.timeEntry ?? timeEntry,
             ':completedRequirementIds': new Set(completedRequirementIds), ':completedRequirementCount': requirements.length,
           },
