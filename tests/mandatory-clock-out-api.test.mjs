@@ -485,6 +485,28 @@ test('persisted after-clock-out snapshot remains completable after its live form
   assert.equal(submitted.body.submission.jobId, 'job-a');
 });
 
+test('persisted after-clock-out snapshot remains completable after its live form is archived', async (t) => {
+  const context = await setup(t, { forms: [{ id: 'required' }] });
+  const initiated = await clockingRequest(context.token, { action: 'clock-out', body: clockOutBody(context.entryId) });
+  assert.equal(initiated.statusCode, 202);
+  const requirement = initiated.body.requiredForms[0];
+  const liveForm = context.store.get(key(`BUSINESS#${context.businessId}`, 'FORM#required'));
+  liveForm.status = 'archived';
+
+  const submitted = await formRequest(context.token, {
+    formId: requirement.formId,
+    trigger: 'after_clock_out',
+    workflowOccurrenceId: initiated.body.workflowOccurrenceId,
+    workflowRequirementId: requirement.requirementId,
+    clientSubmissionId: 'archived-live-form-submit',
+    responses: [{ fieldId: 'required-notes', value: 'Completed from persisted occurrence' }],
+  });
+
+  assert.equal(submitted.statusCode, 201);
+  assert.equal(submitted.body.submission.workflowOccurrenceId, initiated.body.workflowOccurrenceId);
+  assert.equal(submitted.body.submission.workflowRequirementId, requirement.requirementId);
+});
+
 for (const scenario of [
   { name: 'submitted evidence clears a stale pointer', status: 'submitted', clears: true },
   { name: 'pending-review evidence clears a stale pointer during bootstrap', status: 'pending_review', surface: 'bootstrap', clears: true },

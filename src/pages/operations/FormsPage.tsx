@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Archive,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -11,6 +12,7 @@ import {
   Info,
   Pencil,
   Plus,
+  RotateCcw,
   Save,
   Trash2,
 } from 'lucide-react';
@@ -25,9 +27,11 @@ import {
   TextArea,
 } from '../../components/ui';
 import { useStore } from '../../store';
+import { emitAppToast } from '../../toast';
 import { formatDateTime } from '../../utils';
 import SignaturePad from '../../components/forms/SignaturePad';
 import { resolveAttachmentUrl } from '../../utils/fileUpload';
+import { DEFAULT_FORM_STATUS_FILTER, filterFormsForList, type FormListStatusFilter } from '../../utils/formListFilters.js';
 import {
   applyFormDeliveryRule,
   createDefaultDeliveryRule,
@@ -69,7 +73,6 @@ const FORM_CATEGORIES: Array<{ value: FormCategory; label: string }> = [
 const FORM_STATUSES: Array<{ value: FormStatus; label: string }> = [
   { value: 'active', label: 'Active' },
   { value: 'draft', label: 'Draft' },
-  { value: 'archived', label: 'Archived' },
 ];
 
 const ASSIGNMENT_OPTIONS: Array<{ value: FormAssignmentType; label: string }> = [
@@ -145,7 +148,6 @@ export default function FormsPage() {
     cloneForm,
     createFormFromTemplate,
     updateForm,
-    deleteForm,
     addFormField,
     updateFormField,
     deleteFormField,
@@ -155,7 +157,7 @@ export default function FormsPage() {
   const [activeTab, setActiveTab] = useState<FormsTab>('overview');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | FormCategory>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | FormStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<FormListStatusFilter>(DEFAULT_FORM_STATUS_FILTER);
   const [newFormModalOpen, setNewFormModalOpen] = useState(false);
   const [newFormDraft, setNewFormDraft] = useState(emptyFormDraft());
   const [newFormError, setNewFormError] = useState('');
@@ -232,16 +234,7 @@ export default function FormsPage() {
   }, [isBuilderDirty]);
 
   const filteredForms = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return sortedForms.filter((form) => {
-      if (categoryFilter !== 'all' && form.category !== categoryFilter) return false;
-      if (statusFilter !== 'all' && form.status !== statusFilter) return false;
-      if (!normalizedSearch) return true;
-      return (
-        form.name.toLowerCase().includes(normalizedSearch)
-        || form.description.toLowerCase().includes(normalizedSearch)
-      );
-    });
+    return filterFormsForList(sortedForms, { search, category: categoryFilter, status: statusFilter });
   }, [categoryFilter, search, sortedForms, statusFilter]);
 
   const fieldsForSelectedForm = useMemo(() => {
@@ -487,19 +480,31 @@ export default function FormsPage() {
     setActiveTab(tab);
   };
 
-  const deleteSelectedForm = async () => {
+  const archiveSelectedForm = async () => {
     if (!selectedForm) return;
+    if (isBuilderDirty && !window.confirm('Archive this form without saving the current changes?')) return;
+    setSavingBuilder(true);
+    const archived = await updateForm(selectedForm.id, { status: 'archived' });
+    setSavingBuilder(false);
+    if (!archived) return;
+    setSelectedFormId('');
+    setBuilderDraft(null);
+    setBuilderBaseline(null);
+    setActiveTab('forms');
+    emitAppToast({ tone: 'success', message: `${selectedForm.name} archived. It will not be assigned to future workflows.` });
+  };
 
-    if (submissionsForSelectedForm.length > 0) {
-      await updateForm(selectedForm.id, { status: 'archived' });
-      return;
-    }
-
-    for (const field of fieldsForSelectedForm) {
-      await deleteFormField(field.id);
-    }
-
-    deleteForm(selectedForm.id);
+  const restoreSelectedForm = async () => {
+    if (!selectedForm || selectedForm.status !== 'archived') return;
+    setSavingBuilder(true);
+    const restored = await updateForm(selectedForm.id, { status: 'draft' });
+    setSavingBuilder(false);
+    if (!restored) return;
+    setSelectedFormId('');
+    setBuilderDraft(null);
+    setBuilderBaseline(null);
+    setActiveTab('forms');
+    emitAppToast({ tone: 'success', message: `${selectedForm.name} restored as Draft.` });
   };
 
   const handleUseTemplate = async (template: FormTemplate) => {
@@ -551,6 +556,7 @@ export default function FormsPage() {
 
   const builderForm = builderDraft?.form ?? null;
   const builderFields = builderDraft?.fields ?? [];
+  const archivedSelectedForm = selectedForm?.status === 'archived';
   const editingField = editingFieldId ? builderFields.find((field) => field.id === editingFieldId) ?? null : null;
   const deliveryRule = builderForm?.deliveryRule ?? null;
   const legacyConfigurationLabels = builderForm && !deliveryRule ? getLegacyConfigurationLabels(builderForm) : [];
@@ -742,12 +748,13 @@ export default function FormsPage() {
               <Select
                 label="Status"
                 value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as 'all' | FormStatus)}
+                onChange={(event) => setStatusFilter(event.target.value as FormListStatusFilter)}
               >
-                <option value="all">All Statuses</option>
-                {FORM_STATUSES.map((status) => (
-                  <option key={status.value} value={status.value}>{status.label}</option>
-                ))}
+                <option value="operational">Active &amp; Draft</option>
+                <option value="active">Active</option>
+                <option value="draft">Draft</option>
+                <option value="archived">Archived</option>
+                <option value="all">All</option>
               </Select>
             </div>
           </Card>
@@ -843,11 +850,13 @@ export default function FormsPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  <Button variant="secondary" onClick={openSubmissionScreen}><Eye size={16} /> Preview</Button>
-                  <Button onClick={() => void saveBuilderChanges()} disabled={!isBuilderDirty || savingBuilder}><Save size={16} /> {savingBuilder ? 'Saving...' : 'Save Changes'}</Button>
+                  <Button variant="secondary" disabled={archivedSelectedForm} onClick={openSubmissionScreen}><Eye size={16} /> Preview</Button>
+                  <Button onClick={() => void saveBuilderChanges()} disabled={archivedSelectedForm || !isBuilderDirty || savingBuilder}><Save size={16} /> {savingBuilder ? 'Saving...' : 'Save Changes'}</Button>
                 </div>
               </div>
             </div>
+            {builderForm.status === 'archived' ? <div className="border-l-2 border-accent-500 bg-accent-50 px-4 py-3 text-sm text-accent-900" role="status"><strong>Archived form.</strong> This definition is read-only and will not be assigned to future workflows. Historical submissions remain available.</div> : null}
+            <fieldset disabled={archivedSelectedForm} className="space-y-5">
             <Card className="p-5 sm:p-6">
               <div>
                 <p className="text-xs font-semibold uppercase text-brand-600">Form Setup</p>
@@ -993,7 +1002,7 @@ export default function FormsPage() {
                 <div className="mt-4 space-y-2">
                   {builderFields.map((field) => (
                     <Card key={field.id} className="overflow-hidden">
-                      <div draggable onDragStart={() => setDraggingFieldId(field.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleFieldDrop(field.id)} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap">
+                      <div draggable={!archivedSelectedForm} onDragStart={() => setDraggingFieldId(field.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => handleFieldDrop(field.id)} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap">
                         <div className="flex min-w-[180px] flex-1 items-center gap-3 text-gray-700"><GripVertical size={18} className="shrink-0 cursor-grab text-gray-400" /><div className="min-w-0"><p className="truncate text-sm font-semibold text-gray-900">{field.label || 'Untitled field'}</p><p className="mt-0.5 text-xs text-gray-500">{toLabel(field.type)}{field.required ? ' • Required' : ''}</p></div></div>
                         <div className="flex w-full shrink-0 justify-end gap-1 sm:w-auto"><Button variant="ghost" size="sm" onClick={() => setEditingFieldId(field.id)}><Pencil size={13} /> Edit</Button><Button variant="ghost" size="sm" onClick={() => duplicateField(field)}><Copy size={13} /> Duplicate</Button><Button variant="ghost" size="sm" onClick={() => removeDraftField(field.id)}><Trash2 size={13} className="text-accent-700" /> Delete</Button></div>
                       </div>
@@ -1002,8 +1011,9 @@ export default function FormsPage() {
                 </div>
               )}
             </section>
+            </fieldset>
 
-            <div className="flex justify-end"><Button variant={submissionsForSelectedForm.length > 0 ? 'secondary' : 'danger'} size="sm" onClick={() => void deleteSelectedForm()}><Trash2 size={14} /> {submissionsForSelectedForm.length > 0 ? 'Archive Form' : 'Delete Form'}</Button></div>
+            <div className="flex justify-end">{archivedSelectedForm ? <Button variant="secondary" size="sm" disabled={savingBuilder} onClick={() => void restoreSelectedForm()}><RotateCcw size={14} /> Restore as Draft</Button> : <Button variant="secondary" size="sm" disabled={savingBuilder} onClick={() => void archiveSelectedForm()}><Archive size={14} /> Archive Form</Button>}</div>
           </div>
         ) : (
           <EmptyState
