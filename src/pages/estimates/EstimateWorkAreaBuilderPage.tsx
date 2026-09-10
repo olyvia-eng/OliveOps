@@ -806,7 +806,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
               </Button>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button variant="secondary" onClick={() => void persistWorkArea()} disabled={!isDirty || savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save Changes'}</Button>
-                <Button onClick={() => void saveAndBack()} disabled={savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save &amp; Back'}</Button>
+                <Button onClick={() => void saveAndBack()} disabled={savingWorkArea}>{savingWorkArea ? 'Saving...' : 'Save & Back'}</Button>
               </div>
             </div> : <p className="text-sm text-gray-500">This Work Area is part of the converted Estimate and is read-only.</p>}
           </Card>

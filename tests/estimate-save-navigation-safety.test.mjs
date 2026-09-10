@@ -31,6 +31,9 @@ test('top, bottom, and Save & Leave await the existing page save operation', () 
   assert.match(builderSource, /onSave: persistWorkArea/);
   assert.ok((builderSource.match(/onClick=\{\(\) => void persistWorkArea\(\)\}/g) ?? []).length >= 2, 'top and bottom save share persistWorkArea');
   assert.match(builderSource, /disabled=\{!isDirty \|\| savingWorkArea\}>\{savingWorkArea \? 'Saving\.\.\.' : 'Save Changes'\}/);
+  assert.match(builderSource, /onClick=\{\(\) => void saveAndBack\(\)\} disabled=\{savingWorkArea\}>\{savingWorkArea \? 'Saving\.\.\.' : 'Save & Back'\}/);
+  assert.match(builderSource, /const saved = await persistWorkArea\(\);\s*if \(saved\) navigate\(`\/estimates\/\$\{estimate\.id\}\?tab=work-areas`\);/, 'Save & Back navigates only after a successful save');
+  assert.doesNotMatch(builderSource, /Save &amp; Back/);
 });
 
 test('internal navigation presents all three unsaved-change outcomes', () => {
