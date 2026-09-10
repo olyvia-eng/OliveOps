@@ -2,6 +2,7 @@ import { getBusinessProfile, getFileForBusiness, updateBusinessProfile } from '.
 import { isValidTimeZone } from './_lib/businessTime.js';
 import { requireSession } from './_lib/session.js';
 import { BUSINESS_FEATURE_KEYS, normalizeBusinessFeatures } from '../shared/businessFeatures.js';
+import { normalizePaymentMethods, validatePaymentMethods } from '../shared/customerDocuments.js';
 
 export default async function handler(req, res) {
   const session = await requireSession(req, res, ['owner', 'admin']);
@@ -23,9 +24,15 @@ export default async function handler(req, res) {
         && BUSINESS_FEATURE_KEYS.every((key) => typeof features[key] === 'boolean');
       if (!valid) return res.status(400).json({ ok: false, error: 'Company features are invalid.' });
     }
-    const textFields = ['legalName', 'phone', 'email', 'website', 'businessAddress', 'taxLabel', 'proposalTerms'];
-    const invalidField = textFields.find((field) => req.body?.[field] !== undefined && (typeof req.body[field] !== 'string' || req.body[field].length > (field === 'proposalTerms' ? 10000 : 500)));
+    const textFields = ['legalName', 'phone', 'email', 'website', 'businessAddress', 'taxLabel', 'proposalTerms', 'defaultInvoiceNotes', 'paymentInstructions'];
+    const longTextFields = new Set(['proposalTerms', 'defaultInvoiceNotes', 'paymentInstructions']);
+    const invalidField = textFields.find((field) => req.body?.[field] !== undefined && (typeof req.body[field] !== 'string' || req.body[field].length > (longTextFields.has(field) ? 10000 : 500)));
     if (invalidField) return res.status(400).json({ ok: false, error: `${invalidField} is invalid.` });
+    if (req.body?.defaultPaymentTermsDays !== undefined && (!Number.isSafeInteger(req.body.defaultPaymentTermsDays) || req.body.defaultPaymentTermsDays < 0 || req.body.defaultPaymentTermsDays > 365)) return res.status(400).json({ ok: false, error: 'Default payment terms must be between 0 and 365 days.' });
+    if (req.body?.paymentMethods !== undefined) {
+      const paymentMethodsError = validatePaymentMethods(req.body.paymentMethods);
+      if (paymentMethodsError) return res.status(400).json({ ok: false, error: paymentMethodsError });
+    }
     if (req.body?.logoFileId !== undefined) {
       if (typeof req.body.logoFileId !== 'string' || req.body.logoFileId.length > 200) return res.status(400).json({ ok: false, error: 'Company logo is invalid.' });
       if (req.body.logoFileId) {
@@ -38,6 +45,8 @@ export default async function handler(req, res) {
     const profile = { ...(timezone !== undefined ? { timezone } : {}) };
     if (req.body?.features !== undefined) profile.features = normalizeBusinessFeatures(req.body.features);
     for (const field of textFields) if (req.body?.[field] !== undefined) profile[field] = req.body[field].trim();
+    if (req.body?.defaultPaymentTermsDays !== undefined) profile.defaultPaymentTermsDays = req.body.defaultPaymentTermsDays;
+    if (req.body?.paymentMethods !== undefined) profile.paymentMethods = normalizePaymentMethods(req.body.paymentMethods);
     if (req.body?.logoFileId !== undefined) profile.logoFileId = req.body.logoFileId.trim();
     const business = await updateBusinessProfile({ businessId: session.businessId, profile });
     return res.status(200).json({ ok: true, business });

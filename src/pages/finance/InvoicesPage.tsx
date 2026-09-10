@@ -7,9 +7,9 @@ import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { formatCurrency, generateId } from '../../utils';
 import { calculateFixedMenuPosition } from '../../utils/fixedMenuPosition.js';
-import { calculateInvoiceLineFinancials, calculateInvoiceSummary, calculateJobInvoicePosition, getCustomerBillingAddressSnapshot, getInvoiceBalance, getInvoiceContractAmount, normalizeInvoiceFinancials, validateInvoiceLineItems } from '../../utils/invoiceModel.js';
+import { calculateInvoiceLineFinancials, calculateInvoiceSummary, calculateJobInvoicePosition, getCustomerBillingAddressSnapshot, getInvoiceBalance, getInvoiceContractAmount, getInvoiceFinancialStatus, normalizeInvoiceFinancials, validateInvoiceLineItems } from '../../utils/invoiceModel.js';
 import { buildContractInvoiceLines, paymentScheduleItemState, remainingContractBillingItem } from '../../utils/contractBillingModel.js';
-import type { ID, Invoice, InvoiceLineCategory, InvoiceLineItem, InvoiceStatus, InvoiceType, JobWorkAreaLineItem, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
+import type { CustomerPaymentMethod, ID, Invoice, InvoiceLineCategory, InvoiceLineItem, InvoicePayment, InvoiceStatus, InvoiceType, JobWorkAreaLineItem, QuickBooksIntegration, QuickBooksInvoiceStatus } from '../../types';
 
 type Filter = 'all' | InvoiceStatus;
 type Form = {
@@ -82,7 +82,7 @@ const badge: Record<InvoiceStatus, string> = {
   paid: 'bg-emerald-100 text-emerald-800',
   void: 'bg-gray-200 text-gray-700',
 };
-const displayStatus = (invoice: Invoice): InvoiceStatus => (['sent', 'partially_paid'].includes(invoice.status) && invoice.dueDate < today() ? 'overdue' : invoice.status);
+const displayStatus = (invoice: Invoice): InvoiceStatus => getInvoiceFinancialStatus(invoice) as InvoiceStatus;
 const clientName = (customer?: { name?: string; company?: string }) => customer?.company || customer?.name || 'Unknown client';
 const linePrice = (line: JobWorkAreaLineItem) => Number(line.sellPrice ?? line.contractRevenue ?? line.total ?? 0);
 const sourceLine = (line: JobWorkAreaLineItem, workAreaId: ID): InvoiceLineItem => ({
@@ -134,6 +134,11 @@ export default function InvoicesPage() {
   const [error, setError] = useState('');
   const [voidReason, setVoidReason] = useState('');
   const [menu, setMenu] = useState<ID | null>(null);
+  const [payments, setPayments] = useState<InvoicePayment[]>([]);
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({ amount: 0, paymentDate: today(), paymentMethod: 'Other', reference: '', notes: '' });
+  const [paymentMethods, setPaymentMethods] = useState<CustomerPaymentMethod[]>([]);
+  const [invoiceDefaults, setInvoiceDefaults] = useState({ paymentTermsDays: 30, notes: '' });
   const [quickBooks, setQuickBooks] = useState<QuickBooksIntegration>({
     connected: false,
     environment: 'sandbox',
@@ -185,6 +190,11 @@ export default function InvoicesPage() {
   const saveDisabledReason = !job ? 'Select a Job to save this draft.' : lineValidationError || summary.subtotal <= 0 || summary.amount <= 0 ? 'Add a billable amount to save this draft.' : requiredFieldError ? 'Complete the required invoice details to save this draft.' : exceeds && form.invoiceType !== 'custom' ? 'This invoice exceeds the remaining contract amount.' : exceeds && !form.overContractConfirmed ? 'Confirm intentional over-contract billing to save this draft.' : '';
 
   useEffect(() => {
+    void fetch('/api/business', { credentials: 'include' }).then((response) => response.json()).then((payload) => {
+      if (!payload.ok) return;
+      setPaymentMethods((payload.business.paymentMethods ?? []).filter((method: CustomerPaymentMethod) => method.enabled));
+      setInvoiceDefaults({ paymentTermsDays: payload.business.defaultPaymentTermsDays ?? 30, notes: payload.business.defaultInvoiceNotes ?? '' });
+    }).catch(() => undefined);
     void fetch('/api/integrations/quickbooks/status', {
       credentials: 'include',
     })
@@ -271,7 +281,8 @@ export default function InvoicesPage() {
   };
   const start = (jobId?: ID, scheduleItemId?: ID) => {
     setSelected(null);
-    const base = { ...emptyForm(), jobId: jobId ?? '' };
+    const issueDate = today();
+    const base = { ...emptyForm(), jobId: jobId ?? '', issueDate, paymentTermsDays: invoiceDefaults.paymentTermsDays, dueDate: plusDays(issueDate, invoiceDefaults.paymentTermsDays), notes: invoiceDefaults.notes };
     setForm(scheduleItemId ? applyScheduleItem({ ...base, paymentScheduleItemId: scheduleItemId }, jobMap.get(jobId ?? ''), scheduleItemId) : base);
     setError('');
     setOpen(true);
@@ -298,6 +309,8 @@ export default function InvoicesPage() {
       overContractConfirmed: Boolean(invoice.overContract),
     });
     setOpen(true);
+    setPayments([]);
+    if (invoice.status !== 'draft') void fetch(`/api/invoice-payments?invoiceId=${encodeURIComponent(invoice.id)}`, { credentials: 'include' }).then((response) => response.json()).then((payload) => { if (payload.ok) setPayments(payload.payments ?? []); }).catch(() => undefined);
   };
   const chooseJob = (jobId: ID) => {
     const selectedJob = jobMap.get(jobId);
@@ -407,14 +420,48 @@ export default function InvoicesPage() {
       message: `Invoice ${result.invoice?.number ?? ''} saved as Draft.`,
     });
   };
-  const status = async (invoice: Invoice, nextStatus: 'sent' | 'void') => {
-    if (nextStatus === 'sent' && draftDirty) return setError('Save draft changes before marking this invoice sent.');
-    if (nextStatus === 'void' && !voidReason.trim()) return setError('A void reason is required.');
+  const status = async (invoice: Invoice, nextStatus: 'void') => {
+    if (!voidReason.trim()) return setError('A void reason is required.');
     setSaving(true);
-    const result = await updateInvoice(invoice.id, nextStatus === 'void' ? { status: nextStatus, voidReason: voidReason.trim() } : { status: nextStatus });
+    const result = await updateInvoice(invoice.id, { status: nextStatus, voidReason: voidReason.trim() });
     setSaving(false);
     if (!result.ok) return setError(result.error ?? 'Status could not be updated.');
     if (result.invoice) view(result.invoice);
+  };
+  const sendInvoice = async (invoice: Invoice) => {
+    if (draftDirty) return setError('Save draft changes before sending this invoice.');
+    setSaving(true); setError('');
+    try {
+      const response = await fetch('/api/invoice-delivery', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoiceId: invoice.id }) });
+      const payload = await response.json() as { ok?: boolean; invoice?: Invoice; error?: string };
+      if (payload.invoice) {
+        useStore.setState((state) => ({ invoices: state.invoices.map((item) => item.id === invoice.id ? payload.invoice as Invoice : item) }));
+        view(payload.invoice);
+      }
+      if (!response.ok || !payload.ok || !payload.invoice) throw new Error(payload.error || 'Invoice could not be sent.');
+      emitAppToast({ tone: 'success', message: `${payload.invoice.number} sent to the customer.` });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Invoice could not be sent.'); }
+    finally { setSaving(false); }
+  };
+  const openRecordPayment = (invoice: Invoice) => {
+    const firstMethod = paymentMethods[0]?.displayName || 'Other';
+    setPaymentForm({ amount: getInvoiceBalance(invoice), paymentDate: today(), paymentMethod: firstMethod, reference: '', notes: '' });
+    setRecordPaymentOpen(true);
+  };
+  const recordPayment = async () => {
+    if (!selected) return;
+    setSaving(true); setError('');
+    try {
+      const response = await fetch('/api/invoice-payments', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoiceId: selected.id, ...paymentForm }) });
+      const payload = await response.json() as { ok?: boolean; invoice?: Invoice; payment?: InvoicePayment; error?: string };
+      if (!response.ok || !payload.ok || !payload.invoice || !payload.payment) throw new Error(payload.error || 'Payment could not be recorded.');
+      useStore.setState((state) => ({ invoices: state.invoices.map((item) => item.id === selected.id ? payload.invoice as Invoice : item) }));
+      view(payload.invoice);
+      setPayments((current) => [payload.payment as InvoicePayment, ...current]);
+      setRecordPaymentOpen(false);
+      emitAppToast({ tone: 'success', message: `Payment of ${formatCurrency(payload.payment.amount)} recorded.` });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Payment could not be recorded.'); }
+    finally { setSaving(false); }
   };
   const remove = async (invoice: Invoice) => {
     if (!window.confirm(`Delete draft ${invoice.number}?`)) return;
@@ -528,23 +575,6 @@ export default function InvoicesPage() {
                         <button aria-label={`Actions for ${invoice.number}`} className="h-9 w-9 rounded-lg hover:bg-brand-100" onClick={() => setMenu(menu === invoice.id ? null : invoice.id)}>
                           <Ellipsis className="mx-auto" />
                         </button>
-                        {menu === invoice.id ? (
-                          <div className="absolute right-4 top-10 z-20 w-40 rounded-lg border bg-white p-1 text-left shadow-xl">
-                            <button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => view(invoice)}>
-                              Open invoice
-                            </button>
-                            {invoice.status === 'draft' && !linked ? (
-                              <button className="w-full px-3 py-2 text-sm hover:bg-brand-50" onClick={() => void status(invoice, 'sent')}>
-                                Mark sent
-                              </button>
-                            ) : null}
-                            {invoice.status === 'draft' && !linked ? (
-                              <button className="w-full px-3 py-2 text-sm text-red-700 hover:bg-red-50" onClick={() => void remove(invoice)}>
-                                Delete draft
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : null}
                       </td>
                     </tr>
                   );
@@ -554,7 +584,7 @@ export default function InvoicesPage() {
           </div>
         )}
       </Card>
-      {menuInvoice ? <InvoiceActionsMenu invoice={menuInvoice} linked={menuInvoice.quickBooksLinked || Boolean(qbo[menuInvoice.id])} onClose={() => setMenu(null)} onOpen={() => view(menuInvoice)} onMarkSent={() => void status(menuInvoice, 'sent')} onDelete={() => void remove(menuInvoice)} /> : null}
+      {menuInvoice ? <InvoiceActionsMenu invoice={menuInvoice} linked={menuInvoice.quickBooksLinked || Boolean(qbo[menuInvoice.id])} onClose={() => setMenu(null)} onOpen={() => view(menuInvoice)} onSend={() => void sendInvoice(menuInvoice)} onDelete={() => void remove(menuInvoice)} /> : null}
       {open ? (
         <div className="fixed inset-0 z-50">
           <button aria-label="Close invoice drawer" className="absolute inset-0 bg-black/40" onClick={() => !saving && setOpen(false)} />
@@ -579,6 +609,7 @@ export default function InvoicesPage() {
                       <strong>Read-only invoice.</strong> {selected.quickBooksLinked || qbo[selected.id] ? 'This invoice is linked to QuickBooks.' : selected.schemaVersion !== 2 ? 'Legacy calculations are preserved.' : 'Financial details lock when issued.'}
                     </div>
                   ) : null}
+                  {selected?.deliveryStatus === 'failed' ? <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"><strong>Email delivery failed.</strong> {selected.deliveryFailureReason || 'The provider did not accept this message.'}</div> : null}
                   <section>
                     <h3 className="mb-3 text-sm font-semibold">1. Job and contract</h3>
                     <Select label="Job" required disabled={Boolean(selected) || !editable} value={form.jobId} onChange={(event) => chooseJob(event.target.value)}>
@@ -857,8 +888,11 @@ export default function InvoicesPage() {
                       <Money label="This invoice subtotal" value={selected ? getInvoiceContractAmount(selected) : summary.subtotal} border />
                       <Money label="HST" value={selected?.taxAmount ?? summary.taxAmount} />
                       <Money label="This invoice total" value={selected?.amount ?? summary.amount} strong />
+                      {selected && selected.status !== 'draft' ? <><Money label="Amount paid" value={selected.amountPaid ?? 0} /><Money label="Balance due" value={getInvoiceBalance(selected)} strong /></> : null}
                       <Money label="Remaining after" value={Math.max(0, position.remainingAmount - summary.subtotal)} border />
                     </dl>
+                    {selected?.sentAt ? <div className="mt-5 border-t border-brand-100 pt-4 text-sm"><h3 className="font-semibold">Customer activity</h3><dl className="mt-2 space-y-1 text-brand-500"><div className="flex justify-between"><dt>Sent</dt><dd>{new Date(selected.sentAt).toLocaleDateString()}</dd></div><div className="flex justify-between"><dt>Viewed</dt><dd>{selected.viewCount ?? 0} time{selected.viewCount === 1 ? '' : 's'}</dd></div>{selected.lastViewedAt ? <div className="flex justify-between gap-3"><dt>Last viewed</dt><dd className="text-right">{new Date(selected.lastViewedAt).toLocaleString()}</dd></div> : null}</dl></div> : null}
+                    {selected && selected.status !== 'draft' ? <div className="mt-5 border-t border-brand-100 pt-4"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Payments</h3>{!['paid', 'void'].includes(displayStatus(selected)) ? <Button size="sm" variant="secondary" onClick={() => openRecordPayment(selected)}><Wallet /> Record Payment</Button> : null}</div>{payments.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-brand-400"><th className="py-1">Date</th><th>Method</th><th>Reference</th><th className="text-right">Amount</th></tr></thead><tbody className="divide-y divide-brand-100">{payments.map((payment) => <tr key={payment.id}><td className="py-2">{payment.paymentDate}</td><td>{payment.paymentMethod}</td><td>{payment.reference || '-'}</td><td className="text-right font-semibold">{formatCurrency(payment.amount)}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-xs text-brand-400">No payments recorded.</p>}</div> : null}
                     {exceeds ? (
                       <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
                         Exceeds remaining contract by {formatCurrency(summary.subtotal - position.remainingAmount)}.
@@ -895,15 +929,16 @@ export default function InvoicesPage() {
                       ) : null}
                       {selected?.status === 'draft' && !selected.quickBooksLinked && !qbo[selected.id] ? (
                         <>
-                          <Button className="w-full" variant="secondary" disabled={saving || draftDirty} title={draftDirty ? 'Save draft changes before marking sent.' : undefined} onClick={() => void status(selected, 'sent')}>
-                            <Send /> Mark sent
+                          <Button className="w-full" variant="secondary" disabled={saving || draftDirty} title={draftDirty ? 'Save draft changes before sending.' : undefined} onClick={() => void sendInvoice(selected)}>
+                            <Send /> Send Invoice
                           </Button>
-                          {draftDirty ? <p className="text-xs text-brand-400">Save draft changes before marking sent.</p> : null}
+                          {draftDirty ? <p className="text-xs text-brand-400">Save draft changes before sending.</p> : null}
                           <Button className="w-full" variant="ghost" onClick={() => void remove(selected)}>
                             <Trash2 /> Delete draft
                           </Button>
                         </>
                       ) : null}
+                      {selected?.status === 'sent' && selected.deliveryStatus === 'failed' ? <Button className="w-full" variant="secondary" disabled={saving} onClick={() => void sendInvoice(selected)}><Send /> Retry Email</Button> : null}
                       {selected && !selected.quickBooksLinked && !qbo[selected.id] && ['sent', 'partially_paid', 'overdue'].includes(selected.status) ? (
                         <>
                           <Input label="Void reason" value={voidReason} onChange={(event) => setVoidReason(event.target.value)} />
@@ -925,6 +960,7 @@ export default function InvoicesPage() {
           </aside>
         </div>
       ) : null}
+      {recordPaymentOpen && selected ? <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"><div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-2xl dark:bg-brand-700"><div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold">Record Payment</h2><p className="text-sm text-brand-500">Record money received outside OliveOps. Balance due: {formatCurrency(getInvoiceBalance(selected))}</p></div><button aria-label="Close" className="h-9 w-9 rounded-lg hover:bg-brand-100" onClick={() => setRecordPaymentOpen(false)}><X className="mx-auto" /></button></div><div className="mt-5 grid gap-4 sm:grid-cols-2"><Input label="Amount" type="number" min={0.01} max={getInvoiceBalance(selected)} step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: Number(event.target.value) }))} /><Input label="Payment Date" type="date" value={paymentForm.paymentDate} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentDate: event.target.value }))} /><Select label="Payment Method" value={paymentForm.paymentMethod} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentMethod: event.target.value }))}>{paymentMethods.map((method) => <option key={method.type} value={method.displayName}>{method.displayName}</option>)}<option value="Other">Other</option></Select><Input label="Reference / Confirmation #" value={paymentForm.reference} onChange={(event) => setPaymentForm((current) => ({ ...current, reference: event.target.value }))} /><div className="sm:col-span-2"><TextArea label="Notes" rows={3} value={paymentForm.notes} onChange={(event) => setPaymentForm((current) => ({ ...current, notes: event.target.value }))} /></div></div>{error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}<div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setRecordPaymentOpen(false)}>Cancel</Button><Button disabled={saving || paymentForm.amount <= 0 || paymentForm.amount > getInvoiceBalance(selected)} onClick={() => void recordPayment()}><Wallet /> {saving ? 'Recording...' : 'Record Payment'}</Button></div></div></div> : null}
     </div>
   );
 }
@@ -946,7 +982,7 @@ function Money({ label, value, border, strong }: { label: string; value: number;
   );
 }
 
-function InvoiceActionsMenu({ invoice, linked, onClose, onOpen, onMarkSent, onDelete }: { invoice: Invoice; linked: boolean; onClose: () => void; onOpen: () => void; onMarkSent: () => void; onDelete: () => void }) {
+function InvoiceActionsMenu({ invoice, linked, onClose, onOpen, onSend, onDelete }: { invoice: Invoice; linked: boolean; onClose: () => void; onOpen: () => void; onSend: () => void; onDelete: () => void }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({
@@ -1026,10 +1062,11 @@ function InvoiceActionsMenu({ invoice, linked, onClose, onOpen, onMarkSent, onDe
         Open invoice
       </button>
       {invoice.status === 'draft' && !linked ? (
-        <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-brand-600" onClick={() => select(onMarkSent)}>
-          Mark sent
+        <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-brand-600" onClick={() => select(onSend)}>
+          Send invoice
         </button>
       ) : null}
+      {invoice.status === 'sent' && invoice.deliveryStatus === 'failed' ? <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm hover:bg-brand-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 dark:hover:bg-brand-600" onClick={() => select(onSend)}>Retry email</button> : null}
       {invoice.status === 'draft' && !linked ? (
         <button type="button" role="menuitem" className="w-full px-3 py-2 text-sm text-red-700 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40" onClick={() => select(onDelete)}>
           Delete draft

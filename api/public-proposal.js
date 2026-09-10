@@ -24,6 +24,8 @@ function publicVersion(version) {
     sentAt: version.sentAt,
     expiresAt: version.expiresAt,
     firstViewedAt: version.firstViewedAt,
+    lastViewedAt: version.lastViewedAt,
+    viewCount: version.viewCount,
     acceptedAt: version.acceptedAt,
     acceptedBy: version.acceptedBy,
   };
@@ -54,8 +56,9 @@ export function createPublicProposalHandler(overrides = {}) {
 
     if (req.method === 'GET') {
       if (expired && version.status !== 'accepted') return res.status(410).json({ ok: false, error: 'This Proposal link has expired.' });
-      if (version.status === 'sent') await deps.markProposalVersionViewed({ businessId: tokenRecord.businessId, estimateId: version.estimateId, versionNumber: version.versionNumber, viewedAt: now.toISOString() });
-      return res.status(200).json({ ok: true, proposal: publicVersion({ ...version, status: version.status === 'sent' ? 'viewed' : version.status, firstViewedAt: version.firstViewedAt ?? now.toISOString() }) });
+      const trackView = ['sent', 'viewed'].includes(version.status);
+      if (trackView) await deps.markProposalVersionViewed({ businessId: tokenRecord.businessId, estimateId: version.estimateId, versionNumber: version.versionNumber, viewedAt: now.toISOString() });
+      return res.status(200).json({ ok: true, proposal: publicVersion({ ...version, status: version.status === 'sent' ? 'viewed' : version.status, firstViewedAt: version.firstViewedAt ?? (trackView ? now.toISOString() : undefined), lastViewedAt: trackView ? now.toISOString() : version.lastViewedAt, viewCount: (Number(version.viewCount) || 0) + (trackView ? 1 : 0) }) });
     }
 
     if (req.method !== 'POST' || req.query?.action !== 'accept') return res.status(405).json({ ok: false, error: 'Method not allowed' });

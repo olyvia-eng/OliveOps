@@ -26,6 +26,8 @@ const mapVersion = (item) => item ? ({
   sentToEmail: item.sentToEmail,
   expiresAt: item.expiresAt,
   firstViewedAt: item.firstViewedAt,
+  lastViewedAt: item.lastViewedAt,
+  viewCount: Number(item.viewCount) || 0,
   acceptedAt: item.acceptedAt,
   acceptedBy: item.acceptedBy,
   acceptanceId: item.acceptanceId,
@@ -108,10 +110,10 @@ export async function markProposalVersionViewed({ businessId, estimateId, versio
     await ddb.send(new UpdateCommand({
       TableName: tableName,
       Key: { PK: businessPk(businessId), SK: versionSk(estimateId, versionNumber) },
-      UpdateExpression: 'SET firstViewedAt = if_not_exists(firstViewedAt, :viewedAt), #status = :viewed',
-      ConditionExpression: '#status = :sent',
+      UpdateExpression: 'SET firstViewedAt = if_not_exists(firstViewedAt, :viewedAt), lastViewedAt = :viewedAt, #status = :viewed ADD viewCount :one',
+      ConditionExpression: '#status = :sent OR #status = :viewed',
       ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: { ':viewedAt': viewedAt, ':viewed': 'viewed', ':sent': 'sent' },
+      ExpressionAttributeValues: { ':viewedAt': viewedAt, ':viewed': 'viewed', ':sent': 'sent', ':one': 1 },
     }));
   } catch (error) {
     if (error?.name !== 'ConditionalCheckFailedException') throw error;

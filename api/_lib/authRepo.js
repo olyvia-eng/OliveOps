@@ -20,6 +20,7 @@ import {
 } from './timeEntryPagination.js';
 import { removeJobSopAssociationsForJob } from './jobSopRepo.js';
 import { DEFAULT_BUSINESS_FEATURES, normalizeBusinessFeatures } from '../../shared/businessFeatures.js';
+import { customerDocumentSettings } from '../../shared/customerDocuments.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -627,6 +628,7 @@ export async function getBusinessProfile(businessId) {
     businessAddress: typeof result.Item.businessAddress === 'string' ? result.Item.businessAddress : '',
     taxLabel: typeof result.Item.taxLabel === 'string' ? result.Item.taxLabel : '',
     proposalTerms: typeof result.Item.proposalTerms === 'string' ? result.Item.proposalTerms : '',
+    ...customerDocumentSettings(result.Item),
     logoFileId: typeof result.Item.logoFileId === 'string' ? result.Item.logoFileId : '',
     logoDataUrl: typeof result.Item.logoDataUrl === 'string' ? result.Item.logoDataUrl : '',
     timezone: normalizeBusinessTimeZone(result.Item.timezone),
@@ -644,7 +646,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, features = :features, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, features = :features, defaultPaymentTermsDays = :defaultPaymentTermsDays, defaultInvoiceNotes = :defaultInvoiceNotes, paymentInstructions = :paymentInstructions, paymentMethods = :paymentMethods, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? current.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
@@ -657,6 +659,10 @@ export async function updateBusinessProfile({ businessId, profile }) {
       ':proposalTerms': profile.proposalTerms ?? current.proposalTerms,
       ':logoFileId': profile.logoFileId ?? current.logoFileId,
       ':features': normalizeBusinessFeatures(profile.features ?? current.features),
+      ':defaultPaymentTermsDays': profile.defaultPaymentTermsDays ?? current.defaultPaymentTermsDays,
+      ':defaultInvoiceNotes': profile.defaultInvoiceNotes ?? current.defaultInvoiceNotes,
+      ':paymentInstructions': profile.paymentInstructions ?? current.paymentInstructions,
+      ':paymentMethods': profile.paymentMethods ?? current.paymentMethods,
       ':updatedAt': updatedAt,
     },
     ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK)',

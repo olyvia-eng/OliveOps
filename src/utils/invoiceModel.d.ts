@@ -33,4 +33,5 @@ export function calculateJobInvoicePosition(job: import('../types').Job | undefi
   remainingAmount: number;
 };
 export function getInvoiceBalance(invoice: Partial<import('../types').Invoice>): number;
+export function getInvoiceFinancialStatus(invoice: Partial<import('../types').Invoice>, now?: Date): import('../types').InvoiceStatus;
 export function isValidInvoiceStatusTransition(fromStatus: import('../types').InvoiceStatus, toStatus: import('../types').InvoiceStatus, context?: 'generic' | 'payment'): boolean;

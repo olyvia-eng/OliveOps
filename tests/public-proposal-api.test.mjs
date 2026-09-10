@@ -64,6 +64,18 @@ test('valid secure token returns only the immutable customer-safe snapshot and r
   assert.deepEqual(res.body.proposal.snapshot.workAreas[0].scopeLines, ['Install armour stone.']);
 });
 
+test('each external proposal view updates last-view engagement and returns the incremented count', async () => {
+  let viewed;
+  const viewedVersion = { ...version, status: 'viewed', firstViewedAt: '2026-09-08T10:00:00.000Z', lastViewedAt: '2026-09-08T10:00:00.000Z', viewCount: 2 };
+  const instance = harness({ getPublicProposalVersionByTokenHash: async () => ({ token: structuredClone(tokenRecord), version: structuredClone(viewedVersion) }), markProposalVersionViewed: async (value) => { viewed = value; } });
+  const res = await call(instance, { method: 'GET', query: { token: accessToken } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.proposal.viewCount, 3);
+  assert.equal(res.body.proposal.firstViewedAt, '2026-09-08T10:00:00.000Z');
+  assert.equal(res.body.proposal.lastViewedAt, '2026-09-08T14:30:00.000Z');
+  assert.equal(viewed.viewedAt, '2026-09-08T14:30:00.000Z');
+});
+
 test('invalid, unknown, and expired tokens fail closed', async () => {
   assert.equal((await call(harness(), { method: 'GET', query: { token: 'predictable-id' } })).statusCode, 404);
   assert.equal((await call(harness({ getPublicProposalVersionByTokenHash: async () => null }), { method: 'GET', query: { token: accessToken } })).statusCode, 404);

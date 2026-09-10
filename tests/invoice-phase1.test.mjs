@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { ddb } from '../api/_lib/db.js';
 import { reserveNextInvoiceNumberForBusiness } from '../api/_lib/authRepo.js';
 import { calculateFixedMenuPosition } from '../src/utils/fixedMenuPosition.js';
-import { getInvoiceBalance, isValidInvoiceStatusTransition } from '../src/utils/invoiceModel.js';
+import { getInvoiceBalance, getInvoiceFinancialStatus, isValidInvoiceStatusTransition } from '../src/utils/invoiceModel.js';
 
 test('invoice numbers use one tenant-and-year scoped atomic ADD counter', async (context) => {
   const originalSend = ddb.send.bind(ddb);
@@ -99,8 +99,8 @@ test('invoice row Actions use a viewport-aware portal without changing table scr
   assert.match(page, /document\.addEventListener\('pointerdown', closeOnOutsidePointer\)/);
   assert.match(page, /document\.addEventListener\('keydown', closeOnEscape\)/);
   assert.match(page, /role="menu" aria-label=\{`Actions for \$\{invoice\.number\}`\}/);
-  assert.equal((page.match(/type="button" role="menuitem"/g) ?? []).length, 3);
-  for (const action of ['Open invoice', 'Mark sent', 'Delete draft']) assert.match(page, new RegExp(`>\\s*${action}\\s*<`));
+  assert.equal((page.match(/type="button" role="menuitem"/g) ?? []).length, 4);
+  for (const action of ['Open invoice', 'Send invoice', 'Retry email', 'Delete draft']) assert.match(page, new RegExp(`>\\s*${action}\\s*<`));
   assert.match(page, /trigger\.setAttribute\('aria-haspopup', 'menu'\)/);
   assert.match(page, /focus\(\{ preventScroll: true \}\)/);
 });
@@ -233,7 +233,8 @@ test('saved Draft and issued headers are explicit and dirty Drafts cannot be sen
   assert.match(page, /selected \? <Badge label=\{displayStatus\(selected\)\}/);
   assert.match(page, /const draftDirty = Boolean\(\s*selected\?\.status === 'draft'/);
   assert.match(page, /disabled=\{saving \|\| draftDirty\}/);
-  assert.match(page, /Save draft changes before marking this invoice sent\./);
+  assert.match(page, /Save draft changes before sending this invoice\./);
+  assert.match(page, /deliveryStatus === 'failed'[\s\S]*Retry Email/);
   assert.match(page, /selected && !draftDirty/);
 });
 
@@ -271,7 +272,9 @@ test('QuickBooks-only mapping failures do not alter local invoice creation or se
   const syncEndpoint = readFileSync('api/integrations/quickbooks/invoices.js', 'utf8');
   assert.match(projection, /Map Contract Services to a QuickBooks Product\/Service before syncing this invoice\./);
   assert.match(invoicePage, /selected\s*\? await updateInvoice\(selected\.id, data\)\s*: await addInvoice\(data\)/);
-  assert.match(invoicePage, /await updateInvoice\(invoice\.id, nextStatus === 'void'.*\{ status: nextStatus \}/);
+  assert.match(invoicePage, /fetch\('\/api\/invoice-delivery'/);
+  assert.match(invoicePage, /await updateInvoice\(invoice\.id, \{ status: nextStatus, voidReason:/);
+  assert.doesNotMatch(invoicePage, /status\(invoice, 'sent'\)/);
   assert.match(syncEndpoint, /const payload = buildQuickBooksInvoicePayload[\s\S]*createQuickBooksInvoice/);
 });
 
@@ -319,4 +322,12 @@ test('Job invoices tab derives Payment Schedule state from linked invoices', () 
   assert.match(page, /View Draft/);
   assert.match(page, /View Invoice/);
   assert.match(page, /Create Invoice/);
+});
+
+test('invoice balances and financial status derive from canonical payments and due date', () => {
+  const invoice = { status: 'sent', amount: 3136.86, amountPaid: 1500, dueDate: '2026-10-10' };
+  assert.equal(getInvoiceBalance(invoice), 1636.86);
+  assert.equal(getInvoiceFinancialStatus(invoice, new Date('2026-09-10T12:00:00.000Z')), 'partially_paid');
+  assert.equal(getInvoiceFinancialStatus({ ...invoice, amountPaid: 3136.86 }, new Date('2026-09-10T12:00:00.000Z')), 'paid');
+  assert.equal(getInvoiceFinancialStatus({ ...invoice, amountPaid: 0 }, new Date('2026-10-11T12:00:00.000Z')), 'overdue');
 });

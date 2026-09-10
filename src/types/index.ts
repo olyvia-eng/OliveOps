@@ -473,6 +473,16 @@ export interface Invoice {
   pricingMode?: 'tax_exclusive';
   paymentTermsDays?: number;
   sentAt?: string;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  viewCount?: number;
+  amountPaid?: number;
+  balanceDue?: number;
+  deliveryStatus?: 'pending' | 'sent' | 'failed';
+  deliveryRecipient?: string;
+  deliveryFailureReason?: string;
+  customerDocumentSnapshot?: InvoiceCustomerDocumentSnapshot;
+  quickBooksSync?: QuickBooksSyncMetadata;
   voidedAt?: string;
   voidReason?: string;
   overContract?: boolean;
@@ -481,6 +491,61 @@ export interface Invoice {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomerPaymentMethod {
+  type: 'etransfer' | 'cheque' | 'cash' | 'bank_transfer' | 'debit' | 'visa' | 'mastercard' | 'other';
+  enabled: boolean;
+  displayName: string;
+  instructions: string;
+}
+
+export interface InvoiceCustomerDocumentSnapshot {
+  schemaVersion: 1;
+  company: { name: string; phone: string; email: string; website: string; address: string; logoDataUrl: string };
+  invoice: {
+    number: string;
+    invoiceType?: InvoiceType;
+    issueDate: string;
+    dueDate: string;
+    customerName: string;
+    billingAddress: string;
+    jobTitle: string;
+    jobAddress: string;
+    description: string;
+    lineItems: Array<Pick<InvoiceLineItem, 'category' | 'description' | 'quantity' | 'unit' | 'taxable' | 'subtotal' | 'taxAmount' | 'total'>>;
+    subtotal: number;
+    taxRate: number;
+    taxAmount: number;
+    total: number;
+    amountPaid: number;
+    balanceDue: number;
+    notes: string;
+    status: InvoiceStatus;
+  };
+  paymentMethods: Array<Pick<CustomerPaymentMethod, 'type' | 'displayName' | 'instructions'>>;
+  paymentInstructions: string;
+}
+
+export interface InvoicePayment {
+  id: ID;
+  invoiceId: ID;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: string;
+  reference?: string;
+  notes?: string;
+  status: 'active' | 'reversed';
+  createdAt: string;
+  createdByUserId: ID;
+  quickBooksSync?: QuickBooksSyncMetadata;
+}
+
+export interface QuickBooksSyncMetadata {
+  id?: string;
+  status: 'not_synced' | 'synced' | 'failed';
+  lastSyncedAt?: string;
+  error?: string;
 }
 
 export interface QuickBooksResourceReference {

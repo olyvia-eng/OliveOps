@@ -168,8 +168,21 @@ export function calculateJobInvoicePosition(job, invoices) {
 }
 
 export function getInvoiceBalance(invoice) {
-  if (invoice?.status === 'paid' || invoice?.status === 'void') return 0;
-  return roundCurrency(invoice?.amount ?? 0);
+  if (invoice?.status === 'void') return 0;
+  const amountPaid = Number.isFinite(invoice?.amountPaid)
+    ? invoice.amountPaid
+    : invoice?.status === 'paid' ? invoice?.amount ?? 0 : 0;
+  return roundCurrency(Math.max(0, Number(invoice?.amount ?? 0) - amountPaid));
+}
+
+export function getInvoiceFinancialStatus(invoice, now = new Date()) {
+  if (invoice?.status === 'draft' || invoice?.status === 'void') return invoice.status;
+  const balance = getInvoiceBalance(invoice);
+  if (balance <= 0) return 'paid';
+  if (Number(invoice?.amountPaid) > 0) return 'partially_paid';
+  const today = now.toISOString().slice(0, 10);
+  if (typeof invoice?.dueDate === 'string' && invoice.dueDate < today) return 'overdue';
+  return 'sent';
 }
 
 const PHASE_ONE_STATUS_TRANSITIONS = Object.freeze({
