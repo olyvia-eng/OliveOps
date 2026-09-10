@@ -85,7 +85,7 @@ export function createProposalDeliveryHandler(overrides = {}) {
       if (!payment.valid) return res.status(400).json({ ok: false, error: payment.errors[0] });
       if (Date.parse(`${estimate.validUntil.slice(0, 10)}T23:59:59.999Z`) < Date.now()) return res.status(400).json({ ok: false, error: 'Update the Proposal valid-until date before sending.' });
     }
-    const recipientEmail = String(req.body?.email || retryVersion?.deliveryRecipient || retryVersion?.sentToEmail || deliverySnapshot.customer.email || '').trim().toLowerCase();
+    const recipientEmail = String(retryVersion?.deliveryRecipient || retryVersion?.sentToEmail || deliverySnapshot.customer.email || '').trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(recipientEmail)) return res.status(400).json({ ok: false, error: 'A valid customer email is required.' });
 
     const attemptedAt = deps.now().toISOString();
@@ -116,6 +116,7 @@ export function createProposalDeliveryHandler(overrides = {}) {
       companyName: deliverySnapshot.company.name,
       companyPhone: deliverySnapshot.company.phone,
       companyEmail: deliverySnapshot.company.email,
+      companyLogoDataUrl: deliverySnapshot.company.logoDataUrl,
       proposalTitle: deliverySnapshot.proposal.title,
       proposalNumber: deliverySnapshot.proposal.number,
       proposalTotal: deliverySnapshot.proposal.total,

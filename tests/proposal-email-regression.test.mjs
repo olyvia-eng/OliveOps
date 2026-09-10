@@ -50,20 +50,43 @@ test('Proposal mail configuration requires Resend and preserves the intentional 
 test('configured Resend acceptance returns its provider id and sends branded immutable-link content', async () => {
   let message;
   let options;
+  const logoBytes = Buffer.from('canonical-company-logo');
   const mailer = createProposalMailer({
-    env: { RESEND_API_KEY: 'secret', PROPOSAL_FROM_EMAIL: 'Greendale Landscaping <proposals@example.ca>' },
+    env: { RESEND_API_KEY: 'secret', PROPOSAL_FROM_EMAIL: 'OliveOps <no-reply@oliveops.ca>' },
     resendClient: { emails: { send: async (value, sendOptions) => { message = value; options = sendOptions; return { data: { id: 'resend-123' }, error: null }; } } },
   });
   const result = await mailer.sendProposal({
-    to: 'karen@example.ca', customerName: 'Karen', companyName: 'Greendale Landscaping', companyPhone: '705-111-2345', companyEmail: 'admin@greendalelandscaping.ca', proposalTitle: 'Patio and Retaining Wall', proposalNumber: 'PROP-2026-0001', proposalTotal: 28721.97, validUntil: '2026-10-09', viewUrl: 'https://app.example.ca/proposal/immutable-token', idempotencyKey: 'proposal-version-1',
+    to: 'karen@example.ca', customerName: 'Karen Sullivan', companyName: 'Greendale Landscaping', companyPhone: '705-111-2345', companyEmail: 'admin@greendalelandscaping.ca', companyLogoDataUrl: `data:image/png;base64,${logoBytes.toString('base64')}`, proposalTitle: 'Patio and Retaining Wall', proposalNumber: 'PROP-2026-0001', proposalTotal: 28721.97, validUntil: '2026-10-09', viewUrl: 'https://app.example.ca/proposal/immutable-token', idempotencyKey: 'proposal-version-1',
   });
   assert.deepEqual(result, { ok: true, providerMessageId: 'resend-123' });
-  assert.equal(message.from, 'Greendale Landscaping <proposals@example.ca>');
+  assert.equal(message.from, 'Greendale Landscaping via OliveOps <no-reply@oliveops.ca>');
+  assert.equal(message.replyTo, 'admin@greendalelandscaping.ca');
+  assert.equal(message.subject, 'Proposal from Greendale Landscaping – Patio and Retaining Wall');
+  assert.doesNotMatch(message.subject, /PROP-2026-0001/);
   assert.deepEqual(options, { idempotencyKey: 'proposal-version-1' });
-  for (const content of ['Your proposal is ready', 'Hi Karen,', 'Patio and Retaining Wall', 'PROP-2026-0001', '$28,721.97', 'October 9, 2026', 'View Proposal', '705-111-2345', 'admin@greendalelandscaping.ca', 'https://app.example.ca/proposal/immutable-token']) {
+  assert.equal(message.attachments.length, 1);
+  assert.equal(message.attachments[0].contentId, 'company-logo');
+  assert.equal(message.attachments[0].contentType, 'image/png');
+  assert.deepEqual(message.attachments[0].content, logoBytes);
+  for (const content of ['Greendale Landscaping', 'Your proposal is ready', 'Hi Karen,', 'Patio and Retaining Wall', 'PROP-2026-0001', '$28,721.97', 'October 9, 2026', 'View Proposal', '705-111-2345', 'admin@greendalelandscaping.ca', 'https://app.example.ca/proposal/immutable-token', 'cid:company-logo', 'Proposal powered by OliveOps']) {
     assert.match(message.html, new RegExp(content.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
-  assert.doesNotMatch(message.html, /attachment|\.pdf/i);
+  assert.doesNotMatch(JSON.stringify(message.attachments), /\.pdf|application\/pdf/i);
+});
+
+test('proposal email gracefully omits an unavailable logo and invalid Reply-To', async () => {
+  let message;
+  const mailer = createProposalMailer({
+    env: { RESEND_API_KEY: 'secret', PROPOSAL_FROM_EMAIL: 'no-reply@oliveops.ca' },
+    resendClient: { emails: { send: async (value) => { message = value; return { data: { id: 'resend-124' } }; } } },
+  });
+  await mailer.sendProposal({ to: 'client@example.ca', customerName: 'Alex Morgan', companyName: 'North Shore Contracting', companyEmail: 'not-an-email', proposalTitle: 'Garden Renovation', proposalNumber: 'PROP-2', proposalTotal: 1000, validUntil: '2026-10-10', viewUrl: 'https://app.example.ca/proposal/version-token' });
+  assert.equal(message.from, 'North Shore Contracting via OliveOps <no-reply@oliveops.ca>');
+  assert.equal('replyTo' in message, false);
+  assert.equal('attachments' in message, false);
+  assert.doesNotMatch(message.html, /cid:company-logo|<img/i);
+  assert.match(message.html, /North Shore Contracting/);
+  assert.match(message.html, /Hi Alex,/);
 });
 
 test('Proposal access tokens are stable per immutable version and contain no secret material', () => {

@@ -239,3 +239,21 @@ test('successful response requires an email provider acceptance id', async () =>
   assert.equal(harness.completion.delivery.status, 'failed');
   assert.equal(harness.completion.delivery.failureCategory, 'provider_invalid_response');
 });
+
+test('send ignores untrusted branding and customer fields in favor of the tenant snapshot', async () => {
+  const logoBytes = Buffer.from('tenant-logo');
+  const harness = createHarness({
+    getBusinessProfile: async () => ({ id: 'business-1', name: 'Canonical Contracting', email: 'office@canonical.ca', logoFileId: 'logo-1' }),
+    getCustomerForBusiness: async () => ({ id: 'customer-1', name: 'Canonical Customer', email: 'customer@canonical.ca' }),
+    getFileForBusiness: async () => ({ id: 'logo-1', entityType: 'business-profile', uploadStatus: 'uploaded', mimeType: 'image/png', objectKey: 'business-1/logo.png' }),
+    readStoredFile: async () => logoBytes,
+  });
+  const response = await request(harness, { body: { estimateId: estimate.id, email: 'attacker@example.com', companyName: 'Attacker Inc', companyEmail: 'reply@attacker.example', companyLogoDataUrl: 'data:image/png;base64,YXR0YWNr', customerName: 'Fake Customer', proposalTitle: 'Fake Proposal' } });
+  assert.equal(response.statusCode, 201);
+  assert.equal(harness.email.to, 'customer@canonical.ca');
+  assert.equal(harness.email.customerName, 'Canonical Customer');
+  assert.equal(harness.email.companyName, 'Canonical Contracting');
+  assert.equal(harness.email.companyEmail, 'office@canonical.ca');
+  assert.equal(harness.email.companyLogoDataUrl, `data:image/png;base64,${logoBytes.toString('base64')}`);
+  assert.equal(harness.email.proposalTitle, 'Shoreline Restoration');
+});
