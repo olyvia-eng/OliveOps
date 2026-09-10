@@ -39,8 +39,14 @@ export function getTimeEntryJobLabel(entry, jobs) {
 }
 
 export function getTimeEntryWorkLabel(entry, jobs) {
-  if (entry?.workType === 'drive_time') return 'Drive Time';
-  if (entry?.workType === 'non_billable') return 'Non-Billable Work';
+  if (entry?.workType === 'drive_time') {
+    const jobIds = normalizeJobIds(entry);
+    return jobIds.length > 0 ? `${getTimeEntryJobLabel(entry, jobs)} · Drive Time` : 'Drive Time';
+  }
+  if (entry?.workType === 'non_billable') {
+    const jobIds = normalizeJobIds(entry);
+    return jobIds.length > 0 ? `${getTimeEntryJobLabel(entry, jobs)} · Non-Billable Work` : 'Non-Billable Work';
+  }
 
   const jobLabel = getTimeEntryJobLabel(entry, jobs);
   const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
@@ -57,7 +63,7 @@ export function getTimeEntryActivityLabel(entry) {
 }
 
 export function getTimeEntryPresentation(entry, jobs) {
-  const jobLabel = entry?.workType === 'job' ? getTimeEntryJobLabel(entry, jobs) : null;
+  const jobLabel = normalizeJobIds(entry).length > 0 ? getTimeEntryJobLabel(entry, jobs) : null;
   const workAreaLabel = getTimeEntryWorkAreaLabel(entry);
   return {
     activityLabel: getTimeEntryActivityLabel(entry),

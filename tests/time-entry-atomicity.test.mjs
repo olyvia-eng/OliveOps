@@ -276,6 +276,22 @@ test('clock-out includes multi-photo attachment file ID updates', () => {
   assert.deepEqual(update.Update.ExpressionAttributeValues[':clockOutPhotoFileIds'], ['file-1', 'file-2']);
 });
 
+test('clock-out associates each existing photo record with time entry and contextual Job without duplicate targets', () => {
+  const tx = buildClockOutTransaction({
+    businessId: 'biz-1', employeeId: 'emp-1', userId: 'user-1', timeEntryId: 'entry-drive',
+    clockOutAt: '2026-09-10T20:57:00.000Z', requestId: 'req-photo', idempotencyKey: 'key-photo',
+    payloadHash: 'hash-photo', source: 'mobile', auditEventId: 'audit-photo', jobId: 'job-flagstone',
+    jobIds: ['job-flagstone'], workType: 'drive_time', photoAttachmentFileIds: ['file-1', 'file-1'],
+  });
+  const fileUpdates = tx.TransactItems.filter((item) => item.Update?.Key?.SK?.startsWith('FILE#'));
+  assert.equal(fileUpdates.length, 1);
+  assert.equal(fileUpdates[0].Update.Key.SK, 'FILE#file-1');
+  assert.equal(fileUpdates[0].Update.ExpressionAttributeValues[':timeEntryId'], 'entry-drive');
+  assert.equal(fileUpdates[0].Update.ExpressionAttributeValues[':jobId'], 'job-flagstone');
+  assert.match(fileUpdates[0].Update.ConditionExpression, /#businessId = :businessId/);
+  assert.match(fileUpdates[0].Update.ConditionExpression, /#entityId = :timeEntryId/);
+});
+
 test('clock-out omits photo attachment updates when no photo URL is provided', () => {
   const tx = buildClockOutTransaction({
     businessId: 'biz-1',
@@ -325,6 +341,24 @@ test('switch-activity transaction atomically closes current entry, creates next 
   assert.equal(tx.TransactItems.filter((item) => item.Put?.Item?.entityType === 'TIME_ENTRY').length, 1);
   assert.equal(tx.TransactItems.filter((item) => item.Update?.Key?.SK === 'ACTIVE_SHIFT').length, 1);
   assert.equal(tx.TransactItems.filter((item) => item.Put?.Item?.entityType === 'AUDIT_EVENT').length, 1);
+});
+
+test('switch-activity photo remains on the closed segment and enriches one existing file record', () => {
+  const tx = buildSwitchActivityTransaction({
+    businessId: 'biz-1', employeeId: 'emp-1', userId: 'user-1',
+    previousTimeEntry: { id: 'entry-drive', workType: 'drive_time', jobId: 'job-a', jobIds: ['job-a'], clockIn: '2026-09-10T20:00:00.000Z' },
+    nextTimeEntry: { id: 'entry-job-b', workType: 'job', jobIds: ['job-b'] },
+    switchedAt: '2026-09-10T21:00:00.000Z', requestId: 'req-switch-photo', idempotencyKey: 'key-switch-photo',
+    payloadHash: 'hash-switch-photo', source: 'mobile', auditEventId: 'audit-switch-photo', notes: 'Traffic at gate',
+    photoAttachmentFileIds: ['file-drive', 'file-drive'],
+  });
+  const closedEntry = tx.TransactItems.find((item) => item.Update?.Key?.SK === 'TIME#entry-drive').Update;
+  const fileUpdates = tx.TransactItems.filter((item) => item.Update?.Key?.SK === 'FILE#file-drive');
+  assert.equal(closedEntry.ExpressionAttributeValues[':notes'], 'Traffic at gate');
+  assert.deepEqual(closedEntry.ExpressionAttributeValues[':photoAttachmentFileIds'], ['file-drive']);
+  assert.equal(fileUpdates.length, 1);
+  assert.equal(fileUpdates[0].Update.ExpressionAttributeValues[':timeEntryId'], 'entry-drive');
+  assert.equal(fileUpdates[0].Update.ExpressionAttributeValues[':jobId'], 'job-a');
 });
 
 test('switch-activity lock update condition requires current lock to match previous active entry', () => {

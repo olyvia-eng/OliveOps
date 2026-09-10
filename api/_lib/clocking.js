@@ -556,6 +556,35 @@ export function buildClockOutTransaction({
     expressionAttributeValues[':clockOutPhotoFileIds'] = normalizedAttachmentFileIds;
   }
 
+  const photoContextItems = normalizedAttachmentFileIds.map((fileId) => ({
+    Update: {
+      TableName: tableName,
+      Key: {
+        PK: businessPk(businessId),
+        SK: `FILE#${fileId}`,
+      },
+      UpdateExpression: jobId
+        ? 'SET #timeEntryId = :timeEntryId, #jobId = :jobId, #updatedAt = :updatedAt'
+        : 'SET #timeEntryId = :timeEntryId, #updatedAt = :updatedAt',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #businessId = :businessId AND #entityType = :entityType AND #entityId = :timeEntryId',
+      ExpressionAttributeNames: {
+        '#businessId': 'businessId',
+        '#entityType': 'entityType',
+        '#entityId': 'entityId',
+        '#timeEntryId': 'timeEntryId',
+        ...(jobId ? { '#jobId': 'jobId' } : {}),
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':businessId': businessId,
+        ':entityType': 'time-entry',
+        ':timeEntryId': timeEntryId,
+        ...(jobId ? { ':jobId': jobId } : {}),
+        ':updatedAt': receivedAt,
+      },
+    },
+  }));
+
   return {
     TransactItems: [
       {
@@ -604,6 +633,7 @@ export function buildClockOutTransaction({
           ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
         },
       },
+      ...photoContextItems,
       ...workflowFinalizationItems,
     ],
   };
@@ -624,10 +654,17 @@ export function buildSwitchActivityTransaction({
   source,
   auditEventId,
   employeeName = '',
+  notes = '',
+  photoAttachmentFileIds = [],
   additionalTransactionItems = [],
 }) {
   const eventOccurredAt = switchedAt ?? nowIso();
   const receivedAt = serverReceivedAt ?? nowIso();
+  const normalizedAttachmentFileIds = [...new Set(photoAttachmentFileIds
+    .filter((value) => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean))];
+  const primaryAttachmentFileId = normalizedAttachmentFileIds[0];
   const idempotencyItem = {
     PK: businessPk(businessId),
     SK: idempotencySk(idempotencyKey),
@@ -721,6 +758,77 @@ export function buildSwitchActivityTransaction({
     },
   };
 
+  const previousEntryUpdateParts = [
+    '#status = :status',
+    '#clockOut = :clockOut',
+    '#notes = :notes',
+    '#updatedAt = :updatedAt',
+    '#clockOutServerReceivedAt = :clockOutServerReceivedAt',
+    '#clockOutTimestampSource = :clockOutTimestampSource',
+    '#timeEntryIndexSk = :timeEntryIndexSk',
+  ];
+  const previousEntryAttributeNames = {
+    '#status': 'status',
+    '#clockOut': 'clockOut',
+    '#notes': 'notes',
+    '#updatedAt': 'updatedAt',
+    '#clockOutServerReceivedAt': 'clockOutServerReceivedAt',
+    '#clockOutTimestampSource': 'clockOutTimestampSource',
+    '#clockIn': 'clockIn',
+    '#timeEntryIndexSk': TIME_ENTRY_INDEX_SK,
+  };
+  const previousEntryAttributeValues = {
+    ':status': 'clocked_out',
+    ':clockOut': eventOccurredAt,
+    ':notes': notes,
+    ':updatedAt': receivedAt,
+    ':clockOutServerReceivedAt': receivedAt,
+    ':clockOutTimestampSource': timestampSource,
+    ':clockedIn': 'clocked_in',
+    ':expectedClockIn': previousTimeEntry.clockIn,
+    ':timeEntryIndexSk': timeEntryIndexAttributes(businessId, {
+      ...previousTimeEntry,
+      status: 'clocked_out',
+      clockIn: previousTimeEntry.clockIn ?? eventOccurredAt,
+      createdAt: previousTimeEntry.createdAt ?? previousTimeEntry.clockIn ?? eventOccurredAt,
+    })[TIME_ENTRY_INDEX_SK],
+  };
+  if (primaryAttachmentFileId) {
+    previousEntryUpdateParts.push('#photoAttachmentFileId = :photoAttachmentFileId', '#clockOutPhotoFileId = :clockOutPhotoFileId');
+    previousEntryAttributeNames['#photoAttachmentFileId'] = 'photoAttachmentFileId';
+    previousEntryAttributeNames['#clockOutPhotoFileId'] = 'clockOutPhotoFileId';
+    previousEntryAttributeValues[':photoAttachmentFileId'] = primaryAttachmentFileId;
+    previousEntryAttributeValues[':clockOutPhotoFileId'] = primaryAttachmentFileId;
+  }
+  if (normalizedAttachmentFileIds.length > 0) {
+    previousEntryUpdateParts.push('#photoAttachmentFileIds = :photoAttachmentFileIds', '#clockOutPhotoFileIds = :clockOutPhotoFileIds');
+    previousEntryAttributeNames['#photoAttachmentFileIds'] = 'photoAttachmentFileIds';
+    previousEntryAttributeNames['#clockOutPhotoFileIds'] = 'clockOutPhotoFileIds';
+    previousEntryAttributeValues[':photoAttachmentFileIds'] = normalizedAttachmentFileIds;
+    previousEntryAttributeValues[':clockOutPhotoFileIds'] = normalizedAttachmentFileIds;
+  }
+  const previousJobId = Array.isArray(previousTimeEntry.jobIds) && previousTimeEntry.jobIds.length > 0
+    ? previousTimeEntry.jobIds[0]
+    : previousTimeEntry.jobId;
+  const photoContextItems = normalizedAttachmentFileIds.map((fileId) => ({
+    Update: {
+      TableName: tableName,
+      Key: { PK: businessPk(businessId), SK: `FILE#${fileId}` },
+      UpdateExpression: previousJobId
+        ? 'SET #timeEntryId = :timeEntryId, #jobId = :jobId, #updatedAt = :updatedAt'
+        : 'SET #timeEntryId = :timeEntryId, #updatedAt = :updatedAt',
+      ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #businessId = :businessId AND #entityType = :entityType AND #entityId = :timeEntryId',
+      ExpressionAttributeNames: {
+        '#businessId': 'businessId', '#entityType': 'entityType', '#entityId': 'entityId',
+        '#timeEntryId': 'timeEntryId', ...(previousJobId ? { '#jobId': 'jobId' } : {}), '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':businessId': businessId, ':entityType': 'time-entry', ':timeEntryId': previousTimeEntry.id,
+        ...(previousJobId ? { ':jobId': previousJobId } : {}), ':updatedAt': receivedAt,
+      },
+    },
+  }));
+
   return {
     TransactItems: [
       {
@@ -737,32 +845,10 @@ export function buildSwitchActivityTransaction({
             PK: businessPk(businessId),
             SK: timeEntrySk(previousTimeEntry.id),
           },
-          UpdateExpression: 'SET #status = :status, #clockOut = :clockOut, #updatedAt = :updatedAt, #clockOutServerReceivedAt = :clockOutServerReceivedAt, #clockOutTimestampSource = :clockOutTimestampSource, #timeEntryIndexSk = :timeEntryIndexSk',
+          UpdateExpression: `SET ${previousEntryUpdateParts.join(', ')}`,
           ConditionExpression: 'attribute_exists(PK) AND attribute_exists(SK) AND #status = :clockedIn AND #clockIn = :expectedClockIn',
-          ExpressionAttributeNames: {
-            '#status': 'status',
-            '#clockOut': 'clockOut',
-            '#updatedAt': 'updatedAt',
-            '#clockOutServerReceivedAt': 'clockOutServerReceivedAt',
-            '#clockOutTimestampSource': 'clockOutTimestampSource',
-            '#clockIn': 'clockIn',
-            '#timeEntryIndexSk': TIME_ENTRY_INDEX_SK,
-          },
-          ExpressionAttributeValues: {
-            ':status': 'clocked_out',
-            ':clockOut': eventOccurredAt,
-            ':updatedAt': receivedAt,
-            ':clockOutServerReceivedAt': receivedAt,
-            ':clockOutTimestampSource': timestampSource,
-            ':clockedIn': 'clocked_in',
-            ':expectedClockIn': previousTimeEntry.clockIn,
-            ':timeEntryIndexSk': timeEntryIndexAttributes(businessId, {
-              ...previousTimeEntry,
-              status: 'clocked_out',
-              clockIn: previousTimeEntry.clockIn ?? eventOccurredAt,
-              createdAt: previousTimeEntry.createdAt ?? previousTimeEntry.clockIn ?? eventOccurredAt,
-            })[TIME_ENTRY_INDEX_SK],
-          },
+          ExpressionAttributeNames: previousEntryAttributeNames,
+          ExpressionAttributeValues: previousEntryAttributeValues,
         },
       },
       {
@@ -801,6 +887,7 @@ export function buildSwitchActivityTransaction({
           ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
         },
       },
+      ...photoContextItems,
       ...additionalTransactionItems,
     ],
   };

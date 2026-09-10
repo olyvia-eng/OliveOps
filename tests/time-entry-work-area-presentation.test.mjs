@@ -24,6 +24,17 @@ test('Drive Time and Non-Billable labels are unaffected', () => {
   assert.equal(getTimeEntryWorkLabel({ workType: 'non_billable', workAreaNameSnapshot: 'Ignored' }, jobs), 'Non-Billable Work');
 });
 
+test('contextual non-job activities show their parent Job without inventing a Work Area', () => {
+  const drive = getTimeEntryPresentation({ workType: 'drive_time', jobId: 'job-a' }, jobs);
+  assert.equal(drive.workLabel, 'Smith Residence · Drive Time');
+  assert.equal(drive.jobLabel, 'Smith Residence');
+  assert.equal(drive.workAreaLabel, null);
+  const unbillable = getTimeEntryPresentation({ workType: 'non_billable', jobIds: ['job-a'], unbillableCategoryName: 'Training' }, jobs);
+  assert.equal(unbillable.workLabel, 'Smith Residence · Non-Billable Work');
+  assert.equal(unbillable.activityLabel, 'Non-Billable · Training');
+  assert.equal(getTimeEntryPresentation({ workType: 'drive_time' }, jobs).jobLabel, null);
+});
+
 test('switched segments retain their independent Work Area identity and snapshots', () => {
   const previous = { workType: 'job', jobId: 'job-a', workAreaId: 'area-a', workAreaNameSnapshot: 'Excavation', status: 'clocked_out' };
   const active = { workType: 'job', jobId: 'job-a', workAreaId: 'area-b', workAreaNameSnapshot: 'Base Prep', status: 'clocked_in' };

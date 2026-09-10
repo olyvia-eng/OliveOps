@@ -952,7 +952,9 @@ test('switch activity allows eligible employee to move from job work to drive ti
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.timeEntry.workType, 'drive_time');
-  assert.deepEqual(res.body.timeEntry.jobIds, ['job-next']);
+  assert.equal(res.body.timeEntry.jobId, 'job-current');
+  assert.deepEqual(res.body.timeEntry.jobIds, ['job-current']);
+  assert.equal(res.body.timeEntry.workAreaId, null);
 });
 
 test('switch activity allows job work to drive time regardless of employee flag', async (t) => {
@@ -987,6 +989,64 @@ test('switch activity allows job work to drive time regardless of employee flag'
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.timeEntry.workType, 'drive_time');
+});
+
+test('standalone Drive Time does not invent Job context from request data', async (t) => {
+  const store = await setupSwitchContext({
+    t,
+    businessId: 'biz-switch-standalone-drive',
+    userId: 'user-switch-standalone-drive',
+    employeeId: 'emp-switch-standalone-drive',
+    email: 'standalonedrive@example.com',
+    paidDriveTimeEnabled: true,
+    activeEntryId: 'entry-standalone-drive',
+    activeWorkType: 'drive_time',
+    activeJobIds: [],
+    token: 'token-switch-standalone-drive',
+  });
+  seedJob(store, { businessId: 'biz-switch-standalone-drive', jobId: 'job-untrusted' });
+
+  const result = await callClocking('token-switch-standalone-drive', 'switch-activity', {
+    workType: 'drive_time',
+    jobIds: ['job-untrusted'],
+    requestId: 'switch-standalone-drive',
+    idempotencyKey: 'switch-standalone-drive',
+  });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.timeEntry.jobId, undefined);
+  assert.deepEqual(result.body.timeEntry.jobIds, []);
+});
+
+test('Job A to Drive Time to Job B inherits then replaces parent context', async (t) => {
+  const activeClockIn = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const store = await setupSwitchContext({
+    t,
+    businessId: 'biz-switch-context-chain',
+    userId: 'user-switch-context-chain',
+    employeeId: 'emp-switch-context-chain',
+    email: 'contextchain@example.com',
+    paidDriveTimeEnabled: true,
+    activeEntryId: 'entry-job-a',
+    activeWorkType: 'job',
+    activeJobIds: ['job-a'],
+    activeClockIn,
+    token: 'token-switch-context-chain',
+  });
+  seedJob(store, { businessId: 'biz-switch-context-chain', jobId: 'job-b' });
+  const driveAt = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+  const jobBAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  const drive = await callClocking('token-switch-context-chain', 'switch-activity', {
+    workType: 'drive_time', requestId: 'chain-drive', idempotencyKey: 'chain-drive', clientOccurredAt: driveAt,
+  });
+  assert.equal(drive.statusCode, 200);
+  assert.equal(drive.body.timeEntry.jobId, 'job-a');
+  const jobB = await callClocking('token-switch-context-chain', 'switch-activity', {
+    workType: 'job', jobIds: ['job-b'], requestId: 'chain-job-b', idempotencyKey: 'chain-job-b', clientOccurredAt: jobBAt,
+  });
+  assert.equal(jobB.statusCode, 200);
+  assert.equal(jobB.body.timeEntry.jobId, 'job-b');
+  assert.deepEqual(jobB.body.timeEntry.jobIds, ['job-b']);
 });
 
 test('switch activity supports job work to unbillable transition with active category', async (t) => {
@@ -1026,7 +1086,9 @@ test('switch activity supports job work to unbillable transition with active cat
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.timeEntry.workType, 'non_billable');
-  assert.deepEqual(res.body.timeEntry.jobIds, []);
+  assert.equal(res.body.timeEntry.jobId, 'job-only');
+  assert.deepEqual(res.body.timeEntry.jobIds, ['job-only']);
+  assert.equal(res.body.timeEntry.workAreaId, null);
   assert.equal(res.body.timeEntry.unbillableCategoryId, 'cat-training');
   assert.equal(res.body.timeEntry.unbillableCategoryName, 'Training');
 });

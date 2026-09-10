@@ -14,6 +14,10 @@ The authenticated clocking endpoint accepts an optional `clientOccurredAt` on:
 
 Existing callers may omit the field and retain server-time behavior.
 
+When `switch-activity` moves from a Job-associated segment to `drive_time` or `non_billable`, the server carries the active segment's `jobId`/`jobIds` into the new segment and clears Work Area and Service Visit context. Request `jobIds` are authoritative only when switching to Job Work. A standalone non-job segment without Job context remains contextless.
+
+`switch-activity` also accepts optional `notes`, `photoAttachmentFileId`, and `photoAttachmentFileIds`. These fields belong to the segment being closed. Each photo must already be an uploaded `time-entry` file for that exact active entry. The transaction attaches the existing file ID to the closed segment and enriches the same file record with `timeEntryId` and parent `jobId` when present; it does not create or copy an object.
+
 ## Request contract
 
 `clientOccurredAt` must be an absolute ISO-8601 timestamp containing either `Z` or a numeric UTC offset. The backend normalizes accepted values to UTC with `Date.prototype.toISOString()`.

@@ -868,6 +868,14 @@ export function createStorageHandler(overrides = {}) {
           } else if (file.entityType === 'time-entry') {
             const timeEntry = await deps.getTimeEntryForBusiness(session.businessId, file.entityId);
             if (timeEntry) {
+              await deps.updateFileForBusiness({
+                businessId: session.businessId,
+                fileId: file.id,
+                updates: {
+                  timeEntryId: timeEntry.id,
+                  jobId: timeEntry.jobId ?? timeEntry.jobIds?.[0],
+                },
+              });
               await deps.updateTimeEntryForBusiness({
                 businessId: session.businessId,
                 timeEntry: {

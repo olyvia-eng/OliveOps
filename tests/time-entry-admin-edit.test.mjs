@@ -192,6 +192,20 @@ test('admin changes Job and derives historical Work Area snapshot from operation
   assert.equal(result.timeEntry.workAreaNameSnapshot, 'Framing');
 });
 
+test('admin note edits preserve contextual Job on Drive Time and reject cross-tenant context', async () => {
+  const context = harness();
+  context.entry.workType = 'drive_time';
+  context.entry.workAreaId = undefined;
+  context.entry.workAreaNameSnapshot = undefined;
+  const result = await context.apply({ workType: 'drive_time', jobId: 'job-1', workAreaId: undefined, notes: 'Gate access delayed' });
+  assert.equal(result.ok, true);
+  assert.equal(result.timeEntry.jobId, 'job-1');
+  assert.deepEqual(result.timeEntry.jobIds, ['job-1']);
+  assert.equal(result.timeEntry.workAreaId, undefined);
+  const invalid = await context.apply({ workType: 'drive_time', jobId: 'other-business-job', workAreaId: undefined });
+  assert.equal(invalid.code, 'time_entry_job_invalid');
+});
+
 test('duration edits preserve the captured historical labour rate', async () => {
   const context = harness();
   context.entry.labourCostRateSnapshot = 40;

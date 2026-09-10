@@ -200,6 +200,11 @@ async function resolveActivity({ businessId, workType, jobId, workAreaId, unbill
     };
   }
 
+  const contextualJobId = typeof jobId === 'string' && jobId.trim() ? jobId.trim() : undefined;
+  if (contextualJobId && !await dependencies.getJobForBusiness(businessId, contextualJobId)) {
+    return { ok: false, status: 400, code: 'time_entry_job_invalid', error: 'Job is invalid.' };
+  }
+
   if (workType === 'non_billable') {
     const category = await dependencies.getUnbillableTimeCategoryForBusiness(businessId, unbillableCategoryId);
     if (!category?.active) {
@@ -207,8 +212,8 @@ async function resolveActivity({ businessId, workType, jobId, workAreaId, unbill
     }
     return {
       ok: true,
-      jobId: undefined,
-      jobIds: [],
+      jobId: contextualJobId,
+      jobIds: contextualJobId ? [contextualJobId] : [],
       workAreaId: undefined,
       workAreaNameSnapshot: undefined,
       unbillableCategoryId: category.id,
@@ -218,8 +223,8 @@ async function resolveActivity({ businessId, workType, jobId, workAreaId, unbill
 
   return {
     ok: true,
-    jobId: undefined,
-    jobIds: [],
+    jobId: contextualJobId,
+    jobIds: contextualJobId ? [contextualJobId] : [],
     workAreaId: undefined,
     workAreaNameSnapshot: undefined,
     unbillableCategoryId: undefined,

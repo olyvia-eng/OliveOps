@@ -98,7 +98,7 @@ export default function EditTimeEntryModal({ entry, employeeName, jobs, unbillab
       clockIn: clockInIso,
       clockOut: entry.status === 'clocked_out' ? clockOutIso : undefined,
       workType,
-      jobId: workType === 'job' ? jobId : undefined,
+      jobId: jobId || undefined,
       workAreaId: workType === 'job' ? workAreaId || null : undefined,
       unbillableCategoryId: workType === 'non_billable' ? unbillableCategoryId : undefined,
       notes,
@@ -124,7 +124,7 @@ export default function EditTimeEntryModal({ entry, employeeName, jobs, unbillab
       {entry.status === 'clocked_in' ? <p className="text-xs text-gray-500">This entry is active. Use Clock Out to end the shift; editing will not create a Clock Out time.</p> : null}
       {invalidDuration ? <p className="text-sm font-medium text-accent-700" role="alert">Clock Out must be after Clock In.</p> : null}
       <div className="rounded-md border border-gray-200 px-4 py-3"><p className="text-xs font-medium text-gray-500">Calculated duration</p><p className="mt-1 text-lg font-semibold text-gray-900">{entry.status === 'clocked_in' ? 'Active' : preview}</p></div>
-      <Select label="Activity" value={workType} onChange={(event) => { const next = event.target.value as TimeEntryWorkType; setWorkType(next); if (next !== 'job') { setJobId(''); setWorkAreaId(''); } if (next !== 'non_billable') setUnbillableCategoryId(''); }}>
+      <Select label="Activity" value={workType} onChange={(event) => { const next = event.target.value as TimeEntryWorkType; setWorkType(next); if (next !== 'job') setWorkAreaId(''); if (next !== 'non_billable') setUnbillableCategoryId(''); }}>
         <option value="job">Job Work</option>
         <option value="drive_time">Drive Time</option>
         <option value="non_billable">Non-Billable</option>

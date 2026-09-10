@@ -1145,7 +1145,7 @@ export default async function handler(req, res) {
     }
 
     const nextWorkType = workTypeResult.workType;
-    const nextJobIds = getNormalizedJobIds(req.body?.jobIds);
+    const nextJobIds = nextWorkType === 'job' ? getNormalizedJobIds(req.body?.jobIds) : [];
     const clockingContractVersion = Number(req.body?.clockingContractVersion) || undefined;
     const requestedUnbillableCategoryId = typeof req.body?.unbillableCategoryId === 'string'
       ? req.body.unbillableCategoryId.trim()
@@ -1190,6 +1190,11 @@ export default async function handler(req, res) {
       serviceId: workAreaValidation.serviceId,
       serviceVisitId: workAreaValidation.serviceVisitId,
       unbillableCategoryId: nextWorkType === 'non_billable' ? requestedUnbillableCategoryId : undefined,
+      notes: typeof req.body?.notes === 'string' ? req.body.notes : undefined,
+      photoAttachmentFileIds: Array.isArray(req.body?.photoAttachmentFileIds)
+        ? req.body.photoAttachmentFileIds.filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
+        : undefined,
+      photoAttachmentFileId: req.body?.photoAttachmentFileId ?? undefined,
       requestId,
       idempotencyKey: clientIdempotencyKey,
       clientOccurredAt: normalizedClientOccurredAt,
@@ -1218,6 +1223,20 @@ export default async function handler(req, res) {
     const previousEntry = allEntries.find((entry) => entry.id === activeShift.activeEntryId);
     if (!previousEntry || previousEntry.status !== 'clocked_in' || previousEntry.employeeId !== employeeId) {
       return clockingError(res, { status: 409, code: 'offline_shift_state_conflict', error: 'No active shift found' });
+    }
+    const previousJobIds = Array.isArray(previousEntry.jobIds) && previousEntry.jobIds.length > 0
+      ? previousEntry.jobIds
+      : previousEntry.jobId ? [previousEntry.jobId] : [];
+    const nextContextJobIds = nextWorkType === 'job' ? nextJobIds : previousJobIds;
+    const attachmentValidation = await validateClockOutPhotoAttachment({
+      session,
+      timeEntryId: previousEntry.id,
+      photoAttachmentFileIds: req.body?.photoAttachmentFileIds,
+      photoAttachmentFileId: req.body?.photoAttachmentFileId,
+      getFileForBusiness,
+    });
+    if (!attachmentValidation.ok) {
+      return res.status(attachmentValidation.status).json({ ok: false, error: attachmentValidation.error });
     }
     const orderError = validateEventAfter(eventTime.eventOccurredAt, previousEntry.clockIn);
     if (orderError) return clockingError(res, orderError);
@@ -1253,7 +1272,7 @@ export default async function handler(req, res) {
       nextTimeEntry: {
         id: nextTimeEntryId,
         workType: nextWorkType,
-        jobIds: nextWorkType === 'non_billable' ? [] : nextJobIds,
+        jobIds: nextContextJobIds,
         workAreaId: workAreaValidation.workAreaId,
         workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,
         serviceId: workAreaValidation.serviceId,
@@ -1270,6 +1289,8 @@ export default async function handler(req, res) {
       source: eventTime.timestampSource === 'client' ? 'mobile_offline' : 'mobile',
       auditEventId: `${session.id}:${requestId}:switch-activity`,
       employeeName: employee.name,
+      notes: typeof req.body?.notes === 'string' ? req.body.notes.trim() : previousEntry.notes ?? '',
+      photoAttachmentFileIds: attachmentValidation.fileIds,
       additionalTransactionItems: buildStartServiceVisitTransactionItems({ businessId: session.businessId, visit: workAreaValidation.visit, startedAt: switchedAt, actorUserId: session.id, actorName: employee.name, auditEventId: `${session.id}:${requestId}:service-visit-started` }),
     });
 
@@ -1278,8 +1299,8 @@ export default async function handler(req, res) {
       const timeEntry = {
         id: nextTimeEntryId,
         employeeId,
-        jobId: nextWorkType === 'non_billable' ? undefined : (nextJobIds[0] ?? undefined),
-        jobIds: nextWorkType === 'non_billable' ? [] : nextJobIds,
+        jobId: nextContextJobIds[0] ?? undefined,
+        jobIds: nextContextJobIds,
         workType: nextWorkType,
         workAreaId: workAreaValidation.workAreaId,
         workAreaNameSnapshot: workAreaValidation.workAreaNameSnapshot,

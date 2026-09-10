@@ -88,7 +88,7 @@ test('uploaded photo state keeps the file ID after the upload succeeds', () => {
 });
 
 test('storage complete-upload persists the uploaded file metadata for the attachment', async () => {
-  let updatedFile;
+  const updatedFile = {};
   const handler = createStorageHandler(baseDeps({
     getFileForBusiness: async () => ({
       id: 'file-1',
@@ -108,7 +108,7 @@ test('storage complete-upload persists the uploaded file metadata for the attach
       uploadStatus: 'pending',
     }),
     updateFileForBusiness: async ({ updates }) => {
-      updatedFile = updates;
+      Object.assign(updatedFile, updates);
       return { ok: true };
     },
   }));
@@ -128,6 +128,27 @@ test('storage complete-upload persists the uploaded file metadata for the attach
   assert.equal(updatedFile.uploadStatus, 'uploaded');
   assert.equal(updatedFile.objectKey, 'biz-1/file-1/photo.jpg');
   assert.equal(updatedFile.expectedContentType, 'image/jpeg');
+  assert.equal(updatedFile.timeEntryId, 'time-1');
+});
+
+test('storage complete-upload enriches the same photo record with contextual Job identity', async () => {
+  const updates = [];
+  const handler = createStorageHandler(baseDeps({
+    getFileForBusiness: async () => ({
+      id: 'file-1', businessId: 'biz-1', entityType: 'time-entry', entityId: 'time-1', category: 'clock-out-photo',
+      fileName: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 1024, expectedContentType: 'image/jpeg', expectedFileSize: 1024,
+      objectKey: 'biz-1/file-1/photo.jpg', uploadStatus: 'pending',
+    }),
+    getTimeEntryForBusiness: async () => ({ id: 'time-1', employeeId: 'emp-1', jobId: 'job-1', jobIds: ['job-1'], workType: 'drive_time', status: 'clocked_in' }),
+    updateFileForBusiness: async (input) => { updates.push(input); return { ok: true }; },
+  }));
+
+  const res = createMockRes();
+  await handler({ method: 'POST', body: { action: 'complete-upload', fileId: 'file-1' } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(new Set(updates.map((item) => item.fileId)).size, 1, 'one file record must be updated, not duplicated');
+  assert.deepEqual(updates.at(-1).updates, { timeEntryId: 'time-1', jobId: 'job-1' });
 });
 
 test('storage complete-upload supports clock-in photo attachment with fileId-only payload', async () => {

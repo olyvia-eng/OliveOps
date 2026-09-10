@@ -229,10 +229,11 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
 
   const jobPhotos = useMemo(() => allJobTimeEntries.flatMap((entry) => {
     const employeeName = employees.find((employee) => employee.id === entry.employeeId)?.name ?? 'Employee';
+    const activityLabel = getTimeEntryPresentation(entry, jobs).activityLabel;
     return timeEntryPhotoRefs(entry)
-      .map((photo) => ({ ...photo, url: attachmentUrls[photo.key], employeeName, clockIn: entry.clockIn }))
+      .map((photo) => ({ ...photo, url: attachmentUrls[photo.key], employeeName, activityLabel, clockIn: entry.clockIn, caption: entry.notes?.trim() ?? '' }))
       .filter((photo): photo is typeof photo & { url: string } => Boolean(photo.url));
-  }), [allJobTimeEntries, attachmentUrls, employees]);
+  }), [allJobTimeEntries, attachmentUrls, employees, jobs]);
 
   const timeEntryTypeMeta = (entry: { workType?: string }) => {
     if (entry.workType === 'drive_time') {
@@ -532,7 +533,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
             <Card className="p-4">
               <h2 className="font-semibold">Photos</h2>
               {jobPhotos.length === 0 ? <p className="mt-3 text-sm text-gray-400">No photos uploaded for this job.</p> : (
-                <><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.slice(0, showAllPhotos ? undefined : 6).map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="truncate text-xs font-medium text-gray-700">{photo.employeeName}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p></div></a>)}</div>{jobPhotos.length > 6 ? <Button className="mt-3" size="sm" variant="secondary" onClick={() => setShowAllPhotos((value) => !value)}>{showAllPhotos ? 'Show less' : `View all ${jobPhotos.length} photos`}</Button> : null}</>
+                <><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.slice(0, showAllPhotos ? undefined : 6).map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="text-xs font-medium text-gray-700">{photo.employeeName} · {photo.activityLabel}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p>{photo.caption ? <p className="mt-1 line-clamp-2 text-xs text-gray-600">{photo.caption}</p> : null}</div></a>)}</div>{jobPhotos.length > 6 ? <Button className="mt-3" size="sm" variant="secondary" onClick={() => setShowAllPhotos((value) => !value)}>{showAllPhotos ? 'Show less' : `View all ${jobPhotos.length} photos`}</Button> : null}</>
               )}
             </Card>
           </div>
