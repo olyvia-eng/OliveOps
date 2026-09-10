@@ -209,3 +209,14 @@ test('deleted source forms remain selectable in historical Form submissions', as
   assert.match(source, /Archived form \(\$\{formId\.slice\(0, 8\)\}\)/);
   assert.match(source, /submissionFormOptions\.map/);
 });
+
+test('Template Library waits for one atomic server operation before opening the builder', async () => {
+  const formsSource = await readFile(new URL('../src/pages/operations/FormsPage.tsx', import.meta.url), 'utf8');
+  const storeSource = await readFile(new URL('../src/store/index.ts', import.meta.url), 'utf8');
+  assert.match(formsSource, /const created = await createFormFromTemplate\(template\.id\)/);
+  assert.match(formsSource, /if \(!created\) return;[\s\S]*setSelectedFormId\(created\.id\);[\s\S]*setActiveTab\('builder'\)/);
+  assert.doesNotMatch(formsSource, /template\.fields\.forEach[\s\S]*addFormField/);
+  assert.match(formsSource, /templateCreationInFlight\.current/);
+  assert.match(storeSource, /\/api\/forms\?action=instantiate-template/);
+  assert.equal((storeSource.match(/Form could not be created from this Template\./g) ?? []).length, 1);
+});

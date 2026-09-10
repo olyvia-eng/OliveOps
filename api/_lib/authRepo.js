@@ -83,6 +83,10 @@ function invoiceCounterSk(year) {
   return `INVOICE_COUNTER#${year}`;
 }
 
+function formTemplateInstantiationSk(requestId) {
+  return `FORM_TEMPLATE_INSTANTIATION#${requestId}`;
+}
+
 function jobInvoiceLedgerSk(jobId) {
   return `JOB_INVOICE_LEDGER#${jobId}`;
 }
@@ -2641,6 +2645,92 @@ export async function cloneFormForBusiness({ businessId, form, fields, auditEven
   ];
   await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
   return { ok: true };
+}
+
+export async function createFormFromTemplateForBusiness({ businessId, requestId, templateId, form, fields, auditEvent }) {
+  if (!Array.isArray(fields) || fields.length > 97) {
+    throw new RangeError('A Form template can contain at most 97 fields.');
+  }
+  const requestKey = { PK: businessPk(businessId), SK: formTemplateInstantiationSk(requestId) };
+  const existingRequest = await ddb.send(new GetCommand({ TableName: tableName, Key: requestKey, ConsistentRead: true }));
+  if (existingRequest.Item) {
+    if (existingRequest.Item.templateId !== templateId) {
+      return { ok: false, error: 'Template creation request was already used for another Template.' };
+    }
+    return { ok: true, created: false, formId: existingRequest.Item.formId };
+  }
+
+  const transactionItems = [
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          ...requestKey,
+          entityType: 'FORM_TEMPLATE_INSTANTIATION',
+          businessId,
+          requestId,
+          templateId,
+          formId: form.id,
+          createdAt: form.createdAt,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formSk(form.id),
+          entityType: 'FORM',
+          businessId,
+          formId: form.id,
+          ...form,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+    ...fields.map((field) => ({
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: formFieldSk(field.id),
+          entityType: 'FORM_FIELD',
+          businessId,
+          formFieldId: field.id,
+          ...field,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    })),
+    {
+      Put: {
+        TableName: tableName,
+        Item: {
+          PK: businessPk(businessId),
+          SK: auditEventSk(auditEvent.id),
+          entityType: 'AUDIT_EVENT',
+          businessId,
+          eventId: auditEvent.id,
+          ...auditEvent,
+        },
+        ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+      },
+    },
+  ];
+
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: transactionItems }));
+    return { ok: true, created: true, formId: form.id };
+  } catch (error) {
+    if (error?.name !== 'TransactionCanceledException') throw error;
+    const repeatedRequest = await ddb.send(new GetCommand({ TableName: tableName, Key: requestKey, ConsistentRead: true }));
+    if (repeatedRequest.Item?.templateId === templateId) {
+      return { ok: true, created: false, formId: repeatedRequest.Item.formId };
+    }
+    throw error;
+  }
 }
 
 export async function listFormFieldsForBusiness(businessId) {

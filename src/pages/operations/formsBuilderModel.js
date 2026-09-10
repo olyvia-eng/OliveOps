@@ -4,6 +4,7 @@ import {
   inspectFormDeliveryConfiguration,
   validateFormDeliveryRule,
 } from '../../utils/formDeliveryRules.js';
+import { getFormTemplateDeliveryRule } from '../../../shared/formTemplates.js';
 
 /** @typedef {import('../../types').FormDeliveryRule} FormDeliveryRule */
 /** @typedef {import('../../types').FormDeliveryType} FormDeliveryType */
@@ -181,8 +182,5 @@ export function describeFormConfiguration(form, labels = {}) {
 
 /** @param {string} templateName @returns {FormDeliveryRule} */
 export function getTemplateDeliveryRule(templateName) {
-  if (['Excavator Daily Inspection', 'Morning Truck Inspection', 'MTO Daily Inspection'].includes(templateName)) {
-    return { type: 'before_clock_in', frequency: 'once_daily', completionBehavior: 'blocking', schedule: null, allowManualAccess: false };
-  }
-  return createDefaultDeliveryRule('always_available');
+  return getFormTemplateDeliveryRule(templateName);
 }

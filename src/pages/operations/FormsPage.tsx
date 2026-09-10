@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -35,11 +35,11 @@ import {
   describeFormConfiguration,
   getFormConfigurationWarnings,
   getLegacyConfigurationLabels,
-  getTemplateDeliveryRule,
   isFormBuilderDirty,
   moveFormField,
 } from './formsBuilderModel.js';
-import { deliveryRuleToLegacyTriggers, validateFormDeliveryRule } from '../../utils/formDeliveryRules.js';
+import { validateFormDeliveryRule } from '../../utils/formDeliveryRules.js';
+import { FORM_TEMPLATES, type FormTemplate } from '../../../shared/formTemplates.js';
 import type {
   FormAssignmentType,
   FormCategory,
@@ -116,226 +116,6 @@ const FIELD_TYPES: Array<{ value: FormFieldType; label: string }> = [
 
 type FormsTab = 'overview' | 'forms' | 'builder' | 'submissions' | 'templates';
 
-type FormTemplate = {
-  name: string;
-  category: FormCategory;
-  description: string;
-  deliveryRule?: FormDeliveryRule;
-  fields: Array<{ type: FormFieldType; label: string; required?: boolean; options?: string[] }>;
-};
-
-const FORM_TEMPLATES: FormTemplate[] = [
-  {
-    name: 'Morning Truck Inspection',
-    category: 'vehicle',
-    description: 'Daily pre-trip checklist for truck condition and safety readiness.',
-    fields: [
-      { type: 'date', label: 'Inspection Date', required: true },
-      { type: 'employee_selector', label: 'Driver', required: true },
-      { type: 'yes_no', label: 'Lights and signals working?', required: true },
-      { type: 'multi_line_text', label: 'Notes / Deficiencies' },
-    ],
-  },
-  {
-    name: 'MTO Daily Inspection',
-    category: 'vehicle',
-    description: 'Regulatory daily commercial vehicle inspection.',
-    fields: [
-      { type: 'date', label: 'Inspection Date', required: true },
-      { type: 'yes_no', label: 'Brakes checked?', required: true },
-      { type: 'yes_no', label: 'Tires checked?', required: true },
-      { type: 'signature', label: 'Driver Signature', required: true },
-    ],
-  },
-  {
-    name: 'Vehicle Damage Report',
-    category: 'vehicle',
-    description: 'Capture vehicle damage, location, and incident details.',
-    fields: [
-      { type: 'date', label: 'Incident Date', required: true },
-      { type: 'photo_upload', label: 'Damage Photos', required: true },
-      { type: 'multi_line_text', label: 'Damage Description', required: true },
-      { type: 'signature', label: 'Employee Signature', required: true },
-    ],
-  },
-  {
-    name: 'Excavator Daily Inspection',
-    category: 'equipment',
-    description: 'Daily excavator check before operation.',
-    fields: [
-      { type: 'dropdown', label: 'Equipment', required: true },
-      { type: 'yes_no', label: 'Hydraulic leaks present?', required: true },
-      { type: 'yes_no', label: 'Tracks and undercarriage OK?', required: true },
-      { type: 'multi_line_text', label: 'Inspection Notes' },
-    ],
-  },
-  {
-    name: 'Skid Steer Inspection',
-    category: 'equipment',
-    description: 'Daily skid steer condition and functionality checklist.',
-    fields: [
-      { type: 'dropdown', label: 'Equipment', required: true },
-      { type: 'yes_no', label: 'Attachment secured?', required: true },
-      { type: 'yes_no', label: 'Backup alarm functional?', required: true },
-      { type: 'multi_line_text', label: 'Issues Found' },
-    ],
-  },
-  {
-    name: 'Fuel Log',
-    category: 'equipment',
-    description: 'Track fuel usage by job and equipment.',
-    fields: [
-      { type: 'date', label: 'Fuel Date', required: true },
-      { type: 'number', label: 'Litres / Gallons', required: true },
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'dropdown', label: 'Equipment', required: true },
-    ],
-  },
-  {
-    name: 'Toolbox Talk Attendance',
-    category: 'safety',
-    description: 'Attendance and notes for daily/weekly toolbox talks.',
-    fields: [
-      { type: 'date', label: 'Talk Date', required: true },
-      { type: 'single_line_text', label: 'Topic', required: true },
-      { type: 'multi_line_text', label: 'Attendees', required: true },
-      { type: 'signature', label: 'Supervisor Signature', required: true },
-    ],
-  },
-  {
-    name: 'Tailgate Safety Meeting',
-    category: 'safety',
-    description: 'Field-level safety meeting checklist and outcomes.',
-    fields: [
-      { type: 'date', label: 'Meeting Date', required: true },
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'multi_line_text', label: 'Hazards Discussed', required: true },
-      { type: 'signature', label: 'Facilitator Signature', required: true },
-    ],
-  },
-  {
-    name: 'Hazard Assessment',
-    category: 'safety',
-    description: 'Pre-task hazard assessment and controls.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'multi_line_text', label: 'Identified Hazards', required: true },
-      { type: 'multi_line_text', label: 'Controls Implemented', required: true },
-      { type: 'signature', label: 'Assessor Signature', required: true },
-    ],
-  },
-  {
-    name: 'Near Miss Report',
-    category: 'safety',
-    description: 'Document near misses for corrective action tracking.',
-    fields: [
-      { type: 'date', label: 'Event Date', required: true },
-      { type: 'multi_line_text', label: 'What Happened?', required: true },
-      { type: 'multi_line_text', label: 'Corrective Actions', required: true },
-      { type: 'photo_upload', label: 'Photo Evidence' },
-    ],
-  },
-  {
-    name: 'Incident Report',
-    category: 'safety',
-    description: 'Capture incident details and immediate response actions.',
-    fields: [
-      { type: 'date', label: 'Incident Date', required: true },
-      { type: 'time', label: 'Incident Time', required: true },
-      { type: 'multi_line_text', label: 'Incident Details', required: true },
-      { type: 'signature', label: 'Reporter Signature', required: true },
-    ],
-  },
-  {
-    name: 'Daily Site Checklist',
-    category: 'job_site',
-    description: 'General daily site readiness and controls checklist.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'yes_no', label: 'Site secured?', required: true },
-      { type: 'yes_no', label: 'Materials staged?', required: true },
-      { type: 'multi_line_text', label: 'Notes' },
-    ],
-  },
-  {
-    name: 'End of Day Site Cleanup',
-    category: 'job_site',
-    description: 'Confirm cleanup and secure site at end of day.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'yes_no', label: 'Waste removed?', required: true },
-      { type: 'yes_no', label: 'Equipment secured?', required: true },
-      { type: 'photo_upload', label: 'Cleanup Photos' },
-    ],
-  },
-  {
-    name: 'Job Completion Checklist',
-    category: 'job_site',
-    description: 'Closeout checklist before job signoff.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'checkbox', label: 'All punch list items complete?', required: true },
-      { type: 'multi_line_text', label: 'Outstanding Items' },
-      { type: 'signature', label: 'Supervisor Signature', required: true },
-    ],
-  },
-  {
-    name: 'Customer Walkthrough',
-    category: 'job_site',
-    description: 'Capture walkthrough notes and client signoff.',
-    fields: [
-      { type: 'customer_selector', label: 'Customer', required: true },
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'multi_line_text', label: 'Walkthrough Notes', required: true },
-      { type: 'signature', label: 'Customer Signature', required: true },
-    ],
-  },
-  {
-    name: 'Vacation Request',
-    category: 'hr',
-    description: 'Employee request for vacation approval.',
-    fields: [
-      { type: 'employee_selector', label: 'Employee', required: true },
-      { type: 'date', label: 'Start Date', required: true },
-      { type: 'date', label: 'End Date', required: true },
-      { type: 'multi_line_text', label: 'Notes' },
-    ],
-  },
-  {
-    name: 'Time Correction Request',
-    category: 'hr',
-    description: 'Request correction for clock-in/out records.',
-    fields: [
-      { type: 'employee_selector', label: 'Employee', required: true },
-      { type: 'date', label: 'Date Needing Correction', required: true },
-      { type: 'multi_line_text', label: 'Correction Details', required: true },
-      { type: 'signature', label: 'Employee Signature', required: true },
-    ],
-  },
-  {
-    name: 'Daily Crew Checklist',
-    category: 'operations',
-    description: 'Daily operations checklist for field crew.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'yes_no', label: 'Crew briefing completed?', required: true },
-      { type: 'yes_no', label: 'Tools and equipment ready?', required: true },
-      { type: 'multi_line_text', label: 'Crew Notes' },
-    ],
-  },
-  {
-    name: 'Supervisor Daily Report',
-    category: 'operations',
-    description: 'Supervisor report of work progress, blockers, and risks.',
-    fields: [
-      { type: 'job_selector', label: 'Job', required: true },
-      { type: 'multi_line_text', label: 'Work Completed Today', required: true },
-      { type: 'multi_line_text', label: 'Issues / Delays', required: true },
-      { type: 'signature', label: 'Supervisor Signature', required: true },
-    ],
-  },
-];
-
 const FIELD_TYPES_WITH_OPTIONS = new Set<FormFieldType>(['multiple_choice', 'dropdown', 'checkbox']);
 const FIELD_TYPES_WITH_ACCEPTED_RESPONSE = new Set<FormFieldType>(['yes_no', 'multiple_choice', 'dropdown', 'checkbox']);
 
@@ -363,6 +143,7 @@ export default function FormsPage() {
     divisions,
     addForm,
     cloneForm,
+    createFormFromTemplate,
     updateForm,
     deleteForm,
     addFormField,
@@ -387,6 +168,8 @@ export default function FormsPage() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [savingBuilder, setSavingBuilder] = useState(false);
   const [cloningFormId, setCloningFormId] = useState<string | null>(null);
+  const [creatingTemplateId, setCreatingTemplateId] = useState<string | null>(null);
+  const templateCreationInFlight = useRef(false);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const [submissionSearch, setSubmissionSearch] = useState('');
   const [submissionStatusFilter, setSubmissionStatusFilter] = useState<'all' | FormSubmissionStatus>('all');
@@ -719,37 +502,14 @@ export default function FormsPage() {
     deleteForm(selectedForm.id);
   };
 
-  const handleUseTemplate = (template: FormTemplate) => {
-    const deliveryRule = template.deliveryRule ?? getTemplateDeliveryRule(template.name);
-    const created = addForm({
-      name: template.name,
-      description: template.description,
-      category: template.category,
-      status: 'draft',
-      assignedTo: 'everyone',
-      assignmentValue: '',
-      trigger: deliveryRuleToLegacyTriggers(deliveryRule),
-      deliveryRule,
-      deliveryRuleVersion: 1,
-      completionRequirement: deliveryRule.completionBehavior === 'blocking' ? 'required' : 'reminder',
-      requiresApproval: false,
-      division: '',
-    });
-
-    template.fields.forEach((field, index) => {
-      addFormField({
-        formId: created.id,
-        type: field.type,
-        label: field.label,
-        helpText: '',
-        required: Boolean(field.required),
-        defaultValue: '',
-        placeholder: '',
-        options: field.options ?? [],
-        order: index,
-      });
-    });
-
+  const handleUseTemplate = async (template: FormTemplate) => {
+    if (templateCreationInFlight.current) return;
+    templateCreationInFlight.current = true;
+    setCreatingTemplateId(template.id);
+    const created = await createFormFromTemplate(template.id);
+    templateCreationInFlight.current = false;
+    setCreatingTemplateId(null);
+    if (!created) return;
     setSelectedFormId(created.id);
     setActiveTab('builder');
   };
@@ -1351,7 +1111,7 @@ export default function FormsPage() {
       {activeTab === 'templates' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {FORM_TEMPLATES.map((template) => (
-            <Card key={template.name} className="p-4">
+            <Card key={template.id} className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">{template.name}</h2>
@@ -1363,8 +1123,8 @@ export default function FormsPage() {
               </div>
               <p className="mt-3 text-xs text-gray-500">{template.fields.length} field(s)</p>
               <div className="mt-4 flex gap-2">
-                <Button size="sm" onClick={() => handleUseTemplate(template)}>
-                  <Plus size={14} /> Add Template
+                <Button size="sm" disabled={creatingTemplateId !== null} onClick={() => void handleUseTemplate(template)}>
+                  <Plus size={14} /> {creatingTemplateId === template.id ? 'Creating...' : 'Add Template'}
                 </Button>
               </div>
             </Card>

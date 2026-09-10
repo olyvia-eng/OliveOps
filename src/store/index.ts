@@ -326,6 +326,7 @@ interface AppState {
   // Forms
   addForm: (form: Omit<FormRecord, 'id' | 'createdAt' | 'updatedAt'>) => FormRecord;
   cloneForm: (sourceFormId: ID) => Promise<FormRecord | null>;
+  createFormFromTemplate: (templateId: string, requestId?: string) => Promise<FormRecord | null>;
   updateForm: (id: ID, data: Partial<FormRecord>) => Promise<boolean>;
   deleteForm: (id: ID) => void;
   addFormField: (field: Omit<FormField, 'id'> & { id?: ID }) => Promise<FormField | null>;
@@ -1802,6 +1803,28 @@ export const useStore = create<AppState>()((set, get) => ({
           return payload.form;
         } catch (error: unknown) {
           emitAppToast({ tone: 'error', message: errorMessage(error, 'Form could not be cloned.') });
+          return null;
+        }
+      },
+      createFormFromTemplate: async (templateId, requestId = generateId()) => {
+        try {
+          const response = await ensureOk(fetch('/api/forms?action=instantiate-template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ templateId, requestId }),
+          }));
+          const payload = await response.json() as { form: FormRecord; fields: FormField[] };
+          set((state) => ({
+            forms: [...state.forms.filter((form) => form.id !== payload.form.id), payload.form],
+            formFields: [
+              ...state.formFields.filter((field) => field.formId !== payload.form.id),
+              ...payload.fields,
+            ],
+          }));
+          return payload.form;
+        } catch (error: unknown) {
+          emitAppToast({ tone: 'error', message: errorMessage(error, 'Form could not be created from this Template.') });
           return null;
         }
       },
