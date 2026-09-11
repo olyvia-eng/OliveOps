@@ -24,13 +24,18 @@ export function getProjectJobAssignedEmployeeIds(job) {
   ].filter(Boolean))];
 }
 
+export function isEmployeeAssignedToProjectJob(employeeId, job, crews = []) {
+  if (!employeeId || !job) return false;
+  if (getProjectJobAssignedEmployeeIds(job).includes(employeeId)) return true;
+  return employeeBelongsToCrew(employeeId, job.crewId, crews);
+}
+
 export function canAccessProjectJobForClocking(session, job, crews = []) {
   if (!session || !job) return false;
   const role = normalizeRole(session.role);
   if (role === 'owner' || role === 'admin' || role === 'foreman') return true;
   if (!session.employeeId) return false;
-  if (getProjectJobAssignedEmployeeIds(job).includes(session.employeeId)) return true;
-  return employeeBelongsToCrew(session.employeeId, job.crewId, crews);
+  return isEmployeeAssignedToProjectJob(session.employeeId, job, crews);
 }
 
 export const isProjectJobActiveForClocking = (job) => !INACTIVE_CLOCKING_STATUSES.has(job?.status);
@@ -40,3 +45,9 @@ export function isProjectJobClockingEligible(session, job, crews = []) {
 }
 
 export const isProjectJobScheduledOn = (job, businessDateKey) => isScheduleDateIncluded(job, businessDateKey);
+
+export const isProjectJobScheduledTodayForEmployee = (employeeId, job, crews, businessDateKey) => (
+  isProjectJobActiveForClocking(job)
+  && isEmployeeAssignedToProjectJob(employeeId, job, crews)
+  && isProjectJobScheduledOn(job, businessDateKey)
+);

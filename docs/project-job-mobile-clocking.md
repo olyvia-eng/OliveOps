@@ -6,6 +6,6 @@ The server derives access from the authenticated session. Owner, admin, and Fore
 
 Completed and cancelled Jobs are excluded. Other authorized active Jobs remain available as fallback choices even when they are not scheduled today.
 
-Each returned Job includes its existing Job data plus `customerName`, `propertyAddress`, `assignedForemanId`, `assignedCrewEmployeeIds`, canonical `assignedEmployeeIds`, and `scheduledToday`. The server calculates `scheduledToday` from `startDate`, `endDate`, and `includeWeekends` using the business-local date. Mobile must not derive this value from UTC or the device timezone.
+Each returned Job includes its existing Job data plus `customerName`, `propertyAddress`, `assignedForemanId`, `assignedCrewEmployeeIds`, canonical `assignedEmployeeIds`, and `scheduledToday`. The server calculates `scheduledToday` from actual employee assignment plus `startDate`, `endDate`, and `includeWeekends` using the business-local date. Role-based access to an otherwise unassigned Job does not make it scheduled today for that employee. Mobile must not derive this value from UTC or the device timezone.
 
 Mobile can prioritize `scheduledToday: true` and locally search the authorized fallback collection by `title`, `jobNumber`, `customerName`, or `propertyAddress`.

@@ -47,7 +47,7 @@ import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js'
 import {
   getProjectJobAssignedEmployeeIds,
   isProjectJobActiveForClocking,
-  isProjectJobScheduledOn,
+  isProjectJobScheduledTodayForEmployee,
 } from './_lib/projectJobClocking.js';
 import { listTrainingAssignmentsForBusiness, presentTrainingAssignments } from './_lib/trainingRepo.js';
 import { listServiceVisitsForSchedule } from './_lib/serviceVisitRepo.js';
@@ -190,7 +190,7 @@ export function createBootstrapHandler(overrides = {}) {
         assignedForemanId: job.assignedForemanId ?? null,
         assignedCrewEmployeeIds: job.assignedCrewEmployeeIds ?? [],
         assignedEmployeeIds: getProjectJobAssignedEmployeeIds(job),
-        scheduledToday: isProjectJobScheduledOn(job, today),
+        scheduledToday: isProjectJobScheduledTodayForEmployee(session.employeeId, job, crews, today),
         hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
         eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
       };

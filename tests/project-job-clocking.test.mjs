@@ -7,6 +7,7 @@ import {
   isProjectJobActiveForClocking,
   isProjectJobClockingEligible,
   isProjectJobScheduledOn,
+  isProjectJobScheduledTodayForEmployee,
 } from '../api/_lib/projectJobClocking.js';
 
 const employeeSession = (employeeId) => ({ role: 'crew_member', employeeId });
@@ -50,4 +51,11 @@ test('completed and cancelled Project Jobs are never clocking eligible', () => {
     assert.equal(isProjectJobActiveForClocking(job), false);
     assert.equal(isProjectJobClockingEligible(session, job), false);
   }
+});
+
+test('scheduled today for employee requires both schedule inclusion and actual assignment', () => {
+  const job = { status: 'scheduled', startDate: '2026-09-11', assignedEmployeeIds: ['employee-a'] };
+  assert.equal(isProjectJobScheduledTodayForEmployee('employee-a', job, [], '2026-09-11'), true);
+  assert.equal(isProjectJobScheduledTodayForEmployee('employee-b', job, [], '2026-09-11'), false);
+  assert.equal(isProjectJobScheduledTodayForEmployee('employee-a', job, [], '2026-09-12'), false);
 });

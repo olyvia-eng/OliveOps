@@ -106,6 +106,25 @@ test('business timezone can exclude a UTC-next-day Project Job and excludes week
   assert.equal(res.body.jobs.find((job) => job.id === 'weekend').scheduledToday, false);
 });
 
+test('Foreman bootstrap marks only actually assigned Jobs as scheduled today', async () => {
+  const data = coreData();
+  data.jobs = [
+    { id: 'assigned', title: 'Assigned', status: 'scheduled', startDate: '2026-09-10', assignedForemanId: 'employee-a', assignedCrewEmployeeIds: [], assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'authorized-only', title: 'Authorized Only', status: 'scheduled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-b'], operationalWorkAreas: [] },
+  ];
+  const res = response();
+  await handler({
+    requireSession: async () => ({ id: 'user-a', businessId: 'biz-a', role: 'foreman', employeeId: 'employee-a' }),
+    loadCoreBootstrapData: async () => data,
+    now: () => new Date('2026-09-10T12:00:00.000Z'),
+  })({ method: 'GET' }, res);
+
+  assert.deepEqual(res.body.jobs.map((job) => [job.id, job.scheduledToday]), [
+    ['assigned', true],
+    ['authorized-only', false],
+  ]);
+});
+
 test('bootstrap degrades only Service Visits when schedule retrieval throws', async () => {
   const logged = [];
   const res = response();
