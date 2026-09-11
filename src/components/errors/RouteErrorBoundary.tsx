@@ -69,7 +69,7 @@ class AppErrorBoundary extends Component<BoundaryProps, BoundaryState> {
 export default function RouteErrorBoundary({ children }: { children: ReactNode }) {
   const location = useLocation();
   return (
-    <AppErrorBoundary key={location.key} route={location.pathname}>
+    <AppErrorBoundary key={location.pathname} route={location.pathname}>
       {children}
     </AppErrorBoundary>
   );

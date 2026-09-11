@@ -26,14 +26,15 @@ test('route rendering is protected by a branded Error Boundary outside Suspense'
   assert.match(recoverySuccess, /clearChunkRecovery/);
 });
 
-test('route changes reset the boundary and sidebar navigation remains client-side', async () => {
+test('pathname changes reset the boundary without remounting routes for query-only navigation', async () => {
   const [boundary, sidebar] = await Promise.all([
     source('../src/components/errors/RouteErrorBoundary.tsx'),
     source('../src/components/layout/Sidebar.tsx'),
   ]);
 
   assert.match(boundary, /useLocation\(\)/);
-  assert.match(boundary, /key=\{location\.key\}/);
+  assert.match(boundary, /key=\{location\.pathname\}/);
+  assert.doesNotMatch(boundary, /key=\{location\.key\}/);
   assert.match(sidebar, /useNavigate\(\)/);
   assert.match(sidebar, /navigate\(path\)/);
   assert.doesNotMatch(sidebar, /window\.location/);

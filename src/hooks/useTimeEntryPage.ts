@@ -39,6 +39,7 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
   const [navigationVersion, setNavigationVersion] = useState(0);
   const requestSequence = useRef(0);
   const activeRequest = useRef<{ key: string; controller: AbortController } | null>(null);
+  const completedRequestKey = useRef<string | null>(null);
   const filterQuery = useMemo(() => {
     const params = new URLSearchParams({ surface });
     for (const [key, value] of Object.entries(filters)) {
@@ -48,7 +49,9 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
   }, [filters, surface]);
 
   useEffect(() => {
-    setCursorHistory([null]);
+    setCursorHistory((history) => (
+      history.length === 1 && history[0] === null ? history : [null]
+    ));
     setPageIndex(0);
     setNextCursor(null);
   }, [filterQuery, pageSize]);
@@ -60,7 +63,8 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
       return;
     }
     const cursor = cursorHistory[pageIndex] ?? null;
-    const requestKey = `${filterQuery}&limit=${pageSize}&cursor=${cursor ?? ''}`;
+    const requestKey = `${filterQuery}&limit=${pageSize}&cursor=${cursor ?? ''}&refresh=${refreshVersion}`;
+    if (completedRequestKey.current === requestKey) return;
     if (activeRequest.current?.key === requestKey && !activeRequest.current.controller.signal.aborted) return;
 
     activeRequest.current?.controller.abort();
@@ -84,6 +88,7 @@ export function useTimeEntryPage({ surface, defaultPageSize, filters, enabled = 
         }
         setItems(payload.items);
         setNextCursor(payload.hasMore ? payload.nextCursor ?? null : null);
+        completedRequestKey.current = requestKey;
         setLoadedVersion((value) => value + 1);
       })
       .catch((reason: unknown) => {

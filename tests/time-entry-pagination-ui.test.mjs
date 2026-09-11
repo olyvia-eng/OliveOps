@@ -8,11 +8,15 @@ test('shared Time Entry pagination rejects stale responses and preserves rows wh
   const hook = await source('../src/hooks/useTimeEntryPage.ts');
   assert.match(hook, /requestSequence/);
   assert.match(hook, /AbortController/);
+  assert.match(hook, /completedRequestKey\.current === requestKey/);
+  assert.match(hook, /completedRequestKey\.current = requestKey/);
+  assert.match(hook, /refresh=\$\{refreshVersion\}/);
   assert.match(hook, /activeRequest\.current\?\.key === requestKey/);
   assert.doesNotMatch(hook, /setItems\(\[\]\)/);
   assert.match(hook, /setError\(/);
   assert.match(hook, /cursorHistory/);
   assert.match(hook, /activeRequest\.current = null/);
+  assert.match(hook, /history\.length === 1 && history\[0\] === null \? history : \[null\]/);
   assert.match(hook, /const refresh = useCallback\(\(\) => \{\s*setCursorHistory\(\[null\]\);\s*setPageIndex\(0\)/);
 });
 
@@ -38,6 +42,8 @@ test('main and Job Time Entry surfaces use their required defaults and page size
   assert.match(job, /value="10">10/);
   assert.match(job, /value="25">25/);
   assert.match(job, /value="50">50/);
+  assert.match(job, /activeTab !== 'project-management'/);
+  assert.match(job, /searchParams\.get\('timeEntryPageSize'\) === String\(jobTimeEntryPage\.pageSize\)/);
 });
 
 test('pagination controls expose loading, errors, retry, and disabled navigation', async () => {

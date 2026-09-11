@@ -7,11 +7,6 @@ const detailSource = readFileSync('src/pages/jobs/JobDetailPage.tsx', 'utf8');
 const summarySource = readFileSync('src/components/jobs/JobAnalysisSummary.tsx', 'utf8');
 const workspaceSource = readFileSync('src/components/jobs/JobAnalysisWorkspace.tsx', 'utf8');
 const analysisApiSource = readFileSync('src/pages/jobs/jobAnalysisApi.ts', 'utf8');
-const analysisTabSource = detailSource.slice(
-  detailSource.indexOf("activeTab === 'analysis'"),
-  detailSource.indexOf("activeTab === 'project-management'"),
-);
-
 test('Jobs list contains long titles without loading labour performance', () => {
   assert.match(jobsSource, /w-full table-fixed text-sm/);
   assert.match(jobsSource, /title=\{job\.title\}/);
@@ -34,9 +29,17 @@ test('Job summary and Analysis use the normalized server performance model', () 
 });
 
 test('Job Analysis renders the complete scoped cost workspace', () => {
-  assert.match(analysisTabSource, /Job Performance/);
-  assert.match(analysisTabSource, /<JobAnalysisWorkspace job=\{job\} \/>/);
+  assert.match(detailSource, /analysisVisited && canViewAnalysis/);
+  assert.match(detailSource, /hidden=\{activeTab !== 'analysis'\}/);
+  assert.match(detailSource, /<JobAnalysisWorkspace job=\{job\} \/>/);
+  assert.match(detailSource, /if \(activeTab === 'analysis' && canViewAnalysis\) setAnalysisVisited\(true\)/);
   for (const label of ['Accepted Estimate baseline compared with direct costs recorded to date.', 'Job Cost Summary', 'Estimated vs Actual', 'Time Analysis', 'Equipment Usage', 'Material Vendor Bills', 'Subcontractor Bills']) assert.match(workspaceSource, new RegExp(label));
+});
+
+test('Job detail uses stable store selection and lazy tab data survives tab switches', () => {
+  assert.match(detailSource, /useStore\(useShallow\(/);
+  assert.doesNotMatch(detailSource, /useStore\(\);/);
+  assert.match(detailSource, /useState\(activeTab === 'analysis' && canViewAnalysis\)/);
 });
 
 test('Vendor and Subcontractor Bills use catalog-first editable line-item workflows', () => {

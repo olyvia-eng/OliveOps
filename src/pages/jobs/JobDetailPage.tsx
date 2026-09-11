@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../store';
 import { emitAppToast } from '../../toast';
 import { Card, Button, Badge, EmptyState, Input, Modal, Select, TextArea } from '../../components/ui';
@@ -65,11 +66,36 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore();
+  const { jobs, customers, employees, crews, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore(useShallow((state) => ({
+    jobs: state.jobs,
+    customers: state.customers,
+    employees: state.employees,
+    crews: state.crews,
+    invoices: state.invoices,
+    timeEntries: state.timeEntries,
+    timeCorrections: state.timeCorrections,
+    equipmentAssets: state.equipmentAssets,
+    forms: state.forms,
+    formSubmissions: state.formSubmissions,
+    tasks: state.tasks,
+    jobTaskHeadings: state.jobTaskHeadings,
+    updateJob: state.updateJob,
+    initializeJobPlan: state.initializeJobPlan,
+    mutateJobPlan: state.mutateJobPlan,
+    deleteTimeEntry: state.deleteTimeEntry,
+    addTask: state.addTask,
+    updateTask: state.updateTask,
+    deleteTask: state.deleteTask,
+    addJobTaskHeading: state.addJobTaskHeading,
+    renameJobTaskHeading: state.renameJobTaskHeading,
+    deleteJobTaskHeading: state.deleteJobTaskHeading,
+    reorderJobTaskHeadings: state.reorderJobTaskHeadings,
+  })));
 
   const job = jobs.find((j) => j.id === id);
   const canViewAnalysis = currentUserRole === 'owner' || currentUserRole === 'admin';
   const activeTab = (searchParams.get('tab') ?? 'info') as JobTab;
+  const [analysisVisited, setAnalysisVisited] = useState(activeTab === 'analysis' && canViewAnalysis);
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   const [submissionForm, setSubmissionForm] = useState<FormRecord | null>(null);
   const [scopedSubmissions, setScopedSubmissions] = useState<ScopedSubmission[]>([]);
@@ -147,6 +173,10 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     }
   }, [activeTab, canViewAnalysis, setSearchParams]);
 
+  useEffect(() => {
+    if (activeTab === 'analysis' && canViewAnalysis) setAnalysisVisited(true);
+  }, [activeTab, canViewAnalysis]);
+
   const setTab = (tab: JobTab) => {
     if (tab === 'analysis' && !canViewAnalysis) return;
     setSearchParams((previous) => {
@@ -191,12 +221,14 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   }, [jobTimeEntryPage.loadedVersion, jobTimeEntryPage.navigationVersion]);
 
   useEffect(() => {
+    if (activeTab !== 'project-management'
+      || searchParams.get('timeEntryPageSize') === String(jobTimeEntryPage.pageSize)) return;
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set('timeEntryPageSize', String(jobTimeEntryPage.pageSize));
       return next;
     }, { replace: true });
-  }, [jobTimeEntryPage.pageSize, setSearchParams]);
+  }, [activeTab, jobTimeEntryPage.pageSize, searchParams, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -441,8 +473,8 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         </Card>
       )}
 
-      {activeTab === 'analysis' && canViewAnalysis && (
-        <section aria-label="Job Performance">
+      {analysisVisited && canViewAnalysis && (
+        <section aria-label="Job Performance" hidden={activeTab !== 'analysis'}>
           <JobAnalysisWorkspace job={job} />
         </section>
       )}
