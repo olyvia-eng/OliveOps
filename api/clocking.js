@@ -33,7 +33,8 @@ import {
   listTimeEntriesForBusiness,
   listUnbillableTimeCategoriesForBusiness,
 } from './_lib/authRepo.js';
-import { authorizeRecordAccess, canClockForEmployee } from './_lib/authorization.js';
+import { canClockForEmployee } from './_lib/authorization.js';
+import { canAccessProjectJobForClocking, isProjectJobActiveForClocking } from './_lib/projectJobClocking.js';
 import { listCrewsForBusiness, listDivisionsForBusiness } from './_lib/schedulingConfig.js';
 import {
   administrativelyResolvePendingClockOutWorkflow,
@@ -250,7 +251,10 @@ async function validateClockingJobs({ session, jobIds }) {
   for (const jobId of jobIds) {
     const job = await getJobForBusiness(session.businessId, jobId);
     if (!job) return { ok: false, status: 400, error: 'Job is invalid.' };
-    if (!authorizeRecordAccess(session, 'jobs', job, { crews })) {
+    if (!isProjectJobActiveForClocking(job)) {
+      return { ok: false, status: 409, code: 'job_not_active', error: 'Completed or cancelled Jobs cannot be clocked into.' };
+    }
+    if (!canAccessProjectJobForClocking(session, job, crews)) {
       return { ok: false, status: 403, code: 'offline_job_unauthorized', error: 'Forbidden' };
     }
     jobs.push(job);

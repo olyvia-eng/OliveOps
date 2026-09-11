@@ -232,7 +232,7 @@ function installDdbMock(t) {
   return store;
 }
 
-function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds, operationalWorkAreas }) {
+function seedJob(store, { businessId, jobId, title = 'Job', status = 'scheduled', assignedEmployeeIds, operationalWorkAreas }) {
   const inferredEmployeeIds = [...store.values()]
     .filter((item) => item.PK === `BUSINESS#${businessId}` && item.entityType === 'EMPLOYEE')
     .map((item) => item.employeeId);
@@ -245,7 +245,7 @@ function seedJob(store, { businessId, jobId, title = 'Job', assignedEmployeeIds,
       businessId,
       jobId,
       title,
-      status: 'scheduled',
+      status,
       assignedEmployeeIds: assignedEmployeeIds ?? inferredEmployeeIds,
       operationalWorkAreas,
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -679,6 +679,31 @@ test('clock-in rejects employee spoofing and unauthorized same-business jobs', a
   assert.equal(spoofed.statusCode, 403);
   assert.equal(unauthorizedJob.statusCode, 403);
   assert.equal((await listTimeEntriesForBusiness('biz-clock-authz')).length, 0);
+});
+
+test('clock-in rejects completed and cancelled Jobs', async (t) => {
+  const store = installDdbMock(t);
+  seedBusinessUser(store, { businessId: 'biz-inactive-job', userId: 'user-a', role: 'crew_member', email: 'a@example.com' });
+  await createEmployeeForBusiness({
+    businessId: 'biz-inactive-job',
+    employee: { id: 'emp-a', name: 'Employee A', email: 'a@example.com', phone: '', role: 'crew_member', hourlyRate: 24, active: true, createdAt: '2026-01-01T00:00:00.000Z' },
+  });
+  seedJob(store, { businessId: 'biz-inactive-job', jobId: 'job-completed', status: 'completed', assignedEmployeeIds: ['emp-a'] });
+  seedJob(store, { businessId: 'biz-inactive-job', jobId: 'job-cancelled', status: 'cancelled', assignedEmployeeIds: ['emp-a'] });
+  await createBearerTokenForUser({ businessId: 'biz-inactive-job', userId: 'user-a', role: 'crew_member', email: 'a@example.com', employeeId: 'emp-a', token: 'token-inactive-job' });
+
+  for (const jobId of ['job-completed', 'job-cancelled']) {
+    const res = createMockRes();
+    await clockingHandler({
+      method: 'POST',
+      query: { action: 'clock-in' },
+      headers: { authorization: 'Bearer token-inactive-job' },
+      body: { employeeId: 'emp-a', workType: 'job', jobIds: [jobId] },
+    }, res);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.body.code, 'job_not_active');
+  }
+  assert.equal((await listTimeEntriesForBusiness('biz-inactive-job')).length, 0);
 });
 
 test('disabling eligibility does not alter historical drive time records', async (t) => {

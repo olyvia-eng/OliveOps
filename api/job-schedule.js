@@ -31,6 +31,17 @@ const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const isId = (value) => typeof value === 'string' && value.trim().length > 0;
 const isDateTime = (value) => typeof value === 'string' && value.trim().length > 0 && Number.isFinite(Date.parse(value));
 
+function canonicalEmployeeIdsForPatch(existing, patch) {
+  if (!hasOwn(patch, 'assignedForemanId') && !hasOwn(patch, 'assignedCrewEmployeeIds')) {
+    return hasOwn(patch, 'assignedEmployeeIds') ? patch.assignedEmployeeIds : undefined;
+  }
+  const assignedForemanId = hasOwn(patch, 'assignedForemanId') ? patch.assignedForemanId : existing.assignedForemanId;
+  const assignedCrewEmployeeIds = hasOwn(patch, 'assignedCrewEmployeeIds')
+    ? patch.assignedCrewEmployeeIds
+    : existing.assignedCrewEmployeeIds ?? existing.assignedEmployeeIds ?? [];
+  return [...new Set([assignedForemanId, ...assignedCrewEmployeeIds].filter(Boolean))];
+}
+
 function validateIdList(value, label) {
   if (!Array.isArray(value) || value.some((id) => !isId(id))) return `${label} are invalid.`;
   if (new Set(value).size !== value.length) return `${label} must be unique.`;
@@ -57,8 +68,10 @@ function validateSchedulePatch(existing, patch) {
   if (hasOwn(patch, 'assignedCrewEmployeeIds')) {
     const error = validateIdList(patch.assignedCrewEmployeeIds, 'Assigned Crew employees');
     if (error) return error;
-    if (patch.assignedForemanId && patch.assignedCrewEmployeeIds.includes(patch.assignedForemanId)) return 'Assigned Foreman cannot also be in Assigned Crew.';
   }
+  const nextAssignedForemanId = hasOwn(patch, 'assignedForemanId') ? patch.assignedForemanId : existing.assignedForemanId;
+  const nextAssignedCrewEmployeeIds = hasOwn(patch, 'assignedCrewEmployeeIds') ? patch.assignedCrewEmployeeIds : existing.assignedCrewEmployeeIds;
+  if (nextAssignedForemanId && nextAssignedCrewEmployeeIds?.includes(nextAssignedForemanId)) return 'Assigned Foreman cannot also be in Assigned Crew.';
   if (hasOwn(patch, 'divisionId') && patch.divisionId !== null && !isId(patch.divisionId)) return 'Job division is invalid.';
   if (hasOwn(patch, 'assignedEmployeeIds')) {
     const error = validateIdList(patch.assignedEmployeeIds, 'Assigned employees');
@@ -144,10 +157,8 @@ export function createJobScheduleHandler(overrides = {}) {
       const relationshipError = await validateRelationships(deps, session.businessId, existing, patch);
       if (relationshipError) return res.status(400).json({ ok: false, error: relationshipError });
 
-      const canonicalEmployeeIds = hasOwn(patch, 'assignedForemanId') || hasOwn(patch, 'assignedCrewEmployeeIds')
-        ? [...new Set([patch.assignedForemanId, ...(patch.assignedCrewEmployeeIds ?? existing.assignedCrewEmployeeIds ?? existing.assignedEmployeeIds ?? [])].filter(Boolean))]
-        : patch.assignedEmployeeIds;
-      const job = { ...existing, ...patch, ...(canonicalEmployeeIds ? { assignedEmployeeIds: canonicalEmployeeIds } : {}), updatedAt: new Date().toISOString() };
+      const canonicalEmployeeIds = canonicalEmployeeIdsForPatch(existing, patch);
+      const job = { ...existing, ...patch, ...(canonicalEmployeeIds !== undefined ? { assignedEmployeeIds: canonicalEmployeeIds } : {}), updatedAt: new Date().toISOString() };
       await deps.updateJobForBusiness({ businessId: session.businessId, job });
       try {
         await deps.syncJobToExternalCalendars({ businessId: session.businessId, job });

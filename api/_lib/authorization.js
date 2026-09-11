@@ -1,3 +1,5 @@
+import { canAccessProjectJobForClocking } from './projectJobClocking.js';
+
 const ENTITY_READ_ROLES = {
   budgets: ['owner', 'admin', 'foreman', 'crew_member'],
   'budget-divisions': ['owner', 'admin', 'foreman', 'crew_member'],
@@ -86,15 +88,6 @@ export function canWriteEntity(entity, role) {
   return !!ENTITY_WRITE_ROLES[entity]?.includes(normalizedRole);
 }
 
-function getAuthorizedCrewIds(session, crews = []) {
-  if (!session?.employeeId || !Array.isArray(crews)) return new Set();
-  return new Set(crews
-    .filter((crew) => crew?.active === true
-      && (crew.leadEmployeeId === session.employeeId
-        || (Array.isArray(crew.memberIds) && crew.memberIds.includes(session.employeeId))))
-    .map((crew) => crew.id));
-}
-
 export function authorizeRecordAccess(session, entity, record, context = {}) {
   if (!session || !record) return false;
   const role = normalizeRole(session.role);
@@ -117,11 +110,7 @@ export function authorizeRecordAccess(session, entity, record, context = {}) {
   }
 
   if (entity === 'jobs') {
-    const assignedEmployeeIds = Array.isArray(record.assignedEmployeeIds)
-      ? record.assignedEmployeeIds
-      : [];
-    if (assignedEmployeeIds.includes(session.employeeId)) return true;
-    return Boolean(record.crewId && getAuthorizedCrewIds(session, context.crews).has(record.crewId));
+    return canAccessProjectJobForClocking(session, record, context.crews);
   }
 
   if (entity === 'tasks') {

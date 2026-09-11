@@ -27,6 +27,10 @@ function handler(overrides = {}) {
   return createBootstrapHandler({
     requireSession: async () => ({ id: 'user-a', businessId: 'biz-a', role: 'owner' }),
     getBusinessProfile: async () => ({ timezone: 'America/Toronto' }),
+    getEmployeeForBusiness: async () => null,
+    getActiveShiftForEmployee: async () => null,
+    getPendingClockOutWorkflowForEmployee: async () => null,
+    getPendingClockInWorkflowForEmployee: async () => null,
     loadCoreBootstrapData: async () => coreData(),
     listServiceVisitsForSchedule: async () => [],
     ...overrides,
@@ -42,6 +46,64 @@ test('bootstrap succeeds with no Service Visits and preserves its response shape
   assert.equal(res.body.jobs[0].id, 'job-a');
   assert.equal(res.body.estimates[0].id, 'estimate-a');
   assert.equal(res.body.employees[0].id, 'employee-a');
+});
+
+test('mobile Project Jobs use canonical assignments and business-local schedule dates', async () => {
+  const data = coreData();
+  data.customers[0].address = '10 Customer Road';
+  data.jobs = [
+    { id: 'foreman-today', title: 'Foreman Today', jobNumber: 'J-100', customerId: 'customer-a', status: 'scheduled', startDate: '2026-09-10', endDate: '2026-09-10', assignedForemanId: 'employee-a', assignedCrewEmployeeIds: [], assignedEmployeeIds: [], operationalWorkAreas: [] },
+    { id: 'crew-today', title: 'Crew Today', customerId: 'customer-a', status: 'scheduled', startDate: '2026-09-10', assignedForemanId: null, assignedCrewEmployeeIds: ['employee-a'], assignedEmployeeIds: [], operationalWorkAreas: [] },
+    { id: 'yesterday', title: 'Yesterday', customerId: 'customer-a', status: 'in_progress', startDate: '2026-09-09', endDate: '2026-09-09', assignedCrewEmployeeIds: ['employee-a'], assignedEmployeeIds: [], propertyAddressSnapshot: '20 Job Lane', operationalWorkAreas: [] },
+    { id: 'multi-day', title: 'Multi Day', customerId: 'customer-a', status: 'in_progress', startDate: '2026-09-08', endDate: '2026-09-11', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'weekend-excluded', title: 'No Weekend', status: 'scheduled', startDate: '2026-09-10', endDate: '2026-09-14', includeWeekends: false, assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'unauthorized', title: 'Private Job', status: 'scheduled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-b'], operationalWorkAreas: [] },
+    { id: 'completed', title: 'Completed Job', status: 'completed', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'cancelled', title: 'Cancelled Job', status: 'cancelled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+  ];
+  let loadedBusinessId = '';
+  const res = response();
+  await handler({
+    requireSession: async () => ({ id: 'user-a', businessId: 'biz-a', role: 'crew_member', employeeId: 'employee-a' }),
+    getBusinessProfile: async () => ({ timezone: 'America/Los_Angeles' }),
+    getEmployeeForBusiness: async () => data.employees[0],
+    loadCoreBootstrapData: async (businessId) => { loadedBusinessId = businessId; return data; },
+    now: () => new Date('2026-09-11T00:30:00.000Z'),
+  })({ method: 'GET' }, res);
+
+  assert.equal(loadedBusinessId, 'biz-a');
+  assert.deepEqual(res.body.jobs.map((job) => job.id), ['foreman-today', 'crew-today', 'yesterday', 'multi-day', 'weekend-excluded']);
+  assert.equal(res.body.jobs[0].scheduledToday, true);
+  assert.deepEqual(res.body.jobs[0].assignedEmployeeIds, ['employee-a']);
+  assert.equal(res.body.jobs[0].customerName, 'Customer A');
+  assert.equal(res.body.jobs[0].propertyAddress, '10 Customer Road');
+  assert.equal(res.body.jobs[1].scheduledToday, true);
+  assert.deepEqual(res.body.jobs[1].assignedEmployeeIds, ['employee-a']);
+  assert.equal(res.body.jobs[2].scheduledToday, false);
+  assert.equal(res.body.jobs[2].propertyAddress, '20 Job Lane');
+  assert.equal(res.body.jobs[3].scheduledToday, true);
+  assert.equal(res.body.jobs[4].scheduledToday, true);
+});
+
+test('business timezone can exclude a UTC-next-day Project Job and excludes weekends', async () => {
+  const data = coreData();
+  data.jobs = [
+    { id: 'utc-next-day', title: 'UTC Next Day', status: 'scheduled', startDate: '2026-09-11', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'local-friday', title: 'Local Friday', status: 'scheduled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+    { id: 'weekend', title: 'Weekend', status: 'scheduled', startDate: '2026-09-12', endDate: '2026-09-13', includeWeekends: false, assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
+  ];
+  const res = response();
+  await handler({
+    requireSession: async () => ({ id: 'user-a', businessId: 'biz-a', role: 'crew_member', employeeId: 'employee-a' }),
+    getBusinessProfile: async () => ({ timezone: 'America/Los_Angeles' }),
+    getEmployeeForBusiness: async () => data.employees[0],
+    loadCoreBootstrapData: async () => data,
+    now: () => new Date('2026-09-11T00:30:00.000Z'),
+  })({ method: 'GET' }, res);
+
+  assert.equal(res.body.jobs.find((job) => job.id === 'utc-next-day').scheduledToday, false);
+  assert.equal(res.body.jobs.find((job) => job.id === 'local-friday').scheduledToday, true);
+  assert.equal(res.body.jobs.find((job) => job.id === 'weekend').scheduledToday, false);
 });
 
 test('bootstrap degrades only Service Visits when schedule retrieval throws', async () => {

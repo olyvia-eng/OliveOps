@@ -106,6 +106,48 @@ test('canonical Foreman and Crew assignments persist with a deduplicated legacy 
   assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a', 'emp-b']);
 });
 
+test('partial Crew assignment PATCH retains the Foreman in canonical assigned employees', async () => {
+  const harness = createHarness({
+    job: {
+      assignedForemanId: 'foreman-a',
+      assignedCrewEmployeeIds: ['emp-a'],
+      assignedEmployeeIds: ['foreman-a', 'emp-a'],
+    },
+  });
+  const response = await harness.patch({ assignedCrewEmployeeIds: ['emp-b'] });
+  assert.equal(response.statusCode, 200);
+  assert.equal(harness.persisted.assignedForemanId, 'foreman-a');
+  assert.deepEqual(harness.persisted.assignedCrewEmployeeIds, ['emp-b']);
+  assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-b']);
+});
+
+test('partial assignment PATCH validates Foreman and Crew roles against persisted fields', async () => {
+  const crewPatch = createHarness({ job: { assignedForemanId: 'foreman-a', assignedCrewEmployeeIds: ['emp-a'] } });
+  const duplicateCrew = await crewPatch.patch({ assignedCrewEmployeeIds: ['foreman-a'] });
+  assert.equal(duplicateCrew.statusCode, 400);
+  assert.equal(duplicateCrew.body.error, 'Assigned Foreman cannot also be in Assigned Crew.');
+
+  const foremanPatch = createHarness({ job: { assignedForemanId: null, assignedCrewEmployeeIds: ['foreman-a'] } });
+  const duplicateForeman = await foremanPatch.patch({ assignedForemanId: 'foreman-a' });
+  assert.equal(duplicateForeman.statusCode, 400);
+  assert.equal(duplicateForeman.body.error, 'Assigned Foreman cannot also be in Assigned Crew.');
+});
+
+test('unrelated schedule PATCH preserves canonical assignments unchanged', async () => {
+  const harness = createHarness({
+    job: {
+      assignedForemanId: 'foreman-a',
+      assignedCrewEmployeeIds: ['emp-a'],
+      assignedEmployeeIds: ['foreman-a', 'emp-a'],
+    },
+  });
+  const response = await harness.patch({ scheduleNotes: 'Updated notes' });
+  assert.equal(response.statusCode, 200);
+  assert.equal(harness.persisted.assignedForemanId, 'foreman-a');
+  assert.deepEqual(harness.persisted.assignedCrewEmployeeIds, ['emp-a']);
+  assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a']);
+});
+
 test('canonical assignment rejects non-Foremen, inactive Foremen, foreign employees, and duplicate roles', async () => {
   const cases = [
     [{ assignedForemanId: 'emp-a' }, 'Assigned Foreman must have the Foreman role.'],

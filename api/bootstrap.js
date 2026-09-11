@@ -44,6 +44,11 @@ import { clockOutWorkflowStatus, getPendingClockOutWorkflowForEmployee, reconcil
 import { clockInWorkflowStatus, getPendingClockInWorkflowForEmployee } from './_lib/mandatoryClockIn.js';
 import { getEligibleJobWorkAreas, WORK_AREA_CLOCKING_CONTRACT_VERSION } from './_lib/jobWorkAreas.js';
 import { normalizeMobileTimePermissions } from './_lib/mobileTimePermissions.js';
+import {
+  getProjectJobAssignedEmployeeIds,
+  isProjectJobActiveForClocking,
+  isProjectJobScheduledOn,
+} from './_lib/projectJobClocking.js';
 import { listTrainingAssignmentsForBusiness, presentTrainingAssignments } from './_lib/trainingRepo.js';
 import { listServiceVisitsForSchedule } from './_lib/serviceVisitRepo.js';
 import { isEmployeeAssignedToServiceVisit } from './_lib/serviceVisitContext.js';
@@ -115,6 +120,7 @@ export function createBootstrapHandler(overrides = {}) {
     getPendingClockInWorkflowForEmployee,
     loadCoreBootstrapData,
     listServiceVisitsForSchedule,
+    now: () => new Date(),
     logServiceVisitError: (error) => console.error('[bootstrap:service-visits]', error),
     ...overrides,
   };
@@ -160,7 +166,7 @@ export function createBootstrapHandler(overrides = {}) {
         })
       : false;
     const timeZone = normalizeBusinessTimeZone(businessProfile?.timezone);
-    const today = dateKeyFor(new Date(), timeZone);
+    const today = dateKeyFor(deps.now(), timeZone);
     const upcomingEndDate = addDateKeyDays(today, 7);
 
     const { forms, formFields, formSubmissions, formResponses, budgets, budgetDivisions, budgetDivisionPlanningItems, budgetGroups, equipmentBudgetAllocations, crews, divisions, customers, jobs, estimates, invoices, expenses, equipmentAssets, unbillableTimeCategories, materialCatalogItems, subcontractorCatalogItems, labourClasses, templates, budgetItems, budgetRates, labourBudgetPlans, labourHoursSalesGoals, revenueSalesGoals, employees, tasks, jobTaskHeadings, timeEntries, timeCorrections, trainingAssignments, jobSopAssociations } = await deps.loadCoreBootstrapData(session.businessId);
@@ -171,16 +177,26 @@ export function createBootstrapHandler(overrides = {}) {
       deps.logServiceVisitError(error);
     }
 
-    const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews });
+    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+    const visibleJobs = filterRecordsForSession(session, 'jobs', jobs, { crews })
+      .filter(isProjectJobActiveForClocking);
     const visibleJobIds = new Set(visibleJobs.map((job) => job.id));
-    const mobileClockingJobs = visibleJobs.map((job) => ({
-      ...job,
-      hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
-      eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
-    }));
+    const mobileClockingJobs = visibleJobs.map((job) => {
+      const customer = customerById.get(job.customerId);
+      return {
+        ...job,
+        customerName: customer?.name ?? '',
+        propertyAddress: job.propertyAddressSnapshot ?? customer?.address ?? '',
+        assignedForemanId: job.assignedForemanId ?? null,
+        assignedCrewEmployeeIds: job.assignedCrewEmployeeIds ?? [],
+        assignedEmployeeIds: getProjectJobAssignedEmployeeIds(job),
+        scheduledToday: isProjectJobScheduledOn(job, today),
+        hasOperationalWorkAreas: Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0,
+        eligibleOperationalWorkAreas: getEligibleJobWorkAreas(job).map(({ id, name, status }) => ({ id, name, status })),
+      };
+    });
     const visibleServiceVisits = serviceVisits.filter((visit) => isEmployeeAssignedToServiceVisit(session, visit, crews));
     const jobById = new Map(jobs.map((job) => [job.id, job]));
-    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
     const crewById = new Map(crews.map((crew) => [crew.id, crew]));
     const jobsWithSops = new Set(jobSopAssociations.map((association) => association.jobId));
     const mobileServiceVisit = (visit) => {
