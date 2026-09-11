@@ -1,6 +1,6 @@
 import { isScheduleDateIncluded } from '../../src/utils/scheduleWorkingDays.js';
 
-const INACTIVE_CLOCKING_STATUSES = new Set(['completed', 'cancelled']);
+const INACTIVE_CLOCKING_STATUSES = new Set(['completed', 'cancelled', 'on_hold']);
 
 const normalizeRole = (role) => {
   if (role === 'employee' || role === 'worker' || role === 'subcontractor') return 'crew_member';

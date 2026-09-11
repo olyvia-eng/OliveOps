@@ -36,9 +36,12 @@ function canonicalEmployeeIdsForPatch(existing, patch) {
     return hasOwn(patch, 'assignedEmployeeIds') ? patch.assignedEmployeeIds : undefined;
   }
   const assignedForemanId = hasOwn(patch, 'assignedForemanId') ? patch.assignedForemanId : existing.assignedForemanId;
+  const legacyCrewEmployeeIds = Array.isArray(existing.assignedEmployeeIds)
+    ? existing.assignedEmployeeIds.filter((employeeId) => employeeId !== existing.assignedForemanId)
+    : [];
   const assignedCrewEmployeeIds = hasOwn(patch, 'assignedCrewEmployeeIds')
     ? patch.assignedCrewEmployeeIds
-    : existing.assignedCrewEmployeeIds ?? existing.assignedEmployeeIds ?? [];
+    : existing.assignedCrewEmployeeIds ?? legacyCrewEmployeeIds;
   return [...new Set([assignedForemanId, ...assignedCrewEmployeeIds].filter(Boolean))];
 }
 

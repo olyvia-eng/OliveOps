@@ -172,6 +172,19 @@ test('adding a Foreman to a legacy schedule retains existing employee assignment
   assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a']);
 });
 
+test('changing a Foreman on a legacy schedule removes the old Foreman and retains Crew', async () => {
+  const harness = createHarness({
+    job: {
+      assignedForemanId: 'foreman-old',
+      assignedEmployeeIds: ['foreman-old', 'emp-a', 'emp-b', 'emp-a'],
+    },
+  });
+  const response = await harness.patch({ assignedForemanId: 'foreman-a' });
+  assert.equal(response.statusCode, 200);
+  assert.equal(harness.persisted.assignedForemanId, 'foreman-a');
+  assert.deepEqual(harness.persisted.assignedEmployeeIds, ['foreman-a', 'emp-a', 'emp-b']);
+});
+
 test('legacy schedules include weekends and explicit weekday schedules persist', async () => {
   const legacy = createHarness({ job: { includeWeekends: undefined } });
   assert.notEqual(legacy.persisted.includeWeekends, false);

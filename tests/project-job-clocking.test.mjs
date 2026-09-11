@@ -44,9 +44,9 @@ test('Project Job schedule inclusion handles yesterday, multi-day ranges, and ex
   assert.equal(isProjectJobScheduledOn({ startDate: '2026-09-11', endDate: '2026-09-14', includeWeekends: false }, '2026-09-12'), false);
 });
 
-test('completed and cancelled Project Jobs are never clocking eligible', () => {
+test('completed, cancelled, and on-hold Project Jobs are never clocking eligible', () => {
   const session = employeeSession('employee-a');
-  for (const status of ['completed', 'cancelled']) {
+  for (const status of ['completed', 'cancelled', 'on_hold']) {
     const job = { status, assignedEmployeeIds: ['employee-a'] };
     assert.equal(isProjectJobActiveForClocking(job), false);
     assert.equal(isProjectJobClockingEligible(session, job), false);

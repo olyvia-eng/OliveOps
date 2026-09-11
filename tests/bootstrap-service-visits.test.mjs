@@ -58,6 +58,7 @@ test('mobile Project Jobs use canonical assignments and business-local schedule 
     { id: 'multi-day', title: 'Multi Day', customerId: 'customer-a', status: 'in_progress', startDate: '2026-09-08', endDate: '2026-09-11', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
     { id: 'weekend-excluded', title: 'No Weekend', status: 'scheduled', startDate: '2026-09-10', endDate: '2026-09-14', includeWeekends: false, assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
     { id: 'unauthorized', title: 'Private Job', status: 'scheduled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-b'], operationalWorkAreas: [] },
+    { id: 'on-hold', title: 'On Hold Job', status: 'on_hold', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
     { id: 'completed', title: 'Completed Job', status: 'completed', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
     { id: 'cancelled', title: 'Cancelled Job', status: 'cancelled', startDate: '2026-09-10', assignedEmployeeIds: ['employee-a'], operationalWorkAreas: [] },
   ];
@@ -74,6 +75,12 @@ test('mobile Project Jobs use canonical assignments and business-local schedule 
   assert.equal(loadedBusinessId, 'biz-a');
   assert.deepEqual(res.body.jobs.map((job) => job.id), ['foreman-today', 'crew-today', 'yesterday', 'multi-day', 'weekend-excluded']);
   assert.equal(res.body.jobs[0].scheduledToday, true);
+  assert.equal(res.body.jobs[0].jobNumber, 'J-100');
+  assert.equal(res.body.jobs[0].status, 'scheduled');
+  assert.equal(res.body.jobs[0].startDate, '2026-09-10');
+  assert.equal(res.body.jobs[0].endDate, '2026-09-10');
+  assert.equal(res.body.jobs[0].assignedForemanId, 'employee-a');
+  assert.deepEqual(res.body.jobs[0].assignedCrewEmployeeIds, []);
   assert.deepEqual(res.body.jobs[0].assignedEmployeeIds, ['employee-a']);
   assert.equal(res.body.jobs[0].customerName, 'Customer A');
   assert.equal(res.body.jobs[0].propertyAddress, '10 Customer Road');
@@ -81,6 +88,7 @@ test('mobile Project Jobs use canonical assignments and business-local schedule 
   assert.deepEqual(res.body.jobs[1].assignedEmployeeIds, ['employee-a']);
   assert.equal(res.body.jobs[2].scheduledToday, false);
   assert.equal(res.body.jobs[2].propertyAddress, '20 Job Lane');
+  assert.equal(res.body.jobs.some((job) => job.id === 'on-hold'), false);
   assert.equal(res.body.jobs[3].scheduledToday, true);
   assert.equal(res.body.jobs[4].scheduledToday, true);
 });

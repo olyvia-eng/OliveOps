@@ -252,7 +252,7 @@ async function validateClockingJobs({ session, jobIds }) {
     const job = await getJobForBusiness(session.businessId, jobId);
     if (!job) return { ok: false, status: 400, error: 'Job is invalid.' };
     if (!isProjectJobActiveForClocking(job)) {
-      return { ok: false, status: 409, code: 'job_not_active', error: 'Completed or cancelled Jobs cannot be clocked into.' };
+      return { ok: false, status: 409, code: 'job_not_active', error: 'This Job is not available for clocking.' };
     }
     if (!canAccessProjectJobForClocking(session, job, crews)) {
       return { ok: false, status: 403, code: 'offline_job_unauthorized', error: 'Forbidden' };

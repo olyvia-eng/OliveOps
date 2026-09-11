@@ -9,6 +9,7 @@ const response = () => ({ statusCode: 200, body: null, headers: {}, status(code)
 
 function installDdb(t) {
   const store = new Map();
+  let transactionCount = 0;
   const original = ddb.send.bind(ddb);
   ddb.send = async (command) => {
     const type = command?.constructor?.name;
@@ -24,9 +25,13 @@ function installDdb(t) {
       return { Items: [...store.values()].filter((item) => item.PK === pk && item.SK.startsWith(prefix)) };
     }
     if (type === 'TransactWriteCommand') {
+      transactionCount += 1;
       if (store.failNextTransaction) {
         store.failNextTransaction = false;
         throw new Error('forced transaction failure');
+      }
+      if (store.failTransactionNumber === transactionCount) {
+        throw Object.assign(new Error('forced transaction conflict'), { name: 'TransactionCanceledException' });
       }
       for (const item of input.TransactItems) {
         const put = item.Put;
@@ -327,6 +332,71 @@ test('mandatory snapshot returned by Forms can be submitted with its workflow id
   assert.equal(submitted.body.submission.workflowRequirementId, item.workflowRequirementId);
   const refreshed = await request('token-a', { action: 'forms' });
   assert.deepEqual(refreshed.body.toDo.map((candidate) => candidate.id), ['first-form']);
+});
+
+test('idempotent mandatory form replay finalizes an interrupted clock-out exactly once', async (t) => {
+  const store = installDdb(t);
+  await seedIdentity(store, { userId: 'user-a', employeeId: 'employee-a', token: 'token-a' });
+  const occurrenceId = 'replay-clock-out';
+  const [requirement] = seedMandatoryWorkflow(store, {
+    requiredFor: 'clock_out', occurrenceId, forms: [{ formId: 'clock-out-form' }],
+  });
+  const workflow = store.get(key('BUSINESS#biz-a', `CLOCK_OUT_WORKFLOW#${occurrenceId}`));
+  Object.assign(workflow, {
+    intendedClockOutAt: '2026-09-11T17:00:00.000Z',
+    serverReceivedAt: '2026-09-11T17:00:01.000Z',
+    timestampSource: 'server',
+    requestId: 'replay-clock-out-request',
+    idempotencyKey: 'replay-clock-out-key',
+    payloadHash: 'replay-clock-out-hash',
+    source: 'mobile',
+    clockOutCommitted: true,
+    timeEntry: {
+      id: 'time-entry-a', employeeId: 'employee-a', jobId: 'job-a', jobIds: ['job-a'], workType: 'job',
+      clockIn: '2026-09-11T08:00:00.000Z', clockOut: '2026-09-11T17:00:00.000Z', breakMinutes: 0,
+      notes: '', status: 'clocked_out',
+    },
+    finalizationData: {
+      jobId: 'job-a', jobIds: ['job-a'], workType: 'job', clockIn: '2026-09-11T08:00:00.000Z',
+      breakMinutes: 0, notes: '', photoAttachmentFileIds: [],
+    },
+  });
+  store.set(key('BUSINESS#biz-a', 'TIME#time-entry-a'), {
+    PK: 'BUSINESS#biz-a', SK: 'TIME#time-entry-a', entityType: 'TIME_ENTRY', businessId: 'biz-a',
+    timeEntryId: 'time-entry-a', id: 'time-entry-a', employeeId: 'employee-a', employeeName: 'employee-a',
+    status: 'clocked_in', clockInAt: '2026-09-11T08:00:00.000Z', entryType: 'job', jobId: 'job-a',
+  });
+  store.set(key('BUSINESS#biz-a#EMPLOYEE#employee-a', 'ACTIVE_SHIFT'), {
+    PK: 'BUSINESS#biz-a#EMPLOYEE#employee-a', SK: 'ACTIVE_SHIFT', entityType: 'ACTIVE_SHIFT',
+    businessId: 'biz-a', employeeId: 'employee-a', activeEntryId: 'time-entry-a', status: 'active',
+    startedAt: '2026-09-11T08:00:00.000Z',
+  });
+  const body = {
+    formId: 'clock-out-form', trigger: 'after_clock_out', workflowOccurrenceId: occurrenceId,
+    workflowRequirementId: requirement.requirementId, clientSubmissionId: 'replay-clock-out-submission-001',
+    responses: [{ fieldId: 'clock-out-form-snapshot-field', value: 'Completed' }],
+  };
+
+  store.failTransactionNumber = 2;
+  const first = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(first.statusCode, 201, JSON.stringify(first.body));
+  assert.equal(first.body.clocking, undefined);
+  assert.equal(store.get(key('BUSINESS#biz-a', `CLOCK_OUT_WORKFLOW#${occurrenceId}`)).status, 'pending_required_forms');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+
+  const replay = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(replay.statusCode, 200, JSON.stringify(replay.body));
+  assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.clocking.status, 'clock_out_completed');
+  assert.equal(replay.body.clocking.timeEntry.status, 'clocked_out');
+  assert.equal(store.get(key('BUSINESS#biz-a', `CLOCK_OUT_WORKFLOW#${occurrenceId}`)).status, 'finalized');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
+
+  const finalizedReplay = await request('token-a', { method: 'POST', action: 'submit', body });
+  assert.equal(finalizedReplay.statusCode, 200, JSON.stringify(finalizedReplay.body));
+  assert.equal(finalizedReplay.body.clocking.status, 'clock_out_already_finalized');
+  assert.equal(finalizedReplay.body.clocking.timeEntry.status, 'clocked_out');
+  assert.equal([...store.values()].filter((item) => item.entityType === 'FORM_SUBMISSION').length, 1);
 });
 
 test('employee Forms API scopes division and equipment assignments through an authorized job', async (t) => {

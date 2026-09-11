@@ -655,11 +655,27 @@ export default async function handler(req, res) {
     const payloadFingerprint = clientSubmissionId
       ? submissionPayloadFingerprint({ formId: form.id, trigger, scope, responses: validation.responses, workflowOccurrenceId, workflowRequirementId })
       : undefined;
+    const finalizeWorkflow = async () => {
+      if (!requiresMandatoryWorkflow || !workflowRequirement) return null;
+      const result = await finalizeCompletedMandatoryWorkflow({ session, workflowOccurrenceId, trigger });
+      if (!result.ok && result.code !== 'required_forms_outstanding') {
+        console.error('[employee:forms:clocking-finalization]', {
+          businessId: session.businessId,
+          employeeId: data.employee.id,
+          workflowOccurrenceId,
+          trigger,
+          code: result.code,
+          error: result.error,
+        });
+      }
+      return result;
+    };
     if (clientSubmissionId) {
       const existing = existingIdempotency ?? await getEmployeeFormSubmissionIdempotency({ businessId: session.businessId, employeeId: data.employee.id, clientSubmissionId });
       if (existing) {
         if (existing.payloadFingerprint !== payloadFingerprint) return idempotencyConflict(res);
-        return res.status(200).json({ ok: true, replayed: true, submission: existing.submission });
+        const clocking = await finalizeWorkflow();
+        return res.status(200).json({ ok: true, replayed: true, submission: existing.submission, ...(clocking?.ok ? { clocking } : {}) });
       }
     }
     if ([...signatureFiles.values()].some((file) => file.claimedSubmissionId)) {
@@ -707,21 +723,6 @@ export default async function handler(req, res) {
       fieldId: response.fieldId,
     }));
     const submissionResponse = { ...submission, responsesCreated: responses.length };
-    const finalizeWorkflow = async () => {
-      if (!requiresMandatoryWorkflow || !workflowRequirement) return null;
-      const result = await finalizeCompletedMandatoryWorkflow({ session, workflowOccurrenceId, trigger });
-      if (!result.ok && result.code !== 'required_forms_outstanding') {
-        console.error('[employee:forms:clocking-finalization]', {
-          businessId: session.businessId,
-          employeeId: data.employee.id,
-          workflowOccurrenceId,
-          trigger,
-          code: result.code,
-          error: result.error,
-        });
-      }
-      return result;
-    };
     try {
       await createEmployeeFormSubmissionForBusiness({
         businessId: session.businessId,

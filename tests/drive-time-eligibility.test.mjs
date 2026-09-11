@@ -681,7 +681,7 @@ test('clock-in rejects employee spoofing and unauthorized same-business jobs', a
   assert.equal((await listTimeEntriesForBusiness('biz-clock-authz')).length, 0);
 });
 
-test('clock-in rejects completed and cancelled Jobs', async (t) => {
+test('clock-in rejects completed, cancelled, and on-hold Jobs', async (t) => {
   const store = installDdbMock(t);
   seedBusinessUser(store, { businessId: 'biz-inactive-job', userId: 'user-a', role: 'crew_member', email: 'a@example.com' });
   await createEmployeeForBusiness({
@@ -690,9 +690,10 @@ test('clock-in rejects completed and cancelled Jobs', async (t) => {
   });
   seedJob(store, { businessId: 'biz-inactive-job', jobId: 'job-completed', status: 'completed', assignedEmployeeIds: ['emp-a'] });
   seedJob(store, { businessId: 'biz-inactive-job', jobId: 'job-cancelled', status: 'cancelled', assignedEmployeeIds: ['emp-a'] });
+  seedJob(store, { businessId: 'biz-inactive-job', jobId: 'job-on-hold', status: 'on_hold', assignedEmployeeIds: ['emp-a'] });
   await createBearerTokenForUser({ businessId: 'biz-inactive-job', userId: 'user-a', role: 'crew_member', email: 'a@example.com', employeeId: 'emp-a', token: 'token-inactive-job' });
 
-  for (const jobId of ['job-completed', 'job-cancelled']) {
+  for (const jobId of ['job-completed', 'job-cancelled', 'job-on-hold']) {
     const res = createMockRes();
     await clockingHandler({
       method: 'POST',
@@ -702,6 +703,7 @@ test('clock-in rejects completed and cancelled Jobs', async (t) => {
     }, res);
     assert.equal(res.statusCode, 409);
     assert.equal(res.body.code, 'job_not_active');
+    assert.equal(res.body.error, 'This Job is not available for clocking.');
   }
   assert.equal((await listTimeEntriesForBusiness('biz-inactive-job')).length, 0);
 });
