@@ -5,6 +5,11 @@ import type { ScheduleColour } from '../config/scheduleColours.js';
 export const DEFAULT_CALENDAR_PREFERENCES: CalendarPreferences;
 export function normalizeCalendarPreferences(value?: Partial<CalendarPreferences> | null): CalendarPreferences;
 export function getEffectiveDivision(job: Job, divisions: Division[], budgets: Budget[]): Division | null;
+export function resolveProjectJobScheduleAssignments(job: Job, employees?: Employee[], crews?: Crew[]): {
+  crew: Crew | null;
+  foreman: Employee | null;
+  assignedCrew: Employee[];
+};
 export function resolveScheduleColour(input: { source?: 'oliveops' | 'time_off' | ExternalCalendarProvider; colourBy: CalendarColourBy; job?: { status: string }; foreman?: Employee | null; crew?: Crew | null; division?: Division | null }): ScheduleColour;
 
 export interface NormalizedScheduleEntry {

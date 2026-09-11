@@ -12,6 +12,7 @@ import {
   normalizeExternalScheduleEntry,
   normalizeCalendarPreferences,
   packWeeklyScheduleSpans,
+  resolveProjectJobScheduleAssignments,
   resolveScheduleColour,
 } from '../src/utils/scheduleModel.js';
 
@@ -129,4 +130,32 @@ test('assigned Foreman colour takes precedence for OliveOps events only', () => 
   assert.equal(resolveScheduleColour({ colourBy: 'division', job: { status: 'scheduled' }, foreman, crew, division }).value, '#b91c1c');
   assert.notEqual(resolveScheduleColour({ source: 'google', colourBy: 'crew', foreman, crew }).value, '#b91c1c');
   assert.equal(resolveScheduleColour({ colourBy: 'crew', foreman: { ...foreman, schedulingColor: '#ffffff' }, crew }).value, crew.colour);
+});
+
+test('canonical Project Job assignments resolve Foreman and Crew without duplication', () => {
+  const employees = [
+    { id: 'foreman-1', name: 'Ryan Field', schedulingColor: '#b91c1c' },
+    { id: 'employee-1', name: 'Employee One' },
+    { id: 'employee-2', name: 'Employee Two' },
+  ];
+  const assignments = resolveProjectJobScheduleAssignments({
+    assignedForemanId: 'foreman-1',
+    assignedCrewEmployeeIds: ['employee-1', 'employee-2', 'foreman-1'],
+    assignedEmployeeIds: ['foreman-1', 'employee-1', 'employee-2'],
+  }, employees, []);
+  assert.equal(assignments.foreman?.name, 'Ryan Field');
+  assert.deepEqual(assignments.assignedCrew.map((employee) => employee.id), ['employee-1', 'employee-2']);
+  assert.equal(resolveScheduleColour({ colourBy: 'crew', job: { status: 'scheduled' }, foreman: assignments.foreman }).value, '#b91c1c');
+});
+
+test('Project Jobs use crew lead fallback without inferring modern canonical fields', () => {
+  const employees = [{ id: 'legacy-lead', name: 'Legacy Lead' }, { id: 'employee-1', name: 'Employee One' }];
+  const crews = [{ id: 'crew-legacy', leadEmployeeId: 'legacy-lead' }];
+  const legacy = resolveProjectJobScheduleAssignments({ crewId: 'crew-legacy', assignedEmployeeIds: ['legacy-lead', 'employee-1'] }, employees, crews);
+  assert.equal(legacy.foreman?.id, 'legacy-lead');
+  assert.deepEqual(legacy.assignedCrew.map((employee) => employee.id), ['employee-1']);
+
+  const canonicalCrew = resolveProjectJobScheduleAssignments({ crewId: 'crew-legacy', assignedForemanId: null, assignedCrewEmployeeIds: [] }, employees, crews);
+  assert.equal(canonicalCrew.foreman?.id, 'legacy-lead');
+  assert.deepEqual(canonicalCrew.assignedCrew, []);
 });

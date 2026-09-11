@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import dataHandler from '../api/data.js';
 import { ddb } from '../api/_lib/db.js';
-import { createMobileSessionForUser, getJobForBusiness } from '../api/_lib/authRepo.js';
+import { createMobileSessionForUser, getJobForBusiness, listJobsForBusiness } from '../api/_lib/authRepo.js';
+import { createJobScheduleHandler } from '../api/job-schedule.js';
+import { resolveProjectJobScheduleAssignments, resolveScheduleColour } from '../src/utils/scheduleModel.js';
 
 function createMockRes() {
   return {
@@ -93,7 +95,7 @@ function seedBusinessUser(store, { businessId, userId, role, email }) {
   );
 }
 
-function seedEmployee(store, { businessId, employeeId, name, active = true }) {
+function seedEmployee(store, { businessId, employeeId, name, active = true, role = 'crew_member' }) {
   store.set(
     mapKey(`BUSINESS#${businessId}`, `EMPLOYEE#${employeeId}`),
     {
@@ -106,7 +108,7 @@ function seedEmployee(store, { businessId, employeeId, name, active = true }) {
       name,
       email: `${employeeId}@example.com`,
       phone: '',
-      role: 'crew_member',
+      role,
       hourlyRate: 30,
       active,
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -286,6 +288,64 @@ test('employee assignments add multiple, remove one, and persist without duplica
   assert.equal(duplicateRes.statusCode, 400);
   assert.equal(duplicateRes.body.error, 'Assigned employees must be unique.');
   assert.deepEqual((await getJobForBusiness('biz-a', 'job-employees')).assignedEmployeeIds, ['emp-b']);
+});
+
+test('Schedule Foreman and Crew assignments survive repository get and list reloads', async (t) => {
+  const store = installDdbMock(t);
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'foreman-1', name: 'Ryan Field', role: 'foreman' });
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'employee-1', name: 'Employee One' });
+  seedEmployee(store, { businessId: 'biz-a', employeeId: 'employee-2', name: 'Employee Two' });
+  store.set(mapKey('BUSINESS#biz-a', 'JOB#job-hydration'), {
+    PK: 'BUSINESS#biz-a', SK: 'JOB#job-hydration', entityType: 'JOB', businessId: 'biz-a', jobId: 'job-hydration',
+    ...buildJobRecord({ id: undefined, assignedForemanId: null, assignedCrewEmployeeIds: [], assignedEmployeeIds: [] }),
+  });
+  const scheduleHandler = createJobScheduleHandler({
+    requireSession: async () => ({ id: 'admin-1', businessId: 'biz-a', role: 'admin' }),
+    syncJobToExternalCalendars: async () => {},
+  });
+  const res = createMockRes();
+  await scheduleHandler({
+    method: 'PATCH', query: { jobId: 'job-hydration' },
+    body: { assignedForemanId: 'foreman-1', assignedCrewEmployeeIds: ['employee-1', 'employee-2'] },
+  }, res);
+
+  assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+  const expected = {
+    assignedForemanId: 'foreman-1',
+    assignedCrewEmployeeIds: ['employee-1', 'employee-2'],
+    assignedEmployeeIds: ['foreman-1', 'employee-1', 'employee-2'],
+  };
+  const reloaded = await getJobForBusiness('biz-a', 'job-hydration');
+  assert.deepEqual({
+    assignedForemanId: reloaded.assignedForemanId,
+    assignedCrewEmployeeIds: reloaded.assignedCrewEmployeeIds,
+    assignedEmployeeIds: reloaded.assignedEmployeeIds,
+  }, expected);
+  const listed = (await listJobsForBusiness('biz-a')).find((job) => job.id === 'job-hydration');
+  assert.deepEqual({
+    assignedForemanId: listed.assignedForemanId,
+    assignedCrewEmployeeIds: listed.assignedCrewEmployeeIds,
+    assignedEmployeeIds: listed.assignedEmployeeIds,
+  }, expected);
+  const assignments = resolveProjectJobScheduleAssignments(reloaded, [
+    { id: 'foreman-1', name: 'Ryan Field', schedulingColor: '#b91c1c' },
+    { id: 'employee-1', name: 'Employee One' },
+    { id: 'employee-2', name: 'Employee Two' },
+  ], []);
+  assert.equal(assignments.foreman?.id, 'foreman-1');
+  assert.equal(resolveScheduleColour({ colourBy: 'crew', job: reloaded, foreman: assignments.foreman }).value, '#b91c1c');
+});
+
+test('legacy Job hydration does not infer canonical assignment fields', async (t) => {
+  const store = installDdbMock(t);
+  store.set(mapKey('BUSINESS#biz-a', 'JOB#legacy-job'), {
+    PK: 'BUSINESS#biz-a', SK: 'JOB#legacy-job', entityType: 'JOB', businessId: 'biz-a', jobId: 'legacy-job',
+    ...buildJobRecord({ id: undefined, crewId: 'crew-legacy', assignedEmployeeIds: ['legacy-lead', 'employee-1'] }),
+  });
+  const reloaded = await getJobForBusiness('biz-a', 'legacy-job');
+  assert.equal(reloaded.assignedForemanId, null);
+  assert.equal(reloaded.assignedCrewEmployeeIds, undefined);
+  assert.deepEqual(reloaded.assignedEmployeeIds, ['legacy-lead', 'employee-1']);
 });
 
 test('primary crew can change and clear while schedule fields remain intact', async (t) => {

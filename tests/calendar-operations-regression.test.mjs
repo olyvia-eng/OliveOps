@@ -76,7 +76,7 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /employeeId: employeeFilter/);
   assert.match(calendarSource, /status: statusFilter/);
   assert.match(calendarSource, /crewId: selectedEvent\.job\.crewId/);
-  assert.match(calendarSource, /\(job\.assignedEmployeeIds \?\? \[\]\)\.includes\(employee\.id\)/);
+  assert.match(calendarSource, /resolveProjectJobScheduleAssignments\(job, employees, crews\)/);
   assert.match(scheduleEditorSource, /job\.assignedForemanId \?\? legacyCrew\?\.leadEmployeeId/);
   assert.match(scheduleEditorSource, /job\.assignedCrewEmployeeIds \?\? job\.assignedEmployeeIds/);
   assert.match(scheduleUtilsSource, /scheduleConfirmed/);
@@ -93,6 +93,17 @@ test('calendar events are built from canonical job scheduling fields and open de
   assert.match(calendarSource, /Open Job/);
   assert.match(calendarSource, /Edit Schedule/);
   assert.doesNotMatch(calendarSource, /Link to=\{`\/jobs\/\$\{job\.id\}`\}/);
+});
+
+test('Schedule detail separates hydrated Foreman from Assigned Crew', () => {
+  assert.match(calendarSource, />Foreman</);
+  assert.match(calendarSource, /selectedEvent\.foreman\?\.name \?\? 'No foreman assigned'/);
+  assert.match(calendarSource, />Assigned Crew</);
+  assert.match(calendarSource, /selectedEvent\.assignedCrew\.map/);
+  assert.doesNotMatch(calendarSource, />Assigned Employees</);
+  assert.match(scheduleModelSource, /job\?\.assignedForemanId \?\? crew\?\.leadEmployeeId/);
+  assert.match(scheduleModelSource, /job\.assignedCrewEmployeeIds/);
+  assert.match(calendarSource, /resolveScheduleColour\(\{ colourBy: preferences\.colourBy, job: entry\.job, foreman: entry\.foreman/);
 });
 
 test('weekend exclusion segments month, week, and day views without duplicating Jobs', () => {

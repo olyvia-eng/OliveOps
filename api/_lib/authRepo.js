@@ -4574,6 +4574,8 @@ function mapJobRecordFromItem(item) {
     currentContractRevenue: item.currentContractRevenue,
     actualCosts: item.actualCosts ?? [],
     contractValue: item.contractValue,
+    assignedForemanId: item.assignedForemanId ?? null,
+    assignedCrewEmployeeIds: Array.isArray(item.assignedCrewEmployeeIds) ? item.assignedCrewEmployeeIds : undefined,
     assignedEmployeeIds: item.assignedEmployeeIds ?? [],
     assignedEquipmentIds: item.assignedEquipmentIds ?? [],
     taskHeaderLabels: item.taskHeaderLabels,

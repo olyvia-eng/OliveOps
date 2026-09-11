@@ -19,7 +19,7 @@ import type { CalendarColourBy, CalendarPreferences, CalendarView, ServiceVisit 
 import { CalendarFilters, CalendarLegend, CalendarToolbar, ColourBySelector, ScheduleEventCard } from '../../components/calendar/CalendarControls';
 import CrewLaneWeekView from '../../components/calendar/CrewLaneWeekView';
 import { formatDate, statusColor } from '../../utils';
-import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, resolveScheduleColour } from '../../utils/scheduleModel.js';
+import { DEFAULT_CALENDAR_PREFERENCES, filterScheduleEntries, getEffectiveDivision, getScheduleLegend, normalizeCalendarPreferences, resolveProjectJobScheduleAssignments, resolveScheduleColour } from '../../utils/scheduleModel.js';
 import { exclusiveEndDateKey, formatTimeOffType, getEmployeeTimeOffConflicts, getJobTimeOffConflicts, normalizeTimeOffScheduleEntry, type EmployeeTimeOffConflict, type ScheduleTimeOff } from '../../utils/employeeAvailability.js';
 import {
   formatCustomerPropertyLabel,
@@ -107,17 +107,15 @@ export default function CalendarPage({ currentUserRole }: Props) {
         if (!schedule) return null;
 
         const customer = customers.find((item) => item.id === job.customerId) ?? null;
-        const assignedEmployees = employees.filter((employee) => (job.assignedEmployeeIds ?? []).includes(employee.id));
         const assignedEquipment = getAssignedEquipmentForJob(job, equipmentAssets);
-        const crew = crews.find((item) => item.id === job.crewId) ?? null;
-        const foreman = employees.find((employee) => employee.id === (job.assignedForemanId ?? crew?.leadEmployeeId)) ?? null;
+        const { assignedCrew, crew, foreman } = resolveProjectJobScheduleAssignments(job, employees, crews);
         const division = getEffectiveDivision(job, divisions, budgets);
 
         return {
           job,
           customer,
           schedule,
-          assignedEmployees,
+          assignedCrew,
           assignedEquipment,
           crew,
           foreman,
@@ -230,7 +228,7 @@ export default function CalendarPage({ currentUserRole }: Props) {
         summary: entry.summary,
         timeLabel: entry.schedule.allDay ? '' : entry.timeLabel,
         status: entry.job.status,
-        employeeCount: entry.assignedEmployees.length,
+        employeeCount: entry.job.assignedEmployeeIds?.length ?? 0,
         equipmentCount: entry.assignedEquipment.length,
         crewName: entry.crew?.name ?? 'Unassigned crew',
         colour: resolveScheduleColour({ colourBy: preferences.colourBy, job: entry.job, foreman: entry.foreman, crew: entry.crew, division: entry.division }),
@@ -672,16 +670,16 @@ export default function CalendarPage({ currentUserRole }: Props) {
               </div>
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Crew & Division</p>
-                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedEvent.crew?.name ?? 'No primary crew'} · {selectedEvent.division?.name ?? 'No division'}</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Foreman</p>
+                <p className="mt-2 text-brand-700 dark:text-brand-100">{selectedEvent.foreman?.name ?? 'No foreman assigned'}</p>
               </div>
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Assigned Employees</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-400 dark:text-brand-200">Assigned Crew</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedEvent.assignedEmployees.length === 0
-                    ? <span className="text-brand-500 dark:text-brand-200">No employees assigned.</span>
-                    : selectedEvent.assignedEmployees.map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-brand-50" />)}
+                  {selectedEvent.assignedCrew.length === 0
+                    ? <span className="text-brand-500 dark:text-brand-200">No crew assigned.</span>
+                    : selectedEvent.assignedCrew.map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700 dark:bg-brand-600 dark:text-brand-50" />)}
                 </div>
               </div>
 

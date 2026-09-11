@@ -60,6 +60,21 @@ export function getEffectiveDivision(job, divisions, budgets) {
   };
 }
 
+export function resolveProjectJobScheduleAssignments(job, employees = [], crews = []) {
+  const crew = byId(crews, job?.crewId);
+  const hasCanonicalCrew = Array.isArray(job?.assignedCrewEmployeeIds);
+  const foremanId = job?.assignedForemanId ?? crew?.leadEmployeeId;
+  const foreman = byId(employees, foremanId);
+  const assignedCrewEmployeeIds = hasCanonicalCrew
+    ? job.assignedCrewEmployeeIds
+    : (job?.assignedEmployeeIds ?? []).filter((employeeId) => employeeId !== foremanId);
+  return {
+    crew,
+    foreman,
+    assignedCrew: employees.filter((employee) => assignedCrewEmployeeIds.includes(employee.id) && employee.id !== foremanId),
+  };
+}
+
 export function resolveScheduleColour({ source = 'oliveops', colourBy, job, foreman, crew, division }) {
   if (source === 'time_off') return TIME_OFF_SCHEDULE_COLOUR;
   if (source === 'google') return GOOGLE_SCHEDULE_COLOUR;
