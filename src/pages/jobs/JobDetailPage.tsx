@@ -14,6 +14,7 @@ import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewes
 import OutstandingTasks from '../home/OutstandingTasks';
 import JobAnalysisWorkspace from '../../components/jobs/JobAnalysisWorkspace';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
+import ManualTimeEntryModal from '../../components/time/ManualTimeEntryModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 import JobSopsCard from '../../components/jobs/JobSopsCard';
 import { paymentScheduleItemState } from '../../utils/contractBillingModel.js';
@@ -66,7 +67,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { jobs, customers, employees, crews, invoices, timeEntries, timeCorrections, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore(useShallow((state) => ({
+  const { jobs, customers, employees, crews, invoices, timeEntries, timeCorrections, unbillableTimeCategories, equipmentAssets, forms, formSubmissions, tasks, jobTaskHeadings, updateJob, initializeJobPlan, mutateJobPlan, addTimeEntry, deleteTimeEntry, addTask, updateTask, deleteTask, addJobTaskHeading, renameJobTaskHeading, deleteJobTaskHeading, reorderJobTaskHeadings } = useStore(useShallow((state) => ({
     jobs: state.jobs,
     customers: state.customers,
     employees: state.employees,
@@ -74,6 +75,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     invoices: state.invoices,
     timeEntries: state.timeEntries,
     timeCorrections: state.timeCorrections,
+    unbillableTimeCategories: state.unbillableTimeCategories,
     equipmentAssets: state.equipmentAssets,
     forms: state.forms,
     formSubmissions: state.formSubmissions,
@@ -82,6 +84,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     updateJob: state.updateJob,
     initializeJobPlan: state.initializeJobPlan,
     mutateJobPlan: state.mutateJobPlan,
+    addTimeEntry: state.addTimeEntry,
     deleteTimeEntry: state.deleteTimeEntry,
     addTask: state.addTask,
     updateTask: state.updateTask,
@@ -106,6 +109,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const [showAllNotes, setShowAllNotes] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
+  const [addingTimeEntry, setAddingTimeEntry] = useState(false);
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const legacyCrew = crews.find((crew) => crew.id === job?.crewId);
@@ -136,6 +140,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const visibleJobTasks = useMemo(() => jobTasks.filter((task) => !task.parentTaskId), [jobTasks]);
   const canManageSchedule = currentUserRole === 'owner' || currentUserRole === 'admin' || currentUserRole === 'foreman';
   const canEditFinancials = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const canAddTimeEntry = currentUserRole === 'owner' || currentUserRole === 'admin';
   const [jobInfoSaving, setJobInfoSaving] = useState(false);
   const [planInitializing, setPlanInitializing] = useState(false);
   const [jobInfo, setJobInfo] = useState(() => ({
@@ -588,7 +593,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
           </Card>
 
           <Card>
-            <div className="border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2></div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2>{canAddTimeEntry ? <Button size="sm" onClick={() => setAddingTimeEntry(true)}><Plus size={14} /> Add Time Entry</Button> : null}</div>
             {jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-500" role="status">Loading Time Entries...</p> : jobTimeEntryPage.error ? <div className="flex items-center gap-2 p-4"><p className="text-sm font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : jobTimeEntryPage.items.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
               <ul className="divide-y divide-gray-50">{jobTimeEntryPage.items.map((entry) => {
                 const employee = employees.find((item) => item.id === entry.employeeId);
@@ -691,6 +696,19 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
         onClose={() => setSelectedTimeEntryId(null)}
         onUpdated={jobTimeEntryPage.refresh}
         onDeleted={jobTimeEntryPage.removeAfterDelete}
+      />
+      <ManualTimeEntryModal
+        open={addingTimeEntry}
+        employees={employees}
+        jobs={jobs}
+        unbillableCategories={unbillableTimeCategories}
+        fixedJobId={job.id}
+        onClose={() => setAddingTimeEntry(false)}
+        onSave={addTimeEntry}
+        onCreated={() => {
+          jobTimeEntryPage.refresh();
+          emitAppToast({ tone: 'success', message: 'Time Entry added.' });
+        }}
       />
     </div>
   );

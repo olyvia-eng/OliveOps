@@ -176,7 +176,7 @@ export function matchesTimeEntryFilters(entry, filters) {
     const jobIds = Array.isArray(entry.jobIds) && entry.jobIds.length > 0
       ? entry.jobIds
       : entry.jobId ? [entry.jobId] : [];
-    if (entry.workType !== 'job' || !jobIds.includes(filters.jobId)) return false;
+    if (!jobIds.includes(filters.jobId)) return false;
   }
   if (filters.workAreaId && entry.workAreaId !== filters.workAreaId) return false;
   if (filters.workType && (entry.workType ?? 'job') !== filters.workType) return false;

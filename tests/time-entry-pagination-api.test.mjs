@@ -40,6 +40,7 @@ function harness(overrides = {}) {
       { id: 'employee-2', name: 'Grace Hopper', email: 'grace@example.com' },
     ],
     listTimeCorrectionsForBusiness: async () => [],
+    createManualTimeEntryMutation: async ({ session, input }) => ({ ok: true, timeEntry: { ...entry('created-entry', input.employeeId), ...input, source: 'manual_admin', createdByUserId: session.id } }),
     listTimeEntryPageForBusiness: async (input) => {
       calls.push(input);
       return overrides.page?.(input, calls.length) ?? { items: [entry('entry-1')], hasMore: false, lastEvaluatedKey: null };
@@ -244,4 +245,38 @@ test('a deleted Time Entry is absent from subsequent lists, totals, and Bookkeep
   assert.match(exported.body, /Matching Entries,1/);
   assert.match(exported.body, /Grace Hopper,1\.00/);
   assert.doesNotMatch(exported.body, /Ada Lovelace/);
+});
+
+test('POST routes manual creation through the canonical tenant-scoped mutation', async () => {
+  const calls = [];
+  const context = harness({
+    dependencies: {
+      createManualTimeEntryMutation: async (input) => {
+        calls.push(input);
+        return { ok: true, timeEntry: { ...entry('created-entry'), source: 'manual_admin' } };
+      },
+    },
+  });
+  const res = response();
+  const body = { employeeId: 'employee-1', workType: 'drive_time', clockIn: '2026-01-02T10:00:00.000Z', clockOut: '2026-01-02T11:00:00.000Z' };
+  await context.handler({ method: 'POST', query: {}, body }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.timeEntry.id, 'created-entry');
+  assert.equal(calls[0].session.businessId, 'business-1');
+  assert.deepEqual(calls[0].input, body);
+});
+
+test('Job page includes contextual Drive Time in its canonical Job filter', async () => {
+  let entries = [entry('job-work')];
+  entries.push({ ...entry('drive-time'), workType: 'drive_time', jobId: 'job-1', jobIds: ['job-1'] });
+  const context = harness({
+    dependencies: {
+      listTimeEntryPageForBusiness: async ({ filters }) => ({
+        items: entries.filter((item) => item.jobIds.includes(filters.jobId)), hasMore: false, lastEvaluatedKey: null,
+      }),
+    },
+  });
+  const res = response();
+  await context.handler({ method: 'GET', query: { surface: 'job', jobId: 'job-1' } }, res);
+  assert.deepEqual(res.body.items.map((item) => item.id), ['job-work', 'drive-time']);
 });

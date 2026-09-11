@@ -249,7 +249,16 @@ interface AppState {
     notes: string;
     reason?: string;
   }) => Promise<{ ok: boolean; code?: string; error?: string; timeEntry?: TimeEntry }>;
-  addTimeEntry: (e: Omit<TimeEntry, 'id'>) => void;
+  addTimeEntry: (payload: {
+    employeeId: ID;
+    workType: TimeEntryWorkType;
+    jobId?: ID;
+    workAreaId?: ID;
+    unbillableCategoryId?: ID;
+    clockIn: string;
+    clockOut: string;
+    notes?: string;
+  }) => Promise<{ ok: boolean; code?: string; error?: string; timeEntry?: TimeEntry }>;
   updateTimeEntry: (id: ID, data: Partial<TimeEntry>) => void;
   deleteTimeEntry: (id: ID) => Promise<{ ok: boolean; code?: string; error?: string }>;
   submitTimeCorrectionRequest: (payload: {
@@ -1443,22 +1452,28 @@ export const useStore = create<AppState>()((set, get) => ({
           return { ok: false, error: errorMessage(error, 'Time Entry could not be updated.') };
         }
       },
-      addTimeEntry: (e) => {
-        const previous = get().timeEntries;
-        const timeEntry: TimeEntry = { ...e, id: generateId() };
-        set((s) => ({ timeEntries: [...s.timeEntries, timeEntry] }));
-
-        void ensureOk(fetch(dataUrl('time-entries'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ data: timeEntry }),
-        })).catch(() => {
-          set({ timeEntries: previous });
-          emitAppToast({ tone: 'error', message: 'Time entry could not be saved.' });
-        });
+      addTimeEntry: async (payload) => {
+        try {
+          const response = await fetch('/api/time-entries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+          });
+          const body = await response.json().catch(() => null) as {
+            ok?: boolean;
+            code?: string;
+            error?: string;
+            timeEntry?: TimeEntry;
+          } | null;
+          if (!response.ok || !body?.ok || !body.timeEntry) {
+            return { ok: false, code: body?.code, error: body?.error ?? `Time Entry could not be added (HTTP ${response.status}).` };
+          }
+          set((state) => ({ timeEntries: [body.timeEntry as TimeEntry, ...state.timeEntries.filter((entry) => entry.id !== body.timeEntry?.id)] }));
+          return { ok: true, timeEntry: body.timeEntry };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error, 'Time Entry could not be added.') };
+        }
       },
       updateTimeEntry: (id, data) => {
         const previous = get().timeEntries;

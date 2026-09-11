@@ -189,6 +189,9 @@ async function resolveActivity({ businessId, workType, jobId, workAreaId, unbill
     if (normalizedWorkAreaId && (!workArea || typeof workArea.name !== 'string' || !workArea.name.trim())) {
       return { ok: false, status: 400, code: 'time_entry_work_area_invalid', error: 'Work Area is not part of the selected Job.' };
     }
+    if (dependencies.requireOperationalWorkArea && Array.isArray(job.operationalWorkAreas) && job.operationalWorkAreas.length > 0 && !workArea) {
+      return { ok: false, status: 400, code: 'time_entry_work_area_required', error: 'Job Work requires a Work Area for this Job.' };
+    }
     return {
       ok: true,
       jobId,
@@ -230,6 +233,141 @@ async function resolveActivity({ businessId, workType, jobId, workAreaId, unbill
     unbillableCategoryId: undefined,
     unbillableCategoryName: undefined,
   };
+}
+
+export async function createManualTimeEntryMutation({
+  session,
+  input,
+  now = new Date().toISOString(),
+  dependencies: dependencyOverrides = {},
+}) {
+  if (!canDirectlyEditTimeEntries(session)) {
+    return { ok: false, status: 403, code: 'time_entry_create_forbidden', error: 'You do not have permission to add Time Entries.' };
+  }
+
+  const dependencies = {
+    getEmployeeForBusiness,
+    getJobForBusiness,
+    getUnbillableTimeCategoryForBusiness,
+    listTimeEntriesForBusiness,
+    transactWrite: (transaction) => ddb.send(new TransactWriteCommand(transaction)),
+    requireOperationalWorkArea: true,
+    ...dependencyOverrides,
+  };
+  const employeeId = typeof input?.employeeId === 'string' ? input.employeeId.trim() : '';
+  const employee = employeeId ? await dependencies.getEmployeeForBusiness(session.businessId, employeeId) : null;
+  if (!employee) return { ok: false, status: 400, code: 'time_entry_employee_invalid', error: 'Employee is invalid.' };
+
+  const clockIn = toIsoOrNull(input?.clockIn);
+  const clockOut = toIsoOrNull(input?.clockOut);
+  if (!clockIn || !clockOut) {
+    return { ok: false, status: 400, code: 'time_entry_time_invalid', error: 'Clock In and Clock Out must be valid dates.' };
+  }
+  if (Date.parse(clockOut) <= Date.parse(clockIn)) {
+    return { ok: false, status: 400, code: 'time_entry_duration_invalid', error: 'Clock Out must be after Clock In.' };
+  }
+  const nowMs = Date.parse(now);
+  if (Date.parse(clockIn) < nowMs - MAX_EDIT_AGE_MS || Date.parse(clockIn) > nowMs + MAX_FUTURE_SKEW_MS || Date.parse(clockOut) > nowMs + MAX_FUTURE_SKEW_MS) {
+    return { ok: false, status: 400, code: 'time_entry_date_out_of_bounds', error: 'Time Entry dates are outside the supported range.' };
+  }
+
+  const activity = await resolveActivity({
+    businessId: session.businessId,
+    workType: input?.workType,
+    jobId: input?.jobId,
+    workAreaId: input?.workAreaId,
+    unbillableCategoryId: input?.unbillableCategoryId,
+    dependencies,
+  });
+  if (!activity.ok) return activity;
+
+  const notes = typeof input?.notes === 'string' ? input.notes.trim() : '';
+  if (notes.length > 5000) {
+    return { ok: false, status: 400, code: 'time_entry_notes_too_long', error: 'Notes cannot exceed 5000 characters.' };
+  }
+  const timeEntryId = randomUUID();
+  const timeEntry = {
+    id: timeEntryId,
+    employeeId,
+    employeeName: employee.name ?? '',
+    ...activity,
+    workType: input.workType,
+    clockIn,
+    clockOut,
+    breakMinutes: 0,
+    notes,
+    status: 'clocked_out',
+    source: 'manual_admin',
+    createdByUserId: session.id,
+    createdAt: now,
+    updatedAt: now,
+  };
+  Object.assign(timeEntry, labourCostSnapshot(employee, timeEntry));
+
+  const entries = await dependencies.listTimeEntriesForBusiness(session.businessId, { consistentRead: true });
+  if (entries.some((entry) => entry.employeeId === employeeId && overlaps(timeEntry, entry))) {
+    return { ok: false, status: 409, code: 'time_entry_overlap', error: 'This Time Entry overlaps another Time Entry for the employee.' };
+  }
+
+  const eventId = randomUUID();
+  try {
+    await dependencies.transactWrite({
+      TransactItems: [
+        {
+          Put: {
+            TableName: tableName,
+            Item: {
+              PK: businessPk(session.businessId),
+              SK: timeEntrySk(timeEntryId),
+              entityType: 'TIME_ENTRY',
+              businessId: session.businessId,
+              entryId: timeEntryId,
+              ...timeEntry,
+              ...timeEntryIndexAttributes(session.businessId, timeEntry),
+            },
+            ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+          },
+        },
+        {
+          Put: {
+            TableName: tableName,
+            Item: {
+              PK: businessPk(session.businessId),
+              SK: auditSk(eventId),
+              entityType: 'AUDIT_EVENT',
+              businessId: session.businessId,
+              eventId,
+              action: 'time_entry_created',
+              actorUserId: session.id,
+              actorName: session.name ?? '',
+              actorEmail: session.email ?? '',
+              affectedEntryCount: 1,
+              createdAt: now,
+              metadata: {
+                timeEntryId,
+                employeeId,
+                createdByUserId: session.id,
+                source: 'manual_admin',
+                clockIn,
+                clockOut,
+                workType: input.workType,
+                jobId: activity.jobId ?? null,
+                workAreaId: activity.workAreaId ?? null,
+                unbillableCategoryId: activity.unbillableCategoryId ?? null,
+              },
+            },
+            ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+          },
+        },
+      ],
+    });
+    return { ok: true, timeEntry, auditEventId: eventId };
+  } catch (error) {
+    if (error?.name === 'TransactionCanceledException') {
+      return { ok: false, status: 409, code: 'time_entry_conflict', error: 'Time Entry could not be added. Refresh and try again.' };
+    }
+    throw error;
+  }
 }
 
 export async function applyTimeEntryMutation({

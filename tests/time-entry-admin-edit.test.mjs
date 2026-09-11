@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyTimeEntryMutation, canDirectlyEditTimeEntries, deleteTimeEntryMutation } from '../api/_lib/timeEntryMutations.js';
+import { applyTimeEntryMutation, canDirectlyEditTimeEntries, createManualTimeEntryMutation, deleteTimeEntryMutation } from '../api/_lib/timeEntryMutations.js';
 
 const now = '2026-09-01T18:00:00.000Z';
 const session = { id: 'admin-1', name: 'Admin One', email: 'admin@example.com', role: 'admin', businessId: 'biz-1' };
@@ -52,11 +52,111 @@ function harness(overrides = {}) {
   return { entry, entries, jobs, transactions, apply };
 }
 
+function createHarness(overrides = {}) {
+  const transactions = [];
+  const employees = [{ id: 'employee-1', name: 'Employee One', compensationType: 'hourly', hourlyRate: 25, payrollBurdenPct: 20 }];
+  const jobs = [
+    { id: 'job-1', operationalWorkAreas: [{ id: 'area-1', name: 'Excavation' }] },
+    { id: 'job-2', operationalWorkAreas: [{ id: 'area-2', name: 'Framing' }] },
+  ];
+  const dependencies = {
+    getEmployeeForBusiness: async (_businessId, id) => employees.find((employee) => employee.id === id) ?? null,
+    getJobForBusiness: async (_businessId, id) => jobs.find((job) => job.id === id) ?? null,
+    getUnbillableTimeCategoryForBusiness: async (_businessId, id) => id === 'category-1' ? { id, name: 'Training', active: true } : null,
+    listTimeEntriesForBusiness: async () => overrides.entries ?? [],
+    transactWrite: async (input) => transactions.push(input),
+    ...overrides.dependencies,
+  };
+  const create = (input, role = 'admin') => createManualTimeEntryMutation({
+    session: { ...session, role },
+    input: {
+      employeeId: 'employee-1', workType: 'job', jobId: 'job-1', workAreaId: 'area-1',
+      clockIn: '2026-09-01T12:00:00.000Z', clockOut: '2026-09-01T16:00:00.000Z', notes: 'Manual entry',
+      ...input,
+    },
+    now,
+    dependencies,
+  });
+  return { create, transactions };
+}
+
 test('direct Time Entry editing is restricted to Owner and Admin', () => {
   assert.equal(canDirectlyEditTimeEntries({ role: 'owner' }), true);
   assert.equal(canDirectlyEditTimeEntries({ role: 'admin' }), true);
   assert.equal(canDirectlyEditTimeEntries({ role: 'foreman' }), false);
   assert.equal(canDirectlyEditTimeEntries({ role: 'crew_member' }), false);
+});
+
+test('owner and admin manually create canonical Job Work with costing and audit metadata', async () => {
+  for (const role of ['owner', 'admin']) {
+    const context = createHarness();
+    const result = await context.create({}, role);
+    assert.equal(result.ok, true);
+    assert.equal(result.timeEntry.employeeId, 'employee-1');
+    assert.equal(result.timeEntry.employeeName, 'Employee One');
+    assert.equal(result.timeEntry.jobId, 'job-1');
+    assert.deepEqual(result.timeEntry.jobIds, ['job-1']);
+    assert.equal(result.timeEntry.workAreaId, 'area-1');
+    assert.equal(result.timeEntry.workAreaNameSnapshot, 'Excavation');
+    assert.equal(result.timeEntry.status, 'clocked_out');
+    assert.equal(result.timeEntry.source, 'manual_admin');
+    assert.equal(result.timeEntry.createdByUserId, 'admin-1');
+    assert.equal(result.timeEntry.createdAt, now);
+    assert.equal(result.timeEntry.labourCostRateSnapshot, 30);
+    assert.equal(result.timeEntry.labourCostTotalSnapshot, 120);
+    const [entryWrite, auditWrite] = context.transactions[0].TransactItems;
+    assert.equal(entryWrite.Put.Item.entityType, 'TIME_ENTRY');
+    assert.equal(entryWrite.Put.Item.businessId, 'biz-1');
+    assert.equal(auditWrite.Put.Item.action, 'time_entry_created');
+    assert.equal(auditWrite.Put.Item.metadata.source, 'manual_admin');
+  }
+});
+
+test('manual creation forbids crew members before tenant data lookup', async () => {
+  const context = createHarness({ dependencies: { getEmployeeForBusiness: async () => assert.fail('unauthorized create performed a lookup') } });
+  const result = await context.create({}, 'crew_member');
+  assert.equal(result.status, 403);
+  assert.equal(result.code, 'time_entry_create_forbidden');
+  assert.equal(context.transactions.length, 0);
+});
+
+test('manual activity validation rejects cross-Job Work Areas and requires category and positive timestamps', async () => {
+  const context = createHarness();
+  assert.equal((await context.create({ employeeId: 'other-business-employee' })).code, 'time_entry_employee_invalid');
+  assert.equal((await context.create({ jobId: 'other-business-job' })).code, 'time_entry_job_invalid');
+  assert.equal((await context.create({ workAreaId: 'area-2' })).code, 'time_entry_work_area_invalid');
+  assert.equal((await context.create({ workAreaId: undefined })).code, 'time_entry_work_area_required');
+  assert.equal((await context.create({ workType: 'non_billable', jobId: undefined, workAreaId: undefined, unbillableCategoryId: undefined })).code, 'time_entry_unbillable_category_invalid');
+  assert.equal((await context.create({ workType: 'non_billable', jobId: undefined, workAreaId: undefined, unbillableCategoryId: 'other-business-category' })).code, 'time_entry_unbillable_category_invalid');
+  assert.equal((await context.create({ clockOut: 'invalid' })).code, 'time_entry_time_invalid');
+  assert.equal((await context.create({ clockOut: '2026-09-01T12:00:00.000Z' })).code, 'time_entry_duration_invalid');
+  assert.equal((await context.create({ clockOut: '2026-09-01T11:00:00.000Z' })).code, 'time_entry_duration_invalid');
+  assert.equal(context.transactions.length, 0);
+});
+
+test('manual Non-Billable entry snapshots its tenant category without requiring a Job', async () => {
+  const context = createHarness();
+  const result = await context.create({ workType: 'non_billable', jobId: undefined, workAreaId: undefined, unbillableCategoryId: 'category-1' });
+  assert.equal(result.ok, true);
+  assert.equal(result.timeEntry.jobId, undefined);
+  assert.deepEqual(result.timeEntry.jobIds, []);
+  assert.equal(result.timeEntry.unbillableCategoryId, 'category-1');
+  assert.equal(result.timeEntry.unbillableCategoryName, 'Training');
+});
+
+test('manual Drive Time preserves optional Job context and clears Work Area', async () => {
+  const withJob = createHarness();
+  const contextual = await withJob.create({ workType: 'drive_time', workAreaId: 'area-1' });
+  assert.equal(contextual.ok, true);
+  assert.equal(contextual.timeEntry.jobId, 'job-1');
+  assert.deepEqual(contextual.timeEntry.jobIds, ['job-1']);
+  assert.equal(contextual.timeEntry.workAreaId, undefined);
+
+  const withoutJob = createHarness();
+  const standalone = await withoutJob.create({ workType: 'drive_time', jobId: undefined, workAreaId: undefined });
+  assert.equal(standalone.ok, true);
+  assert.equal(standalone.timeEntry.jobId, undefined);
+  assert.deepEqual(standalone.timeEntry.jobIds, []);
 });
 
 test('owner and admin delete a tenant Time Entry with a durable audit event', async () => {

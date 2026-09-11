@@ -70,6 +70,7 @@ test('server filters include multi-Job and zero-duration entries before page sel
     clockIn: '2026-01-01T10:00:00.000Z', clockOut: '2026-01-01T10:00:00.000Z', breakMinutes: 0, status: 'clocked_out',
   };
   assert.equal(matchesTimeEntryFilters(zeroDuration, page.filters), true);
+  assert.equal(matchesTimeEntryFilters({ ...zeroDuration, workType: 'drive_time' }, page.filters), true);
   assert.equal(matchesTimeEntryFilters(zeroDuration, { ...page.filters, includeZero: false }), false);
   assert.equal(matchesTimeEntryFilters({ ...zeroDuration, jobIds: ['job-1'] }, page.filters), false);
 });

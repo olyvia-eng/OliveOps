@@ -201,3 +201,38 @@ test('normal Time Tracking UI contains no backfill or migration controls', async
   const reports = await source('../src/pages/reports/TimeReportsPage.tsx');
   assert.doesNotMatch(reports, /backfill|migration/i);
 });
+
+test('Owner and Admin surfaces reuse one canonical manual Time Entry modal', async () => {
+  const [modal, reports, jobDetail, store] = await Promise.all([
+    source('../src/components/time/ManualTimeEntryModal.tsx'),
+    source('../src/pages/reports/TimeReportsPage.tsx'),
+    source('../src/pages/jobs/JobDetailPage.tsx'),
+    source('../src/store/index.ts'),
+  ]);
+  assert.match(reports, /import ManualTimeEntryModal/);
+  assert.match(jobDetail, /import ManualTimeEntryModal/);
+  assert.match(reports, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
+  assert.match(jobDetail, /currentUserRole === 'owner' \|\| currentUserRole === 'admin'/);
+  assert.match(reports, /<Plus[^>]*\/> Add Time Entry/);
+  assert.match(jobDetail, /<Plus[^>]*\/> Add Time Entry/);
+  assert.match(jobDetail, /fixedJobId=\{job\.id\}/);
+  assert.match(jobDetail, /jobTimeEntryPage\.refresh\(\)/);
+  assert.match(reports, /timeEntryPage\.refresh\(\)/);
+  assert.match(store, /fetch\('\/api\/time-entries'/);
+  assert.match(store, /method: 'POST'/);
+  assert.match(store, /timeEntries: \[body\.timeEntry as TimeEntry/);
+  assert.doesNotMatch(store.slice(store.indexOf('addTimeEntry: async'), store.indexOf('updateTimeEntry:', store.indexOf('addTimeEntry: async'))), /dataUrl\('time-entries'/);
+
+  for (const label of ['Employee', 'Activity', 'Job', 'Work Area', 'Category', 'Notes']) {
+    assert.match(modal, new RegExp(`label="${label}"`));
+  }
+  assert.match(modal, />Clock In /);
+  assert.match(modal, />Clock Out /);
+  assert.match(modal, /workType === 'job'/);
+  assert.match(modal, /workAreas\.length > 0/);
+  assert.match(modal, /workType === 'non_billable' && !unbillableCategoryId/);
+  assert.match(modal, /Date\.parse\(clockOut\) <= Date\.parse\(clockIn\)/);
+  assert.match(modal, /Calculated duration/);
+  assert.match(modal, />Cancel</);
+  assert.match(modal, /'Add Time Entry'/);
+});

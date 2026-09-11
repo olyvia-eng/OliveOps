@@ -11,7 +11,9 @@ import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
 import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
+import ManualTimeEntryModal from '../../components/time/ManualTimeEntryModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
+import { Plus } from 'lucide-react';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -58,6 +60,7 @@ export default function TimeReportsPage({
     jobs,
     employees,
     unbillableTimeCategories,
+    addTimeEntry,
     approveTimeCorrectionRequest,
     rejectTimeCorrectionRequest,
   } = useStore();
@@ -74,6 +77,8 @@ export default function TimeReportsPage({
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>('entries');
   const [exporting, setExporting] = useState(false);
+  const [addingTimeEntry, setAddingTimeEntry] = useState(false);
+  const canAddTimeEntry = currentUserRole === 'owner' || currentUserRole === 'admin';
 
   const correctionHighlightId = useMemo(() => {
     const id = searchParams.get('correctionId');
@@ -230,9 +235,6 @@ export default function TimeReportsPage({
         if (employeeFilter !== 'all' && entry.employeeId !== employeeFilter) return false;
 
         if (jobFilter !== 'all') {
-          const workType = normalizeWorkType(entry);
-          if (workType !== 'job') return false;
-
           const entryJobIds = normalizeJobIds(entry);
           if (!entryJobIds.includes(jobFilter)) return false;
         }
@@ -563,6 +565,7 @@ export default function TimeReportsPage({
             <p className="mt-1 text-xs text-gray-500">Newest clock-in first. Select an entry to view its details.</p>
           </div>
           <div className="flex items-center gap-3">
+            {canAddTimeEntry ? <Button onClick={() => setAddingTimeEntry(true)}><Plus size={16} /> Add Time Entry</Button> : null}
             <Button onClick={() => void handleExportSummaryCsv()} disabled={timeEntryPage.loading || Boolean(timeEntryPage.error) || timeEntryPage.items.length === 0 || exporting}>
               {exporting ? 'Exporting...' : 'Bookkeeper Export'}
             </Button>
@@ -660,6 +663,18 @@ export default function TimeReportsPage({
         onClose={() => setSelectedTimeEntryId(null)}
         onUpdated={timeEntryPage.refresh}
         onDeleted={timeEntryPage.removeAfterDelete}
+      />
+      <ManualTimeEntryModal
+        open={addingTimeEntry}
+        employees={employees}
+        jobs={jobs}
+        unbillableCategories={unbillableTimeCategories}
+        onClose={() => setAddingTimeEntry(false)}
+        onSave={addTimeEntry}
+        onCreated={() => {
+          timeEntryPage.refresh();
+          emitAppToast({ tone: 'success', message: 'Time Entry added.' });
+        }}
       />
     </div>
   );

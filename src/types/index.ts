@@ -1364,6 +1364,8 @@ export interface TimeEntry {
   status: ClockStatus;
   labourCostRateSnapshot?: number;
   labourCostTotalSnapshot?: number;
+  source?: string;
+  createdByUserId?: ID;
   createdAt?: string;
   updatedAt?: string;
 }
