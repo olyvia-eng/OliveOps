@@ -41,6 +41,7 @@ export default async function handler(req, res) {
 
     const action = req.body?.action;
     let quickBooksCustomer;
+    let createdIntuitTid = null;
     if (action === 'map') {
       const selectedId = typeof req.body?.quickBooksCustomerId === 'string' ? req.body.quickBooksCustomerId : '';
       const customers = await listQuickBooksCustomers({ accessToken, realmId: connection.realmId });
@@ -54,6 +55,7 @@ export default async function handler(req, res) {
         requestId: quickBooksRequestId('customer', session.businessId, connection.realmId, customerId),
       });
       quickBooksCustomer = { id: String(created.Id), displayName: created.DisplayName ?? customerPayload.DisplayName };
+      createdIntuitTid = created.intuitTid ?? null;
     } else {
       return res.status(400).json({ ok: false, error: 'Choose whether to map or create the customer.' });
     }
@@ -74,7 +76,7 @@ export default async function handler(req, res) {
         id: randomUUID(), action: action === 'create' ? 'quickbooks_customer_created' : 'quickbooks_customer_mapped',
         actorUserId: session.id, actorName: session.name, actorEmail: session.email,
         affectedEntryCount: 1, createdAt: new Date().toISOString(),
-        metadata: { customerId, quickBooksCustomerId: quickBooksCustomer.id, realmId: connection.realmId },
+        metadata: { customerId, quickBooksCustomerId: quickBooksCustomer.id, realmId: connection.realmId, ...(action === 'create' ? { intuitTid: createdIntuitTid } : {}) },
       },
     });
     return res.status(200).json({ ok: true, mapping });

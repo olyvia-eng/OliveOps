@@ -50,7 +50,7 @@ export async function completeQuickBooksConnection({ session, code, realmId }, d
       actorEmail: session.email,
       affectedEntryCount: 1,
       createdAt: new Date().toISOString(),
-      metadata: { realmId, companyName: company.companyName, environment: quickBooksEnvironment() },
+      metadata: { realmId, companyName: company.companyName, environment: quickBooksEnvironment(), intuitTid: company.intuitTid ?? null },
     },
   });
   return { ok: true };
