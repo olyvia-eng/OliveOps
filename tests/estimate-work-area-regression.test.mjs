@@ -43,6 +43,18 @@ test('builder uses category-specific pickers without a persistent catalog or edi
   assert.doesNotMatch(builderSource, /\['all', \.\.\.CATEGORY_ORDER\]/);
 });
 
+test('saving a work area persists the edited scope-of-work rich text, not just its plain-text mirror', () => {
+  // Regression: persistWorkArea previously carried description (the plain-text mirror written
+  // alongside every RichTextEditor onChange) into the saved work area but left scopeRichText out of
+  // that same update, so the spread ...area kept the pre-edit document. The proposal and the editor
+  // both read scopeRichText first (see proposalScopeRichText), so a save looked like it worked but
+  // silently reverted the scope of work everywhere it's actually displayed.
+  const persistMatch = builderSource.match(/const nextWorkAreas = workAreas\.map\(\(area\) => \(([\s\S]*?)\)\);/);
+  assert.ok(persistMatch, 'expected to find the nextWorkAreas mapping in persistWorkArea');
+  assert.match(persistMatch[1], /scopeRichText: form\.scopeRichText/);
+  assert.match(persistMatch[1], /description: form\.description/);
+});
+
 test('work-area normalization uses stable legacy IDs and does not invent a placeholder for empty estimates', () => {
   assert.match(modelSource, /export function normalizeEstimateWorkAreas/);
   assert.match(modelSource, /if \(legacyAreaNames\.length === 0 && legacyLineItems\.length === 0\) return \[\]/);

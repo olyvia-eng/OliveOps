@@ -262,6 +262,10 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             divisionId: estimate.divisionId,
             name: form.name.trim() || area.name,
             description: form.description,
+            // The rich-text document is the source of truth for the proposal and the editor itself
+            // (see proposalScopeRichText) - description is only kept as its plain-text mirror for
+            // legacy readers. Omitting this left every save silently keeping the old scope of work.
+            scopeRichText: form.scopeRichText,
             lineItems: form.lineItems,
           }
         : area
