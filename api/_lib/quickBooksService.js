@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { quickBooksEnvironment, requireEnv } from './env.js';
 import { decryptSecret, encryptSecret } from './secretEncryption.js';
+import { getQuickBooksDiscoveryDocument, getQuickBooksRevocationEndpointOrDefault } from './quickBooksDiscovery.js';
 import {
   acquireQuickBooksRefreshLease,
   consumeQuickBooksOAuthState,
@@ -10,11 +11,13 @@ import {
   releaseQuickBooksRefreshLease,
 } from './quickBooksRepo.js';
 
-// OAuth authorize/token/revoke run on the same Intuit endpoints regardless of environment - only
-// the Accounting API host differs between a sandbox company and a real one.
-const QUICKBOOKS_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
-const QUICKBOOKS_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
-const QUICKBOOKS_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
+// The authorization, token, and revocation endpoints are resolved from Intuit's OAuth/OpenID
+// Discovery Document (see quickBooksDiscovery.js) rather than hard-coded, so an Intuit-side rotation
+// doesn't require a code change. QUICKBOOKS_REVOKE_URL_FALLBACK is used only if discovery is
+// unavailable at disconnect time - see getQuickBooksRevocationEndpointOrDefault - so a transient
+// discovery outage never blocks removing locally stored credentials. Only the Accounting API host
+// below is still explicitly pinned by environment; discovery never influences it.
+const QUICKBOOKS_REVOKE_URL_FALLBACK = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
 const QUICKBOOKS_API_BASE_BY_ENVIRONMENT = {
   sandbox: 'https://sandbox-quickbooks.api.intuit.com',
   production: 'https://quickbooks.api.intuit.com',
@@ -55,7 +58,11 @@ async function readQuickBooksResponse(response) {
 }
 
 async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) {
-  const response = await fetchImpl(QUICKBOOKS_TOKEN_URL, {
+  // Both authorization-code exchange and refresh go through here, so both use the discovered token
+  // endpoint. Discovery failure fails this closed (no static token-endpoint fallback) - without a
+  // trustworthy token endpoint there is nothing safe to fall back to.
+  const discovery = await getQuickBooksDiscoveryDocument({ fetchImpl });
+  const response = await fetchImpl(discovery.tokenEndpoint, {
     method: 'POST',
     headers: {
       Authorization: basicAuthorization(config),
@@ -67,8 +74,11 @@ async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) 
   return readQuickBooksResponse(response);
 }
 
-export function buildQuickBooksAuthorizationUrl({ state, config = oauthConfig() }) {
-  const url = new URL(QUICKBOOKS_AUTH_URL);
+export async function buildQuickBooksAuthorizationUrl({ state, config = oauthConfig(), fetchImpl = fetch }) {
+  // Resolved before constructing the authorization URL, per the discovery document, rather than a
+  // hard-coded host - see quickBooksDiscovery.js for the trusted-host validation this relies on.
+  const discovery = await getQuickBooksDiscoveryDocument({ fetchImpl });
+  const url = new URL(discovery.authorizationEndpoint);
   url.search = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
@@ -197,7 +207,10 @@ export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchIm
 }
 
 export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config = oauthConfig() }) {
-  const response = await fetchImpl(QUICKBOOKS_REVOKE_URL, {
+  // Uses the discovered revocation endpoint when Intuit supplies one; falls back to the static
+  // endpoint only if discovery itself is unavailable, so a discovery outage never weakens disconnect.
+  const revocationEndpoint = await getQuickBooksRevocationEndpointOrDefault(QUICKBOOKS_REVOKE_URL_FALLBACK, { fetchImpl });
+  const response = await fetchImpl(revocationEndpoint, {
     method: 'POST',
     headers: { Authorization: basicAuthorization(config), Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),

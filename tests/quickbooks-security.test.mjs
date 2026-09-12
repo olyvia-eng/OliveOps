@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -13,11 +13,18 @@ import {
 import {
   buildEncryptedQuickBooksCredentials,
   buildQuickBooksAuthorizationUrl,
+  exchangeQuickBooksAuthorizationCode,
   fetchQuickBooksCompanyInfo,
   getValidQuickBooksAccessToken,
   listQuickBooksTaxCodes,
+  revokeQuickBooksToken,
   validateQuickBooksOAuthCallbackState,
 } from '../api/_lib/quickBooksService.js';
+import {
+  getQuickBooksDiscoveryDocument,
+  QUICKBOOKS_DISCOVERY_URL,
+  resetQuickBooksDiscoveryCacheForTests,
+} from '../api/_lib/quickBooksDiscovery.js';
 import { completeQuickBooksConnection } from '../api/integrations/quickbooks/callback.js';
 
 process.env.QUICKBOOKS_CLIENT_ID = 'sandbox-client-id';
@@ -29,6 +36,30 @@ const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payl
   status,
   headers: { 'Content-Type': 'application/json' },
 });
+
+// Real field names and values as currently published by Intuit's discovery documents (verified
+// against the live production and sandbox discovery endpoints - both publish identical OAuth
+// endpoint values, only userinfo_endpoint differs, which OliveOps does not use).
+const validDiscoveryPayload = (overrides = {}) => ({
+  issuer: 'https://oauth.platform.intuit.com/op/v1',
+  authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2',
+  token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer',
+  userinfo_endpoint: 'https://accounts.platform.intuit.com/v1/openid_connect/userinfo',
+  revocation_endpoint: 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke',
+  jwks_uri: 'https://oauth.platform.intuit.com/op/v1/jwks',
+  ...overrides,
+});
+
+// Composes a discovery-document response with test-specific handling of any other request, so each
+// test only has to describe the endpoint(s) it actually cares about.
+function withDiscovery(handleOther, discoveryPayload = validDiscoveryPayload()) {
+  return async (url, options) => {
+    if (String(url) === QUICKBOOKS_DISCOVERY_URL) return jsonResponse(discoveryPayload);
+    return handleOther(url, options);
+  };
+}
+
+beforeEach(() => resetQuickBooksDiscoveryCacheForTests());
 
 test('QuickBooks connection and mappings are business-owned and realm-scoped', () => {
   assert.equal(quickBooksConnectionSk(), 'QBO_CONNECTION');
@@ -54,13 +85,14 @@ test('safe QuickBooks status never returns encrypted credentials or leases', () 
 });
 
 test('QuickBooks OAuth authorization is accounting-scoped and state-bound', async () => {
-  const authorizationUrl = new URL(buildQuickBooksAuthorizationUrl({
+  const authorizationUrl = new URL(await buildQuickBooksAuthorizationUrl({
     state: 'random-state',
     config: {
       clientId: 'sandbox-client-id',
       clientSecret: 'unused',
       redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback',
     },
+    fetchImpl: withDiscovery(() => assert.fail('only the discovery document should be requested')),
   }));
   assert.equal(authorizationUrl.origin, 'https://appcenter.intuit.com');
   assert.equal(authorizationUrl.searchParams.get('scope'), 'com.intuit.quickbooks.accounting');
@@ -183,11 +215,11 @@ test('expired QuickBooks access tokens refresh once and persist rotated credenti
   const accessToken = await getValidQuickBooksAccessToken({
     businessId: 'business-1',
     connection,
-    fetchImpl: async (url, options) => {
+    fetchImpl: withDiscovery(async (url, options) => {
       assert.equal(String(url), 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer');
       assert.match(String(options.body), /grant_type=refresh_token/);
       return jsonResponse({ access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600, x_refresh_token_expires_in: 7200 });
-    },
+    }),
     dependencies: {
       acquireRefreshLease: async () => true,
       persistRefreshedCredentials: async (value) => persisted.push(value),
@@ -256,4 +288,164 @@ test('QuickBooks tax codes include resolved active sales-tax rates', async () =>
     fetchImpl: async () => jsonResponse(responses.shift()),
   });
   assert.deepEqual(taxCodes.map(({ id, rate }) => ({ id, rate })), [{ id: 'TAX', rate: 13 }, { id: 'NON', rate: 0 }]);
+});
+
+test('OAuth discovery document is fetched, parsed, and its trusted endpoints returned', async () => {
+  let requestedUrl = '';
+  const discovery = await getQuickBooksDiscoveryDocument({
+    fetchImpl: async (url) => { requestedUrl = String(url); return jsonResponse(validDiscoveryPayload()); },
+  });
+  assert.equal(requestedUrl, QUICKBOOKS_DISCOVERY_URL);
+  assert.equal(discovery.authorizationEndpoint, 'https://appcenter.intuit.com/connect/oauth2');
+  assert.equal(discovery.tokenEndpoint, 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer');
+  assert.equal(discovery.revocationEndpoint, 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke');
+});
+
+test('discovery URL is a fixed server-side constant, never derived from a client request', async () => {
+  const discoverySource = await readFile(new URL('../api/_lib/quickBooksDiscovery.js', import.meta.url), 'utf8');
+  assert.match(QUICKBOOKS_DISCOVERY_URL, /^https:\/\/developer\.api\.intuit\.com\//);
+  assert.doesNotMatch(discoverySource, /req\.query|req\.body|req\.params/);
+  // getQuickBooksDiscoveryDocument only accepts { fetchImpl, now } - no caller-supplied URL.
+  assert.doesNotMatch(discoverySource, /getQuickBooksDiscoveryDocument\([^)]*\burl\b/);
+});
+
+test('the discovered authorization endpoint drives the built authorization URL, not a hard-coded one', async () => {
+  const authorizationUrl = new URL(await buildQuickBooksAuthorizationUrl({
+    state: 'random-state',
+    config: { clientId: 'sandbox-client-id', clientSecret: 'unused', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+    fetchImpl: withDiscovery(
+      () => assert.fail('only the discovery document should be requested'),
+      validDiscoveryPayload({ authorization_endpoint: 'https://appcenter.intuit.com/connect/oauth2/v2-test-path' }),
+    ),
+  }));
+  assert.equal(authorizationUrl.origin, 'https://appcenter.intuit.com');
+  assert.equal(authorizationUrl.pathname, '/connect/oauth2/v2-test-path');
+});
+
+test('the discovered token endpoint drives authorization-code exchange, not a hard-coded one', async () => {
+  let requestedUrl = '';
+  await exchangeQuickBooksAuthorizationCode('authorization-code', {
+    config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+    fetchImpl: withDiscovery(
+      async (url) => { requestedUrl = String(url); return jsonResponse({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600, x_refresh_token_expires_in: 7200 }); },
+      validDiscoveryPayload({ token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer/v2-test-path' }),
+    ),
+  });
+  assert.equal(requestedUrl, 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer/v2-test-path');
+});
+
+test('the discovered token endpoint drives refresh, not a hard-coded one', async () => {
+  const initial = buildEncryptedQuickBooksCredentials({
+    businessId: 'business-1',
+    realmId: 'realm-1',
+    tokens: { access_token: 'expired-access', refresh_token: 'initial-refresh', expires_in: 1, x_refresh_token_expires_in: 3600 },
+  });
+  const connection = { realmId: 'realm-1', ...initial, accessTokenExpiresAt: '2020-01-01T00:00:00.000Z' };
+  let requestedUrl = '';
+  await getValidQuickBooksAccessToken({
+    businessId: 'business-1',
+    connection,
+    fetchImpl: withDiscovery(
+      async (url) => { requestedUrl = String(url); return jsonResponse({ access_token: 'rotated-access', refresh_token: 'rotated-refresh', expires_in: 3600, x_refresh_token_expires_in: 7200 }); },
+      validDiscoveryPayload({ token_endpoint: 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer/v2-test-path' }),
+    ),
+    dependencies: {
+      acquireRefreshLease: async () => true,
+      persistRefreshedCredentials: async () => {},
+      releaseRefreshLease: async () => assert.fail('successful refresh must not release after persistence'),
+    },
+  });
+  assert.equal(requestedUrl, 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer/v2-test-path');
+});
+
+test('disconnect revocation uses the discovered revocation endpoint when Intuit supplies one', async () => {
+  let requestedUrl = '';
+  await revokeQuickBooksToken({
+    token: 'refresh-token',
+    config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+    fetchImpl: withDiscovery(
+      async (url) => { requestedUrl = String(url); return new Response(null, { status: 200 }); },
+      validDiscoveryPayload({ revocation_endpoint: 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke/v2-test-path' }),
+    ),
+  });
+  assert.equal(requestedUrl, 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke/v2-test-path');
+});
+
+test('revocation falls back to the static endpoint without weakening disconnect when discovery is unavailable', async () => {
+  let requestedUrl = '';
+  await revokeQuickBooksToken({
+    token: 'refresh-token',
+    config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+    fetchImpl: async (url) => {
+      if (String(url) === QUICKBOOKS_DISCOVERY_URL) return new Response(null, { status: 503 });
+      requestedUrl = String(url);
+      return new Response(null, { status: 200 });
+    },
+  });
+  assert.equal(requestedUrl, 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke');
+});
+
+test('discovery is fetched once and cached for subsequent calls', async () => {
+  let fetchCount = 0;
+  const fetchImpl = async () => { fetchCount += 1; return jsonResponse(validDiscoveryPayload()); };
+  await getQuickBooksDiscoveryDocument({ fetchImpl });
+  await getQuickBooksDiscoveryDocument({ fetchImpl });
+  await getQuickBooksDiscoveryDocument({ fetchImpl });
+  assert.equal(fetchCount, 1);
+});
+
+test('a cached discovery document is refetched once its ~1 hour TTL expires', async () => {
+  let fetchCount = 0;
+  const fetchImpl = async () => { fetchCount += 1; return jsonResponse(validDiscoveryPayload()); };
+  let clock = 0;
+  const now = () => clock;
+
+  await getQuickBooksDiscoveryDocument({ fetchImpl, now });
+  assert.equal(fetchCount, 1);
+  clock += 59 * 60 * 1000;
+  await getQuickBooksDiscoveryDocument({ fetchImpl, now });
+  assert.equal(fetchCount, 1, 'still cached shortly before the ~1 hour TTL elapses');
+  clock += 2 * 60 * 1000;
+  await getQuickBooksDiscoveryDocument({ fetchImpl, now });
+  assert.equal(fetchCount, 2, 'refetched once the TTL has elapsed');
+});
+
+test('malformed discovery responses fail safely instead of being used', async () => {
+  const cases = [
+    ['a non-JSON body', async () => new Response('not json', { status: 200 })],
+    ['a JSON array instead of an object', async () => jsonResponse(['not', 'an', 'object'])],
+    ['a document missing the authorization endpoint', async () => jsonResponse(validDiscoveryPayload({ authorization_endpoint: undefined }))],
+    ['a document missing the token endpoint', async () => jsonResponse(validDiscoveryPayload({ token_endpoint: undefined }))],
+    ['an HTTP error response', async () => new Response(null, { status: 500 })],
+  ];
+  for (const [label, fetchImpl] of cases) {
+    resetQuickBooksDiscoveryCacheForTests();
+    await assert.rejects(getQuickBooksDiscoveryDocument({ fetchImpl }), `expected discovery to fail safely for: ${label}`);
+  }
+});
+
+test('non-HTTPS discovered endpoints are rejected', async () => {
+  await assert.rejects(getQuickBooksDiscoveryDocument({
+    fetchImpl: async () => jsonResponse(validDiscoveryPayload({ authorization_endpoint: 'http://appcenter.intuit.com/connect/oauth2' })),
+  }));
+  resetQuickBooksDiscoveryCacheForTests();
+  await assert.rejects(getQuickBooksDiscoveryDocument({
+    fetchImpl: async () => jsonResponse(validDiscoveryPayload({ token_endpoint: 'http://oauth.platform.intuit.com/oauth2/v1/tokens/bearer' })),
+  }));
+});
+
+test('discovered endpoints on unexpected, non-Intuit hosts are rejected', async () => {
+  await assert.rejects(getQuickBooksDiscoveryDocument({
+    fetchImpl: async () => jsonResponse(validDiscoveryPayload({ authorization_endpoint: 'https://evil.example.com/connect/oauth2' })),
+  }));
+  resetQuickBooksDiscoveryCacheForTests();
+  await assert.rejects(getQuickBooksDiscoveryDocument({
+    fetchImpl: async () => jsonResponse(validDiscoveryPayload({ token_endpoint: 'https://attacker.controlled.host/oauth2/v1/tokens/bearer' })),
+  }));
+  resetQuickBooksDiscoveryCacheForTests();
+  // A supplied-but-untrusted revocation_endpoint must not be silently ignored in favor of the
+  // default - the whole document is rejected, since it wasn't a value we can trust at all.
+  await assert.rejects(getQuickBooksDiscoveryDocument({
+    fetchImpl: async () => jsonResponse(validDiscoveryPayload({ revocation_endpoint: 'https://evil.example.com/v2/oauth2/tokens/revoke' })),
+  }));
 });

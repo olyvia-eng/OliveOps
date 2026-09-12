@@ -25,8 +25,9 @@ export default async function handler(req, res) {
       stateHash: hashQuickBooksOAuthState(state),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
+    const authorizationUrl = await buildQuickBooksAuthorizationUrl({ state });
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Location', buildQuickBooksAuthorizationUrl({ state }));
+    res.setHeader('Location', authorizationUrl);
     return res.status(302).end();
   } catch {
     return res.status(500).json({ ok: false, error: 'Could not start QuickBooks connection.' });
