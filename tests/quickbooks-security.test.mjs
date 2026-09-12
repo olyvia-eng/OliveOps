@@ -13,6 +13,8 @@ import {
 import {
   buildEncryptedQuickBooksCredentials,
   buildQuickBooksAuthorizationUrl,
+  createQuickBooksCustomer,
+  createQuickBooksInvoice,
   exchangeQuickBooksAuthorizationCode,
   fetchQuickBooksCompanyInfo,
   getValidQuickBooksAccessToken,
@@ -32,9 +34,9 @@ process.env.QUICKBOOKS_CLIENT_SECRET = 'sandbox-client-secret';
 process.env.QUICKBOOKS_REDIRECT_URI = 'https://oliveops.example/api/integrations/quickbooks/callback';
 process.env.QUICKBOOKS_TOKEN_ENCRYPTION_KEY = randomBytes(32).toString('base64');
 
-const jsonResponse = (payload, status = 200) => new Response(JSON.stringify(payload), {
+const jsonResponse = (payload, status = 200, headers = {}) => new Response(JSON.stringify(payload), {
   status,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...headers },
 });
 
 // Real field names and values as currently published by Intuit's discovery documents (verified
@@ -448,4 +450,148 @@ test('discovered endpoints on unexpected, non-Intuit hosts are rejected', async 
   await assert.rejects(getQuickBooksDiscoveryDocument({
     fetchImpl: async () => jsonResponse(validDiscoveryPayload({ revocation_endpoint: 'https://evil.example.com/v2/oauth2/tokens/revoke' })),
   }));
+});
+
+// Runs `run` with console.error replaced by a spy, and always restores the original afterward
+// (even if `run` throws), returning the arguments of every console.error call made meanwhile.
+async function captureConsoleErrors(run) {
+  const original = console.error;
+  const calls = [];
+  console.error = (...args) => calls.push(args);
+  try {
+    await run();
+  } finally {
+    console.error = original;
+  }
+  return calls;
+}
+
+test('intuit_tid is captured (case-insensitively) on a failed QuickBooks Accounting API request', async () => {
+  await assert.rejects(
+    fetchQuickBooksCompanyInfo({
+      accessToken: 'access-token',
+      realmId: '12345',
+      fetchImpl: async () => jsonResponse({ Fault: { Error: [{ code: '6000' }] } }, 400, { Intuit_Tid: 'txn-fail-abc123' }),
+    }),
+    (error) => {
+      assert.equal(error.intuitTid, 'txn-fail-abc123');
+      assert.equal(error.status, 400);
+      assert.equal(error.code, '6000');
+      return true;
+    },
+  );
+});
+
+test('a missing intuit_tid header never causes an otherwise valid request to fail, on success or failure', async () => {
+  const company = await fetchQuickBooksCompanyInfo({
+    accessToken: 'access-token',
+    realmId: '12345',
+    fetchImpl: async () => jsonResponse({ CompanyInfo: { Id: '1', CompanyName: 'No Header Co' } }), // no intuit_tid header
+  });
+  assert.equal(company.companyName, 'No Header Co');
+  assert.equal(company.intuitTid, undefined);
+
+  await assert.rejects(
+    fetchQuickBooksCompanyInfo({
+      accessToken: 'access-token',
+      realmId: '12345',
+      fetchImpl: async () => jsonResponse({}, 500), // failure with no intuit_tid header either
+    }),
+    (error) => {
+      assert.equal(error.status, 500);
+      assert.equal(error.intuitTid, null);
+      return true;
+    },
+  );
+});
+
+test('intuit_tid is attached to a successful response as non-enumerable diagnostic metadata, not part of the serialized record', async () => {
+  const invoice = await createQuickBooksInvoice({
+    accessToken: 'access-token',
+    realmId: '12345',
+    invoice: { Line: [] },
+    requestId: 'request-1',
+    fetchImpl: async () => jsonResponse({ Invoice: { Id: '9001', SyncToken: '0' } }, 200, { intuit_tid: 'txn-created-9001' }),
+  });
+  assert.equal(invoice.Id, '9001');
+  assert.equal(invoice.intuitTid, 'txn-created-9001');
+  assert.equal(Object.keys(invoice).includes('intuitTid'), false, 'intuitTid must not be enumerable');
+  assert.equal(JSON.stringify(invoice).includes('intuitTid'), false, 'intuitTid must not appear in JSON.stringify output');
+  assert.equal(JSON.stringify(invoice).includes('txn-created-9001'), false, 'the tid value itself must not appear in the serialized record');
+});
+
+test('a created QuickBooks customer also carries its intuit_tid as diagnostic metadata', async () => {
+  const customer = await createQuickBooksCustomer({
+    accessToken: 'access-token',
+    realmId: '12345',
+    customer: { DisplayName: 'Jamie Smith' },
+    requestId: 'request-2',
+    fetchImpl: async () => jsonResponse({ Customer: { Id: '501', DisplayName: 'Jamie Smith' } }, 200, { intuit_tid: 'txn-customer-501' }),
+  });
+  assert.equal(customer.Id, '501');
+  assert.equal(customer.intuitTid, 'txn-customer-501');
+});
+
+test('revocation captures intuit_tid on both success and failure', async () => {
+  const succeeded = await revokeQuickBooksToken({
+    token: 'refresh-token',
+    config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+    fetchImpl: withDiscovery(async () => new Response(null, { status: 200, headers: { intuit_tid: 'txn-revoke-ok' } })),
+  });
+  assert.equal(succeeded.intuitTid, 'txn-revoke-ok');
+
+  await assert.rejects(
+    revokeQuickBooksToken({
+      token: 'refresh-token',
+      config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+      fetchImpl: withDiscovery(async () => new Response(null, { status: 400, headers: { intuit_tid: 'txn-revoke-fail' } })),
+    }),
+    (error) => {
+      assert.equal(error.intuitTid, 'txn-revoke-fail');
+      return true;
+    },
+  );
+});
+
+test('OAuth token exchange failures capture intuit_tid through the same centralized handler', async () => {
+  await assert.rejects(
+    exchangeQuickBooksAuthorizationCode('authorization-code', {
+      config: { clientId: 'sandbox-client-id', clientSecret: 'sandbox-client-secret', redirectUri: 'https://oliveops.example/api/integrations/quickbooks/callback' },
+      fetchImpl: withDiscovery(async () => jsonResponse({ error: 'invalid_grant' }, 400, { intuit_tid: 'txn-token-fail' })),
+    }),
+    (error) => {
+      assert.equal(error.intuitTid, 'txn-token-fail');
+      assert.equal(error.code, 'invalid_grant');
+      return true;
+    },
+  );
+});
+
+test('QuickBooks failure logs are structured and correlation-safe - they never contain tokens, secrets, or authorization headers', async () => {
+  const secretAccessToken = 'super-secret-access-token-should-never-be-logged';
+  const secretClientSecret = 'super-secret-client-secret-should-never-be-logged';
+
+  const calls = await captureConsoleErrors(() => assert.rejects(fetchQuickBooksCompanyInfo({
+    accessToken: secretAccessToken,
+    realmId: '12345',
+    fetchImpl: async (url, options) => {
+      // Sanity-check the request really does carry the secret in its Authorization header, so this
+      // test would actually fail if logging ever started including request options/headers.
+      assert.match(String(options.headers.Authorization), new RegExp(secretAccessToken));
+      return jsonResponse({ Fault: { Error: [{ code: '3200' }] } }, 401, { intuit_tid: 'txn-log-safety' });
+    },
+  })));
+
+  const failureLogs = calls.filter(([tag]) => tag === '[quickbooks:failure]');
+  assert.equal(failureLogs.length, 1);
+  const [, details] = failureLogs[0];
+  assert.equal(details.intuitTid, 'txn-log-safety');
+  assert.equal(details.status, 401);
+  assert.equal(details.code, '3200');
+
+  const serializedLog = JSON.stringify(calls);
+  assert.equal(serializedLog.includes(secretAccessToken), false, 'the access token must never reach a log line');
+  assert.equal(serializedLog.includes(secretClientSecret), false, 'a client secret must never reach a log line');
+  assert.equal(serializedLog.toLowerCase().includes('authorization'), false, 'the Authorization header must never reach a log line');
+  assert.equal(serializedLog.toLowerCase().includes('bearer'), false, 'a bearer token prefix must never reach a log line');
 });

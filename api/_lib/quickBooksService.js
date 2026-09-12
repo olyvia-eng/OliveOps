@@ -29,6 +29,45 @@ function quickBooksApiBase() {
   return QUICKBOOKS_API_BASE_BY_ENVIRONMENT[quickBooksEnvironment()];
 }
 
+// Intuit's own support docs ask for this value when troubleshooting a request with Intuit Support.
+// Response.headers.get() is already case-insensitive per the Fetch spec, so this matches
+// `intuit_tid`/`Intuit_Tid`/`INTUIT_TID` etc. the same way; a response that omits it (or isn't a
+// real Headers object, e.g. a hand-built test double) never throws and just yields null.
+function captureIntuitTid(response) {
+  try {
+    return response?.headers?.get?.('intuit_tid') || null;
+  } catch {
+    return null;
+  }
+}
+
+// Makes a value available as `target.intuitTid` for any caller that wants to correlate with Intuit
+// Support, without it showing up in JSON.stringify/Object.keys/audit payloads that serialize the
+// object wholesale - callers that want it in a persisted/logged record must copy it out explicitly
+// (see the quickbooks_invoice_created / quickbooks_customer_created / quickbooks_connected audit
+// events), which keeps this from silently bloating unrelated structured data.
+function attachIntuitTid(target, intuitTid) {
+  if (!intuitTid || !target || typeof target !== 'object') return target;
+  Object.defineProperty(target, 'intuitTid', { value: intuitTid, enumerable: false, configurable: true });
+  return target;
+}
+
+// Single structured, server-side-only sink for QuickBooks request failures. Deliberately limited to
+// correlation-safe fields - never the request/response body, headers, tokens, or secrets - so this
+// can be grepped by intuit_tid and handed to Intuit Support without itself becoming a leak.
+function logQuickBooksFailure(details) {
+  console.error('[quickbooks:failure]', {
+    action: details.action ?? 'unknown',
+    method: details.method ?? undefined,
+    path: details.path ?? undefined,
+    realmId: details.realmId ?? undefined,
+    grantType: details.grantType ?? undefined,
+    status: details.status ?? undefined,
+    code: details.code ?? undefined,
+    intuitTid: details.intuitTid ?? null,
+  });
+}
+
 function oauthConfig() {
   return {
     clientId: requireEnv('QUICKBOOKS_CLIENT_ID'),
@@ -41,7 +80,12 @@ function basicAuthorization(config) {
   return `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`, 'utf8').toString('base64')}`;
 }
 
-async function readQuickBooksResponse(response) {
+// Centralized response handling for every QuickBooks HTTP call (Accounting API and OAuth token
+// exchange alike) - this is the one place that needs to capture Intuit's intuit_tid correlation
+// header, on both the failure and success paths, per-request diagnostic context (action/method/
+// path/realmId) is optional and used only for the structured failure log below.
+async function readQuickBooksResponse(response, context = {}) {
+  const intuitTid = captureIntuitTid(response);
   let payload = null;
   try {
     payload = await response.json();
@@ -52,9 +96,11 @@ async function readQuickBooksResponse(response) {
     const error = new Error('QuickBooks request failed');
     error.status = response.status;
     error.code = payload?.Fault?.Error?.[0]?.code ?? payload?.error ?? 'QBO_API_ERROR';
+    error.intuitTid = intuitTid;
+    logQuickBooksFailure({ ...context, status: error.status, code: error.code, intuitTid });
     throw error;
   }
-  return payload ?? {};
+  return attachIntuitTid(payload ?? {}, intuitTid);
 }
 
 async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) {
@@ -71,7 +117,7 @@ async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) 
     },
     body: new URLSearchParams(values),
   });
-  return readQuickBooksResponse(response);
+  return readQuickBooksResponse(response, { action: 'quickbooks_oauth_token', grantType: values.grant_type });
 }
 
 export async function buildQuickBooksAuthorizationUrl({ state, config = oauthConfig(), fetchImpl = fetch }) {
@@ -190,20 +236,20 @@ async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET'
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return readQuickBooksResponse(response);
+  return readQuickBooksResponse(response, { action: 'quickbooks_api', method, path, realmId });
 }
 
 export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchImpl = fetch }) {
   const payload = await quickBooksApiRequest({ accessToken, realmId, path: `/companyinfo/${encodeURIComponent(realmId)}`, fetchImpl });
   const company = payload.CompanyInfo;
   if (!company || typeof company !== 'object') throw new Error('QuickBooks company information was unavailable');
-  return {
+  return attachIntuitTid({
     companyName: company.CompanyName ?? company.LegalName ?? '',
     legalName: company.LegalName ?? '',
     country: company.Country ?? company.CompanyAddr?.Country ?? '',
     currency: company.Currency ?? '',
     companyInfoEntityId: company.Id === undefined || company.Id === null ? '' : String(company.Id),
-  };
+  }, payload.intuitTid);
 }
 
 export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config = oauthConfig() }) {
@@ -215,7 +261,14 @@ export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config =
     headers: { Authorization: basicAuthorization(config), Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
   });
-  if (!response.ok) throw new Error('QuickBooks token revocation failed');
+  const intuitTid = captureIntuitTid(response);
+  if (!response.ok) {
+    logQuickBooksFailure({ action: 'quickbooks_oauth_revoke', status: response.status, intuitTid });
+    const error = new Error('QuickBooks token revocation failed');
+    error.intuitTid = intuitTid;
+    throw error;
+  }
+  return { intuitTid };
 }
 
 export function decryptQuickBooksRefreshToken({ businessId, connection }) {
@@ -305,7 +358,7 @@ export async function createQuickBooksCustomer({ accessToken, realmId, customer,
     body: customer,
     fetchImpl,
   });
-  return payload.Customer;
+  return attachIntuitTid(payload.Customer, payload.intuitTid);
 }
 
 export async function createQuickBooksInvoice({ accessToken, realmId, invoice, requestId, fetchImpl = fetch }) {
@@ -318,7 +371,7 @@ export async function createQuickBooksInvoice({ accessToken, realmId, invoice, r
     body: invoice,
     fetchImpl,
   });
-  return payload.Invoice;
+  return attachIntuitTid(payload.Invoice, payload.intuitTid);
 }
 
 export async function fetchQuickBooksInvoice({ accessToken, realmId, quickBooksInvoiceId, fetchImpl = fetch }) {

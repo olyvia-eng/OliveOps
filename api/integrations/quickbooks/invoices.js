@@ -120,7 +120,7 @@ export default async function handler(req, res) {
         id: randomUUID(), action: 'quickbooks_invoice_created',
         actorUserId: session.id, actorName: session.name, actorEmail: session.email,
         affectedEntryCount: 1, createdAt: new Date().toISOString(),
-        metadata: { invoiceId, quickBooksInvoiceId: mapping.quickBooksInvoiceId, realmId: connection.realmId },
+        metadata: { invoiceId, quickBooksInvoiceId: mapping.quickBooksInvoiceId, realmId: connection.realmId, intuitTid: providerInvoice?.intuitTid ?? null },
       },
     });
     return res.status(201).json({ ok: true, invoice: safeMapping(mapping, invoice, providerInvoice) });

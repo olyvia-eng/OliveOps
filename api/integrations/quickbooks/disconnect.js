@@ -13,11 +13,15 @@ export default async function handler(req, res) {
   try {
     const connection = await getQuickBooksConnection({ businessId: session.businessId });
     if (!connection) return res.status(200).json({ ok: true });
+    let revocationIntuitTid = null;
     try {
       const token = decryptQuickBooksRefreshToken({ businessId: session.businessId, connection });
-      await revokeQuickBooksToken({ token });
+      const revoked = await revokeQuickBooksToken({ token });
+      revocationIntuitTid = revoked?.intuitTid ?? null;
     } catch {
-      // Local credential removal must proceed even when Intuit is unavailable.
+      // Local credential removal must proceed even when Intuit is unavailable. The failed revoke
+      // attempt (and any intuit_tid Intuit returned with it) is already captured in the structured
+      // server log from revokeQuickBooksToken itself.
     }
     await deleteQuickBooksConnection({ businessId: session.businessId });
     await createAuditEventForBusiness({
@@ -30,7 +34,7 @@ export default async function handler(req, res) {
         actorEmail: session.email,
         affectedEntryCount: 1,
         createdAt: new Date().toISOString(),
-        metadata: { realmId: connection.realmId, companyName: connection.companyName, environment: connection.environment ?? 'sandbox' },
+        metadata: { realmId: connection.realmId, companyName: connection.companyName, environment: connection.environment ?? 'sandbox', intuitTid: revocationIntuitTid },
       },
     });
     return res.status(200).json({ ok: true });
