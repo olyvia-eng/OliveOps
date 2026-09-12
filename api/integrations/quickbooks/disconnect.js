@@ -30,7 +30,7 @@ export default async function handler(req, res) {
         actorEmail: session.email,
         affectedEntryCount: 1,
         createdAt: new Date().toISOString(),
-        metadata: { realmId: connection.realmId, companyName: connection.companyName, environment: 'sandbox' },
+        metadata: { realmId: connection.realmId, companyName: connection.companyName, environment: connection.environment ?? 'sandbox' },
       },
     });
     return res.status(200).json({ ok: true });

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, tableName } from './db.js';
+import { quickBooksEnvironment } from './env.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -22,10 +23,13 @@ export function createQuickBooksOAuthStateValue() {
 }
 
 export function toSafeQuickBooksConnection(item) {
-  if (!item || item.status !== 'connected') return { connected: false, environment: 'sandbox' };
+  if (!item || item.status !== 'connected') return { connected: false, environment: quickBooksEnvironment() };
   return {
     connected: true,
-    environment: 'sandbox',
+    // Reflects whichever environment this connection was actually made against, so a stored
+    // sandbox connection still reads as "sandbox" even if the deployment is later reconfigured
+    // for production (and vice versa) - it does not just parrot the deployment's current setting.
+    environment: item.environment ?? 'sandbox',
     realmId: item.realmId,
     companyName: item.companyName ?? '',
     country: item.country ?? '',
@@ -54,7 +58,7 @@ export async function putQuickBooksConnection({ businessId, connection, allowRep
     entityType: 'QBO_CONNECTION',
     businessId,
     status: 'connected',
-    environment: 'sandbox',
+    environment: quickBooksEnvironment(),
     connectedAt: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,

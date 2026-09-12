@@ -210,6 +210,39 @@ test('QuickBooks handlers require owner/admin sessions and never expose provider
   assert.doesNotMatch(statusSource, /encryptedAccessToken|encryptedRefreshToken/);
 });
 
+test('QuickBooks environment defaults to sandbox and switches the pinned API host under QUICKBOOKS_ENVIRONMENT=production', async () => {
+  assert.equal(process.env.QUICKBOOKS_ENVIRONMENT, undefined);
+  assert.equal(toSafeQuickBooksConnection(null).environment, 'sandbox');
+
+  let requestedUrl = '';
+  process.env.QUICKBOOKS_ENVIRONMENT = 'production';
+  try {
+    assert.equal(toSafeQuickBooksConnection(null).environment, 'production');
+    await fetchQuickBooksCompanyInfo({
+      accessToken: 'access-token',
+      realmId: '12345',
+      fetchImpl: async (url) => {
+        requestedUrl = String(url);
+        return jsonResponse({ CompanyInfo: { Id: '1', CompanyName: 'Real Co' } });
+      },
+    });
+  } finally {
+    delete process.env.QUICKBOOKS_ENVIRONMENT;
+  }
+  assert.match(requestedUrl, /^https:\/\/quickbooks\.api\.intuit\.com\/v3\/company\/12345\/companyinfo\/12345/);
+});
+
+test('a stored QuickBooks connection reports the environment it was actually connected under, not the deployment\'s current setting', () => {
+  const sandboxConnection = { status: 'connected', realmId: 'realm-1', environment: 'sandbox' };
+  assert.equal(toSafeQuickBooksConnection(sandboxConnection).environment, 'sandbox');
+  process.env.QUICKBOOKS_ENVIRONMENT = 'production';
+  try {
+    assert.equal(toSafeQuickBooksConnection(sandboxConnection).environment, 'sandbox');
+  } finally {
+    delete process.env.QUICKBOOKS_ENVIRONMENT;
+  }
+});
+
 test('QuickBooks tax codes include resolved active sales-tax rates', async () => {
   const responses = [
     { QueryResponse: { TaxCode: [

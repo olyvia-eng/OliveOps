@@ -14,3 +14,11 @@ export function requireEnv(name) {
 export function isProduction() {
   return process.env.NODE_ENV === 'production';
 }
+
+// Which QuickBooks company environment this deployment talks to - independent of NODE_ENV.
+// Defaults to 'sandbox' so a deployment never starts writing to a real QuickBooks company by
+// omission; a business only reaches real books once an operator explicitly sets this to
+// 'production' (and supplies matching production QUICKBOOKS_CLIENT_ID/SECRET from Intuit).
+export function quickBooksEnvironment() {
+  return process.env.QUICKBOOKS_ENVIRONMENT === 'production' ? 'production' : 'sandbox';
+}

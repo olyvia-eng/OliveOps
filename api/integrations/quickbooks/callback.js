@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createAuditEventForBusiness } from '../../_lib/authRepo.js';
+import { quickBooksEnvironment } from '../../_lib/env.js';
 import { requireSession } from '../../_lib/session.js';
 import { getQuickBooksConnection, putQuickBooksConnection } from '../../_lib/quickBooksRepo.js';
 import {
@@ -49,7 +50,7 @@ export async function completeQuickBooksConnection({ session, code, realmId }, d
       actorEmail: session.email,
       affectedEntryCount: 1,
       createdAt: new Date().toISOString(),
-      metadata: { realmId, companyName: company.companyName, environment: 'sandbox' },
+      metadata: { realmId, companyName: company.companyName, environment: quickBooksEnvironment() },
     },
   });
   return { ok: true };

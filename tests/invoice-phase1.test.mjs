@@ -251,10 +251,11 @@ test('QuickBooks settings keep OliveOps authoritative and expose explicit tax-co
   const page = readFileSync('src/pages/settings/IntegrationsPage.tsx', 'utf8');
   const endpoint = readFileSync('api/integrations/quickbooks/settings.js', 'utf8');
   assert.match(page, /Sandbox connection\. OliveOps remains the invoice record\. QuickBooks is an optional accounting destination\./);
+  assert.match(page, /Connected to a live QuickBooks company\. OliveOps remains the invoice record\./);
   assert.match(page, /Non-taxable Sales Tax Code/);
   assert.match(page, /validNonTaxableCodes\.length === 1 \? validNonTaxableCodes\[0\]\.id : ''/);
   assert.match(page, /nonTaxableId: configured\?\.nonTaxableTaxCode\?\.id \?\? ''/);
-  assert.match(page, /This QuickBooks company is not configured for Canada\. Ontario HST invoices cannot be fully validated in this sandbox\./);
+  assert.match(page, /This QuickBooks company is not configured for Canada\. Ontario HST invoices cannot be fully validated/);
   assert.match(page, /This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available\./);
   assert.match(endpoint, /nonTaxableTaxCodeId/);
   assert.doesNotMatch(endpoint, /one unambiguous non-taxable tax code/);

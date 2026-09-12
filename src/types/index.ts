@@ -571,7 +571,7 @@ export interface QuickBooksConfiguration {
 
 export interface QuickBooksIntegration {
   connected: boolean;
-  environment: 'sandbox';
+  environment: 'sandbox' | 'production';
   realmId?: string;
   companyName?: string;
   country?: string;

@@ -27,6 +27,8 @@ const emptyIntegration: GoogleCalendarIntegration = {
   },
 };
 
+// Real environment arrives from GET /api/integrations/quickbooks/status once it loads; this initial
+// value only covers the brief window before that first response.
 const emptyQuickBooksIntegration: QuickBooksIntegration = { connected: false, environment: 'sandbox' };
 const OUTLOOK_INTEGRATION_ENABLED = false;
 const emptyMicrosoftIntegration: MicrosoftCalendarIntegration = {
@@ -175,7 +177,7 @@ export default function IntegrationsPage() {
     const result = searchParams.get('quickbooks');
     if (!result) return;
     const messages: Record<string, { tone: 'success' | 'error'; message: string }> = {
-      connected: { tone: 'success', message: 'QuickBooks sandbox company connected.' },
+      connected: { tone: 'success', message: 'QuickBooks connected.' },
       denied: { tone: 'error', message: 'QuickBooks access was not granted.' },
       invalid_state: { tone: 'error', message: 'The QuickBooks connection request expired. Please try again.' },
       missing_code: { tone: 'error', message: 'QuickBooks did not return an authorization code.' },
@@ -575,7 +577,9 @@ export default function IntegrationsPage() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-semibold text-brand-900 dark:text-brand-50">QuickBooks Online</h2>
-                <Badge label="SANDBOX" className="bg-amber-100 text-amber-800" />
+                {quickBooks.environment === 'production'
+                  ? <Badge label="LIVE" className="bg-emerald-100 text-emerald-800" />
+                  : <Badge label="SANDBOX" className="bg-amber-100 text-amber-800" />}
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <Badge label={quickBooks.connected ? 'Connected' : 'Not Connected'} className={quickBooks.connected ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} />
@@ -588,13 +592,15 @@ export default function IntegrationsPage() {
           {quickBooks.connected ? (
             <Button variant="secondary" disabled={quickBooksSaving} onClick={() => void disconnectQuickBooks()}><Link2Off size={16} /> Disconnect</Button>
           ) : (
-            <Button disabled={quickBooksSaving} onClick={() => { window.location.assign('/api/integrations/quickbooks/connect'); }}><BookOpenCheck size={16} /> Connect Sandbox</Button>
+            <Button disabled={quickBooksSaving} onClick={() => { window.location.assign('/api/integrations/quickbooks/connect'); }}>
+              <BookOpenCheck size={16} /> {quickBooks.environment === 'production' ? 'Connect QuickBooks' : 'Connect Sandbox'}
+            </Button>
           )}
         </div>
 
         {quickBooks.connected && quickBooksCountryMismatch ? (
           <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
-            This QuickBooks company is not configured for Canada. Ontario HST invoices cannot be fully validated in this sandbox. This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available.
+            This QuickBooks company is not configured for Canada. Ontario HST invoices cannot be fully validated{quickBooks.environment === 'production' ? '' : ' in this sandbox'}. This limitation applies only to QuickBooks synchronization; OliveOps invoicing remains available.
           </div>
         ) : null}
 
@@ -659,9 +665,15 @@ export default function IntegrationsPage() {
           </section>
         </div>
 
-        <div className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900">
-          Sandbox connection. OliveOps remains the invoice record. QuickBooks is an optional accounting destination.
-        </div>
+        {quickBooks.environment === 'production' ? (
+          <div className="border-t border-brand-100 bg-brand-50 px-5 py-3 text-xs text-brand-700 dark:border-brand-600 dark:bg-brand-800 dark:text-brand-200">
+            Connected to a live QuickBooks company. OliveOps remains the invoice record. QuickBooks is an optional accounting destination.
+          </div>
+        ) : (
+          <div className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900">
+            Sandbox connection. OliveOps remains the invoice record. QuickBooks is an optional accounting destination.
+          </div>
+        )}
       </Card>
     </div>
   );
