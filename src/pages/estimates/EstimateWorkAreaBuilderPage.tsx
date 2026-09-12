@@ -655,7 +655,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
                     <GripVertical size={16} />
                   </button>
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-gray-900 dark:text-brand-50">{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
+                    <p className="truncate font-semibold text-gray-900 dark:text-brand-50" title={lineItem.itemName || lineItem.description || 'Untitled Item'}>{lineItem.itemName || lineItem.description || 'Untitled Item'}</p>
                     <p className="mt-0.5 truncate text-xs capitalize text-gray-500 dark:text-brand-300">{CATEGORY_LABEL[lineItem.category]}</p>
                   </div>
                   {category === 'labour' ? <div className="flex items-center gap-1 text-xs font-medium text-gray-500 dark:text-brand-300">
