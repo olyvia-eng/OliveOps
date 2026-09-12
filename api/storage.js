@@ -60,7 +60,7 @@ const SOP_ENTITY_TYPE = 'sop';
 const BUSINESS_PROFILE_ENTITY_TYPE = 'business-profile';
 const JOB_COST_BILL_ENTITY_TYPE = 'job-cost-bill';
 const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
-const BUSINESS_LOGO_MAX_BYTES = 200 * 1024;
+const BUSINESS_LOGO_MAX_BYTES = 5 * 1024 * 1024;
 const FORM_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
 const FORM_PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PDF_MIME_TYPE = 'application/pdf';
@@ -509,7 +509,7 @@ export function createStorageHandler(overrides = {}) {
             return res.status(400).json({ ok: false, error: 'SOP attachments must be PDF, DOC, or DOCX files.' });
           }
           if (entityType === BUSINESS_PROFILE_ENTITY_TYPE && (!['image/jpeg', 'image/png'].includes(validation.mimeType) || validation.sizeBytes > BUSINESS_LOGO_MAX_BYTES)) {
-            return res.status(400).json({ ok: false, error: 'Company logos must be PNG or JPEG files no larger than 200 KB.' });
+            return res.status(400).json({ ok: false, error: 'Company logos must be PNG or JPEG files no larger than 5 MB.' });
           }
 
           let formContext;

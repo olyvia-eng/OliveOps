@@ -2,7 +2,7 @@ import type { RichTextDocument } from '../types/richText';
 
 export interface EstimateProposalProjection {
   workType?: 'project' | 'service';
-  company: { name: string; phone: string; email: string; website: string; address: string; logoDataUrl: string };
+  company: { name: string; phone: string; email: string; website: string; address: string; logoDataUrl: string; color: string; accentColor: string };
   proposal: { number: string; status: string; date: string; validUntil: string; title: string; introduction: string; projectAddress: string; taxRate: number; taxLabel: string; subtotal: number; taxAmount: number; total: number; notes: string; exclusions: string; terms: string };
   customer: { displayName: string; contactName: string; billingAddress: string; email: string; phone: string };
   workAreas: Array<{ name: string; scopeLines: string[]; scopeRichText?: RichTextDocument; subtotal: number }>;

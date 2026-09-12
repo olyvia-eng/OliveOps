@@ -58,6 +58,8 @@ export function buildProposalPresentation(snapshot) {
     company: {
       name: text(company.name) || 'Contractor',
       logoDataUrl: text(company.logoDataUrl),
+      color: /^#[0-9a-fA-F]{6}$/.test(text(company.color)) ? text(company.color) : '#6B8E23',
+      accentColor: /^#[0-9a-fA-F]{6}$/.test(text(company.accentColor)) ? text(company.accentColor) : '#4A6418',
       details: [company.address, [company.phone, company.email].map(text).filter(Boolean).join(' | '), company.website].map(text).filter(Boolean),
     },
     document: {

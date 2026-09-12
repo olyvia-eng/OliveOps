@@ -155,3 +155,17 @@ test('Service proposal uses contracted revenue for payments and labels projected
   assert.deepEqual(projection.paymentSchedule.map((payment) => payment.amount), [3955, 3955]);
   assert.doesNotMatch(JSON.stringify(projection), /unitCost|recoveredCostPerUnit|estimatedProfit|marginPercent/);
 });
+
+test('proposal company colors default to the app accent and use a business-chosen color when valid', () => {
+  const defaulted = buildEstimateProposalProjection({ estimate, customer, business });
+  assert.equal(defaulted.company.color, '#6B8E23');
+  assert.equal(defaulted.company.accentColor, '#4A6418');
+
+  const chosen = buildEstimateProposalProjection({ estimate, customer, business: { ...business, proposalColor: '#ff0000', proposalAccentColor: '#0000ff' } });
+  assert.equal(chosen.company.color, '#FF0000');
+  assert.equal(chosen.company.accentColor, '#0000FF');
+
+  const invalid = buildEstimateProposalProjection({ estimate, customer, business: { ...business, proposalColor: 'not-a-color', proposalAccentColor: '' } });
+  assert.equal(invalid.company.color, '#6B8E23');
+  assert.equal(invalid.company.accentColor, '#4A6418');
+});

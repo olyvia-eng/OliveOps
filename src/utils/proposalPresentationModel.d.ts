@@ -7,7 +7,7 @@ type ProposalCustomerRate = ProposalService['customerRates'][number];
 export interface ProposalPresentation {
   source: EstimateProposalProjection;
   workType: 'project' | 'service';
-  company: { name: string; logoDataUrl: string; details: string[] };
+  company: { name: string; logoDataUrl: string; color: string; accentColor: string; details: string[] };
   document: { label: string; number: string; title: string };
   information: Array<{ key: string; label: string; value: string; details?: string[] }>;
   introduction: string;

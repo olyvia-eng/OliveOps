@@ -28,6 +28,9 @@ export default async function handler(req, res) {
     const longTextFields = new Set(['proposalTerms', 'defaultInvoiceNotes', 'paymentInstructions']);
     const invalidField = textFields.find((field) => req.body?.[field] !== undefined && (typeof req.body[field] !== 'string' || req.body[field].length > (longTextFields.has(field) ? 10000 : 500)));
     if (invalidField) return res.status(400).json({ ok: false, error: `${invalidField} is invalid.` });
+    const colorFields = ['proposalColor', 'proposalAccentColor'];
+    const invalidColorField = colorFields.find((field) => req.body?.[field] !== undefined && req.body[field] !== '' && !/^#[0-9a-fA-F]{6}$/.test(req.body[field]));
+    if (invalidColorField) return res.status(400).json({ ok: false, error: `${invalidColorField} must be a hex color (e.g. #6B8E23) or blank to use the default.` });
     if (req.body?.defaultPaymentTermsDays !== undefined && (!Number.isSafeInteger(req.body.defaultPaymentTermsDays) || req.body.defaultPaymentTermsDays < 0 || req.body.defaultPaymentTermsDays > 365)) return res.status(400).json({ ok: false, error: 'Default payment terms must be between 0 and 365 days.' });
     if (req.body?.paymentMethods !== undefined) {
       const paymentMethodsError = validatePaymentMethods(req.body.paymentMethods);
@@ -45,6 +48,7 @@ export default async function handler(req, res) {
     const profile = { ...(timezone !== undefined ? { timezone } : {}) };
     if (req.body?.features !== undefined) profile.features = normalizeBusinessFeatures(req.body.features);
     for (const field of textFields) if (req.body?.[field] !== undefined) profile[field] = req.body[field].trim();
+    for (const field of colorFields) if (req.body?.[field] !== undefined) profile[field] = req.body[field].trim().toUpperCase();
     if (req.body?.defaultPaymentTermsDays !== undefined) profile.defaultPaymentTermsDays = req.body.defaultPaymentTermsDays;
     if (req.body?.paymentMethods !== undefined) profile.paymentMethods = normalizePaymentMethods(req.body.paymentMethods);
     if (req.body?.logoFileId !== undefined) profile.logoFileId = req.body.logoFileId.trim();

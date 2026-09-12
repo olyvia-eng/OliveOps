@@ -6,6 +6,12 @@ import { normalizeProposalScopeRichText, richTextHasText } from '../../api/_lib/
 const text = (value) => typeof value === 'string' ? value.trim() : '';
 const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 
+// Defaults match the app's own accent-500/accent-700 (tailwind.config.js) so a business that hasn't
+// picked proposal colors still renders exactly as before.
+const DEFAULT_PROPOSAL_COLOR = '#6B8E23';
+const DEFAULT_PROPOSAL_ACCENT_COLOR = '#4A6418';
+const hexColor = (value, fallback) => /^#[0-9a-fA-F]{6}$/.test(text(value)) ? text(value).toUpperCase() : fallback;
+
 function sanitizeScopeLines(value) {
   if (typeof value !== 'string') return [];
   const sanitized = Array.from(value)
@@ -58,6 +64,8 @@ export function buildEstimateProposalProjection({ estimate, customer, business }
       website: text(business?.website),
       address: text(business?.businessAddress),
       logoDataUrl: /^data:image\/(?:png|jpe?g);base64,/i.test(text(business?.logoDataUrl)) ? text(business.logoDataUrl) : '',
+      color: hexColor(business?.proposalColor, DEFAULT_PROPOSAL_COLOR),
+      accentColor: hexColor(business?.proposalAccentColor, DEFAULT_PROPOSAL_ACCENT_COLOR),
     },
     proposal: {
       number: text(estimate?.proposalNumber),
@@ -124,7 +132,7 @@ function buildServiceProposalProjection({ estimate, customer, business }) {
   const paymentSchedule = calculateProposalPaymentSchedule(estimate?.paymentSchedule, totals.contractedTotalWithTax);
   return {
     workType: 'service',
-    company: { name: text(business?.legalName) || text(business?.name), phone: text(business?.phone), email: text(business?.email), website: text(business?.website), address: text(business?.businessAddress), logoDataUrl: /^data:image\/(?:png|jpe?g);base64,/i.test(text(business?.logoDataUrl)) ? text(business.logoDataUrl) : '' },
+    company: { name: text(business?.legalName) || text(business?.name), phone: text(business?.phone), email: text(business?.email), website: text(business?.website), address: text(business?.businessAddress), logoDataUrl: /^data:image\/(?:png|jpe?g);base64,/i.test(text(business?.logoDataUrl)) ? text(business.logoDataUrl) : '', color: hexColor(business?.proposalColor, DEFAULT_PROPOSAL_COLOR), accentColor: hexColor(business?.proposalAccentColor, DEFAULT_PROPOSAL_ACCENT_COLOR) },
     proposal: { number: text(estimate?.proposalNumber), status: text(estimate?.status) || 'draft', date: text(estimate?.createdAt), validUntil: text(estimate?.validUntil), title: text(estimate?.title), introduction: text(estimate?.description), projectAddress: text(estimate?.propertyAddressSnapshot), taxRate: totals.taxRate, taxLabel: text(business?.taxLabel) || 'Tax', subtotal: totals.estimatedRevenue, taxAmount: totals.estimatedTax, total: totals.estimatedTotalWithTax, notes: text(estimate?.notes), exclusions: text(estimate?.exclusions), terms: text(estimate?.proposalTerms) || text(business?.proposalTerms) },
     customer: { displayName: text(customer?.company) || text(customer?.name) || 'Client', contactName: text(customer?.company) ? text(customer?.name) : '', billingAddress: formatProposalAddress(customer?.billingAddress ?? customer?.mailingAddress ?? customer?.address), email: text(customer?.email), phone: text(customer?.phone) },
     workAreas: [],
