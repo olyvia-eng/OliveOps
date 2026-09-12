@@ -74,6 +74,35 @@ export function getTimeEntryPresentation(entry, jobs) {
   };
 }
 
+function localDayKey(iso) {
+  const date = new Date(iso ?? '');
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Collapses a list of time entries (already ordered newest-clock-in-first, as returned by the Time
+// Entries API/page) into one group per employee per calendar day - e.g. six clock-in/drive-time/
+// clock-out entries for the same person on the same day become a single expandable row. Grouping
+// preserves the input order, so the resulting groups stay newest-first too. Entries with an
+// unparsable clockIn are dropped rather than grouped under a bogus key.
+export function groupTimeEntriesByEmployeeDay(entries) {
+  const groups = [];
+  const indexByKey = new Map();
+  for (const entry of entries) {
+    const dayKey = localDayKey(entry?.clockIn);
+    if (!dayKey || !entry?.employeeId) continue;
+    const groupKey = `${entry.employeeId}|${dayKey}`;
+    let index = indexByKey.get(groupKey);
+    if (index === undefined) {
+      index = groups.length;
+      indexByKey.set(groupKey, index);
+      groups.push({ key: groupKey, employeeId: entry.employeeId, dayKey, entries: [] });
+    }
+    groups[index].entries.push(entry);
+  }
+  return groups;
+}
+
 export function formatTimeEntryDuration(hours) {
   if (!Number.isFinite(hours) || hours <= 0) return '0m';
   const totalMinutes = Math.round(hours * 60);

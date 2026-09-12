@@ -15,3 +15,9 @@ export function getTimeEntryPresentation(entry: Partial<TimeEntry>, jobs: JobRef
 	workLabel: string;
 };
 export function formatTimeEntryDuration(hours: number): string;
+export function groupTimeEntriesByEmployeeDay<T extends Partial<TimeEntry>>(entries: readonly T[]): Array<{
+	key: string;
+	employeeId: string;
+	dayKey: string;
+	entries: T[];
+}>;

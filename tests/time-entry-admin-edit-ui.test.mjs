@@ -9,8 +9,11 @@ test('authoritative filtered Time Entries open the shared detail view', async ()
     source('../src/pages/reports/TimeReportsPage.tsx'),
     source('../src/components/time/TimeEntryDetailModal.tsx'),
   ]);
-  const entries = reports.slice(reports.indexOf('id="time-entries-heading"'), reports.indexOf('non-billable-breakdown-heading'));
-  assert.match(entries, /timeEntryPage\.items\.map\(\(entry\)/);
+  // Same-employee/same-day entries are grouped and rendered via renderTimeEntryRow /
+  // renderEmployeeDayRows (see groupTimeEntriesByEmployeeDay), so the slice starts at that helper
+  // rather than at the table markup itself.
+  const entries = reports.slice(reports.indexOf('const renderTimeEntryRow'), reports.indexOf('non-billable-breakdown-heading'));
+  assert.match(entries, /groupedEntryRows\.flatMap\(\(group\) => renderEmployeeDayRows\(group\)\)/);
   assert.match(entries, /setSelectedTimeEntryId\(entry\.id\)/);
   assert.match(entries, /role="button"/);
   assert.match(entries, /tabIndex=\{0\}/);
@@ -154,7 +157,9 @@ test('Time Tracking uses one filtered table with responsive controls and compact
   assert.match(reports, /<option key=\{employee\.id\} value=\{employee\.id\}>/);
   assert.match(reports, /employee\.active \? '' : ' \(Inactive\)'/);
   assert.doesNotMatch(reports, /Employee Search|Search by employee name|employeeSearchValue|setEmployeeSearch/);
-  assert.equal(reports.match(/timeEntryPage\.items\.map\(\(entry\)/g)?.length, 1);
+  // Same-employee/same-day entries are grouped into one expandable row (see
+  // groupTimeEntriesByEmployeeDay) rather than rendering every raw entry as its own row.
+  assert.equal(reports.match(/groupedEntryRows\.flatMap\(\(group\) => renderEmployeeDayRows\(group\)\)/g)?.length, 1);
   assert.doesNotMatch(reports, /Recent Time Entries|Time Entry Detail|No focused employee|No focused job/);
   assert.match(reports, /Showing \{timeEntryPage\.showingStart\}/);
   assert.match(reports, /<option value="25">25<\/option><option value="50">50<\/option><option value="100">100<\/option>/);
