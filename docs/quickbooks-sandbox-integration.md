@@ -36,6 +36,18 @@ Changing or losing this key makes stored QuickBooks credentials undecryptable. U
 
 Once `QUICKBOOKS_ENVIRONMENT=production` is set, every business connected on this deployment talks to real QuickBooks companies and creates real invoices there - there is no per-invoice or per-business sandbox/production toggle.
 
+## OAuth endpoint discovery
+
+The OAuth **authorization**, **token**, and **revocation** endpoints are not hard-coded. OliveOps resolves them from Intuit's [OAuth/OpenID Discovery Document](https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/oauth-openid-discovery-doc) (`api/_lib/quickBooksDiscovery.js`), so an Intuit-side endpoint rotation doesn't require an OliveOps code change:
+
+- The discovery URL itself is a fixed server-side constant - never derived from a browser/client request.
+- A discovered endpoint is used only if it is HTTPS and on one of the exact hosts OliveOps expects (`appcenter.intuit.com`, `oauth.platform.intuit.com`, `developer.api.intuit.com`). A malformed, missing, non-HTTPS, or unexpected-host document is rejected outright rather than partially trusted.
+- The validated document is cached in memory for about an hour so OliveOps isn't fetching it on every request.
+- Authorization-code exchange and refresh-token exchange both use the discovered token endpoint; discovery failure fails these closed, since there is no endpoint left worth falling back to.
+- Disconnect uses the discovered revocation endpoint when Intuit supplies one, but falls back to the last-known-good static revocation endpoint if discovery itself is unavailable - a discovery outage never blocks a user from disconnecting and removing their locally stored credentials.
+
+This is separate from, and does not change, the Accounting API host pinning above: that stays keyed to `QUICKBOOKS_ENVIRONMENT` exactly as described, regardless of what discovery returns.
+
 ## Security model
 
 - Only OliveOps owners and admins can connect, configure, synchronize, create QuickBooks invoices, or disconnect.
@@ -45,6 +57,7 @@ Once `QUICKBOOKS_ENVIRONMENT=production` is set, every business connected on thi
 - Browser status responses never contain tokens, encrypted envelopes, client secrets, or refresh leases.
 - Rotating refresh tokens are protected by a short conditional DynamoDB lease so stale concurrent requests cannot overwrite newer credentials.
 - All provider API traffic is pinned to the single Accounting API host implied by `QUICKBOOKS_ENVIRONMENT` (`sandbox-quickbooks.api.intuit.com` or `quickbooks.api.intuit.com`) - a deployment cannot address both hosts at once, and nothing in a request (invoice payload, customer id, etc.) can redirect it to the other host.
+- OAuth authorize/token/revoke endpoints come from Intuit's own discovery document (see "OAuth endpoint discovery" above), validated against an exact Intuit host allowlist before use - discovery can never redirect these requests to an arbitrary host.
 
 ## Required configuration
 
