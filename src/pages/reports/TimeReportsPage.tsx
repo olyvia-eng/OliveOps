@@ -9,11 +9,11 @@ import type { BusinessUserRole } from '../../auth/types';
 import type { TimeCorrectionRequest, TimeEntry, TimeEntryWorkType } from '../../types';
 import { emitAppToast } from '../../toast';
 import { buildEffectiveTimeEntries } from '../../utils/timeCorrections';
-import { formatTimeEntryDuration, getTimeEntryPresentation, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
+import { formatTimeEntryDuration, getTimeEntryPresentation, groupTimeEntriesByEmployeeDay, sortTimeEntriesNewestFirst } from '../../utils/timeEntryPresentation.js';
 import TimeEntryDetailModal from '../../components/time/TimeEntryDetailModal';
 import ManualTimeEntryModal from '../../components/time/ManualTimeEntryModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
-import { Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 
 interface TimeReportsPageProps {
   currentUserRole: BusinessUserRole;
@@ -75,6 +75,7 @@ export default function TimeReportsPage({
   const [correctionStatusFilter, setCorrectionStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
   const [selectedTimeEntryId, setSelectedTimeEntryId] = useState<string | null>(null);
+  const [expandedEmployeeDayKeys, setExpandedEmployeeDayKeys] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<ReportTab>('entries');
   const [exporting, setExporting] = useState(false);
   const [addingTimeEntry, setAddingTimeEntry] = useState(false);
@@ -139,6 +140,20 @@ export default function TimeReportsPage({
   const timeEntryPage = useTimeEntryPage({ surface: 'reports', defaultPageSize: [25, 50, 100].includes(requestedPageSize) ? requestedPageSize : 25, filters: timeEntryPageFilters });
   const lastScrolledPageVersion = useRef(timeEntryPage.loadedVersion);
   const selectedTimeEntry = timeEntryPage.items.find((entry) => entry.id === selectedTimeEntryId) ?? null;
+  // One "John clocked in, drove, worked, drove, clocked out" day reads as six separate rows unless
+  // grouped - collapse same-employee/same-day entries into a single expandable row instead. Grouping
+  // only spans the currently loaded page (see useTimeEntryPage), so a day that straddles a page
+  // boundary can appear split across two pages; that only matters at page size 25 with a very high
+  // volume of same-day entries, which the grouping itself makes far less likely to reach in the first place.
+  const groupedEntryRows = useMemo(() => groupTimeEntriesByEmployeeDay(timeEntryPage.items), [timeEntryPage.items]);
+  const toggleEmployeeDayGroup = useCallback((key: string) => {
+    setExpandedEmployeeDayKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (selectedTimeEntryId && !timeEntryPage.items.some((entry) => entry.id === selectedTimeEntryId)) {
@@ -363,6 +378,83 @@ export default function TimeReportsPage({
     } finally {
       setExporting(false);
     }
+  };
+
+  const renderTimeEntryRow = (entry: TimeEntry, nested: boolean) => {
+    const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+    const presentation = getTimeEntryPresentation(entry, jobs);
+    return (
+      <tr
+        key={entry.id}
+        tabIndex={0}
+        role="button"
+        aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`}
+        onClick={() => setSelectedTimeEntryId(entry.id)}
+        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }}
+        className={`cursor-pointer align-top hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${nested ? 'bg-gray-50/60' : ''}`}
+      >
+        <td className="px-4 py-2 font-medium text-gray-800">{nested ? null : getEmployeeName(entry.employeeId)}</td>
+        <td className={`py-2 text-gray-600 ${nested ? 'pl-4' : ''}`}>{presentation.activityLabel}</td>
+        <td className="py-2 text-gray-600 max-w-xs">
+          <p className="truncate">{presentation.workLabel}</p>
+        </td>
+        <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
+        <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
+        <td className="py-2 text-gray-600 max-w-xs truncate">
+          {entry.notes?.trim() ? entry.notes : '—'}
+          {attachmentUrls[entry.id] ? (
+            <div className="mt-1">
+              <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-xs font-medium text-brand-700 hover:text-brand-800">
+                View photo
+              </a>
+            </div>
+          ) : null}
+        </td>
+        <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
+      </tr>
+    );
+  };
+
+  const renderEmployeeDayRows = (group: ReturnType<typeof groupTimeEntriesByEmployeeDay>[number]) => {
+    if (group.entries.length === 1) return [renderTimeEntryRow(group.entries[0], false)];
+
+    // group.entries arrives newest-clock-in-first (see useTimeEntryPage); chronological restores
+    // earliest-first order so the summary reads as "clocked in at X, clocked out at Y".
+    const chronological = [...group.entries].reverse();
+    const earliest = chronological[0];
+    const latest = chronological[chronological.length - 1];
+    const totalHours = group.entries.reduce((sum, entry) => sum + durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes), 0);
+    const uniqueActivityLabels = [...new Set(chronological.map((entry) => getTimeEntryPresentation(entry, jobs).activityLabel))];
+    const uniqueWorkLabels = [...new Set(chronological.map((entry) => getTimeEntryPresentation(entry, jobs).workLabel))];
+    const isExpanded = expandedEmployeeDayKeys.has(group.key);
+
+    const summaryRow = (
+      <tr key={group.key} className="align-top">
+        <td className="px-4 py-2 font-medium text-gray-800">
+          <button
+            type="button"
+            className="flex items-center gap-2 text-left focus:outline-none focus:ring-2 focus:ring-brand-500 rounded"
+            aria-expanded={isExpanded}
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.entries.length} time entries for ${getEmployeeName(group.employeeId)}`}
+            onClick={() => toggleEmployeeDayGroup(group.key)}
+          >
+            {isExpanded ? <ChevronDown size={15} className="shrink-0 text-gray-400" /> : <ChevronRight size={15} className="shrink-0 text-gray-400" />}
+            <span>{getEmployeeName(group.employeeId)}</span>
+            <span className="font-normal text-xs text-gray-400">({group.entries.length})</span>
+          </button>
+        </td>
+        <td className="py-2 text-gray-600">{uniqueActivityLabels.join(' · ')}</td>
+        <td className="py-2 text-gray-600 max-w-xs">
+          <p className="truncate">{uniqueWorkLabels.join(', ')}</p>
+        </td>
+        <td className="py-2 text-gray-500 text-xs">{formatDateTime(earliest.clockIn)}</td>
+        <td className="py-2 text-gray-500 text-xs">{latest.clockOut ? formatDateTime(latest.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
+        <td className="py-2 text-gray-400 text-xs">—</td>
+        <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(totalHours)}</td>
+      </tr>
+    );
+
+    return isExpanded ? [summaryRow, ...group.entries.map((entry) => renderTimeEntryRow(entry, true))] : [summaryRow];
   };
 
   return (
@@ -591,40 +683,7 @@ export default function TimeReportsPage({
                 <tr><td colSpan={7} className="px-4 py-6"><div className="flex items-center gap-2"><p className="text-sm font-medium text-accent-700" role="alert">{timeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={timeEntryPage.refresh}>Retry</Button></div></td></tr>
               ) : timeEntryPage.items.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-gray-400">No entries match these filters.</td></tr>
-              ) : timeEntryPage.items.map((entry) => {
-                const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-                const presentation = getTimeEntryPresentation(entry, jobs);
-                return (
-                  <tr
-                    key={entry.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Open Time Entry for ${getEmployeeName(entry.employeeId)}`}
-                    onClick={() => setSelectedTimeEntryId(entry.id)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedTimeEntryId(entry.id); } }}
-                    className="cursor-pointer align-top hover:bg-gray-50 focus:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500"
-                  >
-                    <td className="px-4 py-2 font-medium text-gray-800">{getEmployeeName(entry.employeeId)}</td>
-                    <td className="py-2 text-gray-600">{presentation.activityLabel}</td>
-                    <td className="py-2 text-gray-600 max-w-xs">
-                      <p className="truncate">{presentation.workLabel}</p>
-                    </td>
-                    <td className="py-2 text-gray-500 text-xs">{formatDateTime(entry.clockIn)}</td>
-                    <td className="py-2 text-gray-500 text-xs">{entry.clockOut ? formatDateTime(entry.clockOut) : <span className="text-brand-700 font-medium">Active</span>}</td>
-                    <td className="py-2 text-gray-600 max-w-xs truncate">
-                      {entry.notes?.trim() ? entry.notes : '—'}
-                      {attachmentUrls[entry.id] ? (
-                        <div className="mt-1">
-                          <a href={attachmentUrls[entry.id]} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="text-xs font-medium text-brand-700 hover:text-brand-800">
-                            View photo
-                          </a>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-2 text-right font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</td>
-                  </tr>
-                );
-              })}
+              ) : groupedEntryRows.flatMap((group) => renderEmployeeDayRows(group))}
             </tbody>
           </table>
         </div>
