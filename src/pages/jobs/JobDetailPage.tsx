@@ -18,6 +18,8 @@ import ManualTimeEntryModal from '../../components/time/ManualTimeEntryModal';
 import { useTimeEntryPage } from '../../hooks/useTimeEntryPage';
 import JobSopsCard from '../../components/jobs/JobSopsCard';
 import { paymentScheduleItemState } from '../../utils/contractBillingModel.js';
+import CustomizableCardList, { type CustomizableCardDefinition } from './CustomizableCardList';
+import useJobProjectManagementCardPreferences, { type JobProjectManagementCardId } from './useJobProjectManagementCardPreferences';
 
 type JobTab = 'info' | 'work-areas' | 'proposal' | 'project-management' | 'analysis' | 'invoices';
 type TimeEntryPhotoRef = { key: string; fileId?: string; legacyUrl?: string };
@@ -110,6 +112,7 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
   const [showAllNotes, setShowAllNotes] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [addingTimeEntry, setAddingTimeEntry] = useState(false);
+  const pmCardPreferences = useJobProjectManagementCardPreferences();
 
   const customer = customers.find((c) => c.id === job?.customerId);
   const legacyCrew = crews.find((crew) => crew.id === job?.crewId);
@@ -342,6 +345,170 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
     { key: 'invoices', label: 'Invoices', visible: true },
   ];
 
+  const pmCardDefinitions: CustomizableCardDefinition<JobProjectManagementCardId>[] = [
+    {
+      id: 'resources',
+      title: 'Job Resources',
+      description: 'Schedule and assigned field resources.',
+      content: (
+        <Card className="p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h2 className="font-semibold text-gray-900">Job Resources</h2><p className="text-sm text-gray-500">Schedule and assigned field resources.</p></div>
+            {canManageSchedule ? <Button size="sm" variant="secondary" onClick={() => navigate(`/jobs/${job.id}/schedule`)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'} <ChevronRight size={14} /></Button> : null}
+          </div>
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
+            <div><dt className="text-xs font-medium text-gray-500">Scheduled</dt><dd className="mt-1 font-semibold text-gray-900">{job.startDate ? `${formatDate(job.startDate)}${job.endDate && job.endDate !== job.startDate ? ` – ${formatDate(job.endDate)}` : ''}` : 'Unscheduled'}</dd></div>
+            <div><dt className="text-xs font-medium text-gray-500">Time</dt><dd className="mt-1 font-semibold text-gray-900">{formatScheduleTimeLabel(job)}</dd></div>
+            <div><dt className="text-xs font-medium text-gray-500">Assigned Foreman</dt><dd className="mt-1 font-semibold text-gray-900">{assignedForeman?.name ?? 'Not assigned'}</dd></div>
+            <div><dt className="text-xs font-medium text-gray-500">Assigned Crew</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEmployees.length ? assignedEmployees.slice(0, 3).map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEmployees.length > 3 ? <Badge label={`+${assignedEmployees.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
+            <div><dt className="text-xs font-medium text-gray-500">Equipment</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEquipment.length ? assignedEquipment.slice(0, 3).map((asset) => <Badge key={asset.id} label={asset.name} className="bg-accent-50 text-accent-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEquipment.length > 3 ? <Badge label={`+${assignedEquipment.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
+          </dl>
+        </Card>
+      ),
+    },
+    {
+      id: 'tasks',
+      title: 'Job Tasks',
+      description: 'Actions and to-dos tied directly to this job.',
+      content: (
+        <OutstandingTasks
+          heading="Job Tasks"
+          subtitle="Actions tied directly to this job"
+          tasks={visibleJobTasks}
+          allTasks={jobTasks}
+          filter="all"
+          filterOrder={['all', 'completed']}
+          filterLabels={job.taskHeaderLabels}
+          customTaskTabs={[]}
+          expanded
+          addRequest={0}
+          allowCustomTabs={false}
+          jobTaskHeadings={headings}
+          canManageJobTaskHeadings={canManageSchedule}
+          onAddHeading={(name) => addJobTaskHeading(job.id, name)}
+          onRenameHeading={(headingId, name) => renameJobTaskHeading(job.id, headingId, name)}
+          onDeleteHeading={(headingId) => deleteJobTaskHeading(job.id, headingId)}
+          onReorderHeadings={(orderedIds) => reorderJobTaskHeadings(job.id, orderedIds)}
+          onFilterChange={() => undefined}
+          onRenameFilter={async (filter, name) => {
+            if (filter !== 'all' && filter !== 'completed') return;
+            await updateJob(job.id, { taskHeaderLabels: { ...job.taskHeaderLabels, [filter]: name } });
+          }}
+          onFilterOrderChange={() => undefined}
+          onCreateCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
+          onRenameCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
+          onDeleteCustomTab={() => false}
+          onViewAll={() => undefined}
+          onAdd={async (input) => {
+            const result = await addTask({
+              ...input,
+              description: '',
+              assignedUserId: currentUserId,
+              status: 'open',
+              relatedEntityType: 'job',
+              relatedEntityId: job.id,
+              createdByUserId: currentUserId,
+            });
+            return result.ok;
+          }}
+          onUpdate={async (taskId, input) => (await updateTask(taskId, input)).ok}
+          onToggle={async (task) => {
+            await updateTask(task.id, task.status === 'completed'
+              ? { status: 'open', completedAt: undefined }
+              : { status: 'completed', completedAt: new Date().toISOString() });
+          }}
+          onDelete={async (taskId) => { await deleteTask(taskId); }}
+          onDismissCompletedToday={() => undefined}
+        />
+      ),
+    },
+    {
+      id: 'sops',
+      title: 'Job SOPs',
+      description: 'Standard operating procedures assigned to this job.',
+      content: <JobSopsCard jobId={job.id} canManage={canManageSchedule} />,
+    },
+    {
+      id: 'notes',
+      title: 'Notes',
+      description: 'Job notes and employee time-entry notes.',
+      content: (
+        <Card className="p-4">
+          <h2 className="font-semibold">Notes</h2>
+          <div className="mt-3 space-y-3">
+            {job.notes?.trim() ? <div className="rounded-lg bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Job Note</p><p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{job.notes}</p></div> : null}
+            {employeeTimeEntryNotes.slice(0, showAllNotes ? undefined : 3).map((entry) => {
+              const employee = employees.find((item) => item.id === entry.employeeId);
+              const presentation = getTimeEntryPresentation(entry, jobs);
+              return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p>{presentation.workAreaLabel ? <p className="text-xs text-gray-500">{presentation.workAreaLabel}</p> : null}</div><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
+            })}
+            {!job.notes?.trim() && employeeTimeEntryNotes.length === 0 ? <p className="text-sm text-gray-400">No job or employee notes yet.</p> : null}
+            {employeeTimeEntryNotes.length > 3 ? <Button size="sm" variant="secondary" onClick={() => setShowAllNotes((value) => !value)}>{showAllNotes ? 'Show less' : `View all ${employeeTimeEntryNotes.length} notes`}</Button> : null}
+          </div>
+        </Card>
+      ),
+    },
+    {
+      id: 'photos',
+      title: 'Photos',
+      description: 'Photos uploaded by the field crew for this job.',
+      content: (
+        <Card className="p-4">
+          <h2 className="font-semibold">Photos</h2>
+          {jobPhotos.length === 0 ? <p className="mt-3 text-sm text-gray-400">No photos uploaded for this job.</p> : (
+            <><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.slice(0, showAllPhotos ? undefined : 6).map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="text-xs font-medium text-gray-700">{photo.employeeName} · {photo.activityLabel}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p>{photo.caption ? <p className="mt-1 line-clamp-2 text-xs text-gray-600">{photo.caption}</p> : null}</div></a>)}</div>{jobPhotos.length > 6 ? <Button className="mt-3" size="sm" variant="secondary" onClick={() => setShowAllPhotos((value) => !value)}>{showAllPhotos ? 'Show less' : `View all ${jobPhotos.length} photos`}</Button> : null}</>
+          )}
+        </Card>
+      ),
+    },
+    {
+      id: 'forms',
+      title: 'Assigned Forms',
+      description: 'Forms configured specifically for this job.',
+      content: (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4">
+            <div>
+              <h2 className="font-semibold">Assigned Forms</h2>
+              <p className="text-sm text-gray-500">Forms configured specifically for this job.</p>
+            </div>
+            <Link to="/operations/forms"><Button variant="secondary" size="sm">Manage Forms <ChevronRight size={13} /></Button></Link>
+          </div>
+          <dl className="grid grid-cols-3 gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm"><div><dt className="text-xs text-gray-500">Required</dt><dd className="mt-1 font-semibold text-gray-900">{requiredAssignedForms.length}</dd></div><div><dt className="text-xs text-gray-500">Outstanding</dt><dd className="mt-1 font-semibold text-accent-700">{outstandingRequiredForms}</dd></div><div><dt className="text-xs text-gray-500">Completed</dt><dd className="mt-1 font-semibold text-brand-700">{completedAssignedForms}</dd></div></dl>
+          {assignedForms.length === 0 ? <p className="p-4 text-sm text-gray-400">No forms are assigned to this job.</p> : (
+            <ul className="divide-y divide-gray-50">{assignedForms.map((form) => {
+              const submissionCount = jobFormSubmissionCounts[form.id] ?? 0;
+              return <li key={form.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-gray-900">{form.name}</p><Badge label={formatFormLabel(form.status)} className={form.status === 'active' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} /></div><p className="mt-1 text-sm text-gray-500">{form.description || `${formatFormLabel(form.category)} form`}</p><p className="mt-2 text-xs text-gray-400">{form.trigger.length > 0 ? form.trigger.map(formatFormLabel).join(' · ') : 'No trigger configured'}</p></div><div className="shrink-0 text-right">{submissionCount > 0 ? <Button type="button" variant="secondary" size="sm" onClick={() => void openSubmissionWorkspace(form)}>View Submissions ({submissionCount}) <ChevronRight size={13} /></Button> : <><p className="text-sm font-semibold text-gray-900">0 submissions</p><p className="text-xs text-gray-400">No submissions yet</p></>}</div></li>;
+            })}</ul>
+          )}
+        </Card>
+      ),
+    },
+    {
+      id: 'time-entries',
+      title: 'Time Entries',
+      description: 'Employee time entries logged against this job.',
+      content: (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2>{canAddTimeEntry ? <Button size="sm" onClick={() => setAddingTimeEntry(true)}><Plus size={14} /> Add Time Entry</Button> : null}</div>
+          {jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-500" role="status">Loading Time Entries...</p> : jobTimeEntryPage.error ? <div className="flex items-center gap-2 p-4"><p className="text-sm font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : jobTimeEntryPage.items.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
+            <ul className="divide-y divide-gray-50">{jobTimeEntryPage.items.map((entry) => {
+              const employee = employees.find((item) => item.id === entry.employeeId);
+              const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
+              const typeMeta = timeEntryTypeMeta(entry);
+              const presentation = getTimeEntryPresentation(entry, jobs);
+              return <li key={entry.id} className="flex items-center gap-2 px-2 py-1 text-sm"><button type="button" onClick={() => setSelectedTimeEntryId(entry.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></span><span className="mt-1 block text-sm text-gray-700">{presentation.workLabel}</span><span className="block text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</span></span><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span></button><button type="button" onClick={() => { deleteTimeEntry(entry.id); jobTimeEntryPage.refresh(); }} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="p-2 text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></li>;
+            })}</ul>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
+            <p className="text-gray-600">{!jobTimeEntryPage.loading && !jobTimeEntryPage.error && jobTimeEntryPage.items.length > 0 ? <>Showing {jobTimeEntryPage.showingStart}–{jobTimeEntryPage.showingEnd}</> : 'Time Entries'}</p>
+            <div className="flex items-end gap-2"><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.previous} disabled={!jobTimeEntryPage.hasPrevious || jobTimeEntryPage.loading}>Previous</Button><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.next} disabled={!jobTimeEntryPage.hasNext || jobTimeEntryPage.loading}>Next</Button><Select label="Rows" value={String(jobTimeEntryPage.pageSize)} onChange={(event) => jobTimeEntryPage.setPageSize(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Select></div>
+          </div>
+        </Card>
+      ),
+    },
+  ];
+
   return (
     <div>
       <div className="mb-4">
@@ -485,131 +652,20 @@ export default function JobDetailPage({ currentUserRole, currentUserId }: Props)
       )}
 
       {activeTab === 'project-management' && (
-        <div className="space-y-6">
-          <Card className="p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><h2 className="font-semibold text-gray-900">Job Resources</h2><p className="text-sm text-gray-500">Schedule and assigned field resources.</p></div>
-              {canManageSchedule ? <Button size="sm" variant="secondary" onClick={() => navigate(`/jobs/${job.id}/schedule`)}>{job.scheduleConfirmed ? 'Edit Schedule' : 'Schedule Job'} <ChevronRight size={14} /></Button> : null}
-            </div>
-            <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5">
-              <div><dt className="text-xs font-medium text-gray-500">Scheduled</dt><dd className="mt-1 font-semibold text-gray-900">{job.startDate ? `${formatDate(job.startDate)}${job.endDate && job.endDate !== job.startDate ? ` – ${formatDate(job.endDate)}` : ''}` : 'Unscheduled'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Time</dt><dd className="mt-1 font-semibold text-gray-900">{formatScheduleTimeLabel(job)}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Assigned Foreman</dt><dd className="mt-1 font-semibold text-gray-900">{assignedForeman?.name ?? 'Not assigned'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Assigned Crew</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEmployees.length ? assignedEmployees.slice(0, 3).map((employee) => <Badge key={employee.id} label={employee.name} className="bg-brand-100 text-brand-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEmployees.length > 3 ? <Badge label={`+${assignedEmployees.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500">Equipment</dt><dd className="mt-1 flex flex-wrap gap-1">{assignedEquipment.length ? assignedEquipment.slice(0, 3).map((asset) => <Badge key={asset.id} label={asset.name} className="bg-accent-50 text-accent-700" />) : <span className="font-semibold text-gray-900">None</span>}{assignedEquipment.length > 3 ? <Badge label={`+${assignedEquipment.length - 3}`} className="bg-gray-100 text-gray-700" /> : null}</dd></div>
-            </dl>
-          </Card>
-
-          <OutstandingTasks
-            heading="Job Tasks"
-            subtitle="Actions tied directly to this job"
-            tasks={visibleJobTasks}
-            allTasks={jobTasks}
-            filter="all"
-            filterOrder={['all', 'completed']}
-            filterLabels={job.taskHeaderLabels}
-            customTaskTabs={[]}
-            expanded
-            addRequest={0}
-            allowCustomTabs={false}
-            jobTaskHeadings={headings}
-            canManageJobTaskHeadings={canManageSchedule}
-            onAddHeading={(name) => addJobTaskHeading(job.id, name)}
-            onRenameHeading={(headingId, name) => renameJobTaskHeading(job.id, headingId, name)}
-            onDeleteHeading={(headingId) => deleteJobTaskHeading(job.id, headingId)}
-            onReorderHeadings={(orderedIds) => reorderJobTaskHeadings(job.id, orderedIds)}
-            onFilterChange={() => undefined}
-            onRenameFilter={async (filter, name) => {
-              if (filter !== 'all' && filter !== 'completed') return;
-              await updateJob(job.id, { taskHeaderLabels: { ...job.taskHeaderLabels, [filter]: name } });
-            }}
-            onFilterOrderChange={() => undefined}
-            onCreateCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
-            onRenameCustomTab={() => ({ ok: false, error: 'Job task categories are not enabled.' })}
-            onDeleteCustomTab={() => false}
-            onViewAll={() => undefined}
-            onAdd={async (input) => {
-              const result = await addTask({
-                ...input,
-                description: '',
-                assignedUserId: currentUserId,
-                status: 'open',
-                relatedEntityType: 'job',
-                relatedEntityId: job.id,
-                createdByUserId: currentUserId,
-              });
-              return result.ok;
-            }}
-            onUpdate={async (taskId, input) => (await updateTask(taskId, input)).ok}
-            onToggle={async (task) => {
-              await updateTask(task.id, task.status === 'completed'
-                ? { status: 'open', completedAt: undefined }
-                : { status: 'completed', completedAt: new Date().toISOString() });
-            }}
-            onDelete={async (taskId) => { await deleteTask(taskId); }}
-            onDismissCompletedToday={() => undefined}
-          />
-
-          <JobSopsCard jobId={job.id} canManage={canManageSchedule} />
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card className="p-4">
-              <h2 className="font-semibold">Notes</h2>
-              <div className="mt-3 space-y-3">
-                {job.notes?.trim() ? <div className="rounded-lg bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Job Note</p><p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{job.notes}</p></div> : null}
-                {employeeTimeEntryNotes.slice(0, showAllNotes ? undefined : 3).map((entry) => {
-                  const employee = employees.find((item) => item.id === entry.employeeId);
-                  const presentation = getTimeEntryPresentation(entry, jobs);
-                  return <div key={entry.id} className="rounded-lg border border-gray-100 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-gray-900">{employee?.name ?? 'Employee'}</p>{presentation.workAreaLabel ? <p className="text-xs text-gray-500">{presentation.workAreaLabel}</p> : null}</div><p className="text-xs text-gray-400">{formatDateTime(entry.clockIn)}</p></div><p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{entry.notes}</p></div>;
-                })}
-                {!job.notes?.trim() && employeeTimeEntryNotes.length === 0 ? <p className="text-sm text-gray-400">No job or employee notes yet.</p> : null}
-                {employeeTimeEntryNotes.length > 3 ? <Button size="sm" variant="secondary" onClick={() => setShowAllNotes((value) => !value)}>{showAllNotes ? 'Show less' : `View all ${employeeTimeEntryNotes.length} notes`}</Button> : null}
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <h2 className="font-semibold">Photos</h2>
-              {jobPhotos.length === 0 ? <p className="mt-3 text-sm text-gray-400">No photos uploaded for this job.</p> : (
-                <><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{jobPhotos.slice(0, showAllPhotos ? undefined : 6).map((photo) => <a key={photo.key} href={photo.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-gray-100 bg-gray-50"><img src={photo.url} alt={`Job upload from ${photo.employeeName}`} className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-[1.02]" /><div className="p-2"><p className="text-xs font-medium text-gray-700">{photo.employeeName} · {photo.activityLabel}</p><p className="text-[11px] text-gray-400">{formatDateTime(photo.clockIn)}</p>{photo.caption ? <p className="mt-1 line-clamp-2 text-xs text-gray-600">{photo.caption}</p> : null}</div></a>)}</div>{jobPhotos.length > 6 ? <Button className="mt-3" size="sm" variant="secondary" onClick={() => setShowAllPhotos((value) => !value)}>{showAllPhotos ? 'Show less' : `View all ${jobPhotos.length} photos`}</Button> : null}</>
-              )}
-            </Card>
-          </div>
-
-          <Card>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4">
-              <div>
-                <h2 className="font-semibold">Assigned Forms</h2>
-                <p className="text-sm text-gray-500">Forms configured specifically for this job.</p>
-              </div>
-              <Link to="/operations/forms"><Button variant="secondary" size="sm">Manage Forms <ChevronRight size={13} /></Button></Link>
-            </div>
-            <dl className="grid grid-cols-3 gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 text-sm"><div><dt className="text-xs text-gray-500">Required</dt><dd className="mt-1 font-semibold text-gray-900">{requiredAssignedForms.length}</dd></div><div><dt className="text-xs text-gray-500">Outstanding</dt><dd className="mt-1 font-semibold text-accent-700">{outstandingRequiredForms}</dd></div><div><dt className="text-xs text-gray-500">Completed</dt><dd className="mt-1 font-semibold text-brand-700">{completedAssignedForms}</dd></div></dl>
-            {assignedForms.length === 0 ? <p className="p-4 text-sm text-gray-400">No forms are assigned to this job.</p> : (
-              <ul className="divide-y divide-gray-50">{assignedForms.map((form) => {
-                const submissionCount = jobFormSubmissionCounts[form.id] ?? 0;
-                return <li key={form.id} className="flex flex-wrap items-start justify-between gap-3 p-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-gray-900">{form.name}</p><Badge label={formatFormLabel(form.status)} className={form.status === 'active' ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-600'} /></div><p className="mt-1 text-sm text-gray-500">{form.description || `${formatFormLabel(form.category)} form`}</p><p className="mt-2 text-xs text-gray-400">{form.trigger.length > 0 ? form.trigger.map(formatFormLabel).join(' · ') : 'No trigger configured'}</p></div><div className="shrink-0 text-right">{submissionCount > 0 ? <Button type="button" variant="secondary" size="sm" onClick={() => void openSubmissionWorkspace(form)}>View Submissions ({submissionCount}) <ChevronRight size={13} /></Button> : <><p className="text-sm font-semibold text-gray-900">0 submissions</p><p className="text-xs text-gray-400">No submissions yet</p></>}</div></li>;
-              })}</ul>
-            )}
-          </Card>
-
-          <Card>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-4"><h2 id="job-time-entries-heading" className="font-semibold">Time Entries</h2>{canAddTimeEntry ? <Button size="sm" onClick={() => setAddingTimeEntry(true)}><Plus size={14} /> Add Time Entry</Button> : null}</div>
-            {jobTimeEntryPage.loading ? <p className="p-4 text-sm text-gray-500" role="status">Loading Time Entries...</p> : jobTimeEntryPage.error ? <div className="flex items-center gap-2 p-4"><p className="text-sm font-medium text-accent-700" role="alert">{jobTimeEntryPage.error}</p><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.refresh}>Retry</Button></div> : jobTimeEntryPage.items.length === 0 ? <p className="p-4 text-sm text-gray-400">No time entries for this job.</p> : (
-              <ul className="divide-y divide-gray-50">{jobTimeEntryPage.items.map((entry) => {
-                const employee = employees.find((item) => item.id === entry.employeeId);
-                const hours = durationHours(entry.clockIn, entry.clockOut, entry.breakMinutes);
-                const typeMeta = timeEntryTypeMeta(entry);
-                const presentation = getTimeEntryPresentation(entry, jobs);
-                return <li key={entry.id} className="flex items-center gap-2 px-2 py-1 text-sm"><button type="button" onClick={() => setSelectedTimeEntryId(entry.id)} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><span><span className="flex items-center gap-2 font-medium"><span>{employee?.name ?? '—'}</span><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${typeMeta.className}`}>{presentation.activityLabel}</span></span><span className="mt-1 block text-sm text-gray-700">{presentation.workLabel}</span><span className="block text-xs text-gray-400">{formatDateTime(entry.clockIn)} → {entry.clockOut ? formatDateTime(entry.clockOut) : 'Active'}</span></span><span className="font-semibold text-brand-600">{formatTimeEntryDuration(hours)}</span></button><button type="button" onClick={() => { deleteTimeEntry(entry.id); jobTimeEntryPage.refresh(); }} aria-label={`Delete time entry for ${employee?.name ?? 'employee'}`} className="p-2 text-gray-300 hover:text-accent-700"><Trash2 size={14} /></button></li>;
-              })}</ul>
-            )}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 text-sm">
-              <p className="text-gray-600">{!jobTimeEntryPage.loading && !jobTimeEntryPage.error && jobTimeEntryPage.items.length > 0 ? <>Showing {jobTimeEntryPage.showingStart}–{jobTimeEntryPage.showingEnd}</> : 'Time Entries'}</p>
-              <div className="flex items-end gap-2"><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.previous} disabled={!jobTimeEntryPage.hasPrevious || jobTimeEntryPage.loading}>Previous</Button><Button variant="secondary" size="sm" onClick={jobTimeEntryPage.next} disabled={!jobTimeEntryPage.hasNext || jobTimeEntryPage.loading}>Next</Button><Select label="Rows" value={String(jobTimeEntryPage.pageSize)} onChange={(event) => jobTimeEntryPage.setPageSize(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></Select></div>
-            </div>
-          </Card>
-
-        </div>
+        <CustomizableCardList
+          cardIds={pmCardPreferences.cardIds}
+          availableCardIds={pmCardPreferences.availableCardIds}
+          definitions={pmCardDefinitions}
+          hydrated={pmCardPreferences.hydrated}
+          emptyTitle="No cards on this tab yet"
+          emptyDescription="Add the cards that matter for running this job."
+          resetTitle="Reset Project Management layout"
+          resetDescription="Restore the default cards and order?"
+          onReorder={pmCardPreferences.reorderCards}
+          onAdd={pmCardPreferences.addCard}
+          onRemove={pmCardPreferences.removeCard}
+          onReset={pmCardPreferences.resetCardIds}
+        />
       )}
 
       {activeTab === 'invoices' && (

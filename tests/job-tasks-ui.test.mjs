@@ -10,7 +10,10 @@ const dataApiSource = readFileSync('api/data.js', 'utf8');
 const authRepoSource = readFileSync('api/_lib/authRepo.js', 'utf8');
 
 test('Job Project Management renders the reusable Tasks card first', () => {
-  const projectManagement = jobSource.slice(jobSource.indexOf("activeTab === 'project-management'"), jobSource.indexOf("activeTab === 'invoices'"));
+  // The Project Management tab's cards are user-customizable (see CustomizableCardList /
+  // useJobProjectManagementCardPreferences), so their content now lives in the pmCardDefinitions
+  // array rather than inline JSX - slice that array instead of the old fixed render block.
+  const projectManagement = jobSource.slice(jobSource.indexOf('const pmCardDefinitions'), jobSource.indexOf("\n  return (\n    <div>"));
   assert.match(projectManagement, /<OutstandingTasks/);
   assert.ok(projectManagement.indexOf('<OutstandingTasks') < projectManagement.indexOf('>Notes</h2>'));
   assert.match(projectManagement, /heading="Job Tasks"/);
