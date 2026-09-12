@@ -22,6 +22,7 @@ export default async function handler(req, res) {
     ? (req.query.customerId ?? req.body.customerId)
     : '';
   if (!customerId) return res.status(400).json({ ok: false, error: 'Customer id is required.' });
+  const actor = { businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email };
   try {
     const [connection, customer] = await Promise.all([
       getQuickBooksConnection({ businessId: session.businessId }),
@@ -31,11 +32,11 @@ export default async function handler(req, res) {
     if (!customer) return res.status(404).json({ ok: false, error: 'Customer not found.' });
     const existing = await getQuickBooksCustomerMapping({ businessId: session.businessId, realmId: connection.realmId, customerId });
     if (existing) return res.status(200).json({ ok: true, mapping: existing });
-    const accessToken = await getValidQuickBooksAccessToken({ businessId: session.businessId, connection });
+    const accessToken = await getValidQuickBooksAccessToken({ connection, ...actor });
     const customerPayload = buildQuickBooksCustomerPayload(customer);
 
     if (req.method === 'GET') {
-      const candidates = await listQuickBooksCustomers({ accessToken, realmId: connection.realmId, displayName: customerPayload.DisplayName });
+      const candidates = await listQuickBooksCustomers({ accessToken, realmId: connection.realmId, displayName: customerPayload.DisplayName, ...actor });
       return res.status(200).json({ ok: true, mapping: null, candidates });
     }
 
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
     let createdIntuitTid = null;
     if (action === 'map') {
       const selectedId = typeof req.body?.quickBooksCustomerId === 'string' ? req.body.quickBooksCustomerId : '';
-      const customers = await listQuickBooksCustomers({ accessToken, realmId: connection.realmId });
+      const customers = await listQuickBooksCustomers({ accessToken, realmId: connection.realmId, ...actor });
       quickBooksCustomer = customers.find((candidate) => candidate.id === selectedId && candidate.active);
       if (!quickBooksCustomer) return res.status(400).json({ ok: false, error: 'Selected QuickBooks customer is unavailable.' });
     } else if (action === 'create') {
@@ -53,6 +54,7 @@ export default async function handler(req, res) {
         realmId: connection.realmId,
         customer: customerPayload,
         requestId: quickBooksRequestId('customer', session.businessId, connection.realmId, customerId),
+        ...actor,
       });
       quickBooksCustomer = { id: String(created.Id), displayName: created.DisplayName ?? customerPayload.DisplayName };
       createdIntuitTid = created.intuitTid ?? null;
