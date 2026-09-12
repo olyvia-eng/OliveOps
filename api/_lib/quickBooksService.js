@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { requireEnv } from './env.js';
+import { quickBooksEnvironment, requireEnv } from './env.js';
 import { decryptSecret, encryptSecret } from './secretEncryption.js';
 import {
   acquireQuickBooksRefreshLease,
@@ -10,12 +10,21 @@ import {
   releaseQuickBooksRefreshLease,
 } from './quickBooksRepo.js';
 
+// OAuth authorize/token/revoke run on the same Intuit endpoints regardless of environment - only
+// the Accounting API host differs between a sandbox company and a real one.
 const QUICKBOOKS_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2';
 const QUICKBOOKS_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
 const QUICKBOOKS_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
-const QUICKBOOKS_SANDBOX_API = 'https://sandbox-quickbooks.api.intuit.com';
+const QUICKBOOKS_API_BASE_BY_ENVIRONMENT = {
+  sandbox: 'https://sandbox-quickbooks.api.intuit.com',
+  production: 'https://quickbooks.api.intuit.com',
+};
 const QUICKBOOKS_SCOPE = 'com.intuit.quickbooks.accounting';
 const QUICKBOOKS_MINOR_VERSION = '75';
+
+function quickBooksApiBase() {
+  return QUICKBOOKS_API_BASE_BY_ENVIRONMENT[quickBooksEnvironment()];
+}
 
 function oauthConfig() {
   return {
@@ -159,7 +168,7 @@ export async function getValidQuickBooksAccessToken({ businessId, connection, fe
 }
 
 async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET', query, body, fetchImpl = fetch }) {
-  const url = new URL(`${QUICKBOOKS_SANDBOX_API}/v3/company/${encodeURIComponent(realmId)}${path}`);
+  const url = new URL(`${quickBooksApiBase()}/v3/company/${encodeURIComponent(realmId)}${path}`);
   Object.entries(query ?? {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
   url.searchParams.set('minorversion', QUICKBOOKS_MINOR_VERSION);
   const response = await fetchImpl(url, {
