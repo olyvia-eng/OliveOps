@@ -24,6 +24,12 @@ function buildAdditionalData(context) {
     return Buffer.from(`google-calendar:${businessId}:${userId}`, 'utf8');
   }
 
+  // A realmId is itself the secret being encrypted here (see quickBooksRepo.js), so unlike the
+  // token-encryption branch below it can't also be required as part of its own authenticated data.
+  if (provider === 'quickbooks-online-realm-id') {
+    return Buffer.from(`quickbooks-online-realm-id:${businessId}`, 'utf8');
+  }
+
   if (typeof provider !== 'string' || !provider || typeof realmId !== 'string' || !realmId) {
     throw new Error('Provider credential encryption requires provider and realmId');
   }

@@ -12,12 +12,13 @@ import {
   listQuickBooksCustomers,
 } from '../../_lib/quickBooksService.js';
 import { buildQuickBooksCustomerPayload, quickBooksRequestId } from '../../_lib/quickBooksSync.js';
-import { methodNotAllowed } from './_http.js';
+import { methodNotAllowed, noStoreCacheControl } from './_http.js';
 
 export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  noStoreCacheControl(res);
   const customerId = typeof (req.query.customerId ?? req.body?.customerId) === 'string'
     ? (req.query.customerId ?? req.body.customerId)
     : '';

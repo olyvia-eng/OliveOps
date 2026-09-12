@@ -3,12 +3,13 @@ import { createAuditEventForBusiness } from '../../_lib/authRepo.js';
 import { requireSession } from '../../_lib/session.js';
 import { deleteQuickBooksConnection, getQuickBooksConnection } from '../../_lib/quickBooksRepo.js';
 import { decryptQuickBooksRefreshToken, revokeQuickBooksToken } from '../../_lib/quickBooksService.js';
-import { methodNotAllowed } from './_http.js';
+import { methodNotAllowed, noStoreCacheControl } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  noStoreCacheControl(res);
 
   try {
     const connection = await getQuickBooksConnection({ businessId: session.businessId });
