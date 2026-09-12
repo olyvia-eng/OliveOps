@@ -40,7 +40,7 @@ test('Work Area resources expose snapshot economics with editable quantity and a
   assert.match(builderSource, /getEstimateLinePricingEconomics\(lineItem\)/);
   assert.match(builderSource, /const usesHours = category === 'labour' \|\| \(category === 'equipment' && lineItem\.unit === 'hr'\)/);
   assert.match(builderSource, /const quantityLabel = usesHours \? 'Hours' : 'Quantity'/);
-  assert.match(builderSource, /setLineItem\(lineItem\.id, 'quantity', parseNumericInputValue\(event\.target\.value\)\)/);
+  assert.match(builderSource, /onValueChange=\{\(value\) => setLineItem\(lineItem\.id, 'quantity', value\)\}/);
   assert.match(builderSource, /usesHours \|\| isBudgetPriced \? <span>\{lineItem\.unit\}<\/span>/);
   assert.match(builderSource, /formatCurrency\(economics\.totalCost\)/);
   assert.match(builderSource, /formatCurrency\(economics\.totalPrice\)/);

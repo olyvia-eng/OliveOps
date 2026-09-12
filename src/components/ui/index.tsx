@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ChangeEvent, ChangeEventHandler, FocusEvent, FocusEventHandler, HTMLAttributes, ReactNode } from 'react';
-import { formatCurrencyInputValue, formatNumericDisplayValue, normalizeNumericInput } from '../../utils/numberInput';
+import { formatCurrencyInputValue, formatNumericDisplayValue, normalizeNumericInput, parseNumericInputValue } from '../../utils/numberInput';
 
 interface BadgeProps {
   label: string;
@@ -178,6 +178,52 @@ export function Input({ label, error, currency = false, className = '', ...rest 
       </div>
       {error && <p className="text-xs text-accent-700">{error}</p>}
     </div>
+  );
+}
+
+interface DecimalTextInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> {
+  value: number | string;
+  onValueChange: (value: number) => void;
+  /** Round the displayed value to this many decimals while not focused. Omit to show the exact raw value. */
+  displayDecimals?: number;
+}
+
+/**
+ * A bare (unstyled) numeric text input for tight custom layouts (table cells, inline editors) where the
+ * shared `Input` component's wrapper markup/styling doesn't fit. Keeps a local "draft" string of exactly
+ * what the user is typing so a trailing decimal point (e.g. "45.") isn't immediately reformatted away on
+ * every keystroke, and optionally rounds the value for display only while the field isn't focused.
+ */
+export function DecimalTextInput({ value, onValueChange, displayDecimals, onFocus, onBlur, className = '', ...rest }: DecimalTextInputProps) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const roundedValue = typeof value === 'number' && displayDecimals !== undefined
+    ? Math.round((value + Number.EPSILON) * 10 ** displayDecimals) / 10 ** displayDecimals
+    : value;
+  const displayValue = draft ?? formatNumericDisplayValue(roundedValue);
+
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      className={className}
+      onChange={(event: ChangeEvent<HTMLInputElement>) => {
+        const normalized = normalizeNumericInput(event.target.value);
+        if (!/^-?\d*\.?\d*$/.test(normalized)) return;
+        setDraft(normalized);
+        onValueChange(parseNumericInputValue(normalized));
+      }}
+      onFocus={(event: FocusEvent<HTMLInputElement>) => {
+        setDraft(normalizeNumericInput(String(value ?? '')));
+        event.currentTarget.select();
+        onFocus?.(event);
+      }}
+      onBlur={(event: FocusEvent<HTMLInputElement>) => {
+        setDraft(null);
+        onBlur?.(event);
+      }}
+    />
   );
 }
 
