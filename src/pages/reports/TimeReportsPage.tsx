@@ -415,7 +415,11 @@ export default function TimeReportsPage({
     );
   };
 
-  const renderEmployeeDayRows = (group: ReturnType<typeof groupTimeEntriesByEmployeeDay>[number]) => {
+  // groupTimeEntriesByEmployeeDay is generic (entries: readonly T[]) - without an explicit type
+  // argument here, ReturnType<typeof ...> can't recover T from the call site below and falls back to
+  // its constraint, Partial<TimeEntry>, whose optional `id`/`clockIn` etc. then fail to satisfy
+  // renderTimeEntryRow's TimeEntry parameter. Pin T to TimeEntry to match what's actually passed in.
+  const renderEmployeeDayRows = (group: ReturnType<typeof groupTimeEntriesByEmployeeDay<TimeEntry>>[number]) => {
     if (group.entries.length === 1) return [renderTimeEntryRow(group.entries[0], false)];
 
     // group.entries arrives newest-clock-in-first (see useTimeEntryPage); chronological restores
