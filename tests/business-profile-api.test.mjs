@@ -19,7 +19,7 @@ function installDdb(t) {
       const itemKey = key(input.Key.PK, input.Key.SK);
       const existing = store.get(itemKey);
       if (!existing) throw Object.assign(new Error('missing'), { name: 'ConditionalCheckFailedException' });
-      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], legalName: input.ExpressionAttributeValues[':legalName'], phone: input.ExpressionAttributeValues[':phone'], email: input.ExpressionAttributeValues[':email'], website: input.ExpressionAttributeValues[':website'], businessAddress: input.ExpressionAttributeValues[':businessAddress'], taxLabel: input.ExpressionAttributeValues[':taxLabel'], proposalTerms: input.ExpressionAttributeValues[':proposalTerms'], features: input.ExpressionAttributeValues[':features'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
+      const next = { ...existing, timezone: input.ExpressionAttributeValues[':timezone'], legalName: input.ExpressionAttributeValues[':legalName'], phone: input.ExpressionAttributeValues[':phone'], email: input.ExpressionAttributeValues[':email'], website: input.ExpressionAttributeValues[':website'], businessAddress: input.ExpressionAttributeValues[':businessAddress'], taxLabel: input.ExpressionAttributeValues[':taxLabel'], proposalTerms: input.ExpressionAttributeValues[':proposalTerms'], proposalColor: input.ExpressionAttributeValues[':proposalColor'], proposalAccentColor: input.ExpressionAttributeValues[':proposalAccentColor'], features: input.ExpressionAttributeValues[':features'], updatedAt: input.ExpressionAttributeValues[':updatedAt'] };
       store.set(itemKey, next);
       return {};
     }
@@ -76,6 +76,26 @@ test('company proposal identity and reusable terms persist without changing tena
   assert.equal(saved.body.business.legalName, 'Olive Test Ltd.');
   assert.equal(saved.body.business.proposalTerms, 'Customer terms');
   assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).taxLabel, 'HST');
+});
+
+test('proposal brand colors persist as hex or are rejected, and blank resets to the default', async (t) => {
+  const store = installDdb(t);
+  store.set(key('BUSINESS#biz-a', 'PROFILE'), { PK: 'BUSINESS#biz-a', SK: 'PROFILE', entityType: 'BUSINESS', businessId: 'biz-a', name: 'Olive Test', timezone: 'America/Toronto', createdAt: '2026-01-01T00:00:00.000Z' });
+  await seedUser(store, { userId: 'owner-color', role: 'owner', token: 'owner-color-token' });
+
+  const invalid = await request('owner-color-token', 'PATCH', { proposalColor: 'not-a-color' });
+  assert.equal(invalid.statusCode, 400);
+
+  const saved = await request('owner-color-token', 'PATCH', { proposalColor: '#123ABC', proposalAccentColor: '#0A0A0A' });
+  assert.equal(saved.statusCode, 200);
+  assert.equal(saved.body.business.proposalColor, '#123ABC');
+  assert.equal(saved.body.business.proposalAccentColor, '#0A0A0A');
+  assert.equal(store.get(key('BUSINESS#biz-a', 'PROFILE')).proposalColor, '#123ABC');
+
+  const reset = await request('owner-color-token', 'PATCH', { proposalColor: '' });
+  assert.equal(reset.statusCode, 200);
+  assert.equal(reset.body.business.proposalColor, '');
+  assert.equal(reset.body.business.proposalAccentColor, '#0A0A0A');
 });
 
 test('crew members cannot read or change company timezone', async (t) => {

@@ -628,6 +628,8 @@ export async function getBusinessProfile(businessId) {
     businessAddress: typeof result.Item.businessAddress === 'string' ? result.Item.businessAddress : '',
     taxLabel: typeof result.Item.taxLabel === 'string' ? result.Item.taxLabel : '',
     proposalTerms: typeof result.Item.proposalTerms === 'string' ? result.Item.proposalTerms : '',
+    proposalColor: typeof result.Item.proposalColor === 'string' ? result.Item.proposalColor : '',
+    proposalAccentColor: typeof result.Item.proposalAccentColor === 'string' ? result.Item.proposalAccentColor : '',
     ...customerDocumentSettings(result.Item),
     logoFileId: typeof result.Item.logoFileId === 'string' ? result.Item.logoFileId : '',
     logoDataUrl: typeof result.Item.logoDataUrl === 'string' ? result.Item.logoDataUrl : '',
@@ -646,7 +648,7 @@ export async function updateBusinessProfile({ businessId, profile }) {
   await ddb.send(new UpdateCommand({
     TableName: tableName,
     Key: { PK: businessPk(businessId), SK: 'PROFILE' },
-    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, logoFileId = :logoFileId, features = :features, defaultPaymentTermsDays = :defaultPaymentTermsDays, defaultInvoiceNotes = :defaultInvoiceNotes, paymentInstructions = :paymentInstructions, paymentMethods = :paymentMethods, updatedAt = :updatedAt',
+    UpdateExpression: 'SET #timezone = :timezone, legalName = :legalName, phone = :phone, email = :email, website = :website, businessAddress = :businessAddress, taxLabel = :taxLabel, proposalTerms = :proposalTerms, proposalColor = :proposalColor, proposalAccentColor = :proposalAccentColor, logoFileId = :logoFileId, features = :features, defaultPaymentTermsDays = :defaultPaymentTermsDays, defaultInvoiceNotes = :defaultInvoiceNotes, paymentInstructions = :paymentInstructions, paymentMethods = :paymentMethods, updatedAt = :updatedAt',
     ExpressionAttributeNames: { '#timezone': 'timezone' },
     ExpressionAttributeValues: {
       ':timezone': normalizeBusinessTimeZone(profile.timezone ?? current.timezone ?? DEFAULT_BUSINESS_TIME_ZONE),
@@ -657,6 +659,8 @@ export async function updateBusinessProfile({ businessId, profile }) {
       ':businessAddress': profile.businessAddress ?? current.businessAddress,
       ':taxLabel': profile.taxLabel ?? current.taxLabel,
       ':proposalTerms': profile.proposalTerms ?? current.proposalTerms,
+      ':proposalColor': profile.proposalColor ?? current.proposalColor,
+      ':proposalAccentColor': profile.proposalAccentColor ?? current.proposalAccentColor,
       ':logoFileId': profile.logoFileId ?? current.logoFileId,
       ':features': normalizeBusinessFeatures(profile.features ?? current.features),
       ':defaultPaymentTermsDays': profile.defaultPaymentTermsDays ?? current.defaultPaymentTermsDays,

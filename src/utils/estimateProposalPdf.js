@@ -7,7 +7,16 @@ const PAGE_WIDTH = 612;
 const MARGIN = 42;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const CONTENT_BOTTOM = 735;
-const { accent: OLIVE, accentStrong: OLIVE_DEEP, neutral: OLIVE_TINT, border: OLIVE_BORDER, ink: INK, muted: MUTED, divider: DIVIDER, white: WHITE } = PROPOSAL_BRAND;
+// accent/accentStrong come from the business's own proposal color choice (see buildProposalPresentation);
+// everything else here is a fixed neutral, not a brand color.
+const { neutral: OLIVE_TINT, border: OLIVE_BORDER, ink: INK, muted: MUTED, divider: DIVIDER, white: WHITE } = PROPOSAL_BRAND;
+
+function hexToRgb(value, fallback) {
+  const match = /^#([0-9a-fA-F]{6})$/.exec(String(value ?? '').trim());
+  if (!match) return fallback;
+  const parsed = parseInt(match[1], 16);
+  return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
+}
 
 const clean = (value) => Array.from(String(value ?? '')).filter((character) => {
   const codePoint = character.codePointAt(0) ?? 0;
@@ -34,6 +43,8 @@ export async function fetchEstimateProposal(estimateId, versionNumber) {
 export function createEstimateProposalDocument(projection, options = {}) {
   const doc = new jsPDF({ unit: 'pt', format: 'letter', compress: false });
   const presentation = buildProposalPresentation(projection);
+  const OLIVE = hexToRgb(presentation.company.color, PROPOSAL_BRAND.accent);
+  const OLIVE_DEEP = hexToRgb(presentation.company.accentColor, PROPOSAL_BRAND.accentStrong);
   const companyName = clean(presentation.company.name);
   const customerDocumentLabel = options.acceptance ? 'ACCEPTED' : 'PROPOSAL';
   const layoutTrace = [];
@@ -413,9 +424,11 @@ export function createEstimateProposalDocument(projection, options = {}) {
       doc.text(labelLines, MARGIN + 24, cursorY);
       doc.text(payment.displayAmount, PAGE_WIDTH - MARGIN, cursorY, { align: 'right' });
       setText(8.5, MUTED);
+      // Percentage sits on the same line as the amount (not the due-date line below), so the two
+      // right-aligned columns read as one clean row instead of one sitting a line lower than the other.
+      if (payment.percentageLabel) doc.text(payment.percentageLabel, PAGE_WIDTH - MARGIN - 100, cursorY, { align: 'right' });
       const dueY = cursorY + labelLines.length * 13 + 2;
       doc.text(dueLines, MARGIN + 24, dueY);
-      if (payment.percentageLabel) doc.text(payment.percentageLabel, PAGE_WIDTH - MARGIN - 100, dueY, { align: 'right' });
       cursorY += rowHeight - 8;
       divider(cursorY);
       cursorY += 8;

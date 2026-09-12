@@ -9,8 +9,13 @@ type PaymentMethod = { type: string; enabled: boolean; displayName: string; inst
 type BusinessPayload = {
   id: string; name: string; timezone: string; logoFileId?: string; logoDataUrl?: string;
   legalName?: string; phone?: string; email?: string; website?: string; businessAddress?: string; taxLabel?: string; proposalTerms?: string;
+  proposalColor?: string; proposalAccentColor?: string;
   defaultPaymentTermsDays?: number; defaultInvoiceNotes?: string; paymentInstructions?: string; paymentMethods?: PaymentMethod[];
 };
+// Defaults match the app's own accent-500/accent-700 (tailwind.config.js) - the color Proposals use
+// until a business picks its own.
+const DEFAULT_PROPOSAL_COLOR = '#6B8E23';
+const DEFAULT_PROPOSAL_ACCENT_COLOR = '#4A6418';
 
 export default function CompanySettingsPage() {
   const [name, setName] = useState('');
@@ -18,7 +23,7 @@ export default function CompanySettingsPage() {
   const [businessId, setBusinessId] = useState('');
   const [logoFileId, setLogoFileId] = useState('');
   const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
-  const [proposalFields, setProposalFields] = useState({ legalName: '', phone: '', email: '', website: '', businessAddress: '', taxLabel: '', proposalTerms: '' });
+  const [proposalFields, setProposalFields] = useState({ legalName: '', phone: '', email: '', website: '', businessAddress: '', taxLabel: '', proposalTerms: '', proposalColor: DEFAULT_PROPOSAL_COLOR, proposalAccentColor: DEFAULT_PROPOSAL_ACCENT_COLOR });
   const [invoiceFields, setInvoiceFields] = useState({ defaultPaymentTermsDays: 30, defaultInvoiceNotes: '', paymentInstructions: '', paymentMethods: [] as PaymentMethod[] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -31,7 +36,11 @@ export default function CompanySettingsPage() {
     setLogoFileId(business.logoFileId ?? '');
     setLogoPreviewUrl(business.logoDataUrl ?? '');
     if (business.logoFileId) void resolveAttachmentUrl({ fileId: business.logoFileId }).then(setLogoPreviewUrl);
-    setProposalFields({ legalName: business.legalName ?? '', phone: business.phone ?? '', email: business.email ?? '', website: business.website ?? '', businessAddress: business.businessAddress ?? '', taxLabel: business.taxLabel ?? '', proposalTerms: business.proposalTerms ?? '' });
+    setProposalFields({
+      legalName: business.legalName ?? '', phone: business.phone ?? '', email: business.email ?? '', website: business.website ?? '', businessAddress: business.businessAddress ?? '', taxLabel: business.taxLabel ?? '', proposalTerms: business.proposalTerms ?? '',
+      proposalColor: business.proposalColor || DEFAULT_PROPOSAL_COLOR,
+      proposalAccentColor: business.proposalAccentColor || DEFAULT_PROPOSAL_ACCENT_COLOR,
+    });
     setInvoiceFields({ defaultPaymentTermsDays: business.defaultPaymentTermsDays ?? 30, defaultInvoiceNotes: business.defaultInvoiceNotes ?? '', paymentInstructions: business.paymentInstructions ?? '', paymentMethods: business.paymentMethods ?? [] });
   };
 
@@ -45,7 +54,7 @@ export default function CompanySettingsPage() {
 
   const uploadLogo = async (file?: File) => {
     if (!file || !businessId) return;
-    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 200 * 1024) return emitAppToast({ tone: 'error', message: 'Choose a PNG or JPEG logo no larger than 200 KB.' });
+    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 5 * 1024 * 1024) return emitAppToast({ tone: 'error', message: 'Choose a PNG or JPEG logo no larger than 5 MB.' });
     setUploadingLogo(true);
     try {
       const uploaded = await uploadFileToStorage({ file, entityType: 'business-profile', entityId: businessId, category: 'logo' });
@@ -84,7 +93,27 @@ export default function CompanySettingsPage() {
       <Card className="p-5">
         <h2 className="font-semibold text-brand-900 dark:text-brand-50">Branding</h2>
         <p className="mt-1 text-sm text-brand-500">Used across all customer-facing OliveOps documents and emails.</p>
-        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-brand-100 p-4"><div className="flex h-20 w-32 items-center justify-center overflow-hidden rounded border border-brand-100 bg-white">{logoPreviewUrl ? <img src={logoPreviewUrl} alt={`${name || 'Company'} logo`} className="max-h-full max-w-full object-contain" /> : <span className="px-3 text-center text-xs text-brand-400">Company name will be used</span>}</div><div className="flex gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-brand-700 px-3 py-2 text-sm font-semibold text-white"><ImageUp size={15} />{uploadingLogo ? 'Uploading...' : logoFileId ? 'Replace logo' : 'Upload logo'}<input className="sr-only" type="file" accept="image/png,image/jpeg" disabled={loading || uploadingLogo} onChange={(event) => void uploadLogo(event.target.files?.[0])} /></label>{logoPreviewUrl ? <Button variant="secondary" onClick={() => { setLogoFileId(''); setLogoPreviewUrl(''); }}><Trash2 size={15} /> Remove</Button> : null}</div></div>
+        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-brand-100 p-4"><div className="flex h-20 w-32 items-center justify-center overflow-hidden rounded border border-brand-100 bg-white">{logoPreviewUrl ? <img src={logoPreviewUrl} alt={`${name || 'Company'} logo`} className="max-h-full max-w-full object-contain" /> : <span className="px-3 text-center text-xs text-brand-400">Company name will be used</span>}</div><div className="flex flex-col gap-1"><div className="flex gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-brand-700 px-3 py-2 text-sm font-semibold text-white"><ImageUp size={15} />{uploadingLogo ? 'Uploading...' : logoFileId ? 'Replace logo' : 'Upload logo'}<input className="sr-only" type="file" accept="image/png,image/jpeg" disabled={loading || uploadingLogo} onChange={(event) => void uploadLogo(event.target.files?.[0])} /></label>{logoPreviewUrl ? <Button variant="secondary" onClick={() => { setLogoFileId(''); setLogoPreviewUrl(''); }}><Trash2 size={15} /> Remove</Button> : null}</div><p className="text-xs text-brand-400">PNG or JPEG, up to 5 MB.</p></div></div>
+        <div className="mt-4 flex flex-wrap gap-6 rounded-lg border border-brand-100 p-4">
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-brand-200">Primary color</p>
+            <p className="text-xs text-brand-400">Section headings, dividers, and totals on Proposals.</p>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="color" aria-label="Primary color" value={proposalFields.proposalColor} onChange={(event) => setProposalFields((current) => ({ ...current, proposalColor: event.target.value.toUpperCase() }))} className="h-9 w-12 cursor-pointer rounded border border-brand-100 bg-white p-1" />
+              <span className="font-mono text-xs text-brand-500">{proposalFields.proposalColor}</span>
+              {proposalFields.proposalColor !== DEFAULT_PROPOSAL_COLOR ? <button type="button" className="text-xs font-semibold text-accent-700 underline" onClick={() => setProposalFields((current) => ({ ...current, proposalColor: DEFAULT_PROPOSAL_COLOR }))}>Reset</button> : null}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-brand-200">Accent color</p>
+            <p className="text-xs text-brand-400">The Proposal header bar and strongest highlights.</p>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="color" aria-label="Accent color" value={proposalFields.proposalAccentColor} onChange={(event) => setProposalFields((current) => ({ ...current, proposalAccentColor: event.target.value.toUpperCase() }))} className="h-9 w-12 cursor-pointer rounded border border-brand-100 bg-white p-1" />
+              <span className="font-mono text-xs text-brand-500">{proposalFields.proposalAccentColor}</span>
+              {proposalFields.proposalAccentColor !== DEFAULT_PROPOSAL_ACCENT_COLOR ? <button type="button" className="text-xs font-semibold text-accent-700 underline" onClick={() => setProposalFields((current) => ({ ...current, proposalAccentColor: DEFAULT_PROPOSAL_ACCENT_COLOR }))}>Reset</button> : null}
+            </div>
+          </div>
+        </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2"><Input label="Customer-facing company name" value={proposalFields.legalName} onChange={(event) => setProposalFields((current) => ({ ...current, legalName: event.target.value }))} /><Input label="Phone" value={proposalFields.phone} onChange={(event) => setProposalFields((current) => ({ ...current, phone: event.target.value }))} /><Input label="Email" type="email" value={proposalFields.email} onChange={(event) => setProposalFields((current) => ({ ...current, email: event.target.value }))} /><Input label="Website" value={proposalFields.website} onChange={(event) => setProposalFields((current) => ({ ...current, website: event.target.value }))} /><div className="sm:col-span-2"><TextArea label="Business address" rows={2} value={proposalFields.businessAddress} onChange={(event) => setProposalFields((current) => ({ ...current, businessAddress: event.target.value }))} /></div></div>
       </Card>
       <Card className="p-5"><h2 className="font-semibold text-brand-900 dark:text-brand-50">Proposals</h2><div className="mt-4 grid gap-4 sm:grid-cols-2"><Input label="Proposal tax label" value={proposalFields.taxLabel} onChange={(event) => setProposalFields((current) => ({ ...current, taxLabel: event.target.value }))} /><div className="sm:col-span-2"><TextArea label="Default proposal terms & conditions" rows={6} value={proposalFields.proposalTerms} onChange={(event) => setProposalFields((current) => ({ ...current, proposalTerms: event.target.value }))} /></div></div></Card>

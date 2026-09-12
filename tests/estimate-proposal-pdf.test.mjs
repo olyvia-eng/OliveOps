@@ -321,3 +321,36 @@ test('adversarial proposal content remains complete and inside printable page bo
   for (const value of ['Extended term 140', 'Exclusion 20', 'Complete customer scope item 10.12', 'Final Payment']) assert.match(rendered, new RegExp(value));
   assertMeasuredLayout(pdf);
 });
+
+test('payment schedule percentage shares a baseline with its dollar amount, not the due-date line', () => {
+  const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business });
+  const presentation = buildProposalPresentation(projection);
+  const pdf = createEstimateProposalDocument(projection);
+  const output = pdfText(pdf);
+
+  const positioned = [...output.matchAll(/([\d.]+) ([\d.]+) Td\s*\(((?:\\.|[^)])*)\) Tj/g)]
+    .map(([, x, y, text]) => ({ x: Number(x), y: Number(y), text: text.replace(/\\([()\\])/g, '$1') }));
+  const findToken = (text) => positioned.find((token) => token.text === text);
+
+  assert.ok(presentation.paymentSchedule.length >= 2, 'fixture exercises multiple payment rows');
+  for (const payment of presentation.paymentSchedule) {
+    const amountToken = findToken(payment.displayAmount);
+    const percentageToken = findToken(payment.percentageLabel);
+    const dueToken = findToken(payment.due);
+    assert.ok(amountToken, `expected to find rendered amount for ${payment.label}`);
+    assert.ok(percentageToken, `expected to find rendered percentage for ${payment.label}`);
+    assert.ok(dueToken, `expected to find rendered due date for ${payment.label}`);
+    assert.equal(percentageToken.y, amountToken.y, `${payment.label}: percentage should render on the same line as its amount`);
+    assert.notEqual(dueToken.y, amountToken.y, `${payment.label}: due date should render on its own line, not the amount's line`);
+  }
+});
+
+test('a business-chosen proposal color renders in the PDF instead of the default green', () => {
+  const customBusiness = { ...business, proposalColor: '#ff0000', proposalAccentColor: '#0000ff' };
+  const projection = buildEstimateProposalProjection({ estimate: estimate(), customer, business: customBusiness });
+  const output = pdfText(createEstimateProposalDocument(projection));
+
+  assert.match(output, /1\.?0* 0\.?0* 0\.?0* rg/, 'expected the chosen primary color (red) to be used for fills/text');
+  assert.match(output, /0\.?0* 0\.?0* 1\.?0* rg/, 'expected the chosen accent color (blue) to be used for fills/text');
+  assert.doesNotMatch(output, /0\.42 0\.56 0\.14 rg/, 'default green fill should not remain when a custom color is set');
+});
