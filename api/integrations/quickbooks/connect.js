@@ -6,12 +6,13 @@ import {
   putQuickBooksOAuthState,
 } from '../../_lib/quickBooksRepo.js';
 import { buildQuickBooksAuthorizationUrl } from '../../_lib/quickBooksService.js';
-import { methodNotAllowed } from './_http.js';
+import { methodNotAllowed, noStoreCacheControl } from './_http.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  noStoreCacheControl(res);
 
   try {
     const existing = await getQuickBooksConnection({ businessId: session.businessId });
@@ -26,7 +27,6 @@ export default async function handler(req, res) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     });
     const authorizationUrl = await buildQuickBooksAuthorizationUrl({ state });
-    res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Location', authorizationUrl);
     return res.status(302).end();
   } catch {

@@ -19,7 +19,7 @@ import {
   normalizeQuickBooksInvoiceStatus,
   quickBooksRequestId,
 } from '../../_lib/quickBooksSync.js';
-import { methodNotAllowed } from './_http.js';
+import { methodNotAllowed, noStoreCacheControl } from './_http.js';
 
 function safeMapping(mapping, invoice, providerInvoice) {
   const providerStatus = providerInvoice ? normalizeQuickBooksInvoiceStatus(providerInvoice) : {
@@ -43,6 +43,7 @@ export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) return methodNotAllowed(res, ['GET', 'POST']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  noStoreCacheControl(res);
   const invoiceId = typeof (req.query.invoiceId ?? req.body?.invoiceId) === 'string'
     ? (req.query.invoiceId ?? req.body.invoiceId)
     : '';

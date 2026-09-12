@@ -2,12 +2,13 @@ import { requireSession } from '../../_lib/session.js';
 import { getQuickBooksConnection, toSafeQuickBooksConnection, updateQuickBooksConfiguration } from '../../_lib/quickBooksRepo.js';
 import { getValidQuickBooksAccessToken, listQuickBooksItems, listQuickBooksTaxCodes } from '../../_lib/quickBooksService.js';
 import { buildQuickBooksConfigurationSelection } from '../../_lib/quickBooksSync.js';
-import { methodNotAllowed } from './_http.js';
+import { methodNotAllowed, noStoreCacheControl } from './_http.js';
 
 export default async function handler(req, res) {
   if (!['GET', 'PATCH'].includes(req.method)) return methodNotAllowed(res, ['GET', 'PATCH']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  noStoreCacheControl(res);
   const actor = { businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email };
   try {
     const connection = await getQuickBooksConnection({ businessId: session.businessId });
