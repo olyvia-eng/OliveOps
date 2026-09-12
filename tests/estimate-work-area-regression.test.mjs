@@ -37,7 +37,7 @@ test('builder uses category-specific pickers without a persistent catalog or edi
   assert.match(builderSource, /candidate\.category === catalogCategory/);
   assert.match(builderSource, /Search \$\{CATEGORY_LABEL\[catalogCategory\]\.toLowerCase\(\)\}/);
   assert.match(builderSource, /candidate\.alreadyAdded \|\|/);
-  assert.match(builderSource, /Custom \{CATEGORY_ADD_LABEL\[catalogCategory\]\}/);
+  assert.match(builderSource, /customItemTriggerLabel\(catalogCategory\)/);
   assert.doesNotMatch(builderSource, /lg:grid-cols-\[minmax\(0,1fr\)_340px\]/);
   assert.doesNotMatch(builderSource, /label="Division"/);
   assert.doesNotMatch(builderSource, /\['all', \.\.\.CATEGORY_ORDER\]/);

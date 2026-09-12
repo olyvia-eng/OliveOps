@@ -97,7 +97,7 @@ const createWorkAreaPayload = (estimate: Estimate, workAreas: ReturnType<typeof 
 export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) {
   const { id, workAreaId } = useParams<{ id: string; workAreaId: string }>();
   const navigate = useNavigate();
-  const { estimates, customers, budgets, budgetDivisions, updateEstimate } = useStore();
+  const { estimates, customers, budgets, budgetDivisions, updateEstimate, addMaterialCatalogItem } = useStore();
 
   const estimate = estimates.find((item) => item.id === id);
   const customer = customers.find((item) => item.id === estimate?.customerId);
@@ -125,13 +125,16 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
   const [costErrors, setCostErrors] = useState<Record<string, string>>({});
   const [costDrafts, setCostDrafts] = useState<Record<string, string>>({});
   const [customItemCategory, setCustomItemCategory] = useState<LineItemCategory>('labour');
+  const [customItemSaving, setCustomItemSaving] = useState(false);
   const [customItem, setCustomItem] = useState({
     category: 'labour' as LineItemCategory,
+    itemName: '',
     description: '',
     quantity: 1,
     unit: 'hr',
     unitCost: 0,
     sellPrice: 0,
+    addToCatalog: false,
   });
 
   useEffect(() => {
@@ -404,15 +407,21 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     window.setTimeout(() => setAddingCandidateKey(null), 250);
   };
 
+  const customItemTriggerLabel = (category: LineItemCategory) => (category === 'material' ? 'Add Material' : `Custom ${CATEGORY_ADD_LABEL[category]}`);
+
   const openCustomItem = (category: LineItemCategory) => {
     setCustomItemCategory(category);
     setCustomItem({
       category,
+      itemName: '',
       description: '',
       quantity: 1,
       unit: category === 'labour' || category === 'equipment' ? 'hr' : 'unit',
       unitCost: 0,
       sellPrice: 0,
+      // Adding a Material here means it wasn't found in the catalog, so default to saving it
+      // there too - the user can uncheck it if this one is a one-off.
+      addToCatalog: category === 'material',
     });
     setCustomItemOpen(true);
   };
@@ -423,17 +432,35 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
     setShowCatalogSheet(true);
   };
 
-  const saveCustomItem = () => {
+  const saveCustomItem = async () => {
+    const isMaterial = customItem.category === 'material';
+    const name = (isMaterial ? customItem.itemName : customItem.description).trim();
+    if (isMaterial && !name) return;
+    const unit = customItem.unit.trim() || 'unit';
+    const unitCost = Math.max(0, Number(customItem.unitCost) || 0);
+
+    setCustomItemSaving(true);
+    if (isMaterial && customItem.addToCatalog) {
+      try {
+        await addMaterialCatalogItem({ name, unit, defaultUnitCost: unitCost, notes: customItem.description.trim() });
+        emitAppToast({ tone: 'success', message: `${name} added to Materials Catalog.` });
+      } catch {
+        // addMaterialCatalogItem already surfaces its own error toast; still add the line item below.
+      }
+    }
+
     const nextItem = calculateEstimateLineItem({
       ...createEmptyEstimateLineItem(customItem.category),
       category: customItem.category,
-      itemName: customItem.description.trim() || 'Custom Item',
+      itemName: name || 'Custom Item',
       description: customItem.description.trim(),
       quantity: customItem.quantity,
-      unit: customItem.unit.trim() || 'unit',
-      unitCost: customItem.unitCost,
+      unit,
+      unitCost,
       markupPercent: 0,
-      sellPrice: customItem.sellPrice,
+      // Material skips the Rate field to match the Materials Catalog's Add Material form, so its
+      // price starts at cost (0% margin) until the profit editor opens below.
+      sellPrice: isMaterial ? unitCost : customItem.sellPrice,
       markup: 0,
     });
 
@@ -444,7 +471,13 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
         sortOrder: current.lineItems.filter((item) => item.category === customItem.category).length,
       }],
     } : current);
+
+    setCustomItemSaving(false);
     setCustomItemOpen(false);
+    if (isMaterial) {
+      setPricingEditorMode('profit');
+      setPricingLineItemId(nextItem.id);
+    }
   };
 
   const handleBack = () => {
@@ -514,7 +547,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             : `No ${CATEGORY_LABEL[catalogCategory].toLowerCase()} pricing has been added to the ${pricingBudget?.name ?? 'selected'} Budget and Division.`}
           action={catalogCategory === 'labour'
             ? <Link to="/materials/catalog?catalog=labour"><Button variant="secondary">Set up Labour Classes in Catalog</Button></Link>
-            : <Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>Custom {CATEGORY_ADD_LABEL[catalogCategory]}</Button>}
+            : <Button variant="secondary" onClick={() => openCustomItem(catalogCategory)}>{customItemTriggerLabel(catalogCategory)}</Button>}
         />
       ) : !catalogLoading && !catalogError ? (
         <div className={catalogCategory === 'material' ? 'space-y-1.5' : 'space-y-3'}>
@@ -856,7 +889,7 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
             </div>
             {catalogCategory !== 'labour' ? <div className="border-t border-brand-100 dark:border-brand-600 p-4">
               <Button variant="secondary" className="w-full" onClick={() => openCustomItem(catalogCategory)}>
-                <Plus size={14} /> Custom {CATEGORY_ADD_LABEL[catalogCategory]}
+                <Plus size={14} /> {customItemTriggerLabel(catalogCategory)}
               </Button>
             </div> : null}
           </div>
@@ -870,24 +903,39 @@ export default function EstimateWorkAreaBuilderPage({ currentUserRole }: Props) 
 
       <Modal
         open={customItemOpen}
-        onClose={() => setCustomItemOpen(false)}
-        title={`Custom ${CATEGORY_ADD_LABEL[customItemCategory]}`}
+        onClose={() => { if (!customItemSaving) setCustomItemOpen(false); }}
+        title={customItemCategory === 'material' ? 'Add Material' : `Custom ${CATEGORY_ADD_LABEL[customItemCategory]}`}
         footer={(
           <>
-            <Button variant="secondary" onClick={() => setCustomItemOpen(false)}>Cancel</Button>
-            <Button onClick={saveCustomItem}>Add Item</Button>
+            <Button variant="secondary" onClick={() => setCustomItemOpen(false)} disabled={customItemSaving}>Cancel</Button>
+            <Button onClick={() => void saveCustomItem()} disabled={customItemSaving || (customItemCategory === 'material' && !customItem.itemName.trim())}>
+              {customItemSaving ? 'Adding...' : customItemCategory === 'material' ? 'Add Material' : 'Add Item'}
+            </Button>
           </>
         )}
       >
-        <div className="space-y-3">
-          <TextArea label="Description" value={customItem.description} onChange={(event) => setCustomItem((current) => ({ ...current, description: event.target.value }))} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Quantity" type="number" min={0} value={customItem.quantity} onChange={(event) => setCustomItem((current) => ({ ...current, quantity: Number(event.target.value) }))} />
-            <Input label="Unit" value={customItem.unit} onChange={(event) => setCustomItem((current) => ({ ...current, unit: event.target.value }))} />
+        {customItemCategory === 'material' ? (
+          <div className="space-y-4">
+            <Input label="Material Name" required value={customItem.itemName} disabled={customItemSaving} onChange={(event) => setCustomItem((current) => ({ ...current, itemName: event.target.value }))} />
+            <Input label="Unit" required value={customItem.unit} disabled={customItemSaving} onChange={(event) => setCustomItem((current) => ({ ...current, unit: event.target.value }))} placeholder="tonne" />
+            <Input label="Default Unit Cost" required type="number" min={0} step={0.01} value={customItem.unitCost} disabled={customItemSaving} onChange={(event) => setCustomItem((current) => ({ ...current, unitCost: Number(event.target.value || 0) }))} />
+            <TextArea label="Notes" value={customItem.description} disabled={customItemSaving} onChange={(event) => setCustomItem((current) => ({ ...current, description: event.target.value }))} />
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-brand-100">
+              <input type="checkbox" checked={customItem.addToCatalog} disabled={customItemSaving} onChange={(event) => setCustomItem((current) => ({ ...current, addToCatalog: event.target.checked }))} className="h-4 w-4 rounded border-brand-300 text-accent-600 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600" />
+              Also add to Materials Catalog for future use
+            </label>
           </div>
-          <Input label="Rate" type="number" min={0} value={customItem.sellPrice} onChange={(event) => setCustomItem((current) => ({ ...current, sellPrice: Number(event.target.value) }))} />
-          <details className="rounded-lg border border-brand-100 p-3 dark:border-brand-600"><summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-brand-100">Costing</summary><div className="mt-3"><Input label="Estimated Cost" type="number" min={0} value={customItem.unitCost} onChange={(event) => setCustomItem((current) => ({ ...current, unitCost: Number(event.target.value) }))} /></div></details>
-        </div>
+        ) : (
+          <div className="space-y-3">
+            <TextArea label="Description" value={customItem.description} onChange={(event) => setCustomItem((current) => ({ ...current, description: event.target.value }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Quantity" type="number" min={0} value={customItem.quantity} onChange={(event) => setCustomItem((current) => ({ ...current, quantity: Number(event.target.value) }))} />
+              <Input label="Unit" value={customItem.unit} onChange={(event) => setCustomItem((current) => ({ ...current, unit: event.target.value }))} />
+            </div>
+            <Input label="Rate" type="number" min={0} value={customItem.sellPrice} onChange={(event) => setCustomItem((current) => ({ ...current, sellPrice: Number(event.target.value) }))} />
+            <details className="rounded-lg border border-brand-100 p-3 dark:border-brand-600"><summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-brand-100">Costing</summary><div className="mt-3"><Input label="Estimated Cost" type="number" min={0} value={customItem.unitCost} onChange={(event) => setCustomItem((current) => ({ ...current, unitCost: Number(event.target.value) }))} /></div></details>
+          </div>
+        )}
       </Modal>
 
       <Modal
