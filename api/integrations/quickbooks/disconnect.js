@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     let revocationIntuitTid = null;
     try {
       const token = decryptQuickBooksRefreshToken({ businessId: session.businessId, connection });
-      const revoked = await revokeQuickBooksToken({ token });
+      const revoked = await revokeQuickBooksToken({ token, businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email });
       revocationIntuitTid = revoked?.intuitTid ?? null;
     } catch {
       // Local credential removal must proceed even when Intuit is unavailable. The failed revoke

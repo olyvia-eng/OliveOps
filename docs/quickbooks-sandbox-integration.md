@@ -90,16 +90,28 @@ Disconnect attempts token revocation and always removes local credentials even i
 
 ## Audit events
 
-OliveOps records sanitized audit events for connection, disconnection, customer mapping/creation, and invoice creation. Audit metadata may contain local IDs, QuickBooks entity IDs, realm ID, company name, environment (`sandbox` or `production`), and Intuit's `intuit_tid` correlation id when Intuit supplied one on that request. It must never contain OAuth tokens, secrets, encrypted envelopes, or full provider error responses.
+OliveOps records sanitized audit events for connection, disconnection, customer mapping/creation, invoice creation, and QuickBooks request failures (`quickbooks_api_failed` - see below). Audit metadata may contain local IDs, QuickBooks entity IDs, realm ID, company name, environment (`sandbox` or `production`), and Intuit's `intuit_tid` correlation id when Intuit supplied one on that request. It must never contain OAuth tokens, secrets, encrypted envelopes, or full provider error responses. Audit events have no expiry - they are the durable record Intuit's own troubleshooting questionnaire asks about, independent of Vercel's own runtime-log retention window.
 
 ## Troubleshooting with Intuit Support
 
 Every QuickBooks Accounting API and OAuth request is read through one centralized response handler (`api/_lib/quickBooksService.js`), which captures Intuit's `intuit_tid` response header - the id Intuit Support asks for when investigating a specific request - for both successes and failures:
 
-- On a failed request, `intuit_tid` (along with the HTTP status and Intuit's own error code) is written to a structured server log (`[quickbooks:failure]`) and attached to the thrown error, so it's available wherever that error is handled.
-- On a successful connection, invoice creation, or customer creation, `intuit_tid` is included in that action's audit event metadata, alongside the other non-sensitive identifiers already recorded there.
-- The header lookup is case-insensitive and a missing header never fails an otherwise valid request - `intuit_tid` is simply absent from the log or metadata in that case.
-- The log and audit metadata are limited to correlation-safe fields (action, method, path, realm id, status, error code, `intuit_tid`) - never the request/response body, access tokens, refresh tokens, authorization headers, client secrets, or encryption keys.
+- On a failed request, `intuit_tid` (along with the HTTP status and Intuit's own error code) is written to a structured server log (`[quickbooks:failure]`) **and** persisted as a durable `quickbooks_api_failed` audit event (`api/_lib/quickBooksFailureAudit.js`), reusing the same tenant-scoped, no-expiry audit-event system as the events above - not a new logging vendor or table. This covers both Accounting API failures and OAuth token/refresh/revocation failures, whenever the request is scoped to a known business.
+- Persisting that audit event is strictly best-effort: it is attempted after the original QuickBooks error is already constructed, wrapped in its own try/catch, and never allowed to throw, delay, or replace the error the caller receives - a DynamoDB outage while writing the diagnostic event still leaves the real QuickBooks error intact.
+- A short in-process de-duplication window collapses the same underlying failure (same business, realm, action, status, code, and `intuit_tid`) being recorded more than once if it's ever observed at more than one layer.
+- On a successful connection, invoice creation, or customer creation, `intuit_tid` is included in that action's own audit event metadata, alongside the other non-sensitive identifiers already recorded there.
+- The header lookup is case-insensitive and a missing header never fails an otherwise valid request, nor blocks the failure audit event from being written - `intuit_tid` is simply `null` in that case.
+- Both the log and every audit event here are limited to the same correlation-safe allowlist (action, method, path, realm id, status, error code, `intuit_tid`) - never the request/response body, access tokens, refresh tokens, authorization headers, client secrets, or encryption keys.
+
+### Locating a QuickBooks failure
+
+An owner/admin (or an engineer calling the same endpoint) can locate `quickbooks_api_failed` events through the existing audit-event API, already tenant-scoped and restricted to owner/admin sessions - `GET /api/data?entity=audit-events`, filtered with any of:
+
+- `action=quickbooks_api_failed` - only QuickBooks failures
+- `intuitTid=<value>` - the exact request Intuit Support is asking about
+- `since=<ISO timestamp>` / `until=<ISO timestamp>` - a date/time range
+
+Settings > Integrations > QuickBooks also surfaces the most recent 25 of these directly (with an `intuit_tid` search box), so this doesn't require a raw API call for the common case.
 
 ## Not included in Phase 1
 

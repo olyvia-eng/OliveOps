@@ -35,7 +35,7 @@ test('Google Calendar and QuickBooks remain visible outside the Outlook availabi
   assert.ok(outlookGateIndex > 0);
   assert.ok(settingsSource.indexOf('Connect Google Calendar') < outlookGateIndex);
   assert.ok(settingsSource.indexOf('QuickBooks Online') > outlookGateIndex);
-  assert.match(settingsSource, /void load\(\);\s*void loadQuickBooks\(\);\s*if \(OUTLOOK_INTEGRATION_ENABLED\) void loadMicrosoft\(\);/);
+  assert.match(settingsSource, /void load\(\);\s*void loadQuickBooks\(\);\s*void loadQuickBooksFailures\(\);\s*if \(OUTLOOK_INTEGRATION_ENABLED\) void loadMicrosoft\(\);/);
 });
 
 test('company Schedule is provider-free and keeps operational job actions', () => {

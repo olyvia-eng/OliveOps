@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { quickBooksEnvironment, requireEnv } from './env.js';
 import { decryptSecret, encryptSecret } from './secretEncryption.js';
 import { getQuickBooksDiscoveryDocument, getQuickBooksRevocationEndpointOrDefault } from './quickBooksDiscovery.js';
+import { recordQuickBooksFailureAuditEvent } from './quickBooksFailureAudit.js';
 import {
   acquireQuickBooksRefreshLease,
   consumeQuickBooksOAuthState,
@@ -81,9 +82,12 @@ function basicAuthorization(config) {
 }
 
 // Centralized response handling for every QuickBooks HTTP call (Accounting API and OAuth token
-// exchange alike) - this is the one place that needs to capture Intuit's intuit_tid correlation
-// header, on both the failure and success paths, per-request diagnostic context (action/method/
-// path/realmId) is optional and used only for the structured failure log below.
+// exchange alike) - this is the one and only place that needs to capture Intuit's intuit_tid
+// correlation header (on both the failure and success paths) and, on failure, persist a durable
+// audit event alongside the immediate console.error - so a given failed request is only ever
+// reported once. `context` carries diagnostic labels (action/method/path/realmId) plus, when known,
+// the tenant/actor to scope a durable record to (businessId/actorUserId/actorName/actorEmail); all
+// of it is optional and this never changes what is returned or thrown to the caller.
 async function readQuickBooksResponse(response, context = {}) {
   const intuitTid = captureIntuitTid(response);
   let payload = null;
@@ -98,12 +102,13 @@ async function readQuickBooksResponse(response, context = {}) {
     error.code = payload?.Fault?.Error?.[0]?.code ?? payload?.error ?? 'QBO_API_ERROR';
     error.intuitTid = intuitTid;
     logQuickBooksFailure({ ...context, status: error.status, code: error.code, intuitTid });
+    await recordQuickBooksFailureAuditEvent({ ...context, status: error.status, code: error.code, intuitTid });
     throw error;
   }
   return attachIntuitTid(payload ?? {}, intuitTid);
 }
 
-async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) {
+async function requestTokens(values, fetchImpl = fetch, config = oauthConfig(), auditContext = {}) {
   // Both authorization-code exchange and refresh go through here, so both use the discovered token
   // endpoint. Discovery failure fails this closed (no static token-endpoint fallback) - without a
   // trustworthy token endpoint there is nothing safe to fall back to.
@@ -117,7 +122,7 @@ async function requestTokens(values, fetchImpl = fetch, config = oauthConfig()) 
     },
     body: new URLSearchParams(values),
   });
-  return readQuickBooksResponse(response, { action: 'quickbooks_oauth_token', grantType: values.grant_type });
+  return readQuickBooksResponse(response, { ...auditContext, action: 'quickbooks_oauth_token', grantType: values.grant_type });
 }
 
 export async function buildQuickBooksAuthorizationUrl({ state, config = oauthConfig(), fetchImpl = fetch }) {
@@ -135,8 +140,8 @@ export async function buildQuickBooksAuthorizationUrl({ state, config = oauthCon
   return url.toString();
 }
 
-export async function exchangeQuickBooksAuthorizationCode(code, { fetchImpl = fetch, config = oauthConfig() } = {}) {
-  return requestTokens({ code, redirect_uri: config.redirectUri, grant_type: 'authorization_code' }, fetchImpl, config);
+export async function exchangeQuickBooksAuthorizationCode(code, { fetchImpl = fetch, config = oauthConfig(), businessId, actorUserId, actorName, actorEmail } = {}) {
+  return requestTokens({ code, redirect_uri: config.redirectUri, grant_type: 'authorization_code' }, fetchImpl, config, { businessId, actorUserId, actorName, actorEmail });
 }
 
 export async function validateQuickBooksOAuthCallbackState({ businessId, userId, state, consumeState = consumeQuickBooksOAuthState }) {
@@ -176,7 +181,7 @@ function decryptQuickBooksToken(envelope, businessId, realmId) {
   );
 }
 
-export async function getValidQuickBooksAccessToken({ businessId, connection, fetchImpl = fetch, dependencies = {} }) {
+export async function getValidQuickBooksAccessToken({ businessId, connection, fetchImpl = fetch, dependencies = {}, actorUserId, actorName, actorEmail }) {
   const deps = {
     acquireRefreshLease: acquireQuickBooksRefreshLease,
     getConnection: getQuickBooksConnection,
@@ -208,7 +213,7 @@ export async function getValidQuickBooksAccessToken({ businessId, connection, fe
   try {
     const refreshToken = decryptQuickBooksToken(connection.encryptedRefreshToken, businessId, connection.realmId);
     const config = oauthConfig();
-    const tokens = await requestTokens({ refresh_token: refreshToken, grant_type: 'refresh_token' }, fetchImpl, config);
+    const tokens = await requestTokens({ refresh_token: refreshToken, grant_type: 'refresh_token' }, fetchImpl, config, { businessId, actorUserId, actorName, actorEmail });
     const credentials = buildEncryptedQuickBooksCredentials({
       businessId,
       realmId: connection.realmId,
@@ -223,7 +228,7 @@ export async function getValidQuickBooksAccessToken({ businessId, connection, fe
   }
 }
 
-async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET', query, body, fetchImpl = fetch }) {
+async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET', query, body, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const url = new URL(`${quickBooksApiBase()}/v3/company/${encodeURIComponent(realmId)}${path}`);
   Object.entries(query ?? {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
   url.searchParams.set('minorversion', QUICKBOOKS_MINOR_VERSION);
@@ -236,11 +241,11 @@ async function quickBooksApiRequest({ accessToken, realmId, path, method = 'GET'
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return readQuickBooksResponse(response, { action: 'quickbooks_api', method, path, realmId });
+  return readQuickBooksResponse(response, { action: 'quickbooks_api', method, path, realmId, businessId, actorUserId, actorName, actorEmail });
 }
 
-export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchImpl = fetch }) {
-  const payload = await quickBooksApiRequest({ accessToken, realmId, path: `/companyinfo/${encodeURIComponent(realmId)}`, fetchImpl });
+export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
+  const payload = await quickBooksApiRequest({ accessToken, realmId, path: `/companyinfo/${encodeURIComponent(realmId)}`, fetchImpl, businessId, actorUserId, actorName, actorEmail });
   const company = payload.CompanyInfo;
   if (!company || typeof company !== 'object') throw new Error('QuickBooks company information was unavailable');
   return attachIntuitTid({
@@ -252,7 +257,7 @@ export async function fetchQuickBooksCompanyInfo({ accessToken, realmId, fetchIm
   }, payload.intuitTid);
 }
 
-export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config = oauthConfig() }) {
+export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config = oauthConfig(), businessId, actorUserId, actorName, actorEmail }) {
   // Uses the discovered revocation endpoint when Intuit supplies one; falls back to the static
   // endpoint only if discovery itself is unavailable, so a discovery outage never weakens disconnect.
   const revocationEndpoint = await getQuickBooksRevocationEndpointOrDefault(QUICKBOOKS_REVOKE_URL_FALLBACK, { fetchImpl });
@@ -264,6 +269,7 @@ export async function revokeQuickBooksToken({ token, fetchImpl = fetch, config =
   const intuitTid = captureIntuitTid(response);
   if (!response.ok) {
     logQuickBooksFailure({ action: 'quickbooks_oauth_revoke', status: response.status, intuitTid });
+    await recordQuickBooksFailureAuditEvent({ businessId, actorUserId, actorName, actorEmail, action: 'quickbooks_oauth_revoke', status: response.status, intuitTid });
     const error = new Error('QuickBooks token revocation failed');
     error.intuitTid = intuitTid;
     throw error;
@@ -279,16 +285,20 @@ function escapeQuickBooksQueryValue(value) {
   return String(value).replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
 
-async function queryQuickBooks({ accessToken, realmId, statement, fetchImpl = fetch }) {
-  return quickBooksApiRequest({ accessToken, realmId, path: '/query', query: { query: statement }, fetchImpl });
+async function queryQuickBooks({ accessToken, realmId, statement, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
+  return quickBooksApiRequest({ accessToken, realmId, path: '/query', query: { query: statement }, fetchImpl, businessId, actorUserId, actorName, actorEmail });
 }
 
-export async function listQuickBooksItems({ accessToken, realmId, fetchImpl = fetch }) {
+export async function listQuickBooksItems({ accessToken, realmId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const payload = await queryQuickBooks({
     accessToken,
     realmId,
     statement: 'select * from Item where Active = true maxresults 1000',
     fetchImpl,
+    businessId,
+    actorUserId,
+    actorName,
+    actorEmail,
   });
   return (payload.QueryResponse?.Item ?? []).map((item) => ({
     id: String(item.Id),
@@ -298,19 +308,27 @@ export async function listQuickBooksItems({ accessToken, realmId, fetchImpl = fe
   }));
 }
 
-export async function listQuickBooksTaxCodes({ accessToken, realmId, fetchImpl = fetch }) {
+export async function listQuickBooksTaxCodes({ accessToken, realmId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const [payload, taxRatePayload] = await Promise.all([
     queryQuickBooks({
       accessToken,
       realmId,
       statement: 'select * from TaxCode where Active = true maxresults 1000',
       fetchImpl,
+      businessId,
+      actorUserId,
+      actorName,
+      actorEmail,
     }),
     queryQuickBooks({
       accessToken,
       realmId,
       statement: 'select * from TaxRate where Active = true maxresults 1000',
       fetchImpl,
+      businessId,
+      actorUserId,
+      actorName,
+      actorEmail,
     }),
   ]);
   const taxRateById = new Map((taxRatePayload.QueryResponse?.TaxRate ?? []).map((taxRate) => [String(taxRate.Id), taxRate]));
@@ -331,13 +349,17 @@ export async function listQuickBooksTaxCodes({ accessToken, realmId, fetchImpl =
   });
 }
 
-export async function listQuickBooksCustomers({ accessToken, realmId, displayName, fetchImpl = fetch }) {
+export async function listQuickBooksCustomers({ accessToken, realmId, displayName, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const where = displayName ? ` where DisplayName = '${escapeQuickBooksQueryValue(displayName)}'` : '';
   const payload = await queryQuickBooks({
     accessToken,
     realmId,
     statement: `select * from Customer${where} maxresults 1000`,
     fetchImpl,
+    businessId,
+    actorUserId,
+    actorName,
+    actorEmail,
   });
   return (payload.QueryResponse?.Customer ?? []).map((customer) => ({
     id: String(customer.Id),
@@ -348,7 +370,7 @@ export async function listQuickBooksCustomers({ accessToken, realmId, displayNam
   }));
 }
 
-export async function createQuickBooksCustomer({ accessToken, realmId, customer, requestId, fetchImpl = fetch }) {
+export async function createQuickBooksCustomer({ accessToken, realmId, customer, requestId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const payload = await quickBooksApiRequest({
     accessToken,
     realmId,
@@ -357,11 +379,15 @@ export async function createQuickBooksCustomer({ accessToken, realmId, customer,
     query: { requestid: requestId },
     body: customer,
     fetchImpl,
+    businessId,
+    actorUserId,
+    actorName,
+    actorEmail,
   });
   return attachIntuitTid(payload.Customer, payload.intuitTid);
 }
 
-export async function createQuickBooksInvoice({ accessToken, realmId, invoice, requestId, fetchImpl = fetch }) {
+export async function createQuickBooksInvoice({ accessToken, realmId, invoice, requestId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const payload = await quickBooksApiRequest({
     accessToken,
     realmId,
@@ -370,16 +396,24 @@ export async function createQuickBooksInvoice({ accessToken, realmId, invoice, r
     query: { requestid: requestId },
     body: invoice,
     fetchImpl,
+    businessId,
+    actorUserId,
+    actorName,
+    actorEmail,
   });
   return attachIntuitTid(payload.Invoice, payload.intuitTid);
 }
 
-export async function fetchQuickBooksInvoice({ accessToken, realmId, quickBooksInvoiceId, fetchImpl = fetch }) {
+export async function fetchQuickBooksInvoice({ accessToken, realmId, quickBooksInvoiceId, fetchImpl = fetch, businessId, actorUserId, actorName, actorEmail }) {
   const payload = await quickBooksApiRequest({
     accessToken,
     realmId,
     path: `/invoice/${encodeURIComponent(quickBooksInvoiceId)}`,
     fetchImpl,
+    businessId,
+    actorUserId,
+    actorName,
+    actorEmail,
   });
   return payload.Invoice;
 }

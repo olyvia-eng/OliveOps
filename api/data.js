@@ -497,6 +497,27 @@ function getConfig(entity) {
   return entity ? ENTITY_CONFIG[entity] : undefined;
 }
 
+// Lets an owner/admin (or an OliveOps engineer calling this same tenant-scoped, role-gated endpoint)
+// locate specific audit events - QuickBooks failures in particular - by action, Intuit's intuit_tid
+// correlation id, or a date/time range, instead of scanning every audit event for the business.
+// Every filter is optional and applied client-side over the already-tenant-scoped list; an invalid
+// since/until value is ignored rather than rejected, so a malformed query param never 500s.
+function filterAuditEventsByQuery(items, query = {}) {
+  const action = typeof query.action === 'string' ? query.action.trim() : '';
+  const intuitTid = typeof query.intuitTid === 'string' ? query.intuitTid.trim() : '';
+  const sinceMs = typeof query.since === 'string' ? Date.parse(query.since) : NaN;
+  const untilMs = typeof query.until === 'string' ? Date.parse(query.until) : NaN;
+
+  return items.filter((item) => {
+    if (action && item.action !== action) return false;
+    if (intuitTid && item.metadata?.intuitTid !== intuitTid) return false;
+    const createdAtMs = Date.parse(item.createdAt);
+    if (!Number.isNaN(sinceMs) && !(createdAtMs >= sinceMs)) return false;
+    if (!Number.isNaN(untilMs) && !(createdAtMs <= untilMs)) return false;
+    return true;
+  });
+}
+
 const PATCH_BLOCKED_FIELDS = new Set([
   'PK',
   'SK',
@@ -1828,6 +1849,9 @@ export default async function handler(req, res) {
 
     try {
       let items = await config.list(session.businessId);
+      if (entity === 'audit-events') {
+        items = filterAuditEventsByQuery(items, req.query);
+      }
       if (entity === 'invoices') {
         items = await Promise.all(items.map(async (invoice) => ({
           ...invoice,

@@ -48,6 +48,8 @@ export default async function handler(req, res) {
     : '';
   if (!invoiceId) return res.status(400).json({ ok: false, error: 'Invoice id is required.' });
 
+  const actor = { businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email };
+
   try {
     const [connection, invoice] = await Promise.all([
       getQuickBooksConnection({ businessId: session.businessId }),
@@ -56,13 +58,14 @@ export default async function handler(req, res) {
     if (!connection) return res.status(409).json({ ok: false, error: 'Connect QuickBooks first.' });
     if (!invoice) return res.status(404).json({ ok: false, error: 'Invoice not found.' });
     const existing = await getQuickBooksInvoiceMapping({ businessId: session.businessId, realmId: connection.realmId, invoiceId });
-    const accessToken = await getValidQuickBooksAccessToken({ businessId: session.businessId, connection });
+    const accessToken = await getValidQuickBooksAccessToken({ connection, ...actor });
 
     if (existing) {
       const providerInvoice = await fetchQuickBooksInvoice({
         accessToken,
         realmId: connection.realmId,
         quickBooksInvoiceId: existing.quickBooksInvoiceId,
+        ...actor,
       });
       return res.status(200).json({ ok: true, invoice: safeMapping(existing, invoice, providerInvoice) });
     }
@@ -78,7 +81,7 @@ export default async function handler(req, res) {
       realmId: connection.realmId,
       customerId: invoice.customerId,
     });
-    const taxCodes = await listQuickBooksTaxCodes({ accessToken, realmId: connection.realmId });
+    const taxCodes = await listQuickBooksTaxCodes({ accessToken, realmId: connection.realmId, ...actor });
     const taxCodeById = new Map(taxCodes.map((taxCode) => [taxCode.id, taxCode]));
     const configuration = {
       ...connection.configuration,
@@ -91,6 +94,7 @@ export default async function handler(req, res) {
       realmId: connection.realmId,
       invoice: payload,
       requestId: quickBooksRequestId('invoice', session.businessId, connection.realmId, invoiceId),
+      ...actor,
     });
     const status = normalizeQuickBooksInvoiceStatus(providerInvoice);
     let mapping;

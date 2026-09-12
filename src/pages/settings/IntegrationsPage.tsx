@@ -5,6 +5,7 @@ import { Badge, Button, Card, PageHeader, Select } from '../../components/ui';
 import { emitAppToast } from '../../toast';
 import { useStore } from '../../store';
 import type {
+  AuditEvent,
   GoogleCalendarIntegration,
   GoogleCalendarListItem,
   InvoiceLineCategory,
@@ -78,6 +79,9 @@ export default function IntegrationsPage() {
   const [syncCustomerId, setSyncCustomerId] = useState('');
   const [customerCandidates, setCustomerCandidates] = useState<QuickBooksCustomerCandidate[]>([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState('');
+  const [quickBooksFailures, setQuickBooksFailures] = useState<AuditEvent[]>([]);
+  const [quickBooksFailuresLoading, setQuickBooksFailuresLoading] = useState(false);
+  const [quickBooksFailureTidSearch, setQuickBooksFailureTidSearch] = useState('');
 
   const loadIntegration = async () => {
     const response = await fetch('/api/integrations/google/settings', { credentials: 'include' });
@@ -122,6 +126,22 @@ export default function IntegrationsPage() {
     setSavedQuickBooksConfiguration(JSON.stringify({ mappings, taxableId, nonTaxableId: configured?.nonTaxableTaxCode?.id ?? '' }));
   };
 
+  // Durable, tenant-scoped diagnostics for failed QuickBooks requests - see docs/quickbooks-sandbox-
+  // integration.md "Troubleshooting with Intuit Support". Reuses the existing audit-event API rather
+  // than a new endpoint; filtering by intuit_tid happens server-side via the query string.
+  const loadQuickBooksFailures = async (intuitTidFilter = quickBooksFailureTidSearch) => {
+    setQuickBooksFailuresLoading(true);
+    try {
+      const params = new URLSearchParams({ entity: 'audit-events', action: 'quickbooks_api_failed' });
+      if (intuitTidFilter.trim()) params.set('intuitTid', intuitTidFilter.trim());
+      const response = await fetch(`/api/data?${params.toString()}`, { credentials: 'include' });
+      const payload = await readJson<{ ok: boolean; items?: AuditEvent[] }>(response);
+      if (response.ok && payload?.ok && Array.isArray(payload.items)) setQuickBooksFailures(payload.items.slice(0, 25));
+    } finally {
+      setQuickBooksFailuresLoading(false);
+    }
+  };
+
   const loadMicrosoft = async () => {
     const response = await fetch('/api/integrations/microsoft/settings', { credentials: 'include' });
     const payload = await readJson<{ ok: boolean; integration?: MicrosoftCalendarIntegration }>(response);
@@ -144,6 +164,7 @@ export default function IntegrationsPage() {
     };
     void load();
     void loadQuickBooks();
+    void loadQuickBooksFailures();
     if (OUTLOOK_INTEGRATION_ENABLED) void loadMicrosoft();
   }, []);
 
@@ -663,6 +684,59 @@ export default function IntegrationsPage() {
               </div>
             </div>
           </section>
+        </div>
+
+        <div className="border-t border-brand-100 p-5 dark:border-brand-600">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-brand-900 dark:text-brand-50">Recent QuickBooks Failures</h3>
+              <p className="mt-1 text-xs text-brand-500 dark:text-brand-200">Durable diagnostics for failed QuickBooks requests, safe to share with Intuit Support - includes their <code>intuit_tid</code> correlation id, never tokens or secrets.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={quickBooksFailureTidSearch}
+                onChange={(event) => setQuickBooksFailureTidSearch(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') void loadQuickBooksFailures(); }}
+                placeholder="Search by intuit_tid"
+                aria-label="Search QuickBooks failures by intuit_tid"
+                className="h-9 rounded-lg border border-brand-100 bg-white px-3 text-sm text-brand-900 focus:outline-none focus:ring-2 focus:ring-accent-500/40 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-50"
+              />
+              <Button variant="secondary" disabled={quickBooksFailuresLoading} onClick={() => void loadQuickBooksFailures()}>{quickBooksFailuresLoading ? 'Loading...' : 'Refresh'}</Button>
+            </div>
+          </div>
+          {quickBooksFailures.length === 0 ? (
+            <p className="mt-4 text-sm text-brand-400">No recent QuickBooks failures{quickBooksFailureTidSearch.trim() ? ' match that intuit_tid' : ''}.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto rounded-lg border border-brand-100 dark:border-brand-600">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-brand-100 bg-gray-50 text-left text-gray-500 dark:border-brand-600 dark:bg-brand-700 dark:text-brand-200">
+                    <th className="px-3 py-2 font-medium">When</th>
+                    <th className="px-3 py-2 font-medium">Status / Code</th>
+                    <th className="px-3 py-2 font-medium">Request</th>
+                    <th className="px-3 py-2 font-medium">intuit_tid</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-brand-100 dark:divide-brand-600">
+                  {quickBooksFailures.map((event) => {
+                    const metadata = (event.metadata ?? {}) as Record<string, unknown>;
+                    const status = metadata.status !== undefined && metadata.status !== null ? String(metadata.status) : '-';
+                    const code = metadata.code ? String(metadata.code) : '';
+                    const request = [metadata.method, metadata.path].filter(Boolean).map(String).join(' ');
+                    const intuitTid = metadata.intuitTid ? String(metadata.intuitTid) : '-';
+                    return (
+                      <tr key={event.id}>
+                        <td className="whitespace-nowrap px-3 py-2 text-brand-700 dark:text-brand-100">{new Date(event.createdAt).toLocaleString()}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-brand-700 dark:text-brand-100">{status}{code ? ` / ${code}` : ''}</td>
+                        <td className="px-3 py-2 text-brand-700 dark:text-brand-100">{request || '-'}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-brand-500 dark:text-brand-300">{intuitTid}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {quickBooks.environment === 'production' ? (

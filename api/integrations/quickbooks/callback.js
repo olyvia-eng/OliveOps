@@ -24,8 +24,9 @@ export async function completeQuickBooksConnection({ session, code, realmId }, d
   const existing = await deps.getConnection({ businessId: session.businessId });
   if (existing?.status === 'connected') return { ok: false, reason: 'already_connected' };
 
-  const tokens = await deps.exchangeAuthorizationCode(code);
-  const company = await deps.fetchCompanyInfo({ accessToken: tokens.access_token, realmId });
+  const actor = { businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email };
+  const tokens = await deps.exchangeAuthorizationCode(code, actor);
+  const company = await deps.fetchCompanyInfo({ accessToken: tokens.access_token, realmId, ...actor });
   const credentials = deps.buildCredentials({ businessId: session.businessId, realmId, tokens });
   await deps.putConnection({
     businessId: session.businessId,

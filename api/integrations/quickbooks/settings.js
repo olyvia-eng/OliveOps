@@ -8,13 +8,14 @@ export default async function handler(req, res) {
   if (!['GET', 'PATCH'].includes(req.method)) return methodNotAllowed(res, ['GET', 'PATCH']);
   const session = await requireSession(req, res, ['owner', 'admin']);
   if (!session) return;
+  const actor = { businessId: session.businessId, actorUserId: session.id, actorName: session.name, actorEmail: session.email };
   try {
     const connection = await getQuickBooksConnection({ businessId: session.businessId });
     if (!connection) return res.status(409).json({ ok: false, error: 'Connect QuickBooks first.' });
-    const accessToken = await getValidQuickBooksAccessToken({ businessId: session.businessId, connection });
+    const accessToken = await getValidQuickBooksAccessToken({ connection, ...actor });
     const [items, taxCodes] = await Promise.all([
-      listQuickBooksItems({ accessToken, realmId: connection.realmId }),
-      listQuickBooksTaxCodes({ accessToken, realmId: connection.realmId }),
+      listQuickBooksItems({ accessToken, realmId: connection.realmId, ...actor }),
+      listQuickBooksTaxCodes({ accessToken, realmId: connection.realmId, ...actor }),
     ]);
 
     if (req.method === 'GET') {
