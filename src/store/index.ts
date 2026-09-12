@@ -1072,7 +1072,11 @@ export const useStore = create<AppState>()((set, get) => ({
       },
       mutateJobPlan: async (id, mutation) => {
         const current = get().jobs.find((job) => job.id === id);
-        if (!current?.planningRevision) return { ok: false, error: 'Initialize Job planning before editing.' };
+        if (!current?.planningRevision) {
+          const message = 'Initialize Job planning before editing.';
+          emitAppToast({ tone: 'error', message });
+          return { ok: false, error: message };
+        }
         try {
           const response = await fetch(`/api/job-plans?jobId=${encodeURIComponent(id)}`, {
             method: mutation.action === 'add-resource' ? 'POST' : 'PATCH',

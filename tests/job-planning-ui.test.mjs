@@ -53,6 +53,25 @@ test('new Job resources use the authorized planning catalog and revisioned store
   assert.match(storeSource, /expectedRevision: current\.planningRevision/);
 });
 
+test('Job hours-per-worker and quantity fields keep a trailing decimal point while typing', () => {
+  // Regression: these fields used to be a plain controlled <input> displaying
+  // formatNumericDisplayValue(Math.round(value * 100) / 100) on every keystroke, which immediately
+  // erased a trailing "." (typing "7." reformatted back to "7" before the next digit landed, turning
+  // an intended "7.5" into "75"). DecimalTextInput keeps the user's raw in-progress string instead -
+  // see its own definition in src/components/ui/index.tsx - so this asserts the Job builder actually
+  // uses it for both fields, the same way the Estimate builder already does for its Quantity/Hours
+  // column, rather than the old bare <input> pattern.
+  assert.doesNotMatch(builderSource, /editableNumber/);
+  assert.match(builderSource, /<DecimalTextInput aria-label=\{`Hours per worker for \$\{line\.itemName\}`\} value=\{hoursPerWorker\} onValueChange=\{/);
+  assert.match(builderSource, /<DecimalTextInput aria-label=\{`\$\{line\.unit === 'hr' \? 'Hours' : 'Quantity'\} for \$\{line\.itemName\}`\} value=\{line\.quantity\} onValueChange=\{/);
+});
+
+test('a missing Job planning revision surfaces an error toast instead of silently doing nothing', () => {
+  // Regression: mutateJobPlan returned { ok: false } here with no emitAppToast call, so typing a
+  // change and hitting Save looked like it did absolutely nothing - no success message, no error.
+  assert.match(storeSource, /if \(!current\?\.planningRevision\) \{[\s\S]*?emitAppToast\(\{ tone: 'error', message \}\);[\s\S]*?return \{ ok: false, error: message \};[\s\S]*?\}/);
+});
+
 test('Job Info separates editable operations from read-only conversion history', () => {
   assert.match(jobSource, /Operational Job Information/);
   assert.match(jobSource, /Save Changes/);
