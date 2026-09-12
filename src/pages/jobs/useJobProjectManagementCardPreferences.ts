@@ -15,7 +15,11 @@ export type JobProjectManagementCardId = typeof JOB_PROJECT_MANAGEMENT_CARD_IDS[
 
 const normalizeCardIds = (value: unknown): JobProjectManagementCardId[] => {
   const allowed = new Set<JobProjectManagementCardId>(JOB_PROJECT_MANAGEMENT_CARD_IDS);
-  const source: unknown[] = Array.isArray(value) ? value : JOB_PROJECT_MANAGEMENT_CARD_IDS;
+  // JOB_PROJECT_MANAGEMENT_CARD_IDS is a readonly `as const` tuple (so its element type stays a
+  // literal union rather than widening to `string`), and `source` is only ever read here (filter/
+  // indexOf) - never mutated - so it's typed as `readonly unknown[]` rather than `unknown[]`, which
+  // a readonly tuple can't be assigned to.
+  const source: readonly unknown[] = Array.isArray(value) ? value : JOB_PROJECT_MANAGEMENT_CARD_IDS;
   return source.filter((id, index): id is JobProjectManagementCardId => (
     typeof id === 'string' && allowed.has(id as JobProjectManagementCardId) && source.indexOf(id) === index
   ));
