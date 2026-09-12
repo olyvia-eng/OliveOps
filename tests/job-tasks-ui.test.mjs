@@ -13,7 +13,7 @@ test('Job Project Management renders the reusable Tasks card first', () => {
   // The Project Management tab's cards are user-customizable (see CustomizableCardList /
   // useJobProjectManagementCardPreferences), so their content now lives in the pmCardDefinitions
   // array rather than inline JSX - slice that array instead of the old fixed render block.
-  const projectManagement = jobSource.slice(jobSource.indexOf('const pmCardDefinitions'), jobSource.indexOf("\n  return (\n    <div>"));
+  const projectManagement = jobSource.slice(jobSource.indexOf('const pmCardDefinitions'), jobSource.indexOf('return (\r\n    <div>'));
   assert.match(projectManagement, /<OutstandingTasks/);
   assert.ok(projectManagement.indexOf('<OutstandingTasks') < projectManagement.indexOf('>Notes</h2>'));
   assert.match(projectManagement, /heading="Job Tasks"/);

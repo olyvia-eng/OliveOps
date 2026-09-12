@@ -167,7 +167,7 @@ test('job workspace preserves operational tabs and scopes related invoices to th
   // The Project Management tab's cards are user-customizable (see CustomizableCardList /
   // useJobProjectManagementCardPreferences), so their content now lives in the pmCardDefinitions
   // array rather than inline JSX - slice that array instead of the old fixed render block.
-  const projectManagementSource = jobWorkspaceSource.slice(jobWorkspaceSource.indexOf('const pmCardDefinitions'), jobWorkspaceSource.indexOf("\n  return (\n    <div>"));
+  const projectManagementSource = jobWorkspaceSource.slice(jobWorkspaceSource.indexOf('const pmCardDefinitions'), jobWorkspaceSource.indexOf('return (\r\n    <div>'));
   const resourcesIndex = projectManagementSource.indexOf('>Job Resources</h2>');
   const tasksIndex = projectManagementSource.indexOf('heading="Job Tasks"');
   const notesIndex = projectManagementSource.indexOf('>Notes</h2>');

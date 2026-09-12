@@ -13,7 +13,7 @@ test('Project Management places Job SOPs after tasks and before notes', () => {
   // The Project Management tab's cards are user-customizable (see CustomizableCardList /
   // useJobProjectManagementCardPreferences), so their content now lives in the pmCardDefinitions
   // array rather than inline JSX - slice that array instead of the old fixed render block.
-  const projectManagement = jobDetailSource.slice(jobDetailSource.indexOf('const pmCardDefinitions'), jobDetailSource.indexOf("\n  return (\n    <div>"));
+  const projectManagement = jobDetailSource.slice(jobDetailSource.indexOf('const pmCardDefinitions'), jobDetailSource.indexOf('return (\r\n    <div>'));
   const tasksAt = projectManagement.indexOf('<OutstandingTasks');
   const sopsAt = projectManagement.indexOf('<JobSopsCard');
   const notesAt = projectManagement.indexOf('>Notes</h2>');

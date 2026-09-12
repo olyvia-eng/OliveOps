@@ -146,7 +146,7 @@ test('Job Project Management renders a customizable, reorderable, add/remove car
   assert.match(jobDetailSource, /onReset=\{pmCardPreferences\.resetCardIds\}/);
 
   // Default order matches the pre-existing, previously fixed card order.
-  const definitions = jobDetailSource.slice(jobDetailSource.indexOf('const pmCardDefinitions'), jobDetailSource.indexOf("\n  return (\n    <div>"));
+  const definitions = jobDetailSource.slice(jobDetailSource.indexOf('const pmCardDefinitions'), jobDetailSource.indexOf('return (\r\n    <div>'));
   const idOrder = [...definitions.matchAll(/id: '([a-z-]+)',/g)].map((match) => match[1]);
   assert.deepEqual(idOrder, ['resources', 'tasks', 'sops', 'notes', 'photos', 'forms', 'time-entries']);
 });
