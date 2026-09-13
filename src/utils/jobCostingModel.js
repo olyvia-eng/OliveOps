@@ -40,10 +40,26 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
   const includedAreas = areas?.filter((area) => !scopedAreaIds || scopedAreaIds.has(area.id)) ?? [];
   const estimated = Object.fromEntries(JOB_COST_CATEGORIES.map((category) => [category, 0]));
   const unavailable = new Set();
+  // Each accepted-Estimate line item can carry a per-unit (or, for labour, per-hour) overhead
+  // recovery rate baked into its sell price by the Budget Division Planning pricing model (see
+  // estimatePricingCatalog.js) - revenue earmarked to cover indirect/overhead cost rather than the
+  // line's own direct cost. Summed against estimated quantities this is how much of the contract
+  // price was allocated to overhead; older Jobs priced before that model existed simply have none of
+  // these fields, which is tracked separately from "the recovery amount happens to be zero".
+  const estimatedOverheadByCategory = Object.fromEntries(JOB_COST_CATEGORIES.map((category) => [category, 0]));
+  let overheadDataAvailable = false;
   for (const area of includedAreas) for (const line of area.lineItems ?? []) {
     if (!JOB_COST_CATEGORIES.includes(line.category)) continue;
     const cost = immutableLineCost(line);
     if (cost === null) unavailable.add(line.category); else estimated[line.category] += cost;
+    if (line.divisionOverheadRecoveryPerUnit != null || line.companyOverheadRecoveryPerUnit != null || line.overheadRecoveryPerHour != null) {
+      overheadDataAvailable = true;
+      const quantity = Math.max(0, Number(line.quantity) || 0);
+      const perUnitRate = line.category === 'labour'
+        ? Number(line.overheadRecoveryPerHour) || 0
+        : (Number(line.divisionOverheadRecoveryPerUnit) || 0) + (Number(line.companyOverheadRecoveryPerUnit) || 0);
+      estimatedOverheadByCategory[line.category] += quantity * perUnitRate;
+    }
   }
   const scopedJob = areas ? { ...job, estimatedHours: 0, operationalWorkAreas: areas } : job;
   const labour = calculateJobLabourSummary({ job: scopedJob, employees, labourClasses, timeEntries, timeCorrections, scopeWorkAreaId: scopeWorkAreaId === 'entire-job' ? undefined : scopeWorkAreaId });
@@ -132,6 +148,35 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
   const actualTotal = categories.every((row) => row.actual !== null) ? money(categories.reduce((total, row) => total + row.actual, 0)) : null;
   const revenue = scopeWorkAreaId === 'entire-job' ? Number(job?.originalEstimateSnapshot?.subtotal ?? job?.originalContractRevenue ?? 0) : scopeWorkAreaId === 'unallocated' ? null : Number(includedAreas[0]?.contractRevenue ?? includedAreas[0]?.estimatedRevenue ?? 0);
   const remaining = estimatedTotal !== null && actualTotal !== null ? money(estimatedTotal - actualTotal) : null;
+
+  const estimatedOverheadRecovery = areas && overheadDataAvailable && scopeWorkAreaId !== 'unallocated'
+    ? money(JOB_COST_CATEGORIES.reduce((total, category) => total + estimatedOverheadByCategory[category], 0))
+    : null;
+  // Actual recovery isn't independently priced - it's realized as the work behind each category's
+  // estimated overhead is actually delivered, so each category's own actual/estimated ratio (hours
+  // for labour, cost for the rest) is applied to that category's estimated recovery rather than one
+  // blended job-wide percentage.
+  const overheadRecoveredToDate = estimatedOverheadRecovery !== null
+    ? money(JOB_COST_CATEGORIES.reduce((total, category) => {
+        const estimatedForCategory = estimatedOverheadByCategory[category];
+        if (estimatedForCategory <= 0) return total;
+        if (category === 'labour') {
+          if (!labour.actual.costAvailable || !(labour.estimated.hours > 0)) return total;
+          return total + estimatedForCategory * (labour.actual.hours / labour.estimated.hours);
+        }
+        const estimatedForCost = estimated[category];
+        const actualForCost = actual[category];
+        if (!(estimatedForCost > 0) || actualForCost === null) return total;
+        return total + estimatedForCategory * (actualForCost / estimatedForCost);
+      }, 0))
+    : null;
+  const estimatedRevenuePerHour = revenue !== null && labour.estimated.hours > 0 ? money(revenue / labour.estimated.hours) : null;
+  const actualRevenuePerHour = revenue !== null && labour.actual.hours > 0 ? money(revenue / labour.actual.hours) : null;
+  const estimatedGrossProfitValue = revenue !== null && estimatedTotal !== null ? money(revenue - estimatedTotal) : null;
+  const grossProfitAfterRecordedCostsValue = revenue !== null && actualTotal !== null ? money(revenue - actualTotal) : null;
+  const estimatedNetProfit = estimatedGrossProfitValue !== null && estimatedOverheadRecovery !== null ? money(estimatedGrossProfitValue - estimatedOverheadRecovery) : null;
+  const netProfitAfterRecordedCosts = grossProfitAfterRecordedCostsValue !== null && overheadRecoveredToDate !== null ? money(grossProfitAfterRecordedCostsValue - overheadRecoveredToDate) : null;
+
   return {
     scopeWorkAreaId,
     baselineAvailable: Boolean(areas && estimatedTotal !== null),
@@ -147,10 +192,18 @@ export function calculateJobCostAnalysis({ job, employees = [], labourClasses = 
       remainingEstimatedCost: remaining,
       costConsumedPercent: estimatedTotal && actualTotal !== null ? actualTotal / estimatedTotal * 100 : null,
       contractRevenue: revenue,
-      estimatedGrossProfit: revenue !== null && estimatedTotal !== null ? money(revenue - estimatedTotal) : null,
+      estimatedGrossProfit: estimatedGrossProfitValue,
       estimatedGrossMargin: revenue && estimatedTotal !== null ? (revenue - estimatedTotal) / revenue * 100 : null,
-      grossProfitAfterRecordedCosts: revenue !== null && actualTotal !== null ? money(revenue - actualTotal) : null,
+      grossProfitAfterRecordedCosts: grossProfitAfterRecordedCostsValue,
       grossMarginAfterRecordedCosts: revenue && actualTotal !== null ? (revenue - actualTotal) / revenue * 100 : null,
+      estimatedOverheadRecovery,
+      overheadRecoveredToDate,
+      estimatedRevenuePerHour,
+      actualRevenuePerHour,
+      estimatedNetProfit,
+      estimatedNetMargin: revenue && estimatedNetProfit !== null ? estimatedNetProfit / revenue * 100 : null,
+      netProfitAfterRecordedCosts,
+      netMarginAfterRecordedCosts: revenue && netProfitAfterRecordedCosts !== null ? netProfitAfterRecordedCosts / revenue * 100 : null,
       projectionBasis: 'contract_revenue_less_cost_to_date_not_final_profit',
     },
   };

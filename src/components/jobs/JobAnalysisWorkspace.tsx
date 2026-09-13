@@ -70,6 +70,20 @@ export default function JobAnalysisWorkspace({ job }: { job: Job }) {
       <p className="mt-4 text-xs text-gray-500">Revenue less cost to date is a current position, not final Job profit or a projected final cost.</p>
     </Card>
 
+    <Card className="p-4">
+      <h3 className="font-semibold text-gray-900">Overhead &amp; Profitability</h3>
+      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-5 lg:grid-cols-3">
+        <Metric label="Estimated overhead recovery" value={money(summary.estimatedOverheadRecovery)} />
+        <Metric label="Overhead recovered to date" value={money(summary.overheadRecoveredToDate)} />
+        <Metric label="Estimated revenue / hr" value={summary.estimatedRevenuePerHour === null ? 'Unavailable' : `${formatCurrency(summary.estimatedRevenuePerHour)}/hr`} />
+        <Metric label="Actual revenue / hr" value={summary.actualRevenuePerHour === null ? 'Unavailable' : `${formatCurrency(summary.actualRevenuePerHour)}/hr`} />
+        <Metric label="Estimated net profit" value={money(summary.estimatedNetProfit)} note={percent(summary.estimatedNetMargin)} />
+        <Metric label="Net profit to date" value={money(summary.netProfitAfterRecordedCosts)} note={percent(summary.netMarginAfterRecordedCosts)} />
+      </dl>
+      <p className="mt-4 text-xs text-gray-500">Overhead recovery is the portion of the accepted Estimate's price built in to cover indirect overhead (see Division pricing), realized as the work behind it is delivered. Net profit is gross profit less that overhead. Net profit to date is a current position, not final Job profit.</p>
+      {summary.estimatedOverheadRecovery === null ? <p className="mt-2 text-xs text-amber-700">This Job's accepted Estimate was priced without overhead-recovery rates, so overhead and net profit are unavailable. Revenue/hr only needs labour hours and is still shown when available.</p> : null}
+    </Card>
+
     <CostComparisonChart rows={analysis.categories} />
 
     <Card className="overflow-hidden">
