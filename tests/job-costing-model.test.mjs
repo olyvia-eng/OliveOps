@@ -65,6 +65,76 @@ test('bill totals are server calculated and invalid values are rejected', () => 
   assert.throws(() => calculateJobBill({ lineItems: [{ quantity: 1, unitCost: -1 }] }, 'vendor'), /unit cost/);
 });
 
+test('overhead recovery, revenue/hour, and net profit are unavailable for Jobs priced without overhead-recovery rates', () => {
+  const result = calculateJobCostAnalysis({ job });
+  assert.equal(result.summary.estimatedOverheadRecovery, null);
+  assert.equal(result.summary.overheadRecoveredToDate, null);
+  assert.equal(result.summary.estimatedNetProfit, null);
+  assert.equal(result.summary.netProfitAfterRecordedCosts, null);
+  // Revenue/hour only needs labour hours and revenue, not overhead pricing, so it's still available.
+  assert.equal(result.summary.estimatedRevenuePerHour, 500);
+});
+
+test('overhead recovery, revenue/hour, and net profit compare the accepted Estimate to work actually delivered', () => {
+  const overheadJob = {
+    id: 'job-overhead',
+    originalEstimateSnapshot: {
+      subtotal: 2000,
+      workAreas: [{
+        id: 'area-a',
+        contractRevenue: 2000,
+        lineItems: [
+          { category: 'labour', quantity: 10, averageLabourCost: 30, overheadRecoveryPerHour: 5 },
+          { category: 'equipment', quantity: 5, costRateAtEstimate: 20, divisionOverheadRecoveryPerUnit: 4, companyOverheadRecoveryPerUnit: 1 },
+          { category: 'material', quantity: 2, directCostPerUnit: 100 },
+          { category: 'subcontractor', plannedCost: 400 },
+        ],
+      }],
+    },
+  };
+  const timeEntries = [{
+    id: 'entry-1', employeeId: 'emp-1', jobIds: ['job-overhead'], workAreaId: 'area-a', workType: 'job', status: 'clocked_out',
+    clockIn: '2026-01-01T08:00:00.000Z', clockOut: '2026-01-01T13:00:00.000Z', breakMinutes: 0, labourCostRateSnapshot: 30,
+  }];
+  const equipmentUsage = [{ workAreaId: 'area-a', cost: 50 }];
+  const result = calculateJobCostAnalysis({ job: overheadJob, timeEntries, equipmentUsage });
+
+  // Estimated: 10hr labour @ $5/hr + 5 equipment units @ $5/unit ($4 division + $1 company) = 50 + 25.
+  assert.equal(result.summary.estimatedOverheadRecovery, 75);
+  // Actual: only half the estimated labour hours (5 of 10) and half the estimated equipment cost
+  // ($50 of $100) have been delivered, so only half of each category's estimated recovery is
+  // realized: 50*0.5 + 25*0.5 = 37.5. Materials/subcontractors carried no overhead rate at all, so
+  // they contribute nothing either way.
+  assert.equal(result.summary.overheadRecoveredToDate, 37.5);
+
+  assert.equal(result.summary.estimatedRevenuePerHour, 200); // $2000 / 10 estimated hours
+  assert.equal(result.summary.actualRevenuePerHour, 400); // $2000 / 5 actual hours
+
+  // Estimated total cost = 300 + 100 + 200 + 400 = 1000; gross profit 1000; net of $75 overhead = 925.
+  assert.equal(result.summary.estimatedGrossProfit, 1000);
+  assert.equal(result.summary.estimatedNetProfit, 925);
+  assert.ok(Math.abs(result.summary.estimatedNetMargin - 46.25) < 0.001);
+
+  // Actual cost to date = 150 (labour) + 50 (equipment) = 200; gross profit to date 1800; net of
+  // $37.50 recovered overhead = 1762.50.
+  assert.equal(result.summary.grossProfitAfterRecordedCosts, 1800);
+  assert.equal(result.summary.netProfitAfterRecordedCosts, 1762.5);
+});
+
+test('overhead recovery is scope-aware and unavailable for the unallocated scope, like the rest of the baseline', () => {
+  const overheadJob = {
+    id: 'job-overhead-scope',
+    originalEstimateSnapshot: {
+      subtotal: 1000,
+      workAreas: [{ id: 'area-a', contractRevenue: 1000, lineItems: [{ category: 'labour', quantity: 4, averageLabourCost: 30, overheadRecoveryPerHour: 5 }] }],
+    },
+  };
+  const areaScoped = calculateJobCostAnalysis({ job: overheadJob, scopeWorkAreaId: 'area-a' });
+  const unallocated = calculateJobCostAnalysis({ job: overheadJob, scopeWorkAreaId: 'unallocated' });
+  assert.equal(areaScoped.summary.estimatedOverheadRecovery, 20);
+  assert.equal(unallocated.summary.estimatedOverheadRecovery, null);
+});
+
 test('Work Area actuals reconcile without duplicating records', () => {
   const bill = calculateJobBill({ taxRate: 10, lineItems: [{ quantity: 1, unitCost: 25, workAreaId: 'area-a' }, { quantity: 1, unitCost: 15 }] }, 'vendor');
   const whole = calculateJobCostAnalysis({ job, vendorBills: [bill] });

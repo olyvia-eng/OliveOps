@@ -36,6 +36,22 @@ test('Job Analysis renders the complete scoped cost workspace', () => {
   for (const label of ['Accepted Estimate baseline compared with direct costs recorded to date.', 'Job Cost Summary', 'Estimated vs Actual', 'Time Analysis', 'Equipment Usage', 'Material Vendor Bills', 'Subcontractor Bills']) assert.match(workspaceSource, new RegExp(label));
 });
 
+test('Job Analysis shows overhead recovery, revenue per hour, and net profit alongside gross profit', () => {
+  assert.match(workspaceSource, /Overhead &amp; Profitability/);
+  for (const label of ['Estimated overhead recovery', 'Overhead recovered to date', 'Estimated revenue / hr', 'Actual revenue / hr', 'Estimated net profit', 'Net profit to date']) {
+    assert.match(workspaceSource, new RegExp(label));
+  }
+  assert.match(workspaceSource, /summary\.estimatedOverheadRecovery/);
+  assert.match(workspaceSource, /summary\.overheadRecoveredToDate/);
+  assert.match(workspaceSource, /summary\.estimatedRevenuePerHour/);
+  assert.match(workspaceSource, /summary\.actualRevenuePerHour/);
+  assert.match(workspaceSource, /summary\.estimatedNetProfit/);
+  assert.match(workspaceSource, /summary\.netProfitAfterRecordedCosts/);
+  // Net profit shown alongside gross profit, not replacing it - gross profit remains visible.
+  assert.match(workspaceSource, /Estimated gross profit/);
+  assert.match(workspaceSource, /Revenue less cost to date/);
+});
+
 test('Job detail uses stable store selection and lazy tab data survives tab switches', () => {
   assert.match(detailSource, /useStore\(useShallow\(/);
   assert.doesNotMatch(detailSource, /useStore\(\);/);

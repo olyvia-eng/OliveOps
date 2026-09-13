@@ -775,6 +775,14 @@ export interface JobAnalysisPayload {
     estimatedGrossMargin: number | null;
     grossProfitAfterRecordedCosts: number | null;
     grossMarginAfterRecordedCosts: number | null;
+    estimatedOverheadRecovery: number | null;
+    overheadRecoveredToDate: number | null;
+    estimatedRevenuePerHour: number | null;
+    actualRevenuePerHour: number | null;
+    estimatedNetProfit: number | null;
+    estimatedNetMargin: number | null;
+    netProfitAfterRecordedCosts: number | null;
+    netMarginAfterRecordedCosts: number | null;
     projectionBasis: 'contract_revenue_less_cost_to_date_not_final_profit';
   };
 }
